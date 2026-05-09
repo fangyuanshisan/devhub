@@ -326,6 +326,7 @@ CREATE TABLE IF NOT EXISTS topics (
   is_pinned TINYINT NOT NULL DEFAULT 0,
   is_featured TINYINT NOT NULL DEFAULT 0,
   is_solved TINYINT NOT NULL DEFAULT 0,
+  comment_locked TINYINT NOT NULL DEFAULT 0,
   reject_reason TEXT NULL,
   offline_reason TEXT NULL,
   best_comment_id BIGINT UNSIGNED NULL,
@@ -415,23 +416,27 @@ CREATE TABLE IF NOT EXISTS reports (
   reporter_id BIGINT UNSIGNED NOT NULL,
   target_type VARCHAR(32) NOT NULL COMMENT 'topic/comment/user/wiki',
   target_id BIGINT UNSIGNED NOT NULL,
+  community_id BIGINT UNSIGNED NOT NULL DEFAULT 0,
+  topic_id BIGINT UNSIGNED NOT NULL DEFAULT 0,
   reason_type VARCHAR(64) NOT NULL,
   reason_text VARCHAR(1000) NULL,
   status VARCHAR(32) NOT NULL DEFAULT 'pending' COMMENT 'pending/accepted/rejected',
   handled_by BIGINT UNSIGNED NULL,
   handled_at DATETIME NULL,
+  handle_note VARCHAR(1000) NULL,
   created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
   updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
   PRIMARY KEY (id),
   KEY idx_reports_status (status),
-  KEY idx_reports_target (target_type, target_id)
+  KEY idx_reports_target (target_type, target_id),
+  KEY idx_reports_community_status (community_id, status)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 CREATE TABLE IF NOT EXISTS community_moderators (
   id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
   community_id BIGINT UNSIGNED NOT NULL,
   user_id BIGINT UNSIGNED NOT NULL,
-  role VARCHAR(32) NOT NULL DEFAULT 'moderator' COMMENT 'moderator/senior_moderator',
+  role VARCHAR(32) NOT NULL DEFAULT 'moderator' COMMENT 'moderator/owner',
   status TINYINT NOT NULL DEFAULT 1,
   created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
   updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,

@@ -95,6 +95,7 @@ func NewRouter(svc *service.Service) *gin.Engine {
 		api.GET("/me/notifications", srv.myNotifications)
 		api.POST("/me/notifications/read-all", srv.readAllMyNotifications)
 		api.POST("/me/notifications/:id/read", srv.readMyNotification)
+		api.POST("/reports", srv.optionalAuth(), srv.createReport)
 
 		admin := api.Group("/admin")
 		{
@@ -121,7 +122,18 @@ func NewRouter(svc *service.Service) *gin.Engine {
 			protected.PUT("/tags/:id", srv.requirePermission("post.update"), srv.updateAdminTag)
 			protected.GET("/comments", srv.requirePermission("comment.read"), srv.adminComments)
 			protected.PUT("/comments/:id/status", srv.requirePermission("comment.moderate"), srv.updateAdminCommentStatus)
+			protected.POST("/comments/:id/hide", srv.requirePermission("comment.moderate"), srv.hideAdminComment)
+			protected.POST("/comments/:id/restore", srv.requirePermission("comment.moderate"), srv.restoreAdminComment)
 			protected.DELETE("/comments/:id", srv.requirePermission("comment.moderate"), srv.deleteAdminComment)
+			protected.GET("/reports", srv.requirePermission("report.read"), srv.adminReports)
+			protected.GET("/reports/:id", srv.requirePermission("report.read"), srv.adminReport)
+			protected.POST("/reports/:id/handle", srv.requirePermission("report.handle"), srv.handleAdminReport)
+			protected.POST("/topics/:id/feature", srv.requirePermission("topic.moderate"), srv.featureAdminTopic)
+			protected.POST("/topics/:id/pin", srv.requirePermission("topic.moderate"), srv.pinAdminTopic)
+			protected.POST("/topics/:id/hide", srv.requirePermission("topic.moderate"), srv.hideAdminTopic)
+			protected.POST("/topics/:id/restore", srv.requirePermission("topic.moderate"), srv.restoreAdminTopic)
+			protected.POST("/topics/:id/lock-comments", srv.requirePermission("topic.moderate"), srv.lockAdminTopicComments)
+			protected.POST("/topics/:id/unlock-comments", srv.requirePermission("topic.moderate"), srv.unlockAdminTopicComments)
 			protected.GET("/settings", srv.requirePermission("setting.read"), srv.adminSettings)
 			protected.PUT("/settings", srv.requirePermission("setting.write"), srv.updateAdminSettings)
 			protected.GET("/logs", srv.requirePermission("log.read"), srv.adminLogs)
@@ -267,11 +279,21 @@ func (s *Server) topicSEOPage(c *gin.Context) {
 		c.Data(http.StatusNotFound, "text/html; charset=utf-8", []byte(s.topicNotFoundHTML()))
 		return
 	}
+	if topic.Status != 1 {
+		c.Data(http.StatusOK, "text/html; charset=utf-8", []byte(s.topicHiddenHTML(topic)))
+		return
+	}
 	c.Data(http.StatusOK, "text/html; charset=utf-8", []byte(s.renderTopicHTML(c, topic)))
 }
 
 func (s *Server) topicNotFoundHTML() string {
 	return `<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>内容不存在 - DevHub</title><meta name="description" content="该内容不存在或已被删除。"><link rel="canonical" href="/"></head><body><main class="article-shell"><article class="article-main"><h1>内容不存在</h1><p>该内容不存在或已被删除。</p><p><a href="/">返回 DevHub 首页</a></p></article></main></body></html>`
+}
+
+func (s *Server) topicHiddenHTML(topic *domain.Topic) string {
+	title := "内容已隐藏 - DevHub"
+	description := "该内容因社区治理规则已被隐藏。"
+	return fmt.Sprintf(`<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>%s</title><meta name="description" content="%s"><meta name="robots" content="noindex,follow"><link rel="canonical" href="/"></head><body><main class="article-shell"><article class="article-main"><h1>内容已隐藏</h1><p>该主题已被管理员或版主隐藏。</p><p><a href="/">返回 DevHub 首页</a></p></article></main></body></html>`, esc(title), esc(description))
 }
 
 func (s *Server) renderTopicHTML(c *gin.Context, topic *domain.Topic) string {
@@ -351,7 +373,7 @@ func (s *Server) renderTopicHTML(c *gin.Context, topic *domain.Topic) string {
       %s
       <div class="article-content topic-content">%s</div>
       <div class="article-tags">%s</div>
-      <div class="article-actions">
+	      <div class="article-actions">
         <button type="button" data-topic-action="like" data-liked="false">点赞 <strong data-like-count>%d</strong></button>
         <button type="button" data-topic-action="favorite" data-favorited="false">收藏 <strong data-favorite-count>%d</strong></button>
         <button type="button" data-topic-action="follow" data-followed="false">关注主题</button>
@@ -359,11 +381,31 @@ func (s *Server) renderTopicHTML(c *gin.Context, topic *domain.Topic) string {
         <button type="button" data-topic-action="report">举报</button>
         <span class="action-message" data-action-message></span>
       </div>
+      <dialog class="report-dialog" data-report-dialog>
+        <form method="dialog" data-report-form>
+          <h2>举报内容</h2>
+          <input type="hidden" name="target_type" value="topic">
+          <input type="hidden" name="target_id" value="%d">
+          <label>举报原因
+            <select name="reason_type">
+              <option value="spam">广告 / 垃圾内容</option>
+              <option value="abuse">攻击谩骂</option>
+              <option value="illegal">违法违规</option>
+              <option value="other">其他</option>
+            </select>
+          </label>
+          <label>补充说明
+            <textarea name="reason_text" maxlength="500" placeholder="可选，最多 500 字"></textarea>
+          </label>
+          <div class="report-actions"><button type="submit" value="submit">提交举报</button><button type="button" data-report-close>取消</button></div>
+          <p class="action-message" data-report-message></p>
+        </form>
+      </dialog>
       <section id="comments" class="related-topics" data-comment-root>
-        <div class="section-head"><h2>评论 <strong data-comment-total>%d</strong></h2><span data-comment-status>运行时加载</span></div>
+        <div class="section-head"><h2>评论 <strong data-comment-total>%d</strong></h2><span data-comment-status>%s</span></div>
         <form class="comment-form" data-comment-form>
-          <textarea name="content" minlength="2" maxlength="5000" placeholder="写下你的评论或回答"></textarea>
-          <button type="submit" data-comment-submit>发表评论</button>
+          <textarea name="content" minlength="2" maxlength="5000" placeholder="%s" %s></textarea>
+          <button type="submit" data-comment-submit %s>发表评论</button>
           <div class="action-message" data-comment-message></div>
         </form>
         <div class="comment-list" data-topic-comments>评论将由前端运行时加载。</div>
@@ -374,6 +416,7 @@ func (s *Server) renderTopicHTML(c *gin.Context, topic *domain.Topic) string {
 	  (() => {
 	    const id = %d;
 	    const isQuestion = %t;
+	    const commentLocked = %t;
 	    const topicAuthorID = %d;
 	    const comments = document.querySelector('[data-topic-comments]');
     const commentForm = document.querySelector('[data-comment-form]');
@@ -386,6 +429,9 @@ func (s *Server) renderTopicHTML(c *gin.Context, topic *domain.Topic) string {
 	    const likeButton = document.querySelector('[data-topic-action="like"]');
 	    const favoriteButton = document.querySelector('[data-topic-action="favorite"]');
 	    const followButton = document.querySelector('[data-topic-action="follow"]');
+	    const reportDialog = document.querySelector('[data-report-dialog]');
+	    const reportForm = document.querySelector('[data-report-form]');
+	    const reportMessage = document.querySelector('[data-report-message]');
 	    let commentPage = 1;
 	    let commentHasMore = false;
 	    let commentLoading = false;
@@ -434,9 +480,17 @@ func (s *Server) renderTopicHTML(c *gin.Context, topic *domain.Topic) string {
     fetch('/api/v1/topics/' + id + '/interaction', { headers: headers() }).then(r => r.ok ? r.json() : null).then(data => {
 	      if (data) renderState(data);
 	    }).catch(() => {});
+	    if (commentLocked) {
+	      setCommentMessage('评论已锁定');
+	      if (commentStatus) commentStatus.textContent = '评论已锁定';
+	    }
 	    loadComments();
     commentForm?.addEventListener('submit', event => {
       event.preventDefault();
+      if (commentLocked) {
+        setCommentMessage('评论已锁定', true);
+        return;
+      }
       const content = String(commentTextarea?.value || '').trim();
       if (content.length < 2) {
         setCommentMessage('评论内容至少 2 个字符', true);
@@ -454,9 +508,14 @@ func (s *Server) renderTopicHTML(c *gin.Context, topic *domain.Topic) string {
         .finally(() => setCommentBusy(false));
     });
     comments?.addEventListener('click', event => {
-      const replyButton = event.target.closest('[data-reply]');
-      const acceptButton = event.target.closest('[data-accept]');
-      if (replyButton) {
+	      const replyButton = event.target.closest('[data-reply]');
+	      const acceptButton = event.target.closest('[data-accept]');
+	      const reportButton = event.target.closest('[data-report-comment]');
+	      if (replyButton) {
+        if (commentLocked) {
+          setCommentMessage('评论已锁定', true);
+          return;
+        }
         const idValue = Number(replyButton.dataset.reply || 0);
         const form = comments.querySelector('[data-reply-form="' + idValue + '"]');
         form?.classList.toggle('is-open');
@@ -471,9 +530,12 @@ func (s *Server) renderTopicHTML(c *gin.Context, topic *domain.Topic) string {
 	            return reloadComments();
           })
           .catch(err => setCommentMessage(err?.message || '采纳失败', true))
-          .finally(() => { acceptButton.disabled = false; });
-      }
-    });
+	          .finally(() => { acceptButton.disabled = false; });
+	      }
+	      if (reportButton) {
+	        openReport('comment', Number(reportButton.dataset.reportComment || 0));
+	      }
+	    });
     comments?.addEventListener('submit', event => {
       const form = event.target.closest('[data-reply-form]');
       if (!form) return;
@@ -504,7 +566,25 @@ func (s *Server) renderTopicHTML(c *gin.Context, topic *domain.Topic) string {
       renderState({liked: likeButton?.dataset.liked === 'true', favorited: favoriteButton?.dataset.favorited === 'true', followed: data.followed, like_count: Number(document.querySelector('[data-like-count]')?.textContent || 0), favorite_count: Number(document.querySelector('[data-favorite-count]')?.textContent || 0)});
       setMessage(data.followed ? '已关注主题' : '已取消关注主题');
     }).catch(errorMessage));
-	    document.querySelector('[data-topic-action="report"]')?.addEventListener('click', () => setMessage('举报入口已预留，后续治理轮次接入。'));
+	    document.querySelector('[data-topic-action="report"]')?.addEventListener('click', () => openReport('topic', id));
+	    reportForm?.addEventListener('submit', event => {
+	      event.preventDefault();
+	      const payload = {
+	        target_type: reportForm.target_type.value,
+	        target_id: Number(reportForm.target_id.value || 0),
+	        reason_type: reportForm.reason_type.value,
+	        reason_text: reportForm.reason_text.value,
+	      };
+	      setNodeMessage(reportMessage, '提交中');
+	      postJSON('/api/v1/reports', payload)
+	        .then(() => {
+	          setNodeMessage(reportMessage, '举报已提交');
+	          setMessage('举报已提交');
+	          setTimeout(() => reportDialog?.close(), 500);
+	        })
+	        .catch(err => setNodeMessage(reportMessage, err?.message || '举报失败', true));
+	    });
+	    document.querySelector('[data-report-close]')?.addEventListener('click', () => reportDialog?.close());
 	    comments?.addEventListener('click', event => {
 	      const moreButton = event.target.closest('[data-load-more-comments]');
 	      if (!moreButton || commentLoading) return;
@@ -537,7 +617,7 @@ func (s *Server) renderTopicHTML(c *gin.Context, topic *domain.Topic) string {
 	          if (commentTotal) commentTotal.textContent = Number(data.total || items.length);
 	          commentPage = Number(data.page || page);
 	          commentHasMore = Boolean(data.has_more);
-	          if (commentStatus) commentStatus.textContent = commentHasMore ? '可继续加载' : '已加载';
+	          if (commentStatus) commentStatus.textContent = commentLocked ? '评论已锁定' : (commentHasMore ? '可继续加载' : '已加载');
 	          const html = items.map(renderComment).join('');
 	          if (append) {
 	            const oldMore = comments.querySelector('[data-load-more-comments]');
@@ -561,17 +641,19 @@ func (s *Server) renderTopicHTML(c *gin.Context, topic *domain.Topic) string {
       const best = item.is_best ? '<span class="state-pill solved">最佳答案</span>' : '';
 	      const canAccept = isQuestion && !item.is_best && currentUserID() === Number(topicAuthorID || 1);
 	      const accept = canAccept ? '<button type="button" data-accept="' + Number(item.id || 0) + '">采纳</button>' : '';
+	      const report = '<button type="button" data-report-comment="' + Number(item.id || 0) + '">举报</button>';
+	      const reply = commentLocked ? '' : '<button type="button" data-reply="' + Number(item.id || 0) + '">回复</button>';
       return '<article class="comment-item" id="comment-' + Number(item.id || 0) + '">' +
         '<div class="comment-meta"><strong>' + escapeHTML(item.user_name || item.author || 'DevHub 用户') + '</strong>' + best + '<span>' + escapeHTML(item.created_at || '') + '</span></div>' +
         '<p>' + escapeHTML(item.content || item.text || '') + '</p>' +
-        '<div class="comment-actions"><button type="button" data-reply="' + Number(item.id || 0) + '">回复</button>' + accept + '</div>' +
+        '<div class="comment-actions">' + reply + accept + report + '</div>' +
         '<form class="reply-form" data-reply-form="' + Number(item.id || 0) + '"><textarea maxlength="5000" placeholder="回复这条评论"></textarea><button type="submit">发布回复</button></form>' +
         replies +
       '</article>';
     }
     function setCommentBusy(busy) {
-      if (commentSubmit) commentSubmit.disabled = busy;
-      if (commentStatus) commentStatus.textContent = busy ? '提交中' : '运行时加载';
+      if (commentSubmit) commentSubmit.disabled = busy || commentLocked;
+      if (commentStatus) commentStatus.textContent = commentLocked ? '评论已锁定' : (busy ? '提交中' : '运行时加载');
     }
     function updateTopicCounts(topic) {
       if (commentTotal && typeof topic.comment_count === 'number') commentTotal.textContent = topic.comment_count;
@@ -582,6 +664,19 @@ func (s *Server) renderTopicHTML(c *gin.Context, topic *domain.Topic) string {
       }
     }
     function errorMessage(err) { setMessage(err?.message || '操作失败，请稍后再试', true); }
+    function openReport(targetType, targetID) {
+      if (!reportDialog || !reportForm) return;
+      reportForm.target_type.value = targetType;
+      reportForm.target_id.value = String(targetID);
+      reportForm.reason_type.value = 'spam';
+      reportForm.reason_text.value = '';
+      setNodeMessage(reportMessage, '');
+      if (typeof reportDialog.showModal === 'function') reportDialog.showModal();
+      else {
+        const reason = window.prompt('请输入举报原因：spam / abuse / illegal / other', 'spam') || 'spam';
+        postJSON('/api/v1/reports', {target_type: targetType, target_id: targetID, reason_type: reason}).then(() => setMessage('举报已提交')).catch(errorMessage);
+      }
+    }
     function escapeHTML(value) { return String(value || '').replace(/[&<>"']/g, char => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[char])); }
   })();
   </script>
@@ -593,7 +688,10 @@ func (s *Server) renderTopicHTML(c *gin.Context, topic *domain.Topic) string {
 		pathEsc(communitySlug), esc(communityName), queryEsc(communitySlug), queryEsc(topic.ContentType), esc(categoryName),
 		esc(topic.Title), esc(description), pathEsc(communitySlug), esc(communityName), esc(categoryName), esc(topic.CreatedAt), esc(topic.CreatedAt),
 		topic.ViewCount, topic.CommentCount, topic.LikeCount, topic.FavoriteCount,
-		aiSummaryHTML(topic.AISummary), contentHTML, tagLinks, topic.LikeCount, topic.FavoriteCount, topic.CommentCount, topic.ID, topic.ContentType == "question", topic.UserID)
+		aiSummaryHTML(topic.AISummary), contentHTML, tagLinks, topic.LikeCount, topic.FavoriteCount,
+		topic.ID, topic.CommentCount, ternary(topic.CommentLocked, "评论已锁定", "运行时加载"),
+		ternary(topic.CommentLocked, "评论已锁定", "写下你的评论或回答"), ternary(topic.CommentLocked, "disabled", ""), ternary(topic.CommentLocked, "disabled", ""),
+		topic.ID, topic.ContentType == "question", topic.CommentLocked, topic.UserID)
 }
 
 func (s *Server) topicSEOContext(topic *domain.Topic) (domain.Community, domain.Category) {
@@ -960,6 +1058,19 @@ func (s *Server) deleteAdminComment(c *gin.Context) {
 	if !ok {
 		return
 	}
+	comment, err := s.svc.CommentByID(id)
+	if err != nil {
+		fail(c, http.StatusNotFound, "评论不存在")
+		return
+	}
+	topic, err := s.svc.TopicByID(comment.TopicID, false)
+	if err != nil {
+		fail(c, http.StatusNotFound, "主题不存在")
+		return
+	}
+	if !s.canModerateTopic(c, topic) {
+		return
+	}
 	if !s.svc.DeleteComment(id) {
 		fail(c, http.StatusNotFound, "评论不存在")
 		return
@@ -1132,7 +1243,7 @@ func (s *Server) adminPosts(c *gin.Context) {
 		fail(c, http.StatusBadRequest, "筛选参数不合法")
 		return
 	}
-	posts := s.svc.ListPosts(site, board, q, "")
+	posts := s.svc.AdminTopics(site, board, q)
 	if status != "all" && status != "" {
 		filtered := make([]domain.Post, 0, len(posts))
 		for _, post := range posts {
@@ -1304,6 +1415,19 @@ func (s *Server) updateAdminCommentStatus(c *gin.Context) {
 	if !ok {
 		return
 	}
+	comment, err := s.svc.CommentByID(id)
+	if err != nil {
+		fail(c, http.StatusNotFound, "评论不存在")
+		return
+	}
+	topic, err := s.svc.TopicByID(comment.TopicID, false)
+	if err != nil {
+		fail(c, http.StatusNotFound, "主题不存在")
+		return
+	}
+	if !s.canModerateTopic(c, topic) {
+		return
+	}
 	var req domain.UpdateCommentStatusRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
 		fail(c, http.StatusBadRequest, err.Error())
@@ -1348,6 +1472,106 @@ func (s *Server) pushAdminNotification(c *gin.Context) {
 	notice := s.svc.PushNotification(req)
 	s.audit(c, "operation", "发送通知", fmt.Sprintf("notifications#%d", notice.ID))
 	c.JSON(http.StatusCreated, notice)
+}
+
+func (s *Server) createReport(c *gin.Context) {
+	var req domain.CreateReportRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		fail(c, http.StatusBadRequest, err.Error())
+		return
+	}
+	req.ReporterUserID = currentUserID(c)
+	report, err := s.svc.CreateReport(req)
+	if err != nil {
+		status := http.StatusBadRequest
+		if strings.Contains(err.Error(), "不存在") {
+			status = http.StatusNotFound
+		}
+		fail(c, status, err.Error())
+		return
+	}
+	c.JSON(http.StatusCreated, gin.H{"report": report, "item": report})
+}
+
+func (s *Server) adminReports(c *gin.Context) {
+	filter := s.reportFilter(c)
+	items, total := s.svc.Reports(filter)
+	c.JSON(http.StatusOK, domain.PageResponse{Items: items, Total: total, Page: filter.Page, PageSize: filter.PageSize, HasMore: filter.Page*filter.PageSize < total})
+}
+
+func (s *Server) adminReport(c *gin.Context) {
+	id, ok := idParam(c, "id")
+	if !ok {
+		return
+	}
+	report, err := s.svc.ReportByID(id)
+	if err != nil {
+		fail(c, http.StatusNotFound, err.Error())
+		return
+	}
+	if !s.canModerateCommunity(c, report.CommunityID) {
+		return
+	}
+	c.JSON(http.StatusOK, report)
+}
+
+func (s *Server) handleAdminReport(c *gin.Context) {
+	id, ok := idParam(c, "id")
+	if !ok {
+		return
+	}
+	report, err := s.svc.ReportByID(id)
+	if err != nil {
+		fail(c, http.StatusNotFound, err.Error())
+		return
+	}
+	if !s.canModerateCommunity(c, report.CommunityID) {
+		return
+	}
+	var req domain.HandleReportRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		fail(c, http.StatusBadRequest, err.Error())
+		return
+	}
+	updated, err := s.svc.HandleReport(id, req.Status, req.HandleNote, currentUserID(c))
+	if err != nil {
+		fail(c, http.StatusBadRequest, err.Error())
+		return
+	}
+	s.audit(c, "audit", "处理举报", fmt.Sprintf("reports#%d", id))
+	c.JSON(http.StatusOK, gin.H{"handled": true, "report": updated})
+}
+
+func (s *Server) featureAdminTopic(c *gin.Context) {
+	s.toggleAdminTopicBool(c, "feature")
+}
+
+func (s *Server) pinAdminTopic(c *gin.Context) {
+	s.toggleAdminTopicBool(c, "pin")
+}
+
+func (s *Server) hideAdminTopic(c *gin.Context) {
+	s.setAdminTopicStatus(c, 0, "隐藏主题")
+}
+
+func (s *Server) restoreAdminTopic(c *gin.Context) {
+	s.setAdminTopicStatus(c, 1, "恢复主题")
+}
+
+func (s *Server) lockAdminTopicComments(c *gin.Context) {
+	s.setAdminTopicLock(c, true)
+}
+
+func (s *Server) unlockAdminTopicComments(c *gin.Context) {
+	s.setAdminTopicLock(c, false)
+}
+
+func (s *Server) hideAdminComment(c *gin.Context) {
+	s.setAdminCommentStatus(c, "hidden")
+}
+
+func (s *Server) restoreAdminComment(c *gin.Context) {
+	s.setAdminCommentStatus(c, "normal")
 }
 
 // corsMiddleware 允许本地前端跨域访问后端接口。
@@ -1559,6 +1783,167 @@ func scopedSite(c *gin.Context, requested string) (string, bool) {
 		return "", false
 	}
 	return requested, true
+}
+
+func isAdminUser(c *gin.Context) bool {
+	user, ok := currentUser(c)
+	if !ok {
+		return currentUserID(c) == 1
+	}
+	return user.ID == 1 || user.RoleCode == "super_admin" || hasPermission(user.Permissions, "*")
+}
+
+func (s *Server) canModerateCommunity(c *gin.Context, communityID int64) bool {
+	if isAdminUser(c) {
+		return true
+	}
+	if communityID <= 0 {
+		fail(c, http.StatusForbidden, "只有管理员可以管理全局举报")
+		return false
+	}
+	if s.svc.IsCommunityModerator(currentUserID(c), communityID) {
+		return true
+	}
+	fail(c, http.StatusForbidden, "无权管理该子站内容")
+	return false
+}
+
+func (s *Server) canModerateTopic(c *gin.Context, topic *domain.Topic) bool {
+	if topic == nil {
+		fail(c, http.StatusNotFound, "主题不存在")
+		return false
+	}
+	return s.canModerateCommunity(c, topic.CommunityID)
+}
+
+func (s *Server) reportFilter(c *gin.Context) domain.ReportFilter {
+	page, pageSize := pagination(c)
+	communityID := int64(0)
+	communitySlug := strings.TrimSpace(firstQuery(c, "community_slug", "site"))
+	if communitySlug != "" && communitySlug != "all" && communitySlug != "portal" {
+		if comm, ok := s.svc.CommunityBySlug(communitySlug); ok {
+			communityID = comm.ID
+		}
+	}
+	return domain.ReportFilter{
+		Status:        strings.TrimSpace(c.DefaultQuery("status", "all")),
+		TargetType:    strings.TrimSpace(c.DefaultQuery("target_type", "all")),
+		CommunitySlug: communitySlug,
+		CommunityID:   communityID,
+		Page:          page,
+		PageSize:      pageSize,
+		ActorUserID:   currentUserID(c),
+		ActorIsAdmin:  isAdminUser(c),
+	}
+}
+
+func (s *Server) toggleAdminTopicBool(c *gin.Context, action string) {
+	id, ok := idParam(c, "id")
+	if !ok {
+		return
+	}
+	topic, err := s.svc.TopicByID(id, false)
+	if err != nil {
+		fail(c, http.StatusNotFound, "主题不存在")
+		return
+	}
+	if !s.canModerateTopic(c, topic) {
+		return
+	}
+	var updated *domain.Topic
+	switch action {
+	case "feature":
+		updated, err = s.svc.SetTopicFeatured(id, !topic.IsFeatured)
+	case "pin":
+		updated, err = s.svc.SetTopicPinned(id, !topic.IsPinned)
+	default:
+		err = fmt.Errorf("不支持的操作")
+	}
+	if err != nil {
+		fail(c, http.StatusBadRequest, err.Error())
+		return
+	}
+	s.audit(c, "audit", map[string]string{"feature": "切换精华", "pin": "切换置顶"}[action], fmt.Sprintf("topics#%d", id))
+	c.JSON(http.StatusOK, gin.H{"topic": updated, "changed": true})
+}
+
+func (s *Server) setAdminTopicStatus(c *gin.Context, status int, action string) {
+	id, ok := idParam(c, "id")
+	if !ok {
+		return
+	}
+	topic, err := s.svc.TopicByID(id, false)
+	if err != nil {
+		fail(c, http.StatusNotFound, "主题不存在")
+		return
+	}
+	if !s.canModerateTopic(c, topic) {
+		return
+	}
+	updated, err := s.svc.SetTopicStatus(id, status)
+	if err != nil {
+		fail(c, http.StatusBadRequest, err.Error())
+		return
+	}
+	s.audit(c, "audit", action, fmt.Sprintf("topics#%d", id))
+	c.JSON(http.StatusOK, gin.H{"topic": updated, "changed": true})
+}
+
+func (s *Server) setAdminTopicLock(c *gin.Context, locked bool) {
+	id, ok := idParam(c, "id")
+	if !ok {
+		return
+	}
+	topic, err := s.svc.TopicByID(id, false)
+	if err != nil {
+		fail(c, http.StatusNotFound, "主题不存在")
+		return
+	}
+	if !s.canModerateTopic(c, topic) {
+		return
+	}
+	updated, err := s.svc.SetTopicCommentLocked(id, locked)
+	if err != nil {
+		fail(c, http.StatusBadRequest, err.Error())
+		return
+	}
+	action := "锁定评论"
+	if !locked {
+		action = "解锁评论"
+	}
+	s.audit(c, "audit", action, fmt.Sprintf("topics#%d", id))
+	c.JSON(http.StatusOK, gin.H{"topic": updated, "changed": true})
+}
+
+func (s *Server) setAdminCommentStatus(c *gin.Context, status string) {
+	id, ok := idParam(c, "id")
+	if !ok {
+		return
+	}
+	comment, err := s.svc.CommentByID(id)
+	if err != nil {
+		fail(c, http.StatusNotFound, "评论不存在")
+		return
+	}
+	topic, err := s.svc.TopicByID(comment.TopicID, false)
+	if err != nil {
+		fail(c, http.StatusNotFound, "主题不存在")
+		return
+	}
+	if !s.canModerateTopic(c, topic) {
+		return
+	}
+	updated, err := s.svc.SetCommentStatus(id, status)
+	if err != nil {
+		fail(c, http.StatusBadRequest, err.Error())
+		return
+	}
+	action := "隐藏评论"
+	if status == "normal" {
+		action = "恢复评论"
+	}
+	s.audit(c, "audit", action, fmt.Sprintf("comments#%d", id))
+	c.JSON(http.StatusOK, gin.H{"comment": updated, "changed": true})
 }
 
 // fail 输出统一错误响应。
@@ -2467,6 +2852,13 @@ func firstNonEmpty(values ...string) string {
 		}
 	}
 	return ""
+}
+
+func ternary(condition bool, yes, no string) string {
+	if condition {
+		return yes
+	}
+	return no
 }
 
 func seoDescription(summary, content string) string {

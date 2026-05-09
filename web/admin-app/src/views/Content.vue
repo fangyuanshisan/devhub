@@ -52,7 +52,14 @@
           <el-button link type="primary" @click="openEdit(row)">详情</el-button>
           <el-dropdown>
             <el-button link type="primary">更多<el-icon><ArrowDown /></el-icon></el-button>
-            <template #dropdown><el-dropdown-menu><el-dropdown-item @click="openEdit(row)">编辑</el-dropdown-item><el-dropdown-item @click="remove(row)">删除</el-dropdown-item></el-dropdown-menu></template>
+            <template #dropdown><el-dropdown-menu>
+              <el-dropdown-item @click="toggleFeature(row)">{{ row.recommended ? '取消精华' : '设为精华' }}</el-dropdown-item>
+              <el-dropdown-item @click="togglePin(row)">{{ row.pinned ? '取消置顶' : '设为置顶' }}</el-dropdown-item>
+              <el-dropdown-item @click="toggleLock(row)">{{ row.comment_locked ? '解锁评论' : '锁定评论' }}</el-dropdown-item>
+              <el-dropdown-item @click="toggleVisible(row)">{{ row.status === 'offline' ? '恢复内容' : '隐藏内容' }}</el-dropdown-item>
+              <el-dropdown-item @click="openEdit(row)">编辑</el-dropdown-item>
+              <el-dropdown-item @click="remove(row)">删除</el-dropdown-item>
+            </el-dropdown-menu></template>
           </el-dropdown>
         </template>
       </el-table-column>
@@ -92,7 +99,7 @@ import { reactive, ref } from 'vue';
 import { ElMessageBox } from 'element-plus';
 import { ArrowDown, UploadFilled } from '@element-plus/icons-vue';
 import MarkdownEditor from '@/components/MarkdownEditor.vue';
-import { boards, createPost, deletePost, posts, sites, updatePost } from '@/api/admin';
+import { boards, createPost, deletePost, featureTopic, hideTopic, lockTopicComments, pinTopic, posts, restoreTopic, sites, unlockTopicComments, updatePost } from '@/api/admin';
 
 const query = reactive({ site: 'portal', board: 'all', status: 'all', q: '', page: 1, page_size: 10 });
 const dateRange = ref([]);
@@ -126,7 +133,7 @@ function reset() {
   load();
 }
 function statusName(status) {
-  return { draft: '草稿', review: '待审核', publish: '已发布', offline: '已下架', rejected: '已驳回' }[status] || status || '草稿';
+  return { draft: '草稿', review: '待审核', publish: '已发布', offline: '已隐藏', hidden: '已隐藏', rejected: '已驳回' }[status] || status || '草稿';
 }
 function statusType(status) {
   return { publish: 'success', offline: 'info', rejected: 'danger', review: 'warning' }[status] || '';
@@ -168,5 +175,9 @@ async function remove(row) {
   await deletePost(row.id);
   await load();
 }
+async function toggleFeature(row) { await featureTopic(row.id); await load(); }
+async function togglePin(row) { await pinTopic(row.id); await load(); }
+async function toggleLock(row) { row.comment_locked ? await unlockTopicComments(row.id) : await lockTopicComments(row.id); await load(); }
+async function toggleVisible(row) { row.status === 'offline' ? await restoreTopic(row.id) : await hideTopic(row.id); await load(); }
 loadBase().then(load);
 </script>

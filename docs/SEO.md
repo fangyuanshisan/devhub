@@ -14,6 +14,8 @@ DevHub 当前 SEO 重点面向百度。核心原则是：动态 Topic 详情页�
 - 点赞、收藏、关注、通知、评论等互动功能属于前端运行时增强。
 - 互动按钮、评论运行时加载失败时，也不能影响 `/topics/:id` HTML 源码里的 SEO 内容。
 - 第六轮评论区、回复表单、加载更多和最佳答案展示均由浏览器运行时加载；当前不要求评论内容或最佳答案进入初始 SEO HTML。
+- 第七轮举报入口、评论锁定提示、精华 / 置顶状态属于运行时或详情页增强，不能改变正常 Topic 的 SEO 主体输出。
+- 隐藏 Topic 详情页由 Go 输出“内容已隐藏”HTML，并带 `meta name="robots" content="noindex,follow"`；隐藏页不输出原正文。
 
 ## Topic 详情页源码要求
 
@@ -39,6 +41,8 @@ DevHub 当前 SEO 重点面向百度。核心原则是：动态 Topic 详情页�
 - 评论列表通过 `GET /api/v1/topics/:id/comments` 运行时加载。
 - 发表评论使用 `POST /api/v1/topics/:id/comments`，回复使用 `POST /api/v1/topics/:id/comments/:commentId/replies`。
 - 问答采纳使用 `POST /api/v1/topics/:id/comments/:commentId/accept`，最佳答案徽标在运行时评论区展示。
+- 举报使用 `POST /api/v1/reports`，Topic 和 Comment 举报表单都在浏览器运行时提交。
+- 评论锁定由后端 `comment_locked` 字段控制，详情页会显示锁定提示并禁用普通提交入口，但初始正文 SEO 内容不依赖该交互。
 - 通知和关注不会影响详情页 HTML 的 SEO 主体内容。
 
 后续修改互动功能时，必须先确认 `curl /topics/:id/` 仍能看到 title、description、h1、正文和标签链接。
@@ -49,7 +53,25 @@ DevHub 当前 SEO 重点面向百度。核心原则是：动态 Topic 详情页�
 - 新评论、回复、采纳最佳答案后，也不需要重新 `npm run build`；评论区由运行时 API 获取最新状态。
 - Go 会通过 API / Store 读取 Topic，并动态输出 `/topics/:id/`。
 - `/sitemap.xml` 由 Go 动态输出，包含已发布且 `status=1` 的 Topic。
+- 被隐藏的 `status=0` Topic 不进入 `/sitemap.xml`。
 - 当前 sitemap 最多输出 5000 条 Topic，内容量继续增长后需要拆分 sitemap index。
+
+## 隐藏内容 SEO
+
+第七轮治理支持隐藏 Topic。当前真实行为：
+
+- 普通列表和搜索只返回 `status=1` 的 Topic。
+- `/sitemap.xml` 通过 `TopicsByFilter(..., status=1)` 输出，不包含隐藏 Topic。
+- `/topics/:id` 如果读取到隐藏 Topic，不返回纯 CSR，也不输出原正文；Go 会动态输出“内容已隐藏”页面。
+- 隐藏页包含 `title`、`meta description`、`h1` 和 `noindex,follow`，用于避免搜索引擎继续索引违规正文。
+- 管理员 / 版主查看隐藏内容通过后台 API 和 `/admin-next` 完成，不依赖前台 SEO 页面。
+
+回归隐藏内容时建议执行：
+
+```bash
+curl -s http://127.0.0.1:8090/topics/<隐藏ID>/ | rg '内容已隐藏|noindex'
+curl -s http://127.0.0.1:8090/sitemap.xml | rg "/topics/<隐藏ID>/" || true
+```
 
 ## Robots
 
@@ -108,3 +130,5 @@ curl -s http://127.0.0.1:8090/sitemap.xml | rg "/topics/<新ID>/"
 - 不要让详情页必须依赖浏览器 JS 才能看到标题、描述、正文和标签。
 - 不要让互动接口异常阻断详情 HTML 输出。
 - 不要把收藏、关注、通知、评论、最佳答案等运行时互动内容写成详情页 SEO 依赖项。
+- 不要让隐藏内容继续进入 sitemap。
+- 不要在隐藏页输出被隐藏 Topic 的原正文。

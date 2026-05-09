@@ -327,18 +327,159 @@ Content-Type: application/json
 
 ```http
 GET /api/v1/search/topics?sort=unsolved
+GET /api/v1/search/topics?sort=featured
 ```
 
 真实行为：
 
 - 返回 `content_type = question` 且 `is_solved = 0` 的 Topic。
 - 采纳最佳答案后，该 Topic 不再出现在未解决筛选中。
+- `sort=featured` 只返回 `is_featured=true` 且 `status=1` 的 Topic。
+- 普通搜索和普通 Topic 列表不会返回隐藏或删除内容。
 
 列表接口也支持：
 
 ```http
 GET /api/v1/topics?sort=unsolved
 GET /api/v1/topics?content_type=question&is_solved=0
+```
+
+## 举报和治理
+
+### 创建举报
+
+```http
+POST /api/v1/reports
+Content-Type: application/json
+```
+
+请求体：
+
+```json
+{
+  "target_type": "topic",
+  "target_id": 1,
+  "reason_type": "spam",
+  "reason_text": "广告内容"
+}
+```
+
+规则：
+
+- `target_type` 支持 `topic`、`comment`、`user`、`wiki`。
+- `target_id` 必须存在。
+- `reason_type` 必填。
+- `reason_text` 可选，最多 500 字。
+- 接口会优先使用当前登录用户；未登录时使用 demo `user_id=1`。
+- 创建成功后 `status=pending`。
+- 本轮允许重复举报同一对象，但不会导致异常。
+
+响应：
+
+```json
+{
+  "report": {
+    "id": 1,
+    "reporter_user_id": 1,
+    "target_type": "topic",
+    "target_id": 1,
+    "community_id": 1,
+    "topic_id": 1,
+    "reason_type": "spam",
+    "reason_text": "广告内容",
+    "status": "pending",
+    "target_title": "主题标题",
+    "target_url": "/topics/1/",
+    "created_at": "2026-05-09 12:00:00"
+  },
+  "item": {}
+}
+```
+
+### 举报管理
+
+```http
+GET /api/v1/admin/reports?status=pending&target_type=topic&community_slug=php&page=1&page_size=20
+GET /api/v1/admin/reports/:id
+POST /api/v1/admin/reports/:id/handle
+Authorization: Bearer <access_token>
+```
+
+处理请求体：
+
+```json
+{
+  "status": "accepted",
+  "handle_note": "确认违规，已隐藏目标内容"
+}
+```
+
+规则：
+
+- `status` 只能是 `accepted` 或 `rejected`。
+- 管理员 user 1 / `super_admin` 可以查看和处理全部举报。
+- `community_moderators` 中启用的版主只能查看和处理自己负责子站的举报。
+- `topic` / `comment` 举报会携带 `community_id`，用于版主范围判断。
+- `user` / `wiki` 等无子站归属的全局举报仅管理员可处理。
+- `accepted` 会联动隐藏目标 topic 或 comment；`rejected` 只更新举报状态。
+- 接受 comment 举报时，如果目标评论是最佳答案，会返回错误，避免破坏问答采纳闭环。
+- `handled_by` 使用当前登录用户，`handled_at` 使用处理时间。
+
+### Topic 治理
+
+```http
+POST /api/v1/admin/topics/:id/feature
+POST /api/v1/admin/topics/:id/pin
+POST /api/v1/admin/topics/:id/hide
+POST /api/v1/admin/topics/:id/restore
+POST /api/v1/admin/topics/:id/lock-comments
+POST /api/v1/admin/topics/:id/unlock-comments
+Authorization: Bearer <access_token>
+```
+
+规则：
+
+- 管理员可操作所有 Topic。
+- 子站版主只能操作自己负责 `community_id` 下的 Topic。
+- `feature` 为 toggle 接口，切换 `is_featured`。
+- `pin` 为 toggle 接口，切换 `is_pinned`。
+- `hide` 设置 `status=0`，`restore` 设置 `status=1`。
+- `lock-comments` 设置 `comment_locked=true`，`unlock-comments` 设置 `false`。
+- 被隐藏 Topic 不进入普通列表、搜索和 sitemap；后台内容管理仍可看到。
+- 被锁定 Topic 后端会拒绝普通评论和回复创建，前端也显示“评论已锁定”并禁用提交入口。
+
+响应：
+
+```json
+{
+  "topic": {},
+  "changed": true
+}
+```
+
+### Comment 治理
+
+```http
+POST /api/v1/admin/comments/:id/hide
+POST /api/v1/admin/comments/:id/restore
+Authorization: Bearer <access_token>
+```
+
+规则：
+
+- 管理员可操作所有评论。
+- 子站版主只能操作自己负责子站下 Topic 的评论。
+- `hide` 设置评论 `status=hidden`，`restore` 设置 `status=normal`。
+- 普通评论列表过滤 `hidden`、`deleted` 状态。
+- 当前版本禁止隐藏最佳答案评论；需要先更换最佳答案或后续治理轮次补取消采纳。
+
+响应：
+
+```json
+{
+  "comment": {},
+  "changed": true
+}
 ```
 
 ## 通知类型与动态类型
@@ -367,10 +508,12 @@ GET /api/v1/topics?content_type=question&is_solved=0
 
 ## 数据结构
 
-第六轮相关真实表和字段：
+当前真实表和字段：
 
 - `comments`：`id`、`post_id`、`topic_id`、`parent_id`、`reply_to_user_id`、`user_id`、`author`、`to_author`、`text`、`content_html`、`status`、`likes`、`is_best`、`created_at`、`updated_at`、`deleted_at`。
-- `topics`：`content_type`、`is_solved`、`best_comment_id`、`comment_count`、`last_active_at`、`hot_score`。
+- `topics`：`content_type`、`status`、`is_pinned`、`is_featured`、`is_solved`、`comment_locked`、`best_comment_id`、`comment_count`、`last_active_at`、`hot_score`。
+- `reports`：`reporter_id`、`target_type`、`target_id`、`community_id`、`topic_id`、`reason_type`、`reason_text`、`status`、`handled_by`、`handled_at`、`handle_note`。
+- `community_moderators`：`community_id`、`user_id`、`role`、`status`。
 - `activities`：`topic_id`、`action`、`target_type`、`target_id`、`metadata`。
 - `notifications`：`actor_user_id`、`type`、`target_type`、`target_id`、`topic_id`、`comment_id`、`is_read`、`read_at`。
 
@@ -382,9 +525,19 @@ GET /api/v1/topics?content_type=question&is_solved=0
 - `400 {"error":"评论内容至少 2 个字符"}`。
 - `400 {"error":"评论内容最多 5000 个字符"}`。
 - `400 {"error":"只有问答主题可以采纳答案"}`。
+- `400 {"error":"举报对象类型不合法"}`。
+- `400 {"error":"举报原因不能为空"}`。
+- `400 {"error":"举报说明最多 500 字"}`。
+- `400 {"error":"处理状态不合法"}`。
+- `400 {"error":"评论已锁定"}`。
+- `400 {"error":"主题已隐藏"}`。
+- `400 {"error":"最佳答案不能隐藏"}`。
 - `403 {"error":"只有主题作者或管理员可以采纳答案"}`。
+- `403 {"error":"无权管理该子站内容"}`。
+- `403 {"error":"只有管理员可以管理全局举报"}`。
 - `404 {"error":"主题不存在"}`。
 - `404 {"error":"父评论不存在"}`。
+- `404 {"error":"举报不存在"}`。
 - `404 {"error":"通知不存在"}`。
 
 ## 部分完成 / 后续完善
@@ -393,4 +546,4 @@ GET /api/v1/topics?content_type=question&is_solved=0
 - 采纳支持更换最佳答案，暂不支持取消已解决状态。
 - 最佳答案当前通过前端运行时展示，不强制进入 `/topics/:id` 初始 SEO HTML。
 - 标签关注后端和我的关注页可展示，前台标签区域的关注按钮后续增强。
-- 举报按钮已预留，完整举报和版主治理后续轮次实现。
+- 版主管理 CRUD、批量治理、举报频率限制后续完善。

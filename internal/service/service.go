@@ -43,6 +43,7 @@ type Repository interface {
 	AdminRoles() []domain.AdminRole
 	AdminPermissions() []domain.AdminPermission
 	AdminComments(site string) []domain.AdminComment
+	AdminTopics(site, board, q string) []domain.Post
 	UpdateCommentStatus(id int64, status string) bool
 	AdminSettings() domain.AdminSettings
 	UpdateAdminSettings(req domain.AdminSettings) domain.AdminSettings
@@ -77,8 +78,19 @@ type Repository interface {
 	ReadAllUserNotifications(userID int64) int
 	CommunityOverview(slug string) (domain.CommunityOverview, bool)
 	TopicComments(topicID int64, sort string, page, pageSize int) ([]*domain.Comment, int)
+	CommentByID(id int64) (*domain.Comment, error)
 	CreateCommentWithRequest(topicID int64, req domain.CreateCommentRequest) (*domain.Comment, error)
 	AcceptBestAnswer(topicID int64, commentID int64, actorUserID int64) bool
+	CreateReport(req domain.CreateReportRequest) (*domain.Report, error)
+	Reports(filter domain.ReportFilter) ([]domain.Report, int)
+	ReportByID(id int64) (*domain.Report, error)
+	HandleReport(id int64, status, note string, handlerUserID int64) (*domain.Report, error)
+	IsCommunityModerator(userID, communityID int64) bool
+	SetTopicFeatured(id int64, featured bool) (*domain.Topic, error)
+	SetTopicPinned(id int64, pinned bool) (*domain.Topic, error)
+	SetTopicStatus(id int64, status int) (*domain.Topic, error)
+	SetTopicCommentLocked(id int64, locked bool) (*domain.Topic, error)
+	SetCommentStatus(id int64, status string) (*domain.Comment, error)
 }
 
 // Service 封装业务入口，向 HTTP 层提供稳定的调用接口。
@@ -265,6 +277,11 @@ func (s *Service) AdminPermissions() []domain.AdminPermission {
 // AdminComments 返回后台评论审核列表。
 func (s *Service) AdminComments(site string) []domain.AdminComment { return s.repo.AdminComments(site) }
 
+// AdminTopics 返回后台内容列表，包含隐藏内容。
+func (s *Service) AdminTopics(site, board, q string) []domain.Post {
+	return s.repo.AdminTopics(site, board, q)
+}
+
 // UpdateCommentStatus 更新评论审核状态。
 func (s *Service) UpdateCommentStatus(id int64, status string) bool {
 	return s.repo.UpdateCommentStatus(id, status)
@@ -409,9 +426,55 @@ func (s *Service) TopicComments(topicID int64, sort string, page, pageSize int) 
 	return s.repo.TopicComments(topicID, sort, page, pageSize)
 }
 
+// CommentByID 获取评论详情。
+func (s *Service) CommentByID(id int64) (*domain.Comment, error) { return s.repo.CommentByID(id) }
+
 // AcceptBestAnswer 采纳最佳答案（问答类型）。
 func (s *Service) AcceptBestAnswer(topicID int64, commentID int64, actorUserID int64) bool {
 	return s.repo.AcceptBestAnswer(topicID, commentID, actorUserID)
+}
+
+// CreateReport 创建举报记录。
+func (s *Service) CreateReport(req domain.CreateReportRequest) (*domain.Report, error) {
+	return s.repo.CreateReport(req)
+}
+
+// Reports 返回后台举报列表。
+func (s *Service) Reports(filter domain.ReportFilter) ([]domain.Report, int) {
+	return s.repo.Reports(filter)
+}
+
+// ReportByID 返回举报详情。
+func (s *Service) ReportByID(id int64) (*domain.Report, error) { return s.repo.ReportByID(id) }
+
+// HandleReport 处理举报。
+func (s *Service) HandleReport(id int64, status, note string, handlerUserID int64) (*domain.Report, error) {
+	return s.repo.HandleReport(id, status, note, handlerUserID)
+}
+
+// IsCommunityModerator 判断用户是否为指定子站版主。
+func (s *Service) IsCommunityModerator(userID, communityID int64) bool {
+	return s.repo.IsCommunityModerator(userID, communityID)
+}
+
+func (s *Service) SetTopicFeatured(id int64, featured bool) (*domain.Topic, error) {
+	return s.repo.SetTopicFeatured(id, featured)
+}
+
+func (s *Service) SetTopicPinned(id int64, pinned bool) (*domain.Topic, error) {
+	return s.repo.SetTopicPinned(id, pinned)
+}
+
+func (s *Service) SetTopicStatus(id int64, status int) (*domain.Topic, error) {
+	return s.repo.SetTopicStatus(id, status)
+}
+
+func (s *Service) SetTopicCommentLocked(id int64, locked bool) (*domain.Topic, error) {
+	return s.repo.SetTopicCommentLocked(id, locked)
+}
+
+func (s *Service) SetCommentStatus(id int64, status string) (*domain.Comment, error) {
+	return s.repo.SetCommentStatus(id, status)
 }
 
 // CreateComment 创建评论（新的Topics API）。

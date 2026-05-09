@@ -33,8 +33,9 @@ DevHub 是一个多子站技术社区 CMS。当前项目使用 Go + Gin 提供�
 - 搜索：支持全站、子站、板块、关键词、标签筛选，并支持 `sort=unsolved` 未解决问答筛选。
 - 评论：支持 Topic 评论列表、加载更多、发表评论、回复评论、问答采纳和最佳答案展示；评论点赞仍仅保留旧兼容接口。
 - 互动：MemoryStore / MySQLStore 均支持 Topic 点赞、收藏、关注、我的收藏、我的关注、我的动态、通知中心、评论动态和评论通知。
+- 治理：支持举报 Topic / Comment，后台举报处理，版主子站范围管理，精华、置顶、隐藏、恢复、评论锁定、评论隐藏。
 - 用户与权限：前台登录、注册、会话恢复、refresh token 刷新、退出登录、JWT 会话、后台 RBAC 与站点范围上下文。
-- 后台：控制台、内容管理、评论审核、站点管理、用户权限、运营工具、数据统计、系统设置。
+- 后台：控制台、内容管理、举报管理、评论审核、站点管理、用户权限、运营工具、数据统计、系统设置。
 - 存储：支持内存模式和 MySQL 模式。
 
 ## 目录结构
@@ -153,6 +154,7 @@ Database: devhub
 /notifications          通知中心
 /me/notifications       通知中心别名
 /admin-next             当前后台
+/admin-next/reports     举报管理
 /admin-next/...         后台前端路由
 ```
 
@@ -205,6 +207,7 @@ POST   /api/v1/topics/:id/comments
 POST   /api/v1/topics/:id/comments/:commentId/replies
 POST   /api/v1/topics/:id/comments/:commentId/accept
 GET    /api/v1/search/topics
+POST   /api/v1/reports
 POST   /api/v1/topics/:id/like
 POST   /api/v1/topics/:id/favorite
 POST   /api/v1/reactions/toggle
@@ -222,7 +225,7 @@ POST   /api/v1/notifications/:id/read
 POST   /api/v1/notifications/read-all
 ```
 
-说明：第五轮互动和第六轮评论 / 采纳接口的真实路径、响应字段和部分完成项以 [docs/API.md](docs/API.md) 为准。`GET /api/v1/search/topics?sort=unsolved` 当前只返回未解决问答。
+说明：第五轮互动、第六轮评论 / 采纳、第七轮举报 / 治理接口的真实路径、响应字段和部分完成项以 [docs/API.md](docs/API.md) 为准。`GET /api/v1/search/topics?sort=unsolved` 当前只返回未解决问答，`sort=featured` 当前只返回精华内容。
 
 认证与后台 API：
 
@@ -236,6 +239,16 @@ POST /api/v1/admin/login
 GET  /api/v1/admin/overview
 GET  /api/v1/admin/posts
 GET  /api/v1/admin/comments
+GET  /api/v1/admin/reports
+POST /api/v1/admin/reports/:id/handle
+POST /api/v1/admin/topics/:id/feature
+POST /api/v1/admin/topics/:id/pin
+POST /api/v1/admin/topics/:id/hide
+POST /api/v1/admin/topics/:id/restore
+POST /api/v1/admin/topics/:id/lock-comments
+POST /api/v1/admin/topics/:id/unlock-comments
+POST /api/v1/admin/comments/:id/hide
+POST /api/v1/admin/comments/:id/restore
 GET  /api/v1/admin/users
 GET  /api/v1/admin/settings
 ```

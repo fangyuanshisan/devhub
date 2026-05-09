@@ -137,6 +137,11 @@ func (s *MySQLStore) migrateSiteScopedAudit() error {
 	_, _ = s.db.Exec(`ALTER TABLE comments ADD KEY idx_comments_user_created (user_id, created_at)`)
 	_, _ = s.db.Exec(`UPDATE comments SET topic_id=post_id WHERE topic_id IS NULL OR topic_id=0`)
 	_, _ = s.db.Exec(`UPDATE comments SET user_id=1 WHERE user_id IS NULL OR user_id=0`)
+	_, _ = s.db.Exec(`ALTER TABLE topics ADD COLUMN comment_locked TINYINT NOT NULL DEFAULT 0 AFTER is_solved`)
+	_, _ = s.db.Exec(`ALTER TABLE reports ADD COLUMN community_id BIGINT UNSIGNED NOT NULL DEFAULT 0 AFTER target_id`)
+	_, _ = s.db.Exec(`ALTER TABLE reports ADD COLUMN topic_id BIGINT UNSIGNED NOT NULL DEFAULT 0 AFTER community_id`)
+	_, _ = s.db.Exec(`ALTER TABLE reports ADD COLUMN handle_note VARCHAR(1000) NULL AFTER handled_at`)
+	_, _ = s.db.Exec(`ALTER TABLE reports ADD KEY idx_reports_community_status (community_id, status)`)
 	_, _ = s.db.Exec(`ALTER TABLE reactions ADD COLUMN updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP AFTER created_at`)
 	_, _ = s.db.Exec(`ALTER TABLE favorites ADD COLUMN updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP AFTER created_at`)
 	_, _ = s.db.Exec(`ALTER TABLE follows ADD COLUMN updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP AFTER created_at`)
@@ -462,6 +467,9 @@ func (s *MySQLStore) seedAuthData() error {
 		{"post.delete", "post", "delete", "删除内容"},
 		{"comment.read", "comment", "read", "查看评论"},
 		{"comment.moderate", "comment", "moderate", "审核评论"},
+		{"report.read", "report", "read", "查看举报"},
+		{"report.handle", "report", "handle", "处理举报"},
+		{"topic.moderate", "topic", "moderate", "治理主题"},
 		{"user.read", "user", "read", "查看用户"},
 		{"user.write", "user", "write", "管理用户"},
 		{"role.read", "role", "read", "查看角色"},
@@ -483,9 +491,9 @@ func (s *MySQLStore) seedAuthData() error {
 		Permissions []string
 	}{
 		{1, "super_admin", "超级管理员", "拥有全部站点和全部权限", []string{"*"}},
-		{2, "site_admin", "站点管理员", "管理被授权站点", []string{"dashboard.read", "site.read", "board.read", "board.write", "post.read", "post.create", "post.update", "post.delete", "comment.read", "comment.moderate", "user.read", "setting.read", "notification.write", "log.read"}},
+		{2, "site_admin", "站点管理员", "管理被授权站点", []string{"dashboard.read", "site.read", "board.read", "board.write", "post.read", "post.create", "post.update", "post.delete", "topic.moderate", "comment.read", "comment.moderate", "report.read", "report.handle", "user.read", "setting.read", "notification.write", "log.read"}},
 		{3, "editor", "编辑", "创建和编辑内容", []string{"dashboard.read", "post.read", "post.create", "post.update", "comment.read"}},
-		{4, "moderator", "审核员", "审核内容和评论", []string{"dashboard.read", "post.read", "post.update", "comment.read", "comment.moderate"}},
+		{4, "moderator", "审核员", "审核内容和评论", []string{"dashboard.read", "post.read", "post.update", "topic.moderate", "comment.read", "comment.moderate", "report.read", "report.handle"}},
 		{5, "user", "普通用户", "前台登录用户", []string{"post.create", "comment.read"}},
 	}
 	for _, r := range roles {
@@ -523,6 +531,18 @@ func (s *MySQLStore) seedAuthData() error {
 			return err
 		}
 		if _, err := s.db.Exec(`INSERT IGNORE INTO user_roles (user_id,role_id,site_key,status) VALUES (?,?,?,'normal')`, u.ID, u.RoleID, u.Site); err != nil {
+			return err
+		}
+	}
+	for _, item := range []struct {
+		communityID int64
+		userID      int64
+		role        string
+	}{
+		{1, 2, "moderator"},
+		{2, 3, "moderator"},
+	} {
+		if _, err := s.db.Exec(`INSERT IGNORE INTO community_moderators (community_id,user_id,role,status) VALUES (?,?,?,1)`, item.communityID, item.userID, item.role); err != nil {
 			return err
 		}
 	}
@@ -1212,10 +1232,21 @@ func (s *MySQLStore) TopicComments(topicID int64, sortBy string, page, pageSize 
 	return roots, total
 }
 
+// CommentByID 返回评论详情。
+func (s *MySQLStore) CommentByID(id int64) (*domain.Comment, error) {
+	return s.commentByID(id)
+}
+
 func (s *MySQLStore) CreateComment(postID int64, req domain.CreateCommentRequest) (*domain.Comment, error) {
 	topic, err := s.TopicByID(postID, false)
 	if err != nil || topic == nil {
 		return nil, errors.New("主题不存在")
+	}
+	if topic.Status != 1 {
+		return nil, errors.New("主题已隐藏")
+	}
+	if topic.CommentLocked {
+		return nil, errors.New("评论已锁定")
 	}
 	content := strings.TrimSpace(req.Content)
 	if content == "" {
@@ -1550,6 +1581,48 @@ func (s *MySQLStore) AdminComments(site string) []domain.AdminComment {
 		if err := rows.Scan(&c.ID, &c.PostID, &c.PostTitle, &c.ParentID, &c.Author, &c.To, &c.Text, &c.Status, &c.Likes, &c.CreatedAt); err == nil {
 			out = append(out, c)
 		}
+	}
+	return out
+}
+
+// AdminTopics 返回后台内容列表，包含隐藏内容。
+func (s *MySQLStore) AdminTopics(site, board, q string) []domain.Post {
+	site = strings.TrimSpace(site)
+	board = strings.TrimSpace(board)
+	q = strings.ToLower(strings.TrimSpace(q))
+	rows, err := s.db.Query(`SELECT id,community_id,category_id,user_id,title,COALESCE(summary,''),content,status,is_pinned,is_featured,comment_locked,view_count,like_count,comment_count,DATE_FORMAT(created_at,'%Y-%m-%d %H:%i:%s'),DATE_FORMAT(updated_at,'%Y-%m-%d %H:%i:%s') FROM topics WHERE deleted_at IS NULL ORDER BY id DESC`)
+	if err != nil {
+		return []domain.Post{}
+	}
+	defer rows.Close()
+	out := []domain.Post{}
+	for rows.Next() {
+		var p domain.Post
+		var communityID, categoryID, userID int64
+		var status int
+		if err := rows.Scan(&p.ID, &communityID, &categoryID, &userID, &p.Title, &p.Summary, &p.Content, &status, &p.Pinned, &p.Recommended, &p.CommentLocked, &p.Views, &p.Likes, &p.Comments, &p.CreatedAt, &p.UpdatedAt); err != nil {
+			continue
+		}
+		p.UserID = userID
+		p.Site = siteByCommunityID(communityID)
+		p.Board = boardByCategoryID(categoryID)
+		p.Author = "DevHub 用户"
+		p.Tags = s.getTopicTags(p.ID)
+		if status == 1 {
+			p.Status = "publish"
+		} else {
+			p.Status = "offline"
+		}
+		if site != "" && site != "portal" && p.Site != site {
+			continue
+		}
+		if board != "" && board != "all" && p.Board != board {
+			continue
+		}
+		if q != "" && !postContains(&p, q) {
+			continue
+		}
+		out = append(out, p)
 	}
 	return out
 }
@@ -1929,7 +2002,7 @@ func (s *MySQLStore) Categories(communityID int64) []domain.Category {
 }
 
 func (s *MySQLStore) TopicsByFilter(communityID, categoryID int64, contentType, sort string, isSolved *bool, tag string, page, pageSize int) ([]domain.Topic, int) {
-	query := `SELECT id,community_id,category_id,user_id,title,COALESCE(slug,''),content_type,COALESCE(summary,''),content,COALESCE(ai_summary,''),COALESCE(cover_image,''),status,is_pinned,is_featured,is_solved,view_count,comment_count,like_count,favorite_count,hot_score,DATE_FORMAT(last_active_at,'%Y-%m-%d %H:%i:%s'),DATE_FORMAT(created_at,'%Y-%m-%d %H:%i:%s'),DATE_FORMAT(updated_at,'%Y-%m-%d %H:%i:%s') FROM topics WHERE deleted_at IS NULL`
+	query := `SELECT id,community_id,category_id,user_id,title,COALESCE(slug,''),content_type,COALESCE(summary,''),content,COALESCE(ai_summary,''),COALESCE(cover_image,''),status,is_pinned,is_featured,is_solved,comment_locked,view_count,comment_count,like_count,favorite_count,hot_score,DATE_FORMAT(last_active_at,'%Y-%m-%d %H:%i:%s'),DATE_FORMAT(created_at,'%Y-%m-%d %H:%i:%s'),DATE_FORMAT(updated_at,'%Y-%m-%d %H:%i:%s') FROM topics WHERE deleted_at IS NULL AND status=1`
 	args := []any{}
 
 	if communityID > 0 {
@@ -1952,6 +2025,9 @@ func (s *MySQLStore) TopicsByFilter(communityID, categoryID int64, contentType, 
 		query += ` AND id IN (SELECT topic_id FROM topic_tags WHERE tag_id IN (SELECT id FROM tags WHERE name=? LIMIT 1))`
 		args = append(args, tag)
 	}
+	if sort == "featured" {
+		query += ` AND is_featured=1`
+	}
 
 	// 排序
 	switch sort {
@@ -1968,7 +2044,7 @@ func (s *MySQLStore) TopicsByFilter(communityID, categoryID int64, contentType, 
 	}
 
 	// 获取总数
-	countQuery := strings.Replace(query, `SELECT id,community_id,category_id,user_id,title,COALESCE(slug,''),content_type,COALESCE(summary,''),content,COALESCE(ai_summary,''),COALESCE(cover_image,''),status,is_pinned,is_featured,is_solved,view_count,comment_count,like_count,favorite_count,hot_score,DATE_FORMAT(last_active_at,'%Y-%m-%d %H:%i:%s'),DATE_FORMAT(created_at,'%Y-%m-%d %H:%i:%s'),DATE_FORMAT(updated_at,'%Y-%m-%d %H:%i:%s') FROM topics`, `SELECT COUNT(*) FROM topics`, 1)
+	countQuery := strings.Replace(query, `SELECT id,community_id,category_id,user_id,title,COALESCE(slug,''),content_type,COALESCE(summary,''),content,COALESCE(ai_summary,''),COALESCE(cover_image,''),status,is_pinned,is_featured,is_solved,comment_locked,view_count,comment_count,like_count,favorite_count,hot_score,DATE_FORMAT(last_active_at,'%Y-%m-%d %H:%i:%s'),DATE_FORMAT(created_at,'%Y-%m-%d %H:%i:%s'),DATE_FORMAT(updated_at,'%Y-%m-%d %H:%i:%s') FROM topics`, `SELECT COUNT(*) FROM topics`, 1)
 	var total int
 	_ = s.db.QueryRow(countQuery, args...).Scan(&total)
 
@@ -2009,7 +2085,7 @@ func (s *MySQLStore) TopicByID(id int64, increaseView bool) (*domain.Topic, erro
 		_, _ = s.db.Exec(`UPDATE topics SET view_count=view_count+1 WHERE id=?`, id)
 	}
 
-	row := s.db.QueryRow(`SELECT id,community_id,category_id,user_id,title,COALESCE(slug,''),content_type,COALESCE(summary,''),content,COALESCE(ai_summary,''),COALESCE(cover_image,''),status,is_pinned,is_featured,is_solved,reject_reason,offline_reason,COALESCE(best_comment_id,0),view_count,comment_count,like_count,favorite_count,hot_score,DATE_FORMAT(last_active_at,'%Y-%m-%d %H:%i:%s'),DATE_FORMAT(created_at,'%Y-%m-%d %H:%i:%s'),DATE_FORMAT(updated_at,'%Y-%m-%d %H:%i:%s') FROM topics WHERE id=? AND deleted_at IS NULL`, id)
+	row := s.db.QueryRow(`SELECT id,community_id,category_id,user_id,title,COALESCE(slug,''),content_type,COALESCE(summary,''),content,COALESCE(ai_summary,''),COALESCE(cover_image,''),status,is_pinned,is_featured,is_solved,comment_locked,reject_reason,offline_reason,COALESCE(best_comment_id,0),view_count,comment_count,like_count,favorite_count,hot_score,DATE_FORMAT(last_active_at,'%Y-%m-%d %H:%i:%s'),DATE_FORMAT(created_at,'%Y-%m-%d %H:%i:%s'),DATE_FORMAT(updated_at,'%Y-%m-%d %H:%i:%s') FROM topics WHERE id=? AND deleted_at IS NULL`, id)
 	return s.scanTopicDetail(row)
 }
 
@@ -2107,8 +2183,8 @@ func (s *MySQLStore) DeleteTopic(id int64) bool {
 }
 
 func (s *MySQLStore) SearchTopics(req domain.SearchRequest) ([]domain.Topic, int) {
-	selectClause := `SELECT id,community_id,category_id,user_id,title,COALESCE(slug,''),content_type,COALESCE(summary,''),content,COALESCE(ai_summary,''),COALESCE(cover_image,''),status,is_pinned,is_featured,is_solved,view_count,comment_count,like_count,favorite_count,hot_score,DATE_FORMAT(last_active_at,'%Y-%m-%d %H:%i:%s'),DATE_FORMAT(created_at,'%Y-%m-%d %H:%i:%s'),DATE_FORMAT(updated_at,'%Y-%m-%d %H:%i:%s') FROM topics`
-	where := ` WHERE deleted_at IS NULL`
+	selectClause := `SELECT id,community_id,category_id,user_id,title,COALESCE(slug,''),content_type,COALESCE(summary,''),content,COALESCE(ai_summary,''),COALESCE(cover_image,''),status,is_pinned,is_featured,is_solved,comment_locked,view_count,comment_count,like_count,favorite_count,hot_score,DATE_FORMAT(last_active_at,'%Y-%m-%d %H:%i:%s'),DATE_FORMAT(created_at,'%Y-%m-%d %H:%i:%s'),DATE_FORMAT(updated_at,'%Y-%m-%d %H:%i:%s') FROM topics`
+	where := ` WHERE deleted_at IS NULL AND status=1`
 	args := []any{}
 
 	if strings.TrimSpace(req.Keyword) != "" {
@@ -2621,13 +2697,216 @@ func (s *MySQLStore) AcceptBestAnswer(topicID int64, commentID int64, actorUserI
 	return true
 }
 
+// CreateReport 创建举报记录。
+func (s *MySQLStore) CreateReport(req domain.CreateReportRequest) (*domain.Report, error) {
+	reporterID := req.ReporterUserID
+	if reporterID <= 0 {
+		reporterID = 1
+	}
+	targetType := strings.TrimSpace(req.TargetType)
+	if !validReportTargetType(targetType) {
+		return nil, errors.New("举报对象类型不合法")
+	}
+	reasonType := strings.TrimSpace(req.ReasonType)
+	if reasonType == "" {
+		return nil, errors.New("举报原因不能为空")
+	}
+	reasonText := strings.TrimSpace(req.ReasonText)
+	if len([]rune(reasonText)) > 500 {
+		return nil, errors.New("举报说明最多 500 字")
+	}
+	communityID, topicID, _, _, err := s.reportTargetContext(targetType, req.TargetID)
+	if err != nil {
+		return nil, err
+	}
+	res, err := s.db.Exec(`INSERT INTO reports (reporter_id,target_type,target_id,community_id,topic_id,reason_type,reason_text,status,created_at,updated_at) VALUES (?,?,?,?,?,?,?,'pending',NOW(),NOW())`,
+		reporterID, targetType, req.TargetID, communityID, topicID, reasonType, reasonText)
+	if err != nil {
+		return nil, err
+	}
+	id, _ := res.LastInsertId()
+	return s.ReportByID(id)
+}
+
+// Reports 返回后台举报列表。
+func (s *MySQLStore) Reports(filter domain.ReportFilter) ([]domain.Report, int) {
+	where := ` WHERE 1=1`
+	args := []any{}
+	if filter.Status != "" && filter.Status != "all" {
+		where += ` AND status=?`
+		args = append(args, filter.Status)
+	}
+	if filter.TargetType != "" && filter.TargetType != "all" {
+		where += ` AND target_type=?`
+		args = append(args, filter.TargetType)
+	}
+	if filter.CommunityID > 0 {
+		where += ` AND community_id=?`
+		args = append(args, filter.CommunityID)
+	}
+	if !filter.ActorIsAdmin {
+		where += ` AND community_id IN (SELECT community_id FROM community_moderators WHERE user_id=? AND status=1)`
+		args = append(args, filter.ActorUserID)
+	}
+	var total int
+	_ = s.db.QueryRow(`SELECT COUNT(*) FROM reports`+where, args...).Scan(&total)
+	page, pageSize := normalizePage(filter.Page, filter.PageSize)
+	offset := (page - 1) * pageSize
+	rows, err := s.db.Query(`SELECT id,reporter_id,target_type,target_id,COALESCE(community_id,0),COALESCE(topic_id,0),reason_type,COALESCE(reason_text,''),status,COALESCE(handled_by,0),COALESCE(DATE_FORMAT(handled_at,'%Y-%m-%d %H:%i:%s'),''),COALESCE(handle_note,''),DATE_FORMAT(created_at,'%Y-%m-%d %H:%i:%s'),COALESCE(DATE_FORMAT(updated_at,'%Y-%m-%d %H:%i:%s'),'') FROM reports`+where+` ORDER BY id DESC LIMIT ? OFFSET ?`, append(append([]any{}, args...), pageSize, offset)...)
+	if err != nil {
+		return []domain.Report{}, 0
+	}
+	defer rows.Close()
+	items := []domain.Report{}
+	for rows.Next() {
+		var report domain.Report
+		if err := rows.Scan(&report.ID, &report.ReporterID, &report.TargetType, &report.TargetID, &report.CommunityID, &report.TopicID, &report.ReasonType, &report.ReasonText, &report.Status, &report.HandledBy, &report.HandledAt, &report.HandleNote, &report.CreatedAt, &report.UpdatedAt); err == nil {
+			s.enrichReport(&report)
+			items = append(items, report)
+		}
+	}
+	return items, total
+}
+
+// ReportByID 返回举报详情。
+func (s *MySQLStore) ReportByID(id int64) (*domain.Report, error) {
+	var report domain.Report
+	err := s.db.QueryRow(`SELECT id,reporter_id,target_type,target_id,COALESCE(community_id,0),COALESCE(topic_id,0),reason_type,COALESCE(reason_text,''),status,COALESCE(handled_by,0),COALESCE(DATE_FORMAT(handled_at,'%Y-%m-%d %H:%i:%s'),''),COALESCE(handle_note,''),DATE_FORMAT(created_at,'%Y-%m-%d %H:%i:%s'),COALESCE(DATE_FORMAT(updated_at,'%Y-%m-%d %H:%i:%s'),'') FROM reports WHERE id=?`, id).
+		Scan(&report.ID, &report.ReporterID, &report.TargetType, &report.TargetID, &report.CommunityID, &report.TopicID, &report.ReasonType, &report.ReasonText, &report.Status, &report.HandledBy, &report.HandledAt, &report.HandleNote, &report.CreatedAt, &report.UpdatedAt)
+	if err != nil {
+		return nil, errors.New("举报不存在")
+	}
+	s.enrichReport(&report)
+	return &report, nil
+}
+
+// HandleReport 处理举报。
+func (s *MySQLStore) HandleReport(id int64, status, note string, handlerUserID int64) (*domain.Report, error) {
+	status = strings.TrimSpace(status)
+	if status != "accepted" && status != "rejected" {
+		return nil, errors.New("处理状态不合法")
+	}
+	report, err := s.ReportByID(id)
+	if err != nil {
+		return nil, err
+	}
+	tx, err := s.db.Begin()
+	if err != nil {
+		return nil, err
+	}
+	if _, err := tx.Exec(`UPDATE reports SET status=?,handled_by=?,handled_at=NOW(),handle_note=?,updated_at=NOW() WHERE id=?`, status, handlerUserID, strings.TrimSpace(note), id); err != nil {
+		_ = tx.Rollback()
+		return nil, err
+	}
+	if status == "accepted" {
+		switch report.TargetType {
+		case "topic":
+			if _, err := tx.Exec(`UPDATE topics SET status=0,updated_at=NOW() WHERE id=?`, report.TargetID); err != nil {
+				_ = tx.Rollback()
+				return nil, err
+			}
+		case "comment":
+			var isBest bool
+			if err := tx.QueryRow(`SELECT is_best FROM comments WHERE id=?`, report.TargetID).Scan(&isBest); err != nil {
+				_ = tx.Rollback()
+				return nil, errors.New("评论不存在")
+			}
+			if isBest {
+				_ = tx.Rollback()
+				return nil, errors.New("最佳答案不能隐藏")
+			}
+			if _, err := tx.Exec(`UPDATE comments SET status='hidden',updated_at=NOW() WHERE id=?`, report.TargetID); err != nil {
+				_ = tx.Rollback()
+				return nil, err
+			}
+		}
+	}
+	if err := tx.Commit(); err != nil {
+		return nil, err
+	}
+	return s.ReportByID(id)
+}
+
+// IsCommunityModerator 判断用户是否为子站版主。
+func (s *MySQLStore) IsCommunityModerator(userID, communityID int64) bool {
+	if userID <= 0 || communityID <= 0 {
+		return false
+	}
+	return s.existsByQuery(`SELECT 1 FROM community_moderators WHERE user_id=? AND community_id=? AND status=1 LIMIT 1`, userID, communityID)
+}
+
+func (s *MySQLStore) SetTopicFeatured(id int64, featured bool) (*domain.Topic, error) {
+	res, err := s.db.Exec(`UPDATE topics SET is_featured=?,updated_at=NOW() WHERE id=? AND deleted_at IS NULL`, boolToInt(featured), id)
+	if err != nil {
+		return nil, err
+	}
+	if n, _ := res.RowsAffected(); n == 0 {
+		return nil, errors.New("主题不存在")
+	}
+	return s.TopicByID(id, false)
+}
+
+func (s *MySQLStore) SetTopicPinned(id int64, pinned bool) (*domain.Topic, error) {
+	res, err := s.db.Exec(`UPDATE topics SET is_pinned=?,updated_at=NOW() WHERE id=? AND deleted_at IS NULL`, boolToInt(pinned), id)
+	if err != nil {
+		return nil, err
+	}
+	if n, _ := res.RowsAffected(); n == 0 {
+		return nil, errors.New("主题不存在")
+	}
+	return s.TopicByID(id, false)
+}
+
+func (s *MySQLStore) SetTopicStatus(id int64, status int) (*domain.Topic, error) {
+	if status != 0 && status != 1 && status != 3 {
+		return nil, errors.New("主题状态不合法")
+	}
+	res, err := s.db.Exec(`UPDATE topics SET status=?,updated_at=NOW() WHERE id=? AND deleted_at IS NULL`, status, id)
+	if err != nil {
+		return nil, err
+	}
+	if n, _ := res.RowsAffected(); n == 0 {
+		return nil, errors.New("主题不存在")
+	}
+	return s.TopicByID(id, false)
+}
+
+func (s *MySQLStore) SetTopicCommentLocked(id int64, locked bool) (*domain.Topic, error) {
+	res, err := s.db.Exec(`UPDATE topics SET comment_locked=?,updated_at=NOW() WHERE id=? AND deleted_at IS NULL`, boolToInt(locked), id)
+	if err != nil {
+		return nil, err
+	}
+	if n, _ := res.RowsAffected(); n == 0 {
+		return nil, errors.New("主题不存在")
+	}
+	return s.TopicByID(id, false)
+}
+
+func (s *MySQLStore) SetCommentStatus(id int64, status string) (*domain.Comment, error) {
+	status = strings.TrimSpace(status)
+	if status != "normal" && status != "hidden" {
+		return nil, errors.New("评论状态不合法")
+	}
+	c, err := s.commentByID(id)
+	if err != nil {
+		return nil, errors.New("评论不存在")
+	}
+	if status == "hidden" && c.IsBest {
+		return nil, errors.New("最佳答案不能隐藏")
+	}
+	if _, err := s.db.Exec(`UPDATE comments SET status=?,updated_at=NOW() WHERE id=?`, status, id); err != nil {
+		return nil, err
+	}
+	return s.commentByID(id)
+}
+
 // ===== 辅助方法 =====
 
 func scanTopic(row scanner) (*domain.Topic, error) {
 	t := &domain.Topic{}
 	err := row.Scan(&t.ID, &t.CommunityID, &t.CategoryID, &t.UserID, &t.Title, &t.Slug, &t.ContentType,
 		&t.Summary, &t.Content, &t.AISummary, &t.CoverImage, &t.Status, &t.IsPinned, &t.IsFeatured, &t.IsSolved,
-		&t.ViewCount, &t.CommentCount, &t.LikeCount, &t.FavoriteCount, &t.HotScore, &t.LastActiveAt, &t.CreatedAt, &t.UpdatedAt)
+		&t.CommentLocked, &t.ViewCount, &t.CommentCount, &t.LikeCount, &t.FavoriteCount, &t.HotScore, &t.LastActiveAt, &t.CreatedAt, &t.UpdatedAt)
 	return t, err
 }
 
@@ -2636,7 +2915,7 @@ func (s *MySQLStore) scanTopicDetail(row scanner) (*domain.Topic, error) {
 	var rejectReason, offlineReason sql.NullString
 	err := row.Scan(&t.ID, &t.CommunityID, &t.CategoryID, &t.UserID, &t.Title, &t.Slug, &t.ContentType,
 		&t.Summary, &t.Content, &t.AISummary, &t.CoverImage, &t.Status, &t.IsPinned, &t.IsFeatured, &t.IsSolved,
-		&rejectReason, &offlineReason, &t.BestCommentID, &t.ViewCount, &t.CommentCount, &t.LikeCount,
+		&t.CommentLocked, &rejectReason, &offlineReason, &t.BestCommentID, &t.ViewCount, &t.CommentCount, &t.LikeCount,
 		&t.FavoriteCount, &t.HotScore, &t.LastActiveAt, &t.CreatedAt, &t.UpdatedAt)
 	t.RejectReason = rejectReason.String
 	t.OfflineReason = offlineReason.String
@@ -2725,6 +3004,60 @@ func (s *MySQLStore) reactionCount(targetType string, targetID int64) int {
 func (s *MySQLStore) existsByQuery(query string, args ...any) bool {
 	var one int
 	return s.db.QueryRow(query, args...).Scan(&one) == nil
+}
+
+func (s *MySQLStore) reportTargetContext(targetType string, targetID int64) (int64, int64, string, string, error) {
+	switch targetType {
+	case "topic":
+		topic, err := s.TopicByID(targetID, false)
+		if err != nil || topic == nil {
+			return 0, 0, "", "", errors.New("主题不存在")
+		}
+		return topic.CommunityID, topic.ID, topic.Title, firstNonEmptyString(topic.Summary, topic.Content), nil
+	case "comment":
+		comment, err := s.commentByID(targetID)
+		if err != nil || comment.Status == "deleted" {
+			return 0, 0, "", "", errors.New("评论不存在")
+		}
+		topic, err := s.TopicByID(comment.TopicID, false)
+		if err != nil || topic == nil {
+			return 0, 0, "", "", errors.New("主题不存在")
+		}
+		return topic.CommunityID, topic.ID, topic.Title, comment.Content, nil
+	case "user":
+		if s.existsByQuery(`SELECT 1 FROM users WHERE id=? LIMIT 1`, targetID) {
+			return 0, 0, fmt.Sprintf("user#%d", targetID), "", nil
+		}
+		return 0, 0, "", "", errors.New("用户不存在")
+	case "wiki":
+		if s.existsByQuery(`SELECT 1 FROM wiki_pages WHERE id=? LIMIT 1`, targetID) {
+			return 0, 0, fmt.Sprintf("wiki#%d", targetID), "", nil
+		}
+		return 0, 0, "", "", errors.New("Wiki 不存在")
+	default:
+		return 0, 0, "", "", errors.New("举报对象类型不合法")
+	}
+}
+
+func (s *MySQLStore) enrichReport(report *domain.Report) {
+	if report == nil {
+		return
+	}
+	report.ReporterUserID = report.ReporterID
+	if report.CommunityID > 0 {
+		_ = s.db.QueryRow(`SELECT slug,name FROM communities WHERE id=?`, report.CommunityID).Scan(&report.CommunitySlug, &report.CommunityName)
+	}
+	if communityID, topicID, title, content, err := s.reportTargetContext(report.TargetType, report.TargetID); err == nil {
+		if report.CommunityID == 0 {
+			report.CommunityID = communityID
+		}
+		if report.TopicID == 0 {
+			report.TopicID = topicID
+		}
+		report.TargetTitle = title
+		report.TargetContent = content
+	}
+	report.TargetURL = reportTargetURL(report.TargetType, report.TargetID, report.TopicID)
 }
 
 func normalizePage(page, pageSize int) (int, int) {

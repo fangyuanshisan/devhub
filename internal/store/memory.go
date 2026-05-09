@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"sort"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -16,56 +17,66 @@ const TimeLayout = "2006-01-02 15:04:05"
 
 // MemoryStore 是线程安全的内存数据仓储，用于演示环境和本地开发。
 type MemoryStore struct {
-	mu             sync.RWMutex
-	nextPostID     int64
-	nextCommentID  int64
-	nextNoticeID   int64
-	nextLogID      int64
-	nextReactionID int64
-	nextFavoriteID int64
-	nextFollowID   int64
-	nextActivityID int64
-	sites          map[string]domain.Site
-	boards         map[string]domain.Board
-	boardOrder     []string
-	siteOrder      []string
-	posts          map[int64]*domain.Post
-	comments       map[int64]*domain.Comment
-	notices        map[int64]*domain.Notification
-	reactions      map[string]*domain.Reaction
-	favorites      map[string]*domain.Favorite
-	follows        map[string]*domain.Follow
-	activities     map[int64]*domain.Activity
-	users          map[int64]*domain.AdminUser
-	roles          map[int64]domain.AdminRole
-	settings       domain.AdminSettings
-	logs           []domain.AdminLog
+	mu              sync.RWMutex
+	nextPostID      int64
+	nextCommentID   int64
+	nextNoticeID    int64
+	nextLogID       int64
+	nextReactionID  int64
+	nextFavoriteID  int64
+	nextFollowID    int64
+	nextActivityID  int64
+	nextReportID    int64
+	nextModeratorID int64
+	sites           map[string]domain.Site
+	boards          map[string]domain.Board
+	boardOrder      []string
+	siteOrder       []string
+	posts           map[int64]*domain.Post
+	comments        map[int64]*domain.Comment
+	notices         map[int64]*domain.Notification
+	reactions       map[string]*domain.Reaction
+	favorites       map[string]*domain.Favorite
+	follows         map[string]*domain.Follow
+	activities      map[int64]*domain.Activity
+	reports         map[int64]*domain.Report
+	moderators      map[int64]*domain.CommunityModerator
+	commentLocks    map[int64]bool
+	users           map[int64]*domain.AdminUser
+	roles           map[int64]domain.AdminRole
+	settings        domain.AdminSettings
+	logs            []domain.AdminLog
 }
 
 // NewMemoryStore 创建内存仓储并写入演示数据。
 func NewMemoryStore() *MemoryStore {
 	s := &MemoryStore{
-		nextPostID:     1,
-		nextCommentID:  1,
-		nextNoticeID:   1,
-		nextLogID:      1,
-		nextReactionID: 1,
-		nextFavoriteID: 1,
-		nextFollowID:   1,
-		nextActivityID: 1,
-		sites:          map[string]domain.Site{},
-		boards:         map[string]domain.Board{},
-		boardOrder:     []string{"all", "community", "qa", "opensource", "ai", "jobs", "wiki", "docs"},
-		siteOrder:      []string{"php", "go", "java", "ai", "frontend"},
-		posts:          map[int64]*domain.Post{},
-		comments:       map[int64]*domain.Comment{},
-		notices:        map[int64]*domain.Notification{},
-		reactions:      map[string]*domain.Reaction{},
-		favorites:      map[string]*domain.Favorite{},
-		follows:        map[string]*domain.Follow{},
-		activities:     map[int64]*domain.Activity{},
-		users:          map[int64]*domain.AdminUser{},
-		roles:          map[int64]domain.AdminRole{},
+		nextPostID:      1,
+		nextCommentID:   1,
+		nextNoticeID:    1,
+		nextLogID:       1,
+		nextReactionID:  1,
+		nextFavoriteID:  1,
+		nextFollowID:    1,
+		nextActivityID:  1,
+		nextReportID:    1,
+		nextModeratorID: 1,
+		sites:           map[string]domain.Site{},
+		boards:          map[string]domain.Board{},
+		boardOrder:      []string{"all", "community", "qa", "opensource", "ai", "jobs", "wiki", "docs"},
+		siteOrder:       []string{"php", "go", "java", "ai", "frontend"},
+		posts:           map[int64]*domain.Post{},
+		comments:        map[int64]*domain.Comment{},
+		notices:         map[int64]*domain.Notification{},
+		reactions:       map[string]*domain.Reaction{},
+		favorites:       map[string]*domain.Favorite{},
+		follows:         map[string]*domain.Follow{},
+		activities:      map[int64]*domain.Activity{},
+		reports:         map[int64]*domain.Report{},
+		moderators:      map[int64]*domain.CommunityModerator{},
+		commentLocks:    map[int64]bool{},
+		users:           map[int64]*domain.AdminUser{},
+		roles:           map[int64]domain.AdminRole{},
 		settings: domain.AdminSettings{
 			SiteName:          "DevHub",
 			Copyright:         "© 2026 DevHub",
@@ -100,6 +111,8 @@ func (s *MemoryStore) Health() domain.HealthStatus {
 			"boards":        len(s.boards),
 			"posts":         len(s.posts),
 			"comments":      len(s.comments),
+			"reports":       len(s.reports),
+			"moderators":    len(s.moderators),
 			"notifications": len(s.notices),
 			"reactions":     len(s.reactions),
 			"favorites":     len(s.favorites),
@@ -125,11 +138,22 @@ func (s *MemoryStore) seed() {
 	}
 
 	s.roles[1] = domain.AdminRole{ID: 1, Name: "超级管理员", Builtin: true, Description: "拥有所有模块操作权限", Permissions: []string{"*"}, UserCount: 1}
-	s.roles[2] = domain.AdminRole{ID: 2, Name: "运营管理员", Builtin: true, Description: "负责内容运营、数据查看、通知推送", Permissions: []string{"content:*", "operation:*", "statistics:read"}, UserCount: 2}
-	s.roles[3] = domain.AdminRole{ID: 3, Name: "内容审核员", Builtin: true, Description: "负责帖子和评论审核、违规处理", Permissions: []string{"content:read", "content:audit", "comment:*"}, UserCount: 1}
+	s.roles[2] = domain.AdminRole{ID: 2, Name: "站点管理员", Builtin: true, Description: "负责授权子站的内容和举报治理", Permissions: []string{"dashboard.read", "post.read", "post.create", "post.update", "post.delete", "topic.moderate", "comment.read", "comment.moderate", "report.read", "report.handle", "notification.write", "log.read"}, UserCount: 1}
+	s.roles[3] = domain.AdminRole{ID: 3, Name: "内容审核员", Builtin: true, Description: "负责授权子站的内容审核和评论治理", Permissions: []string{"dashboard.read", "post.read", "post.update", "topic.moderate", "comment.read", "comment.moderate", "report.read", "report.handle"}, UserCount: 1}
 	s.users[1] = &domain.AdminUser{ID: 1, Username: "admin", Nickname: "超级管理员", Avatar: "", Phone: "13800000001", Email: "admin@devhub.local", Status: "normal", RoleID: 1, RoleName: "超级管理员", CreatedAt: "2026-04-01 09:00:00", LastLoginAt: "2026-05-06 09:30:00"}
 	s.users[2] = &domain.AdminUser{ID: 2, Username: "operator", Nickname: "运营管理员", Avatar: "", Phone: "13800000002", Email: "operator@devhub.local", Status: "normal", RoleID: 2, RoleName: "运营管理员", CreatedAt: "2026-04-08 09:00:00", LastLoginAt: "2026-05-05 18:20:00"}
 	s.users[3] = &domain.AdminUser{ID: 3, Username: "auditor", Nickname: "内容审核员", Avatar: "", Phone: "13800000003", Email: "auditor@devhub.local", Status: "normal", RoleID: 3, RoleName: "内容审核员", CreatedAt: "2026-04-12 09:00:00", LastLoginAt: "2026-05-06 10:12:00"}
+	for _, moderator := range []domain.CommunityModerator{
+		{CommunityID: 1, UserID: 2, Role: "moderator", Status: 1},
+		{CommunityID: 2, UserID: 3, Role: "moderator", Status: 1},
+	} {
+		moderator.ID = s.nextModeratorID
+		s.nextModeratorID++
+		moderator.CreatedAt = Now()
+		moderator.UpdatedAt = moderator.CreatedAt
+		cp := moderator
+		s.moderators[cp.ID] = &cp
+	}
 
 	seedPosts := []domain.Post{
 		{Site: "php", Board: "community", Title: "Laravel 社区系统如何设计积分和通知？", Summary: "从用户行为、积分流水、通知触发器、异步队列几个角度拆解社区积分系统。", Author: "LaravelChen", Views: 2380, Likes: 128, Comments: 0, CreatedAt: "2026-05-01 09:00:00", Tags: []string{"Laravel", "积分", "通知"}, Content: "一个社区系统的积分与通知不应该散落在业务代码中，而应该通过事件、积分规则表、通知模板和队列消费组合起来。"},
@@ -222,6 +246,41 @@ func memoryHotScoreWithFavorites(p *domain.Post, favoriteCount int) int {
 		return 0
 	}
 	return p.Views + p.Comments*5 + p.Likes*3 + favoriteCount*4
+}
+
+func memoryPostVisible(p *domain.Post) bool {
+	if p == nil {
+		return false
+	}
+	switch strings.TrimSpace(p.Status) {
+	case "", "publish", "published", "normal":
+		return true
+	default:
+		return false
+	}
+}
+
+func memoryTopicStatus(p *domain.Post) int {
+	if memoryPostVisible(p) {
+		return 1
+	}
+	if p != nil && strings.TrimSpace(p.Status) == "deleted" {
+		return 3
+	}
+	return 0
+}
+
+func memorySetPostStatus(p *domain.Post, status int) {
+	if p == nil {
+		return
+	}
+	if status == 1 {
+		p.Status = "publish"
+	} else if status == 3 {
+		p.Status = "deleted"
+	} else {
+		p.Status = "hidden"
+	}
 }
 
 func (s *MemoryStore) hotScoreLocked(p *domain.Post) int {
@@ -356,12 +415,23 @@ func (s *MemoryStore) AdminLogin(account, password string) (*domain.AdminSession
 		u.LastLoginAt = Now()
 		s.appendLogLocked("login", u.Username, "管理员登录", "后台系统", "127.0.0.1")
 		token := fmt.Sprintf("devhub-admin-%d", u.ID)
+		auth := s.memoryAuthUserLocked(u.ID)
 		return &domain.AdminSession{
 			Token:        token,
 			AccessToken:  token,
 			RefreshToken: token + "-refresh",
 			ExpiresIn:    int64(accessTokenTTL.Seconds()),
-			User:         domain.AdminLoginUser{ID: u.ID, Username: u.Username, Nickname: u.Nickname, Role: u.RoleName, RoleCode: "super_admin", Sites: []string{"*"}, Permissions: []string{"*"}},
+			User: domain.AdminLoginUser{
+				ID:          auth.ID,
+				Username:    auth.Username,
+				Nickname:    auth.Nickname,
+				Email:       auth.Email,
+				Phone:       auth.Phone,
+				Role:        auth.RoleName,
+				RoleCode:    auth.RoleCode,
+				Sites:       auth.Sites,
+				Permissions: auth.Permissions,
+			},
 		}, nil
 	}
 	return nil, errors.New("账号或密码错误")
@@ -381,7 +451,59 @@ func (s *MemoryStore) AuthUser(accessToken string) (*domain.AuthUser, error) {
 	if !strings.HasPrefix(accessToken, "devhub-admin-") {
 		return nil, errors.New("token 无效")
 	}
-	return &domain.AuthUser{ID: 1, Username: "admin", Nickname: "超级管理员", Status: "normal", RoleCode: "super_admin", RoleName: "超级管理员", Sites: []string{"*"}, Permissions: []string{"*"}}, nil
+	id, err := parseMemoryTokenUserID(accessToken)
+	if err != nil {
+		return nil, errors.New("token 无效")
+	}
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	user := s.memoryAuthUserLocked(id)
+	if user.ID == 0 {
+		return nil, errors.New("用户不存在")
+	}
+	return &user, nil
+}
+
+func parseMemoryTokenUserID(token string) (int64, error) {
+	token = strings.TrimPrefix(strings.TrimSpace(token), "devhub-admin-")
+	token = strings.TrimSuffix(token, "-refresh")
+	return strconv.ParseInt(token, 10, 64)
+}
+
+func (s *MemoryStore) memoryAuthUserLocked(userID int64) domain.AuthUser {
+	u, ok := s.users[userID]
+	if !ok {
+		return domain.AuthUser{}
+	}
+	roleCode := "user"
+	sites := []string{}
+	switch u.RoleID {
+	case 1:
+		roleCode = "super_admin"
+		sites = []string{"*"}
+	case 2:
+		roleCode = "site_admin"
+		sites = []string{"php"}
+	case 3:
+		roleCode = "moderator"
+		sites = []string{"go"}
+	}
+	perms := []string{}
+	if role, ok := s.roles[u.RoleID]; ok {
+		perms = append(perms, role.Permissions...)
+	}
+	return domain.AuthUser{
+		ID:          u.ID,
+		Username:    u.Username,
+		Nickname:    u.Nickname,
+		Email:       u.Email,
+		Phone:       u.Phone,
+		Status:      u.Status,
+		RoleCode:    roleCode,
+		RoleName:    u.RoleName,
+		Sites:       sites,
+		Permissions: perms,
+	}
 }
 
 // GetSite 按 key 获取站点配置。
@@ -547,6 +669,9 @@ func (s *MemoryStore) ListPosts(site, board, q, tag string) []domain.Post {
 	tag = strings.ToLower(strings.TrimSpace(tag))
 	out := make([]domain.Post, 0)
 	for _, p := range s.posts {
+		if !memoryPostVisible(p) {
+			continue
+		}
 		if site != "" && site != "portal" && p.Site != site {
 			continue
 		}
@@ -561,6 +686,7 @@ func (s *MemoryStore) ListPosts(site, board, q, tag string) []domain.Post {
 		}
 		cp := *p
 		cp.Tags = append([]string(nil), p.Tags...)
+		cp.CommentLocked = s.commentLocks[p.ID]
 		out = append(out, cp)
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i].ID > out[j].ID })
@@ -572,7 +698,7 @@ func (s *MemoryStore) GetPost(id int64, increaseView bool) (*domain.Post, bool) 
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	p, ok := s.posts[id]
-	if !ok {
+	if !ok || !memoryPostVisible(p) {
 		return nil, false
 	}
 	if increaseView {
@@ -580,6 +706,7 @@ func (s *MemoryStore) GetPost(id int64, increaseView bool) (*domain.Post, bool) 
 	}
 	cp := *p
 	cp.Tags = append([]string(nil), p.Tags...)
+	cp.CommentLocked = s.commentLocks[p.ID]
 	return &cp, true
 }
 
@@ -1159,6 +1286,36 @@ func (s *MemoryStore) AdminComments(site string) []domain.AdminComment {
 	return out
 }
 
+// AdminTopics 返回后台内容列表，包含隐藏内容。
+func (s *MemoryStore) AdminTopics(site, board, q string) []domain.Post {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	site = strings.TrimSpace(site)
+	board = strings.TrimSpace(board)
+	q = strings.ToLower(strings.TrimSpace(q))
+	out := make([]domain.Post, 0, len(s.posts))
+	for _, p := range s.posts {
+		if site != "" && site != "portal" && p.Site != site {
+			continue
+		}
+		if board != "" && board != "all" && p.Board != board {
+			continue
+		}
+		if q != "" && !postContains(p, q) {
+			continue
+		}
+		cp := *p
+		cp.Tags = append([]string(nil), p.Tags...)
+		cp.CommentLocked = s.commentLocks[p.ID]
+		if !memoryPostVisible(p) {
+			cp.Status = "offline"
+		}
+		out = append(out, cp)
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].ID > out[j].ID })
+	return out
+}
+
 // UpdateCommentStatus 更新评论审核状态。
 func (s *MemoryStore) UpdateCommentStatus(id int64, status string) bool {
 	s.mu.Lock()
@@ -1335,6 +1492,9 @@ func sortTopicsForSearch(topics []domain.Topic, sortBy string) {
 		})
 	default:
 		sort.Slice(topics, func(i, j int) bool {
+			if topics[i].IsPinned != topics[j].IsPinned {
+				return topics[i].IsPinned
+			}
 			if topics[i].CreatedAt == topics[j].CreatedAt {
 				return topics[i].ID > topics[j].ID
 			}
@@ -1374,6 +1534,25 @@ func categoryIDForBoard(communityID int64, board string) int64 {
 		return order[board]
 	}
 	return communityID*100 + order[board]
+}
+
+func boardByCategoryID(categoryID int64) string {
+	order := map[int64]string{
+		1: "community",
+		2: "qa",
+		3: "opensource",
+		4: "ai",
+		5: "jobs",
+		6: "wiki",
+		7: "docs",
+	}
+	if categoryID > 100 {
+		categoryID = categoryID % 100
+	}
+	if board := order[categoryID]; board != "" {
+		return board
+	}
+	return "community"
 }
 
 func siteByCommunityID(communityID int64) string {
@@ -1565,6 +1744,7 @@ func (s *MemoryStore) topicFromPostLocked(id int64, increaseView bool) (domain.T
 	if !ok {
 		return domain.Topic{}, false
 	}
+	status := memoryTopicStatus(p)
 	if increaseView {
 		p.Views++
 	}
@@ -1583,10 +1763,11 @@ func (s *MemoryStore) topicFromPostLocked(id int64, increaseView bool) (domain.T
 		ContentType:   contentTypeForBoard(p.Board),
 		Summary:       p.Summary,
 		Content:       p.Content,
-		Status:        1,
+		Status:        status,
 		IsPinned:      p.Pinned,
 		IsFeatured:    p.Recommended,
 		IsSolved:      s.topicIsSolvedLocked(p),
+		CommentLocked: s.commentLocks[p.ID],
 		BestCommentID: s.bestCommentIDLocked(p.ID),
 		ViewCount:     p.Views,
 		CommentCount:  p.Comments,
@@ -1911,6 +2092,9 @@ func (s *MemoryStore) TopicsByFilter(communityID, categoryID int64, contentType,
 	// 从 posts 转换为 topics
 	topics := []domain.Topic{}
 	for _, p := range s.posts {
+		if !memoryPostVisible(p) {
+			continue
+		}
 		favoriteCount := s.favoriteCountLocked("topic", p.ID)
 		topic := domain.Topic{
 			ID:            p.ID,
@@ -1921,10 +2105,11 @@ func (s *MemoryStore) TopicsByFilter(communityID, categoryID int64, contentType,
 			ContentType:   contentTypeForBoard(p.Board),
 			Summary:       p.Summary,
 			Content:       p.Content,
-			Status:        1,
+			Status:        memoryTopicStatus(p),
 			IsPinned:      p.Pinned,
 			IsFeatured:    p.Recommended,
 			IsSolved:      s.topicIsSolvedLocked(p),
+			CommentLocked: s.commentLocks[p.ID],
 			BestCommentID: s.bestCommentIDLocked(p.ID),
 			ViewCount:     p.Views,
 			CommentCount:  p.Comments,
@@ -1955,6 +2140,9 @@ func (s *MemoryStore) TopicsByFilter(communityID, categoryID int64, contentType,
 			continue
 		}
 		if isSolved != nil && (t.ContentType != "question" || t.IsSolved != *isSolved) {
+			continue
+		}
+		if sortBy == "featured" && !t.IsFeatured {
 			continue
 		}
 		if tag != "" && !hasTag(t.Tags, tag) {
@@ -2112,6 +2300,10 @@ func (s *MemoryStore) SearchTopics(req domain.SearchRequest) ([]domain.Topic, in
 
 	all := make([]domain.Topic, 0, len(s.posts))
 	for _, p := range s.posts {
+		if !memoryPostVisible(p) {
+			continue
+		}
+		status := memoryTopicStatus(p)
 		communityID := communityIDBySite(p.Site)
 		favoriteCount := s.favoriteCountLocked("topic", p.ID)
 		topic := domain.Topic{
@@ -2123,10 +2315,11 @@ func (s *MemoryStore) SearchTopics(req domain.SearchRequest) ([]domain.Topic, in
 			ContentType:   contentTypeForBoard(p.Board),
 			Summary:       p.Summary,
 			Content:       p.Content,
-			Status:        1,
+			Status:        status,
 			IsPinned:      p.Pinned,
 			IsFeatured:    p.Recommended,
 			IsSolved:      s.topicIsSolvedLocked(p),
+			CommentLocked: s.commentLocks[p.ID],
 			BestCommentID: s.bestCommentIDLocked(p.ID),
 			ViewCount:     p.Views,
 			CommentCount:  p.Comments,
@@ -2602,6 +2795,19 @@ func (s *MemoryStore) TopicComments(topicID int64, sortBy string, page, pageSize
 	return s.commentsTreeLocked(topicID, sortBy, page, pageSize)
 }
 
+// CommentByID 返回评论详情。
+func (s *MemoryStore) CommentByID(id int64) (*domain.Comment, error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	c, ok := s.comments[id]
+	if !ok || c.Status == "deleted" {
+		return nil, errors.New("评论不存在")
+	}
+	cp := *c
+	s.normalizeCommentLocked(&cp)
+	return &cp, nil
+}
+
 func (s *MemoryStore) CreateComment(topicID int64, author string, text string, parentID int64) (*domain.Comment, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -2672,6 +2878,12 @@ func (s *MemoryStore) CreateCommentWithRequest(topicID int64, req domain.CreateC
 	p, ok := s.posts[topicID]
 	if !ok {
 		return nil, errors.New("主题不存在")
+	}
+	if !memoryPostVisible(p) {
+		return nil, errors.New("主题已隐藏")
+	}
+	if s.commentLocks[topicID] {
+		return nil, errors.New("评论已锁定")
 	}
 	to := ""
 	replyToUserID := int64(0)
@@ -2745,4 +2957,329 @@ func (s *MemoryStore) AcceptBestAnswer(topicID int64, commentID int64, actorUser
 	}
 	s.createUserNoticeLocked(receiverID, actorUserID, "answer_accepted", "comment", commentID, topicID, commentID, "你的回答被采纳", fmt.Sprintf("你在《%s》中的回答被采纳为最佳答案。", p.Title))
 	return true
+}
+
+// CreateReport 创建举报记录。
+func (s *MemoryStore) CreateReport(req domain.CreateReportRequest) (*domain.Report, error) {
+	reporterID := req.ReporterUserID
+	if reporterID <= 0 {
+		reporterID = 1
+	}
+	targetType := strings.TrimSpace(req.TargetType)
+	if !validReportTargetType(targetType) {
+		return nil, errors.New("举报对象类型不合法")
+	}
+	reasonType := strings.TrimSpace(req.ReasonType)
+	if reasonType == "" {
+		return nil, errors.New("举报原因不能为空")
+	}
+	reasonText := strings.TrimSpace(req.ReasonText)
+	if len([]rune(reasonText)) > 500 {
+		return nil, errors.New("举报说明最多 500 字")
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	communityID, topicID, title, content, err := s.reportTargetContextLocked(targetType, req.TargetID)
+	if err != nil {
+		return nil, err
+	}
+	now := Now()
+	report := &domain.Report{
+		ID:             s.nextReportID,
+		ReporterID:     reporterID,
+		ReporterUserID: reporterID,
+		TargetType:     targetType,
+		TargetID:       req.TargetID,
+		CommunityID:    communityID,
+		TopicID:        topicID,
+		ReasonType:     reasonType,
+		ReasonText:     reasonText,
+		Status:         "pending",
+		TargetTitle:    title,
+		TargetContent:  content,
+		TargetURL:      reportTargetURL(targetType, req.TargetID, topicID),
+		CreatedAt:      now,
+		UpdatedAt:      now,
+	}
+	s.nextReportID++
+	s.enrichReportLocked(report)
+	s.reports[report.ID] = report
+	cp := *report
+	return &cp, nil
+}
+
+// Reports 返回后台举报列表。
+func (s *MemoryStore) Reports(filter domain.ReportFilter) ([]domain.Report, int) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	items := []domain.Report{}
+	for _, report := range s.reports {
+		if filter.Status != "" && filter.Status != "all" && report.Status != filter.Status {
+			continue
+		}
+		if filter.TargetType != "" && filter.TargetType != "all" && report.TargetType != filter.TargetType {
+			continue
+		}
+		if filter.CommunityID > 0 && report.CommunityID != filter.CommunityID {
+			continue
+		}
+		if !filter.ActorIsAdmin && !s.isCommunityModeratorLocked(filter.ActorUserID, report.CommunityID) {
+			continue
+		}
+		cp := *report
+		s.enrichReportLocked(&cp)
+		items = append(items, cp)
+	}
+	sort.Slice(items, func(i, j int) bool { return items[i].ID > items[j].ID })
+	total := len(items)
+	page, pageSize := normalizeMemoryPage(filter.Page, filter.PageSize)
+	start := (page - 1) * pageSize
+	if start >= len(items) {
+		return []domain.Report{}, total
+	}
+	end := start + pageSize
+	if end > len(items) {
+		end = len(items)
+	}
+	return items[start:end], total
+}
+
+// ReportByID 返回举报详情。
+func (s *MemoryStore) ReportByID(id int64) (*domain.Report, error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	report, ok := s.reports[id]
+	if !ok {
+		return nil, errors.New("举报不存在")
+	}
+	cp := *report
+	s.enrichReportLocked(&cp)
+	return &cp, nil
+}
+
+// HandleReport 处理举报。
+func (s *MemoryStore) HandleReport(id int64, status, note string, handlerUserID int64) (*domain.Report, error) {
+	status = strings.TrimSpace(status)
+	if status != "accepted" && status != "rejected" {
+		return nil, errors.New("处理状态不合法")
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	report, ok := s.reports[id]
+	if !ok {
+		return nil, errors.New("举报不存在")
+	}
+	if status == "accepted" {
+		if err := s.hideReportTargetLocked(report); err != nil {
+			return nil, err
+		}
+	}
+	report.Status = status
+	report.HandledBy = handlerUserID
+	report.HandledAt = Now()
+	report.HandleNote = strings.TrimSpace(note)
+	report.UpdatedAt = report.HandledAt
+	s.enrichReportLocked(report)
+	cp := *report
+	return &cp, nil
+}
+
+// IsCommunityModerator 判断用户是否为子站版主。
+func (s *MemoryStore) IsCommunityModerator(userID, communityID int64) bool {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.isCommunityModeratorLocked(userID, communityID)
+}
+
+func (s *MemoryStore) SetTopicFeatured(id int64, featured bool) (*domain.Topic, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	p, ok := s.posts[id]
+	if !ok {
+		return nil, errors.New("主题不存在")
+	}
+	p.Recommended = featured
+	p.UpdatedAt = Now()
+	topic, _ := s.topicFromPostLocked(id, false)
+	return &topic, nil
+}
+
+func (s *MemoryStore) SetTopicPinned(id int64, pinned bool) (*domain.Topic, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	p, ok := s.posts[id]
+	if !ok {
+		return nil, errors.New("主题不存在")
+	}
+	p.Pinned = pinned
+	p.UpdatedAt = Now()
+	topic, _ := s.topicFromPostLocked(id, false)
+	return &topic, nil
+}
+
+func (s *MemoryStore) SetTopicStatus(id int64, status int) (*domain.Topic, error) {
+	if status != 0 && status != 1 && status != 3 {
+		return nil, errors.New("主题状态不合法")
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	p, ok := s.posts[id]
+	if !ok {
+		return nil, errors.New("主题不存在")
+	}
+	memorySetPostStatus(p, status)
+	p.UpdatedAt = Now()
+	topic, _ := s.topicFromPostLocked(id, false)
+	return &topic, nil
+}
+
+func (s *MemoryStore) SetTopicCommentLocked(id int64, locked bool) (*domain.Topic, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	p, ok := s.posts[id]
+	if !ok {
+		return nil, errors.New("主题不存在")
+	}
+	s.commentLocks[id] = locked
+	p.UpdatedAt = Now()
+	topic, _ := s.topicFromPostLocked(id, false)
+	return &topic, nil
+}
+
+func (s *MemoryStore) SetCommentStatus(id int64, status string) (*domain.Comment, error) {
+	status = strings.TrimSpace(status)
+	if status != "normal" && status != "hidden" {
+		return nil, errors.New("评论状态不合法")
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	c, ok := s.comments[id]
+	if !ok || c.Status == "deleted" {
+		return nil, errors.New("评论不存在")
+	}
+	if status == "hidden" && c.IsBest {
+		return nil, errors.New("最佳答案不能隐藏")
+	}
+	c.Status = status
+	c.UpdatedAt = Now()
+	cp := *c
+	s.normalizeCommentLocked(&cp)
+	return &cp, nil
+}
+
+func (s *MemoryStore) reportTargetContextLocked(targetType string, targetID int64) (int64, int64, string, string, error) {
+	switch targetType {
+	case "topic":
+		p, ok := s.posts[targetID]
+		if !ok {
+			return 0, 0, "", "", errors.New("主题不存在")
+		}
+		return communityIDBySite(p.Site), p.ID, p.Title, firstNonEmptyString(p.Summary, p.Content), nil
+	case "comment":
+		c, ok := s.comments[targetID]
+		if !ok || c.Status == "deleted" {
+			return 0, 0, "", "", errors.New("评论不存在")
+		}
+		p, ok := s.posts[c.PostID]
+		if !ok {
+			return 0, 0, "", "", errors.New("主题不存在")
+		}
+		return communityIDBySite(p.Site), p.ID, p.Title, c.Content, nil
+	case "user", "wiki":
+		return 0, 0, fmt.Sprintf("%s#%d", targetType, targetID), "", nil
+	default:
+		return 0, 0, "", "", errors.New("举报对象类型不合法")
+	}
+}
+
+func (s *MemoryStore) enrichReportLocked(report *domain.Report) {
+	if report == nil {
+		return
+	}
+	report.ReporterUserID = report.ReporterID
+	if report.CommunityID > 0 {
+		comm := s.communityByIDLocked(report.CommunityID)
+		report.CommunitySlug = comm.Slug
+		report.CommunityName = comm.Name
+	}
+	if report.TargetTitle == "" || report.TargetContent == "" {
+		if communityID, topicID, title, content, err := s.reportTargetContextLocked(report.TargetType, report.TargetID); err == nil {
+			if report.CommunityID == 0 {
+				report.CommunityID = communityID
+			}
+			if report.TopicID == 0 {
+				report.TopicID = topicID
+			}
+			report.TargetTitle = title
+			report.TargetContent = content
+		}
+	}
+	report.TargetURL = reportTargetURL(report.TargetType, report.TargetID, report.TopicID)
+}
+
+func (s *MemoryStore) hideReportTargetLocked(report *domain.Report) error {
+	switch report.TargetType {
+	case "topic":
+		if p, ok := s.posts[report.TargetID]; ok {
+			memorySetPostStatus(p, 0)
+			p.UpdatedAt = Now()
+			return nil
+		}
+	case "comment":
+		if c, ok := s.comments[report.TargetID]; ok {
+			if c.IsBest {
+				return errors.New("最佳答案不能隐藏")
+			}
+			c.Status = "hidden"
+			c.UpdatedAt = Now()
+			return nil
+		}
+	}
+	return nil
+}
+
+func (s *MemoryStore) isCommunityModeratorLocked(userID, communityID int64) bool {
+	if userID <= 0 || communityID <= 0 {
+		return false
+	}
+	for _, moderator := range s.moderators {
+		if moderator.UserID == userID && moderator.CommunityID == communityID && moderator.Status == 1 {
+			return true
+		}
+	}
+	return false
+}
+
+func validReportTargetType(targetType string) bool {
+	switch targetType {
+	case "topic", "comment", "user", "wiki":
+		return true
+	default:
+		return false
+	}
+}
+
+func reportTargetURL(targetType string, targetID, topicID int64) string {
+	switch targetType {
+	case "topic":
+		return fmt.Sprintf("/topics/%d/", targetID)
+	case "comment":
+		if topicID > 0 {
+			return fmt.Sprintf("/topics/%d/#comment-%d", topicID, targetID)
+		}
+	}
+	return "/"
+}
+
+func normalizeMemoryPage(page, pageSize int) (int, int) {
+	if page <= 0 {
+		page = 1
+	}
+	if pageSize <= 0 {
+		pageSize = 20
+	}
+	if pageSize > 50 {
+		pageSize = 50
+	}
+	return page, pageSize
 }

@@ -205,6 +205,117 @@ curl "http://127.0.0.1:8090/api/v1/topics?sort=unsolved"
 - 搜索页 `/search?sort=unsolved` 显示未解决问答。
 - 搜索页、子站页、首页卡片对 question 显示“未解决 / 已解决”、回答数和最后活跃时间。
 
+## 第七轮举报和治理
+
+举报 Topic：
+
+```bash
+curl -X POST "http://127.0.0.1:8090/api/v1/reports" \
+  -H "Content-Type: application/json" \
+  -d '{"target_type":"topic","target_id":1,"reason_type":"spam","reason_text":"测试举报"}'
+```
+
+举报 Comment：
+
+```bash
+curl -X POST "http://127.0.0.1:8090/api/v1/reports" \
+  -H "Content-Type: application/json" \
+  -d '{"target_type":"comment","target_id":1,"reason_type":"abuse","reason_text":"测试评论举报"}'
+```
+
+应验证：
+
+- 成功返回 `report.status=pending`。
+- 非法 `target_type`、不存在 `target_id`、空 `reason_type`、超过 500 字说明会返回明确错误。
+- Topic 详情页有举报入口，评论区每条评论有举报入口。
+- 举报成功前台显示提示，失败显示错误且不白屏。
+
+后台登录获取 token：
+
+```bash
+curl -X POST "http://127.0.0.1:8090/api/v1/admin/login" \
+  -H "Content-Type: application/json" \
+  -d '{"account":"admin","password":"admin123"}'
+```
+
+举报管理：
+
+```bash
+curl "http://127.0.0.1:8090/api/v1/admin/reports" \
+  -H "Authorization: Bearer <token>"
+
+curl -X POST "http://127.0.0.1:8090/api/v1/admin/reports/1/handle" \
+  -H "Authorization: Bearer <token>" \
+  -H "Content-Type: application/json" \
+  -d '{"status":"accepted","handle_note":"确认违规，已隐藏目标内容"}'
+```
+
+应验证：
+
+- 管理员可以查看和处理全部举报。
+- PHP 版主 user 2 只能处理 PHP 子站举报，Go 版主 user 3 只能处理 Go 子站举报。
+- 无子站归属的 user/wiki 举报只有管理员可处理。
+- `accepted` 会隐藏目标 topic 或 comment；`rejected` 只更新举报状态。
+- 目标评论是最佳答案时，接受举报会被拒绝并保持原状态。
+
+Topic 治理：
+
+```bash
+curl -X POST "http://127.0.0.1:8090/api/v1/admin/topics/1/feature" -H "Authorization: Bearer <token>"
+curl -X POST "http://127.0.0.1:8090/api/v1/admin/topics/1/pin" -H "Authorization: Bearer <token>"
+curl -X POST "http://127.0.0.1:8090/api/v1/admin/topics/1/lock-comments" -H "Authorization: Bearer <token>"
+curl -X POST "http://127.0.0.1:8090/api/v1/admin/topics/1/unlock-comments" -H "Authorization: Bearer <token>"
+curl -X POST "http://127.0.0.1:8090/api/v1/admin/topics/1/hide" -H "Authorization: Bearer <token>"
+curl -X POST "http://127.0.0.1:8090/api/v1/admin/topics/1/restore" -H "Authorization: Bearer <token>"
+```
+
+应验证：
+
+- `feature` / `pin` 是 toggle，再次调用可取消。
+- 精华内容可通过 `GET /api/v1/search/topics?sort=featured` 和 `/search?sort=featured` 查询。
+- 置顶内容在普通列表中优先展示，并显示“置顶”。
+- 隐藏后普通 `GET /api/v1/topics`、`GET /api/v1/search/topics` 不再返回该 Topic。
+- 隐藏后 `/sitemap.xml` 不包含该 Topic。
+- 恢复后普通列表、搜索和 sitemap 可再次出现。
+
+评论锁定：
+
+```bash
+curl -X POST "http://127.0.0.1:8090/api/v1/admin/topics/1/lock-comments" -H "Authorization: Bearer <token>"
+curl -X POST "http://127.0.0.1:8090/api/v1/topics/1/comments" \
+  -H "Content-Type: application/json" \
+  -d '{"content":"锁定后这条评论应被拒绝"}'
+curl -X POST "http://127.0.0.1:8090/api/v1/admin/topics/1/unlock-comments" -H "Authorization: Bearer <token>"
+```
+
+应验证：
+
+- 锁定后后端返回 `评论已锁定`。
+- 锁定后回复评论同样被拒绝。
+- 前台详情页显示“评论已锁定”，提交入口禁用。
+- 解锁后普通评论和回复恢复可用。
+
+Comment 治理：
+
+```bash
+curl -X POST "http://127.0.0.1:8090/api/v1/admin/comments/1/hide" -H "Authorization: Bearer <token>"
+curl "http://127.0.0.1:8090/api/v1/topics/1/comments"
+curl -X POST "http://127.0.0.1:8090/api/v1/admin/comments/1/restore" -H "Authorization: Bearer <token>"
+```
+
+应验证：
+
+- 隐藏评论后普通评论列表不返回该评论。
+- 恢复后评论重新出现在普通评论列表。
+- 隐藏最佳答案返回 `最佳答案不能隐藏`。
+
+后台页面：
+
+- `/admin-next` 可打开。
+- `/admin-next/reports` 可打开并显示举报列表。
+- 内容管理的更多菜单包含精华、置顶、隐藏 / 恢复、锁定 / 解锁评论。
+- 评论管理包含隐藏 / 恢复评论入口。
+
 ## 我的页面和通知
 
 接口：
@@ -241,7 +352,19 @@ curl -s http://127.0.0.1:8090/robots.txt
 - 评论区可以运行时加载，评论内容和最佳答案本轮不强制进入初始 HTML。
 - 新发布 Topic、新评论、采纳答案后，不需要重新 build。
 - `/sitemap.xml` 包含已发布 Topic。
+- `/sitemap.xml` 不包含 `status=0` 隐藏 Topic。
 - `/robots.txt` 不屏蔽必要 CSS / JS / 图片资源。
+
+隐藏 Topic SEO：
+
+```bash
+curl -X POST "http://127.0.0.1:8090/api/v1/admin/topics/1/hide" -H "Authorization: Bearer <token>"
+curl -s http://127.0.0.1:8090/topics/1/ | rg '内容已隐藏|noindex'
+curl -s http://127.0.0.1:8090/sitemap.xml | rg '/topics/1/' || true
+curl -X POST "http://127.0.0.1:8090/api/v1/admin/topics/1/restore" -H "Authorization: Bearer <token>"
+```
+
+应验证：隐藏详情页仍由 Go 动态输出，不退化为纯 CSR；页面不输出原正文，包含 `noindex,follow`。
 
 ## Memory / MySQL 模式
 
@@ -262,6 +385,10 @@ MySQL 模式应验证：
 - `comment_count`、`last_active_at`、`hot_score`、`is_solved`、`best_comment_id` 正确。
 - 评论创建和采纳事务失败时不应留下半更新状态。
 - 分页 total 不因 replies join 重复。
+- `reports` 和 `community_moderators` 读写、举报分页、举报处理、版主权限判断可用。
+- Topic 精华、置顶、隐藏、恢复、评论锁定字段更新正确。
+- Comment 隐藏、恢复字段更新正确。
+- 普通列表、搜索、评论列表过滤隐藏内容。
 - 兼容 MySQL 8。
 
 ## 数据结构回归
@@ -279,6 +406,14 @@ MySQL 模式应验证：
 - `topics.last_active_at`
 - `topics.is_solved`
 - `topics.best_comment_id`
+- `topics.is_pinned`
+- `topics.is_featured`
+- `topics.status`
+- `topics.comment_locked`
+- `reports.community_id`
+- `reports.topic_id`
+- `reports.handle_note`
+- `community_moderators.community_id/user_id/role/status`
 - `activities.topic_id`
 - `notifications.actor_user_id/type/target_type/target_id/topic_id/comment_id/read_at`
 
@@ -287,7 +422,7 @@ MySQL 模式应验证：
 - 评论点赞入口没有纳入第六轮，只保留旧 `POST /api/v1/comments/:id/like` 和字段。
 - 采纳支持更换最佳答案，暂不支持取消已解决状态。
 - 最佳答案当前通过详情页运行时评论区展示，不进入初始 SEO HTML。
-- 举报、版主治理、评论锁定后续轮次实现。
+- 版主管理 CRUD、批量治理、举报频率限制后续轮次实现。
 
 ## 第六轮接口实测记录
 

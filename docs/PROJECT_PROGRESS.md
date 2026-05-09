@@ -15,7 +15,7 @@ DevHub 当前是 “Go API + Astro 前台 + Vue 后台” 的多子站社区 CMS
 后台：http://127.0.0.1:8090/admin-next
 ```
 
-首页、子站页、搜索页和用户中心使用 Astro 静态壳 + 运行时 API；Topic 详情页 `/topics/:id` 仍由 Go 动态输出 SEO HTML。第五轮互动闭环已完成基础实现：点赞、收藏、关注、我的收藏、我的关注、我的动态、通知列表和已读逻辑在 MemoryStore 与 MySQLStore 中均可用。第六轮已完成评论列表、发表评论、回复评论、问答采纳、未解决筛选、评论动态和评论通知的基础闭环。
+首页、子站页、搜索页和用户中心使用 Astro 静态壳 + 运行时 API；Topic 详情页 `/topics/:id` 仍由 Go 动态输出 SEO HTML。第五轮互动闭环已完成基础实现：点赞、收藏、关注、我的收藏、我的关注、我的动态、通知列表和已读逻辑在 MemoryStore 与 MySQLStore 中均可用。第六轮已完成评论列表、发表评论、回复评论、问答采纳、未解决筛选、评论动态和评论通知的基础闭环。第七轮已完成举报、版主范围治理、精华、置顶、隐藏、评论锁定和后台最小治理入口。
 
 ## 近期迭代摘要
 
@@ -27,6 +27,7 @@ DevHub 当前是 “Go API + Astro 前台 + Vue 后台” 的多子站社区 CMS
 - 前台登录完善：首页登录/注册接入 `/api/v1/auth/*`，导航支持会话恢复、refresh token 刷新和退出登录。
 - 第五轮互动联动：补齐点赞、收藏、关注、我的收藏、我的关注、我的动态、通知中心和详情页互动状态；新增用户中心页面入口。
 - 第六轮评论问答：补齐 `GET/POST /api/v1/topics/:id/comments`、回复、采纳最佳答案、`sort=unsolved` 未解决筛选、`commented/accepted_answer` 动态和 `topic_commented/comment_replied/answer_accepted` 通知。
+- 第七轮社区治理：补齐 topic/comment 举报、举报后台处理、版主子站权限、精华、置顶、隐藏、恢复、评论锁定、评论隐藏和 sitemap 隐藏过滤。
 
 ## 第五轮互动联动状态
 
@@ -47,8 +48,8 @@ DevHub 当前是 “Go API + Astro 前台 + Vue 后台” 的多子站社区 CMS
 - 是否写入 `activities`：已完成。发布写入 `created_topic`；点赞写入 `liked`；收藏写入 `favorited`；关注写入 `followed`。
 - 是否写入 `notifications`：已完成基础规则。点赞、收藏会给 Topic 作者生成通知；关注用户会给被关注用户生成通知；评论 Topic 生成 `topic_commented`，回复评论生成 `comment_replied`，回答被采纳生成 `answer_accepted`；自己操作自己的内容不通知自己。
 - 是否保持 `/topics/:id` 百度 SEO HTML 不被破坏：已保持。详情页仍由 Go 动态输出 title、meta description、h1、正文、标签链接、发布时间和 Article JSON-LD；点赞、收藏、关注、评论作为运行时增强。
-- 尚未完成的问题：评论点赞本轮未实现；采纳支持更换最佳答案但暂不支持取消已解决状态；举报入口仅预留；复杂权限、版主治理、后台 CRUD 不在本轮范围。
-- 下一轮建议：第七轮优先做举报、版主、精华、置顶、隐藏、评论锁定；第八轮补齐 admin-next 后台 CRUD。
+- 第七轮已补齐：举报、版主范围治理、精华、置顶、隐藏和评论锁定。
+- 尚未完成的问题：评论点赞本轮未实现；采纳支持更换最佳答案但暂不支持取消已解决状态；复杂权限、版主管理 CRUD 不在本轮范围。
 
 ## 第六轮评论系统和问答采纳状态
 
@@ -70,9 +71,28 @@ DevHub 当前是 “Go API + Astro 前台 + Vue 后台” 的多子站社区 CMS
 - SEO 是否保持不被破坏：已保持。`/topics/:id` 仍由 Go 动态输出 SEO HTML；评论区和最佳答案为运行时增强，当前不强制进入初始 SEO HTML。
 - 尚未完成事项：评论点赞未纳入本轮；取消已解决状态未实现；评论 anchor 跳转当前可后续优化。
 
-## 第六轮收尾验收
+## 第七轮举报和社区治理状态
 
-2026-05-09 已完成第六轮收尾验收，不进入第七轮：
+按 2026-05-09 当前代码，状态如下：
+
+- 用户举报：已完成。真实接口为 `POST /api/v1/reports`，支持举报 `topic`、`comment`、`user`、`wiki`；本轮前台在 Topic 详情页和评论区提供举报入口。
+- 举报管理：已完成最小后台。真实接口为 `GET /api/v1/admin/reports`、`GET /api/v1/admin/reports/:id`、`POST /api/v1/admin/reports/:id/handle`；`accepted` 会联动隐藏 topic 或 comment，`rejected` 只更新举报状态。
+- 版主权限：已完成最小可用判断。`currentUserID` 优先使用登录用户，未登录兜底 demo `user_id=1`；后台管理员 user 1 / `super_admin` 可管理全部，`community_moderators` 中启用用户只能管理对应子站。seed 中 user 2 是 PHP 版主，user 3 是 Go 版主。
+- Topic 精华：已完成。`POST /api/v1/admin/topics/:id/feature` toggle `topics.is_featured`，前台列表和详情数据展示“精华”，`sort=featured` 只返回精华内容。
+- Topic 置顶：已完成。`POST /api/v1/admin/topics/:id/pin` toggle `topics.is_pinned`，普通列表默认置顶优先展示，前台显示“置顶”。
+- Topic 隐藏 / 恢复：已完成。`POST /api/v1/admin/topics/:id/hide` 设置 `status=0`，`restore` 设置 `status=1`；普通列表、搜索和 sitemap 过滤隐藏 topic；后台内容管理仍可看到隐藏内容。
+- 评论锁定：已完成。`POST /api/v1/admin/topics/:id/lock-comments` 和 `unlock-comments` 更新 `comment_locked`；前台详情页显示“评论已锁定”，后端创建评论和回复时强制拦截。
+- Comment 隐藏 / 恢复：已完成。`POST /api/v1/admin/comments/:id/hide` 设置隐藏，`restore` 恢复正常；普通评论列表过滤隐藏评论。隐藏最佳答案当前被禁止，避免破坏问答采纳闭环。
+- 举报处理联动：已完成。接受 topic 举报会隐藏 topic；接受 comment 举报会隐藏评论；如果目标评论是最佳答案，处理会返回错误并保持原状态。
+- 后台入口：已完成最小入口。`/admin-next/reports` 提供举报列表、筛选和接受 / 驳回操作；内容管理提供精华、置顶、隐藏、锁定评论操作；评论管理提供隐藏 / 恢复评论操作。
+- MemoryStore 支持情况：已完成创建举报、查询举报、处理举报、版主判断、精华、置顶、隐藏 / 恢复 topic、锁定 / 解锁评论、隐藏 / 恢复 comment、普通列表过滤隐藏内容和评论。
+- MySQLStore 支持情况：已完成 `reports`、`community_moderators`、`topics.comment_locked` 等 schema 和迁移补齐；支持举报分页、处理、权限判断、topic/comment 治理字段更新、普通列表和搜索过滤隐藏内容，兼容 MySQL 8。
+- SEO 保护：已保持。正常 `/topics/:id` 仍由 Go 动态输出 title、description、h1、正文、标签和发布时间；隐藏 topic 返回带 `noindex,follow` 的“内容已隐藏”动态 HTML，不输出原正文；`/sitemap.xml` 不包含隐藏 topic。
+- 尚未完成事项：本轮不做版主管理 CRUD；不做复杂登录 / 权限系统；不做举报重复频率限制；不做批量治理；隐藏最佳答案采用禁止策略。
+
+## 第六轮收尾验收记录
+
+2026-05-09 已完成第六轮收尾验收：
 
 - 启动方式：清理残留进程后，使用 `go build -o .devhub/devhub .` 产出二进制，并以 `PORT=8090 CMS_STORE=memory` 通过 `setsid` 后台启动。
 - 8090 状态：`curl -I /`、`GET /api/v1/health`、`GET /api/v1/topics` 均返回 200，当前 8090 有稳定 DevHub 进程监听。
@@ -130,6 +150,18 @@ DevHub 当前是 “Go API + Astro 前台 + Vue 后台” 的多子站社区 CMS
 - `POST /api/v1/topics/:id/comments/:commentId/replies`
 - `POST /api/v1/topics/:id/comments/:commentId/accept`
 - `GET /api/v1/search/topics?sort=unsolved`
+- `POST /api/v1/reports`
+- `GET /api/v1/admin/reports`
+- `GET /api/v1/admin/reports/:id`
+- `POST /api/v1/admin/reports/:id/handle`
+- `POST /api/v1/admin/topics/:id/feature`
+- `POST /api/v1/admin/topics/:id/pin`
+- `POST /api/v1/admin/topics/:id/hide`
+- `POST /api/v1/admin/topics/:id/restore`
+- `POST /api/v1/admin/topics/:id/lock-comments`
+- `POST /api/v1/admin/topics/:id/unlock-comments`
+- `POST /api/v1/admin/comments/:id/hide`
+- `POST /api/v1/admin/comments/:id/restore`
 
 保留兼容接口：
 
@@ -152,18 +184,23 @@ DevHub 当前是 “Go API + Astro 前台 + Vue 后台” 的多子站社区 CMS
 - 子站页新增关注子站按钮。
 - 详情页点赞、收藏、关注主题按钮初始化状态正确，点击后更新状态和计数。
 - 详情页评论区支持运行时加载评论、加载更多、发表评论、回复评论；question 类型支持采纳按钮并展示“最佳答案”，非作者默认不显示采纳入口。
+- 详情页支持举报 Topic 和举报评论；评论锁定时显示锁定提示并禁用普通提交入口。
+- 列表页和搜索页展示置顶、精华、问答状态，隐藏内容不进入普通列表。
 
 ### 后台
 
 - `/admin-next` 和 `/admin-next/...` 深层路由可用。
 - `/admin`、`/admin/:site` 保持兼容重定向。
-- 本轮未扩展后台 CRUD。
+- `/admin-next/reports` 提供举报管理最小入口，支持举报筛选、列表、接受和驳回。
+- 内容管理提供精华、置顶、隐藏 / 恢复、锁定 / 解锁评论操作入口。
+- 评论管理提供隐藏 / 恢复评论入口。
 
 ## 部分完成 / 已预留
 
 - 评论点赞：部分完成。数据字段和旧评论点赞接口保留，本轮未把评论点赞接入详情页运行时评论区。
 - 取消已解决状态：已预留。当前支持采纳和更换最佳答案，暂不支持取消已解决。
-- 举报入口：已预留。详情页显示举报按钮，但完整举报、版主、隐藏、锁定评论属于后续治理轮次。
+- 版主管理 CRUD：已预留。本轮完成 `community_moderators` 表、seed 和权限判断，暂未做后台版主分配页面。
+- 举报重复频率限制：已预留。本轮允许重复举报但不会导致异常。
 - 标签关注：后端 `follows` 支持 `target_type=tag`，我的关注页可展示；前台标签区域尚未提供批量关注按钮，后续可在标签聚合页增强。
 - 用户关注：后端支持 `target_type=user` 并触发 `user_followed` 通知；前台作者信息区域的关注入口后续完善。
 
@@ -175,10 +212,9 @@ DevHub 当前是 “Go API + Astro 前台 + Vue 后台” 的多子站社区 CMS
 
 ## 下一步
 
-1. 第七轮：举报、版主、精华、置顶、隐藏、评论锁定。
-2. 第八轮：admin-next 后台 CRUD 补齐。
-3. 第九轮：测试、部署、备份、回滚文档。
-4. 后续优化：评论点赞、取消已解决状态、通知跳转 comment anchor。
+1. 第八轮：admin-next 后台 CRUD、版主管理、批量治理和更完整审计。
+2. 第九轮：测试、部署、备份、回滚文档。
+3. 后续优化：评论点赞、取消已解决状态、通知跳转 comment anchor、举报频率限制。
 
 ## 验收清单
 
@@ -209,4 +245,10 @@ DevHub 当前是 “Go API + Astro 前台 + Vue 后台” 的多子站社区 CMS
 - [x] 未解决筛选 `sort=unsolved` 可用。
 - [x] 评论和采纳写入动态与通知。
 - [x] `/topics/:id` 评论功能未破坏百度 SEO HTML。
-- [ ] 举报、版主治理后续完善。
+- [x] `POST /api/v1/reports` 可创建举报。
+- [x] `/admin-next/reports` 可查看和处理举报。
+- [x] 管理员可处理全部举报，版主仅可处理自己子站举报。
+- [x] Topic 精华、置顶、隐藏、恢复、评论锁定、解锁可用。
+- [x] Comment 隐藏、恢复可用，隐藏最佳答案会被拒绝。
+- [x] 隐藏 Topic 不进入普通列表、搜索和 sitemap。
+- [x] 隐藏 Topic 详情页返回 noindex 的“内容已隐藏”动态 HTML。

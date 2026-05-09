@@ -56,6 +56,7 @@ type Post struct {
 	Status        string   `json:"status"`
 	Pinned        bool     `json:"pinned"`
 	Recommended   bool     `json:"recommended"`
+	CommentLocked bool     `json:"comment_locked"`
 	RejectReason  string   `json:"reject_reason,omitempty"`
 	OfflineReason string   `json:"offline_reason,omitempty"`
 	Views         int      `json:"views"`
@@ -449,6 +450,7 @@ type Topic struct {
 	IsPinned      bool     `json:"is_pinned"`
 	IsFeatured    bool     `json:"is_featured"`
 	IsSolved      bool     `json:"is_solved"`
+	CommentLocked bool     `json:"comment_locked"`
 	RejectReason  string   `json:"reject_reason,omitempty"`
 	OfflineReason string   `json:"offline_reason,omitempty"`
 	BestCommentID int64    `json:"best_comment_id,omitempty"`
@@ -563,17 +565,26 @@ type FollowItem struct {
 
 // Report 表示举报记录。
 type Report struct {
-	ID         int64  `json:"id"`
-	ReporterID int64  `json:"reporter_id"`
-	TargetType string `json:"target_type"`
-	TargetID   int64  `json:"target_id"`
-	ReasonType string `json:"reason_type"`
-	ReasonText string `json:"reason_text,omitempty"`
-	Status     string `json:"status"`
-	HandledBy  int64  `json:"handled_by,omitempty"`
-	HandledAt  string `json:"handled_at,omitempty"`
-	CreatedAt  string `json:"created_at"`
-	UpdatedAt  string `json:"updated_at,omitempty"`
+	ID             int64  `json:"id"`
+	ReporterID     int64  `json:"reporter_id"`
+	ReporterUserID int64  `json:"reporter_user_id"`
+	TargetType     string `json:"target_type"`
+	TargetID       int64  `json:"target_id"`
+	CommunityID    int64  `json:"community_id,omitempty"`
+	CommunitySlug  string `json:"community_slug,omitempty"`
+	CommunityName  string `json:"community_name,omitempty"`
+	TopicID        int64  `json:"topic_id,omitempty"`
+	ReasonType     string `json:"reason_type"`
+	ReasonText     string `json:"reason_text,omitempty"`
+	Status         string `json:"status"`
+	HandledBy      int64  `json:"handled_by,omitempty"`
+	HandledAt      string `json:"handled_at,omitempty"`
+	HandleNote     string `json:"handle_note,omitempty"`
+	TargetTitle    string `json:"target_title,omitempty"`
+	TargetContent  string `json:"target_content,omitempty"`
+	TargetURL      string `json:"target_url,omitempty"`
+	CreatedAt      string `json:"created_at"`
+	UpdatedAt      string `json:"updated_at,omitempty"`
 }
 
 // CommunityModerator 表示子站版主。
@@ -585,6 +596,42 @@ type CommunityModerator struct {
 	Status      int    `json:"status"`
 	CreatedAt   string `json:"created_at"`
 	UpdatedAt   string `json:"updated_at,omitempty"`
+}
+
+// CreateReportRequest 是前台创建举报的请求体。
+type CreateReportRequest struct {
+	ReporterUserID int64  `json:"-"`
+	TargetType     string `json:"target_type" binding:"required"`
+	TargetID       int64  `json:"target_id" binding:"required"`
+	ReasonType     string `json:"reason_type" binding:"required"`
+	ReasonText     string `json:"reason_text"`
+}
+
+// ReportFilter 是后台举报列表筛选条件。
+type ReportFilter struct {
+	Status        string `json:"status"`
+	TargetType    string `json:"target_type"`
+	CommunitySlug string `json:"community_slug"`
+	CommunityID   int64  `json:"community_id"`
+	Page          int    `json:"page"`
+	PageSize      int    `json:"page_size"`
+	ActorUserID   int64  `json:"-"`
+	ActorIsAdmin  bool   `json:"-"`
+}
+
+// HandleReportRequest 是处理举报的请求体。
+type HandleReportRequest struct {
+	Status     string `json:"status" binding:"required"`
+	HandleNote string `json:"handle_note"`
+}
+
+// ModerationResult 表示治理动作后的目标状态。
+type ModerationResult struct {
+	Topic   *Topic   `json:"topic,omitempty"`
+	Comment *Comment `json:"comment,omitempty"`
+	Report  *Report  `json:"report,omitempty"`
+	Action  string   `json:"action,omitempty"`
+	Changed bool     `json:"changed"`
 }
 
 // WikiPage 表示 Wiki 页面。
