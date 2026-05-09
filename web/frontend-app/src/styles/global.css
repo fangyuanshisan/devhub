@@ -969,6 +969,132 @@ main {
   border-left: 3px solid var(--primary);
 }
 
+.moderator-shell {
+  display: grid;
+  gap: 16px;
+  padding-bottom: 40px;
+}
+
+.moderator-toolbar,
+.moderator-filters,
+.moderator-item header,
+.moderator-item footer,
+.moderator-stats {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.moderator-toolbar,
+.moderator-filters {
+  flex-wrap: wrap;
+  padding: 14px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--panel);
+}
+
+.moderator-toolbar label,
+.moderator-filters select,
+.moderator-filters input {
+  min-height: 36px;
+}
+
+.moderator-toolbar label {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--muted);
+  font-size: 14px;
+}
+
+.moderator-toolbar select,
+.moderator-filters select,
+.moderator-filters input {
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  padding: 0 10px;
+  background: var(--input-bg);
+  color: var(--text);
+}
+
+.moderator-filters button,
+.moderator-item button {
+  min-height: 34px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  padding: 0 10px;
+  background: var(--panel);
+  color: var(--text);
+  cursor: pointer;
+}
+
+.moderator-stats {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+}
+
+.moderator-stats div,
+.moderator-item {
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--panel);
+}
+
+.moderator-stats div {
+  padding: 14px;
+}
+
+.moderator-stats strong {
+  display: block;
+  font-size: 24px;
+}
+
+.moderator-stats span,
+.moderator-item span,
+.moderator-item p {
+  color: var(--muted);
+}
+
+.moderator-list {
+  display: grid;
+  gap: 12px;
+}
+
+.moderator-item {
+  padding: 16px;
+}
+
+.moderator-item header,
+.moderator-item footer {
+  flex-wrap: wrap;
+  justify-content: space-between;
+}
+
+.moderator-item header strong {
+  font-size: 16px;
+}
+
+.moderator-item p {
+  margin: 10px 0;
+  line-height: 1.6;
+}
+
+.moderator-item footer {
+  justify-content: flex-start;
+}
+
+.moderator-item footer a {
+  color: var(--primary);
+  font-weight: 700;
+}
+
+@media (max-width: 760px) {
+  .moderator-stats {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
 .notification-item.is-read {
   border-left-color: var(--line);
   opacity: 0.78;

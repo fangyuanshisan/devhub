@@ -53,6 +53,149 @@ func TestAdminLoginReturnsTokenPair(t *testing.T) {
 	}
 }
 
+func TestUserAndAdminTokensAreSeparated(t *testing.T) {
+	router := NewRouter(service.New(store.NewMemoryStore()))
+	userToken := userToken(t, router, "admin")
+	adminToken := adminToken(t, router)
+
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/admin/users", nil)
+	req.Header.Set("Authorization", "Bearer "+userToken)
+	w := httptest.NewRecorder()
+	router.ServeHTTP(w, req)
+	if w.Code != http.StatusForbidden && w.Code != http.StatusUnauthorized {
+		t.Fatalf("expected frontend token to be rejected by privileged admin API, got %d: %s", w.Code, w.Body.String())
+	}
+
+	req = httptest.NewRequest(http.MethodGet, "/api/v1/auth/me", nil)
+	req.Header.Set("Authorization", "Bearer "+adminToken)
+	w = httptest.NewRecorder()
+	router.ServeHTTP(w, req)
+	if w.Code != http.StatusUnauthorized {
+		t.Fatalf("expected admin token to be rejected by frontend auth API, got %d: %s", w.Code, w.Body.String())
+	}
+}
+
+func TestCommunityModeratorScopeUsesFrontendUserToken(t *testing.T) {
+	router := NewRouter(service.New(store.NewMemoryStore()))
+	moderatorToken := userToken(t, router, "operator")
+
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/admin/reports?site=php", nil)
+	req.Header.Set("Authorization", "Bearer "+moderatorToken)
+	w := httptest.NewRecorder()
+	router.ServeHTTP(w, req)
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected php moderator to read php reports, got %d: %s", w.Code, w.Body.String())
+	}
+
+	req = httptest.NewRequest(http.MethodGet, "/api/v1/admin/reports?site=go", nil)
+	req.Header.Set("Authorization", "Bearer "+moderatorToken)
+	w = httptest.NewRecorder()
+	router.ServeHTTP(w, req)
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected scoped fallback instead of cross-community access failure, got %d: %s", w.Code, w.Body.String())
+	}
+	var body struct {
+		Items []struct {
+			CommunityID int64 `json:"community_id"`
+		} `json:"items"`
+	}
+	if err := json.Unmarshal(w.Body.Bytes(), &body); err != nil {
+		t.Fatal(err)
+	}
+	for _, item := range body.Items {
+		if item.CommunityID != 0 && item.CommunityID != 1 {
+			t.Fatalf("php moderator should not see non-php report, got community_id=%d in %s", item.CommunityID, w.Body.String())
+		}
+	}
+}
+
+func TestModeratorWorkbenchAPIScope(t *testing.T) {
+	router := NewRouter(service.New(store.NewMemoryStore()))
+	normalUserToken := userToken(t, router, "admin")
+	phpModeratorToken := userToken(t, router, "operator")
+
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/moderator/communities", nil)
+	req.Header.Set("Authorization", "Bearer "+normalUserToken)
+	w := httptest.NewRecorder()
+	router.ServeHTTP(w, req)
+	if w.Code != http.StatusForbidden {
+		t.Fatalf("expected normal user to be rejected by moderator API, got %d: %s", w.Code, w.Body.String())
+	}
+
+	req = httptest.NewRequest(http.MethodGet, "/api/v1/moderator/communities", nil)
+	req.Header.Set("Authorization", "Bearer "+phpModeratorToken)
+	w = httptest.NewRecorder()
+	router.ServeHTTP(w, req)
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected php moderator communities, got %d: %s", w.Code, w.Body.String())
+	}
+	var communities struct {
+		Items []struct {
+			ID   int64  `json:"id"`
+			Slug string `json:"slug"`
+		} `json:"items"`
+	}
+	if err := json.Unmarshal(w.Body.Bytes(), &communities); err != nil {
+		t.Fatal(err)
+	}
+	if len(communities.Items) != 1 || communities.Items[0].Slug != "php" {
+		t.Fatalf("expected only php community, got %s", w.Body.String())
+	}
+
+	req = httptest.NewRequest(http.MethodGet, "/api/v1/moderator/topics?community_id=2", nil)
+	req.Header.Set("Authorization", "Bearer "+phpModeratorToken)
+	w = httptest.NewRecorder()
+	router.ServeHTTP(w, req)
+	if w.Code != http.StatusForbidden {
+		t.Fatalf("expected cross-community moderator read to fail, got %d: %s", w.Code, w.Body.String())
+	}
+}
+
+func TestModeratorActionsWriteAuditLog(t *testing.T) {
+	router := NewRouter(service.New(store.NewMemoryStore()))
+	phpModeratorToken := userToken(t, router, "operator")
+
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/moderator/topics/1/hide", nil)
+	req.Header.Set("Authorization", "Bearer "+phpModeratorToken)
+	w := httptest.NewRecorder()
+	router.ServeHTTP(w, req)
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected php moderator to hide php topic, got %d: %s", w.Code, w.Body.String())
+	}
+
+	req = httptest.NewRequest(http.MethodPost, "/api/v1/moderator/topics/7/hide", nil)
+	req.Header.Set("Authorization", "Bearer "+phpModeratorToken)
+	w = httptest.NewRecorder()
+	router.ServeHTTP(w, req)
+	if w.Code != http.StatusForbidden {
+		t.Fatalf("expected php moderator to be denied on go topic, got %d: %s", w.Code, w.Body.String())
+	}
+
+	req = httptest.NewRequest(http.MethodGet, "/api/v1/moderator/audit-logs?community_id=1&actor_type=moderator", nil)
+	req.Header.Set("Authorization", "Bearer "+phpModeratorToken)
+	w = httptest.NewRecorder()
+	router.ServeHTTP(w, req)
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected moderator audit logs, got %d: %s", w.Code, w.Body.String())
+	}
+	var logs struct {
+		Items []struct {
+			ActorType   string `json:"actor_type"`
+			CommunityID int64  `json:"community_id"`
+			Action      string `json:"action"`
+		} `json:"items"`
+	}
+	if err := json.Unmarshal(w.Body.Bytes(), &logs); err != nil {
+		t.Fatal(err)
+	}
+	if len(logs.Items) == 0 {
+		t.Fatalf("expected moderator audit log, got %s", w.Body.String())
+	}
+	if logs.Items[0].ActorType != "moderator" || logs.Items[0].CommunityID != 1 || logs.Items[0].Action != "hide_topic" {
+		t.Fatalf("unexpected audit log: %#v body=%s", logs.Items[0], w.Body.String())
+	}
+}
+
 func TestAdminEndpointRequiresToken(t *testing.T) {
 	router := NewRouter(service.New(store.NewMemoryStore()))
 	req := httptest.NewRequest(http.MethodGet, "/api/v1/admin/posts", nil)
@@ -133,6 +276,7 @@ func TestGenericCommunityAPIsReturnSeedData(t *testing.T) {
 
 func TestCreateTopicFlowInMemoryMode(t *testing.T) {
 	router := NewRouter(service.New(store.NewMemoryStore()))
+	token := userToken(t, router, "admin")
 	payload := `{
 		"community_slug":"php",
 		"category_id":101,
@@ -144,6 +288,7 @@ func TestCreateTopicFlowInMemoryMode(t *testing.T) {
 	}`
 	req := httptest.NewRequest(http.MethodPost, "/api/v1/topics", bytes.NewBufferString(payload))
 	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Authorization", "Bearer "+token)
 	w := httptest.NewRecorder()
 	router.ServeHTTP(w, req)
 	if w.Code != http.StatusCreated {
@@ -209,6 +354,33 @@ func adminToken(t *testing.T, router http.Handler) string {
 	}
 	if err := json.Unmarshal(w.Body.Bytes(), &body); err != nil {
 		t.Fatal(err)
+	}
+	if body.AccessToken != "" {
+		return body.AccessToken
+	}
+	return body.Token
+}
+
+func userToken(t *testing.T, router http.Handler, account string) string {
+	t.Helper()
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/auth/login", bytes.NewBufferString(`{"account":"`+account+`","password":"admin123"}`))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	router.ServeHTTP(w, req)
+	if w.Code != http.StatusOK {
+		t.Fatalf("frontend login failed: %d %s", w.Code, w.Body.String())
+	}
+	var body struct {
+		AccessToken string `json:"access_token"`
+		Token       string `json:"token"`
+		TokenType   string `json:"token_type"`
+		Audience    string `json:"aud"`
+	}
+	if err := json.Unmarshal(w.Body.Bytes(), &body); err != nil {
+		t.Fatal(err)
+	}
+	if body.TokenType != "user" || body.Audience != "devhub_frontend" {
+		t.Fatalf("expected frontend user token, got type=%q aud=%q body=%s", body.TokenType, body.Audience, w.Body.String())
 	}
 	if body.AccessToken != "" {
 		return body.AccessToken

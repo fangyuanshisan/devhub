@@ -28,8 +28,12 @@ type MemoryStore struct {
 	nextActivityID  int64
 	nextReportID    int64
 	nextModeratorID int64
+	nextCommunityID int64
+	nextCategoryID  int64
 	sites           map[string]domain.Site
 	boards          map[string]domain.Board
+	communities     map[int64]*domain.Community
+	categories      map[int64]*domain.Category
 	boardOrder      []string
 	siteOrder       []string
 	posts           map[int64]*domain.Post
@@ -61,8 +65,12 @@ func NewMemoryStore() *MemoryStore {
 		nextActivityID:  1,
 		nextReportID:    1,
 		nextModeratorID: 1,
+		nextCommunityID: 1,
+		nextCategoryID:  1,
 		sites:           map[string]domain.Site{},
 		boards:          map[string]domain.Board{},
+		communities:     map[int64]*domain.Community{},
+		categories:      map[int64]*domain.Category{},
 		boardOrder:      []string{"all", "community", "qa", "opensource", "ai", "jobs", "wiki", "docs"},
 		siteOrder:       []string{"php", "go", "java", "ai", "frontend"},
 		posts:           map[int64]*domain.Post{},
@@ -119,7 +127,63 @@ func (s *MemoryStore) Health() domain.HealthStatus {
 			"follows":       len(s.follows),
 			"activities":    len(s.activities),
 			"users":         len(s.users),
+			"communities":   len(s.communities),
+			"categories":    len(s.categories),
 		},
+	}
+}
+
+func communitySeedData() []domain.Community {
+	return []domain.Community{
+		{ID: 1, Name: "PHP", Slug: "php", Logo: "PHP", CoverImage: "/frontend-assets/community-php.jpg", Slogan: "框架生态、工程实践与线上问题复盘", Description: "PHP 技术社区，讨论 Laravel、Hyperf、Swoole、Composer、性能优化和工程实践。", ThemeColor: "#6478c8", SEOTitle: "PHP 技术社区", SEODescription: "DevHub PHP 技术社区，聚合 Laravel、Hyperf、Swoole、Composer、性能优化、招聘和问答内容。", SEOKeywords: "PHP,Laravel,Hyperf,Swoole,Composer", SortOrder: 1, Status: 1, AnnouncementTitle: "PHP 子站公告", AnnouncementContent: "欢迎分享 PHP 工程实践、框架生态和线上排障经验。", AnnouncementURL: "/c/php/topics/new/"},
+		{ID: 2, Name: "Go", Slug: "go", Logo: "GO", CoverImage: "/frontend-assets/community-go.jpg", Slogan: "并发、服务端与云原生实践", Description: "Go 技术社区，关注 Gin、Gorm、gRPC、微服务、并发模型和云原生工程。", ThemeColor: "#0891b2", SEOTitle: "Go 技术社区", SEODescription: "DevHub Go 技术社区，聚合 Gin、Gorm、gRPC、微服务、并发、Docker 和性能优化内容。", SEOKeywords: "Go,Gin,Gorm,gRPC,微服务,Docker", SortOrder: 2, Status: 1, AnnouncementTitle: "Go 子站公告", AnnouncementContent: "欢迎发布 Go 项目结构、并发治理和云原生实践。", AnnouncementURL: "/c/go/topics/new/"},
+		{ID: 3, Name: "Java", Slug: "java", Logo: "JAVA", CoverImage: "/frontend-assets/community-java.jpg", Slogan: "后端架构、中间件与企业工程实践", Description: "Java 技术社区，覆盖 Spring Boot、MyBatis、JVM、消息队列、微服务和性能调优。", ThemeColor: "#ea580c", SEOTitle: "Java 技术社区", SEODescription: "DevHub Java 技术社区，聚合 Spring Boot、MyBatis、JVM、微服务、消息队列和企业开发内容。", SEOKeywords: "Java,Spring Boot,MyBatis,JVM,微服务", SortOrder: 3, Status: 1, AnnouncementTitle: "Java 子站公告", AnnouncementContent: "欢迎沉淀 Java 后端架构、中间件和 JVM 调优经验。", AnnouncementURL: "/c/java/topics/new/"},
+		{ID: 4, Name: "AI", Slug: "ai", Logo: "AI", CoverImage: "/frontend-assets/community-ai.jpg", Slogan: "Agent、RAG、Prompt 与工作流实践", Description: "AI 技术社区，讨论 AI Agent、RAG、Prompt、OpenAI、Claude、Codex 和工作流工程。", ThemeColor: "#7c3aed", SEOTitle: "AI 技术社区", SEODescription: "DevHub AI 技术社区，聚合 AI Agent、RAG、Prompt、OpenAI、Claude、Codex 和工作流内容。", SEOKeywords: "AI Agent,RAG,Prompt,OpenAI,Claude,Codex", SortOrder: 4, Status: 1, AnnouncementTitle: "AI 子站公告", AnnouncementContent: "欢迎分享 AI 应用开发、Agent 工作流和 RAG 落地经验。", AnnouncementURL: "/c/ai/topics/new/"},
+		{ID: 5, Name: "Frontend", Slug: "frontend", Logo: "FE", CoverImage: "/frontend-assets/community-frontend.jpg", Slogan: "Vue、React、TypeScript 与前端工程化", Description: "Frontend 技术社区，聚合 Vue、React、TypeScript、Vite、性能优化和前端工程化内容。", ThemeColor: "#16a34a", SEOTitle: "Frontend 技术社区", SEODescription: "DevHub Frontend 技术社区，聚合 Vue、React、TypeScript、Vite、性能优化和前端工程化内容。", SEOKeywords: "Frontend,Vue,React,TypeScript,Vite", SortOrder: 5, Status: 1, AnnouncementTitle: "前端子站公告", AnnouncementContent: "欢迎分享前端工程化、组件设计和性能优化实践。", AnnouncementURL: "/c/frontend/topics/new/"},
+	}
+}
+
+func defaultCategorySeeds(communityID int64) []domain.Category {
+	defs := []struct {
+		name string
+		slug string
+		ct   string
+		icon string
+		desc string
+	}{
+		{"社区", "community", "article", "Message", "技术讨论、经验复盘和社区动态。"},
+		{"问答中心", "qa", "question", "QuestionFilled", "可被采纳最佳答案的问题与解答。"},
+		{"开源项目", "opensource", "project", "FolderOpened", "项目发布、库推荐和开源协作。"},
+		{"AI作品", "ai", "ai_work", "MagicStick", "AI 应用、Prompt、Agent 和工作流作品。"},
+		{"招聘内推", "jobs", "job", "Briefcase", "招聘、内推和团队介绍。"},
+		{"Wiki", "wiki", "wiki", "Document", "长期沉淀的知识条目。"},
+		{"文档", "docs", "doc", "Notebook", "规范、教程和操作文档。"},
+	}
+	out := make([]domain.Category, 0, len(defs))
+	for i, def := range defs {
+		id := communityID*100 + int64(i) + 1
+		out = append(out, domain.Category{ID: id, CommunityID: communityID, Name: def.name, Slug: def.slug, Type: def.ct, ContentType: def.ct, Description: def.desc, Icon: def.icon, SortOrder: i, Visible: true, NavVisible: true, Postable: true, Status: 1, CreatedAt: Now(), UpdatedAt: Now()})
+	}
+	return out
+}
+
+func (s *MemoryStore) seedCommunitiesAndCategories() {
+	for _, comm := range communitySeedData() {
+		c := comm
+		now := Now()
+		c.CreatedAt = now
+		c.UpdatedAt = now
+		s.communities[c.ID] = &c
+		if c.ID >= s.nextCommunityID {
+			s.nextCommunityID = c.ID + 1
+		}
+		for _, cat := range defaultCategorySeeds(c.ID) {
+			cp := cat
+			s.categories[cp.ID] = &cp
+			if cp.ID >= s.nextCategoryID {
+				s.nextCategoryID = cp.ID + 1
+			}
+		}
 	}
 }
 
@@ -131,6 +195,7 @@ func (s *MemoryStore) seed() {
 	s.sites["java"] = domain.Site{Key: "java", Name: "Java", Logo: "JAVA", Title: "Java 子网站", Sub: "子网站 · 7 个板块", Pub: "发布 Java 内容", Description: "Java 技术社区", Color: "#f97316", Status: "enable", Sort: 3}
 	s.sites["ai"] = domain.Site{Key: "ai", Name: "AI", Logo: "AI", Title: "AI 子网站", Sub: "子网站 · 7 个板块", Pub: "发布 AI 内容", Description: "AI Agent、RAG、Prompt 与工作流社区", Color: "#7c3aed", Status: "enable", Sort: 4}
 	s.sites["frontend"] = domain.Site{Key: "frontend", Name: "Frontend", Logo: "FE", Title: "Frontend 子网站", Sub: "子网站 · 7 个板块", Pub: "发布前端内容", Description: "Vue、React、TypeScript 与前端工程化社区", Color: "#16a34a", Status: "enable", Sort: 5}
+	s.seedCommunitiesAndCategories()
 
 	boardNames := map[string]string{"all": "全部", "community": "社区", "qa": "问答中心", "opensource": "开源项目", "ai": "AI作品", "jobs": "招聘内推", "wiki": "Wiki", "docs": "文档"}
 	for i, key := range s.boardOrder {
@@ -138,7 +203,7 @@ func (s *MemoryStore) seed() {
 	}
 
 	s.roles[1] = domain.AdminRole{ID: 1, Name: "超级管理员", Builtin: true, Description: "拥有所有模块操作权限", Permissions: []string{"*"}, UserCount: 1}
-	s.roles[2] = domain.AdminRole{ID: 2, Name: "站点管理员", Builtin: true, Description: "负责授权子站的内容和举报治理", Permissions: []string{"dashboard.read", "post.read", "post.create", "post.update", "post.delete", "topic.moderate", "comment.read", "comment.moderate", "report.read", "report.handle", "moderator.read", "notification.write", "log.read"}, UserCount: 1}
+	s.roles[2] = domain.AdminRole{ID: 2, Name: "站点管理员", Builtin: true, Description: "负责授权子站的内容和举报治理", Permissions: []string{"dashboard.read", "site.read", "site.write", "board.read", "board.write", "post.read", "post.create", "post.update", "post.delete", "topic.moderate", "comment.read", "comment.moderate", "report.read", "report.handle", "moderator.read", "notification.write", "log.read"}, UserCount: 1}
 	s.roles[3] = domain.AdminRole{ID: 3, Name: "内容审核员", Builtin: true, Description: "负责授权子站的内容审核和评论治理", Permissions: []string{"dashboard.read", "post.read", "post.update", "topic.moderate", "comment.read", "comment.moderate", "report.read", "report.handle"}, UserCount: 1}
 	s.users[1] = &domain.AdminUser{ID: 1, Username: "admin", Nickname: "超级管理员", Avatar: "", Phone: "13800000001", Email: "admin@devhub.local", Status: "normal", RoleID: 1, RoleName: "超级管理员", CreatedAt: "2026-04-01 09:00:00", LastLoginAt: "2026-05-06 09:30:00"}
 	s.users[2] = &domain.AdminUser{ID: 2, Username: "operator", Nickname: "运营管理员", Avatar: "", Phone: "13800000002", Email: "operator@devhub.local", Status: "normal", RoleID: 2, RoleName: "运营管理员", CreatedAt: "2026-04-08 09:00:00", LastLoginAt: "2026-05-05 18:20:00"}
@@ -375,7 +440,13 @@ func (s *MemoryStore) appendLogLocked(logType, actor, action, target, ip string)
 }
 
 func (s *MemoryStore) appendLogForSiteLocked(site, logType, actor, role, action, target, ip string) {
-	s.logs = append(s.logs, domain.AdminLog{ID: s.nextLogID, Site: normalizeSiteScope(site), Type: logType, Actor: actor, Role: role, Action: action, Target: target, IP: ip, CreatedAt: Now()})
+	log := domain.AdminLog{ID: s.nextLogID, Site: normalizeSiteScope(site), Type: logType, Actor: actor, Role: role, Action: action, Target: target, IP: ip, CreatedAt: Now()}
+	if actor == "system" || actor == "" {
+		log.ActorType = "system"
+	} else {
+		log.ActorType = "admin_user"
+	}
+	s.logs = append(s.logs, log)
 	s.nextLogID++
 }
 
@@ -397,7 +468,7 @@ func (s *MemoryStore) ValidateBoard(board string) bool {
 	return ok
 }
 
-// AdminLogin 校验后台演示账号。当前阶段仍使用演示密码，但会校验用户存在和状态。
+// AdminLogin 校验后台演示账号。当前阶段仍使用演示密码，但会校验后台人员存在和状态。
 func (s *MemoryStore) AdminLogin(account, password string) (*domain.AdminSession, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -415,12 +486,14 @@ func (s *MemoryStore) AdminLogin(account, password string) (*domain.AdminSession
 		u.LastLoginAt = Now()
 		s.appendLogLocked("login", u.Username, "管理员登录", "后台系统", "127.0.0.1")
 		token := fmt.Sprintf("devhub-admin-%d", u.ID)
-		auth := s.memoryAuthUserLocked(u.ID)
+		auth := s.memoryAuthUserLocked(u.ID, "admin")
 		return &domain.AdminSession{
 			Token:        token,
 			AccessToken:  token,
 			RefreshToken: token + "-refresh",
 			ExpiresIn:    int64(accessTokenTTL.Seconds()),
+			TokenType:    "admin",
+			Audience:     "devhub_admin",
 			User: domain.AdminLoginUser{
 				ID:          auth.ID,
 				Username:    auth.Username,
@@ -437,60 +510,176 @@ func (s *MemoryStore) AdminLogin(account, password string) (*domain.AdminSession
 	return nil, errors.New("账号或密码错误")
 }
 
+func (s *MemoryStore) UserLogin(account, password string) (*domain.AdminSession, error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	account = strings.TrimSpace(account)
+	if password != "admin123" && password != "123456" {
+		return nil, errors.New("账号或密码错误")
+	}
+	for _, u := range s.users {
+		if u.Username != account && u.Email != account && u.Phone != account {
+			continue
+		}
+		if u.Status == "forbidden" {
+			return nil, errors.New("账号已被禁用")
+		}
+		auth := s.memoryAuthUserLocked(u.ID, "user")
+		return s.memoryUserSessionLocked(auth), nil
+	}
+	return nil, errors.New("账号或密码错误")
+}
+
 func (s *MemoryStore) RefreshSession(refreshToken string) (*domain.AdminSession, error) {
-	return s.AdminLogin("admin", "admin123")
+	id, err := parseMemoryTokenUserIDWithPrefix(refreshToken, "devhub-user-")
+	if err != nil {
+		return nil, errors.New("refresh token 无效")
+	}
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	auth := s.memoryAuthUserLocked(id, "user")
+	if auth.ID == 0 {
+		return nil, errors.New("用户不存在")
+	}
+	return s.memoryUserSessionLocked(auth), nil
+}
+
+func (s *MemoryStore) RefreshAdminSession(refreshToken string) (*domain.AdminSession, error) {
+	id, err := parseMemoryTokenUserIDWithPrefix(refreshToken, "devhub-admin-")
+	if err != nil {
+		return nil, errors.New("refresh token 无效")
+	}
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	auth := s.memoryAuthUserLocked(id, "admin")
+	if auth.ID == 0 {
+		return nil, errors.New("后台账号不存在")
+	}
+	return s.memoryAdminSessionLocked(auth), nil
 }
 
 func (s *MemoryStore) Register(req domain.RegisterRequest) (*domain.AdminSession, error) {
-	return s.AdminLogin("admin", "admin123")
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	auth := s.memoryAuthUserLocked(1, "user")
+	if auth.ID == 0 {
+		return nil, errors.New("开发用户不存在")
+	}
+	return s.memoryUserSessionLocked(auth), nil
 }
 
 func (s *MemoryStore) Logout(refreshToken string) error { return nil }
 
 func (s *MemoryStore) AuthUser(accessToken string) (*domain.AuthUser, error) {
-	if !strings.HasPrefix(accessToken, "devhub-admin-") {
+	if !strings.HasPrefix(strings.TrimSpace(accessToken), "devhub-user-") {
 		return nil, errors.New("token 无效")
 	}
-	id, err := parseMemoryTokenUserID(accessToken)
+	id, err := parseMemoryTokenUserIDWithPrefix(accessToken, "devhub-user-")
 	if err != nil {
 		return nil, errors.New("token 无效")
 	}
 	s.mu.RLock()
 	defer s.mu.RUnlock()
-	user := s.memoryAuthUserLocked(id)
+	user := s.memoryAuthUserLocked(id, "user")
 	if user.ID == 0 {
 		return nil, errors.New("用户不存在")
 	}
 	return &user, nil
 }
 
-func parseMemoryTokenUserID(token string) (int64, error) {
-	token = strings.TrimPrefix(strings.TrimSpace(token), "devhub-admin-")
+func (s *MemoryStore) AuthAdmin(accessToken string) (*domain.AuthUser, error) {
+	if !strings.HasPrefix(strings.TrimSpace(accessToken), "devhub-admin-") {
+		return nil, errors.New("后台 token 无效")
+	}
+	id, err := parseMemoryTokenUserIDWithPrefix(accessToken, "devhub-admin-")
+	if err != nil {
+		return nil, errors.New("后台 token 无效")
+	}
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	user := s.memoryAuthUserLocked(id, "admin")
+	if user.ID == 0 {
+		return nil, errors.New("后台账号不存在")
+	}
+	return &user, nil
+}
+
+func parseMemoryTokenUserIDWithPrefix(token, prefix string) (int64, error) {
+	token = strings.TrimPrefix(strings.TrimSpace(token), prefix)
 	token = strings.TrimSuffix(token, "-refresh")
 	return strconv.ParseInt(token, 10, 64)
 }
 
-func (s *MemoryStore) memoryAuthUserLocked(userID int64) domain.AuthUser {
+func (s *MemoryStore) memoryAdminSessionLocked(auth domain.AuthUser) *domain.AdminSession {
+	token := fmt.Sprintf("devhub-admin-%d", auth.ID)
+	return &domain.AdminSession{
+		Token:        token,
+		AccessToken:  token,
+		RefreshToken: token + "-refresh",
+		ExpiresIn:    int64(accessTokenTTL.Seconds()),
+		TokenType:    "admin",
+		Audience:     "devhub_admin",
+		User: domain.AdminLoginUser{
+			ID:          auth.ID,
+			Username:    auth.Username,
+			Nickname:    auth.Nickname,
+			Email:       auth.Email,
+			Phone:       auth.Phone,
+			Role:        auth.RoleName,
+			RoleCode:    auth.RoleCode,
+			Sites:       auth.Sites,
+			Permissions: auth.Permissions,
+		},
+	}
+}
+
+func (s *MemoryStore) memoryUserSessionLocked(auth domain.AuthUser) *domain.AdminSession {
+	token := fmt.Sprintf("devhub-user-%d", auth.ID)
+	return &domain.AdminSession{
+		Token:        token,
+		AccessToken:  token,
+		RefreshToken: token + "-refresh",
+		ExpiresIn:    int64(accessTokenTTL.Seconds()),
+		TokenType:    "user",
+		Audience:     "devhub_frontend",
+		User: domain.AdminLoginUser{
+			ID:       auth.ID,
+			Username: auth.Username,
+			Nickname: auth.Nickname,
+			Email:    auth.Email,
+			Phone:    auth.Phone,
+			Role:     auth.RoleName,
+			RoleCode: auth.RoleCode,
+			Sites:    auth.Sites,
+		},
+	}
+}
+
+func (s *MemoryStore) memoryAuthUserLocked(userID int64, identity string) domain.AuthUser {
 	u, ok := s.users[userID]
 	if !ok {
 		return domain.AuthUser{}
 	}
 	roleCode := "user"
+	roleName := "普通用户"
 	sites := []string{}
-	switch u.RoleID {
-	case 1:
-		roleCode = "super_admin"
-		sites = []string{"*"}
-	case 2:
-		roleCode = "site_admin"
-		sites = []string{"php"}
-	case 3:
-		roleCode = "moderator"
-		sites = []string{"go"}
-	}
 	perms := []string{}
-	if role, ok := s.roles[u.RoleID]; ok {
-		perms = append(perms, role.Permissions...)
+	if identity == "admin" {
+		switch u.RoleID {
+		case 1:
+			roleCode = "super_admin"
+			sites = []string{"*"}
+		case 2:
+			roleCode = "site_admin"
+			sites = []string{"php"}
+		case 3:
+			roleCode = "moderator"
+			sites = []string{"go"}
+		}
+		roleName = u.RoleName
+		if role, ok := s.roles[u.RoleID]; ok {
+			perms = append(perms, role.Permissions...)
+		}
 	}
 	return domain.AuthUser{
 		ID:          u.ID,
@@ -500,9 +689,12 @@ func (s *MemoryStore) memoryAuthUserLocked(userID int64) domain.AuthUser {
 		Phone:       u.Phone,
 		Status:      u.Status,
 		RoleCode:    roleCode,
-		RoleName:    u.RoleName,
+		RoleName:    roleName,
 		Sites:       sites,
 		Permissions: perms,
+		TokenType:   identity,
+		Identity:    identity,
+		Audience:    map[string]string{"admin": "devhub_admin", "user": "devhub_frontend"}[identity],
 	}
 }
 
@@ -1399,7 +1591,25 @@ func (s *MemoryStore) PushNotification(req domain.PushNotificationRequest) *doma
 func (s *MemoryStore) AppendAdminLog(log domain.AdminLog) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	s.appendLogForSiteLocked(log.Site, log.Type, log.Actor, log.Role, log.Action, log.Target, log.IP)
+	if log.ID == 0 {
+		log.ID = s.nextLogID
+		s.nextLogID++
+	}
+	log.Site = normalizeSiteScope(log.Site)
+	if log.ActorType == "" {
+		if log.Actor == "system" || log.Actor == "" {
+			log.ActorType = "system"
+		} else {
+			log.ActorType = "admin_user"
+		}
+	}
+	if log.ActorID == 0 {
+		log.ActorID = log.ActorUserID
+	}
+	if log.CreatedAt == "" {
+		log.CreatedAt = Now()
+	}
+	s.logs = append(s.logs, log)
 }
 
 // limitPosts 按 limit 截断帖子列表。
@@ -1424,6 +1634,9 @@ func adminLogMatches(log domain.AdminLog, filter domain.AdminLogFilter) bool {
 	if filter.Type != "" && filter.Type != "all" && log.Type != filter.Type {
 		return false
 	}
+	if filter.ActorType != "" && filter.ActorType != "all" && log.ActorType != filter.ActorType {
+		return false
+	}
 	if filter.Action != "" && !strings.Contains(strings.ToLower(log.Action), strings.ToLower(filter.Action)) {
 		return false
 	}
@@ -1434,7 +1647,7 @@ func adminLogMatches(log domain.AdminLog, filter domain.AdminLogFilter) bool {
 		return false
 	}
 	if filter.CommunityID > 0 {
-		site := siteByCommunityID(filter.CommunityID)
+		site := fallbackSiteByCommunityID(filter.CommunityID)
 		if site == "" || !logInSite(log, site) {
 			return false
 		}
@@ -1491,7 +1704,7 @@ func memoryTopicMatchesKeyword(topic domain.Topic, keyword string, s *MemoryStor
 	if needle == "" {
 		return true
 	}
-	communityName := siteByCommunityID(topic.CommunityID)
+	communityName := fallbackSiteByCommunityID(topic.CommunityID)
 	if site, ok := s.sites[communityName]; ok {
 		communityName += " " + site.Name
 	}
@@ -1574,6 +1787,10 @@ func communityIDBySite(site string) int64 {
 	}
 }
 
+func fallbackCommunityIDBySite(site string) int64 {
+	return communityIDBySite(site)
+}
+
 func categoryIDForBoard(communityID int64, board string) int64 {
 	order := map[string]int64{
 		"community":  1,
@@ -1624,6 +1841,10 @@ func siteByCommunityID(communityID int64) string {
 	default:
 		return ""
 	}
+}
+
+func fallbackSiteByCommunityID(communityID int64) string {
+	return siteByCommunityID(communityID)
 }
 
 func contentTypeForBoard(board string) string {
@@ -1754,7 +1975,7 @@ func targetURLFor(targetType string, targetID int64, topicID int64) string {
 			return fmt.Sprintf("/topics/%d/#comments", topicID)
 		}
 	case "community":
-		if slug := siteByCommunityID(targetID); slug != "" {
+		if slug := fallbackSiteByCommunityID(targetID); slug != "" {
 			return "/c/" + slug + "/"
 		}
 	case "tag":
@@ -1802,7 +2023,7 @@ func (s *MemoryStore) topicFromPostLocked(id int64, increaseView bool) (domain.T
 	if increaseView {
 		p.Views++
 	}
-	communityID := communityIDBySite(p.Site)
+	communityID := s.communityIDBySlugLocked(p.Site)
 	userID := p.UserID
 	if userID <= 0 {
 		userID = 1
@@ -1811,7 +2032,7 @@ func (s *MemoryStore) topicFromPostLocked(id int64, increaseView bool) (domain.T
 	return domain.Topic{
 		ID:            p.ID,
 		CommunityID:   communityID,
-		CategoryID:    categoryIDForBoard(communityID, p.Board),
+		CategoryID:    s.categoryIDForBoardLocked(communityID, p.Board),
 		UserID:        userID,
 		Title:         p.Title,
 		ContentType:   contentTypeForBoard(p.Board),
@@ -1878,48 +2099,43 @@ func (s *MemoryStore) normalizeCommentLocked(c *domain.Comment) {
 }
 
 func (s *MemoryStore) communityByIDLocked(id int64) domain.Community {
-	for _, key := range s.siteOrder {
-		if communityIDBySite(key) != id {
-			continue
-		}
-		site, ok := s.sites[key]
-		if !ok {
-			continue
-		}
-		return domain.Community{
-			ID:          id,
-			Name:        site.Name,
-			Slug:        site.Key,
-			Logo:        site.Logo,
-			Description: site.Description,
-			SortOrder:   site.Sort,
-			Status:      1,
-			CreatedAt:   Now(),
-		}
+	if comm, ok := s.communities[id]; ok {
+		cp := *comm
+		s.applyCommunityStatsLocked(&cp)
+		return cp
 	}
 	return domain.Community{}
 }
 
 func (s *MemoryStore) categoryByIDLocked(communityID, categoryID int64) domain.Category {
-	for _, key := range s.boardOrder {
-		if key == "all" || categoryIDForBoard(communityID, key) != categoryID {
-			continue
+	if cat, ok := s.categories[categoryID]; ok && (communityID == 0 || cat.CommunityID == communityID) {
+		cp := *cat
+		if cp.ContentType == "" {
+			cp.ContentType = cp.Type
 		}
-		board := s.boards[key]
-		return domain.Category{
-			ID:          categoryID,
-			CommunityID: communityID,
-			Name:        board.Name,
-			Slug:        board.Key,
-			Type:        contentTypeForBoard(board.Key),
-			Description: board.Name,
-			SortOrder:   board.Sort,
-			Visible:     board.Visible,
-			Status:      1,
-			CreatedAt:   Now(),
-		}
+		return cp
 	}
 	return domain.Category{}
+}
+
+func (s *MemoryStore) categoryIDForBoardLocked(communityID int64, board string) int64 {
+	board = strings.TrimSpace(board)
+	for _, cat := range s.categories {
+		if cat.CommunityID == communityID && (cat.Slug == board || cat.Type == contentTypeForBoard(board) || cat.ContentType == contentTypeForBoard(board)) {
+			return cat.ID
+		}
+	}
+	return categoryIDForBoard(communityID, board)
+}
+
+func (s *MemoryStore) boardByCategoryIDLocked(categoryID int64) string {
+	if cat, ok := s.categories[categoryID]; ok {
+		if cat.Slug != "" {
+			return cat.Slug
+		}
+		return boardByContentType(firstNonEmptyString(cat.ContentType, cat.Type))
+	}
+	return boardByCategoryID(categoryID)
 }
 
 func (s *MemoryStore) validateFollowTargetLocked(targetType string, targetID int64) error {
@@ -1933,7 +2149,7 @@ func (s *MemoryStore) validateFollowTargetLocked(targetType string, targetID int
 		}
 		return errors.New("用户不存在")
 	case "community":
-		if siteByCommunityID(targetID) != "" {
+		if _, ok := s.communities[targetID]; ok {
 			return nil
 		}
 		return errors.New("子站不存在")
@@ -2074,69 +2290,517 @@ func firstRunes(s string, n int) string {
 	return string(r[:n]) + "..."
 }
 
+func normalizeSlug(value string) string {
+	value = strings.ToLower(strings.TrimSpace(value))
+	if value == "" {
+		return ""
+	}
+	replacer := strings.NewReplacer(" ", "-", "_", "-", "/", "-", "\\", "-", ".", "-", ",", "-")
+	value = replacer.Replace(value)
+	value = strings.Trim(value, "-")
+	if value == "" {
+		return ""
+	}
+	var b strings.Builder
+	lastDash := false
+	for _, r := range value {
+		ok := (r >= 'a' && r <= 'z') || (r >= '0' && r <= '9') || r == '-'
+		if !ok {
+			continue
+		}
+		if r == '-' {
+			if lastDash {
+				continue
+			}
+			lastDash = true
+		} else {
+			lastDash = false
+		}
+		b.WriteRune(r)
+	}
+	return strings.Trim(b.String(), "-")
+}
+
+func validCommunityStatus(status int) bool {
+	return status == 0 || status == 1 || status == 2
+}
+
+func validCategoryStatus(status int) bool {
+	return status == 0 || status == 1
+}
+
+func validCategoryContentType(contentType string) bool {
+	switch contentType {
+	case "article", "question", "project", "ai_work", "job", "wiki", "doc", "news":
+		return true
+	default:
+		return false
+	}
+}
+
 // ===== 新增：DevHub 通用社区系统方法 =====
 
 func (s *MemoryStore) Communities() []domain.Community {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
-	out := []domain.Community{}
-	for _, key := range s.siteOrder {
-		site, ok := s.sites[key]
-		if !ok || site.Key == "portal" {
-			continue
-		}
-		comm := domain.Community{
-			ID:          communityIDBySite(site.Key),
-			Name:        site.Name,
-			Slug:        site.Key,
-			Logo:        site.Logo,
-			Description: site.Description,
-			SortOrder:   site.Sort,
-			Status:      1,
-			CreatedAt:   Now(),
-		}
-		out = append(out, comm)
+	out := make([]domain.Community, 0, len(s.communities))
+	for _, comm := range s.communities {
+		cp := *comm
+		s.applyCommunityStatsLocked(&cp)
+		out = append(out, cp)
 	}
+	sort.Slice(out, func(i, j int) bool {
+		if out[i].SortOrder == out[j].SortOrder {
+			return out[i].ID < out[j].ID
+		}
+		return out[i].SortOrder < out[j].SortOrder
+	})
 	return out
 }
 
 func (s *MemoryStore) CommunityBySlug(slug string) (domain.Community, bool) {
-	for _, comm := range s.Communities() {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	slug = strings.TrimSpace(slug)
+	for _, comm := range s.communities {
 		if comm.Slug == slug {
-			return comm, true
+			cp := *comm
+			s.applyCommunityStatsLocked(&cp)
+			return cp, true
 		}
 	}
 	return domain.Community{}, false
+}
+
+func (s *MemoryStore) communityIDBySlugLocked(slug string) int64 {
+	slug = strings.TrimSpace(slug)
+	for _, comm := range s.communities {
+		if comm.Slug == slug {
+			return comm.ID
+		}
+	}
+	return fallbackCommunityIDBySite(slug)
+}
+
+func (s *MemoryStore) communitySlugByIDLocked(id int64) string {
+	if comm, ok := s.communities[id]; ok {
+		return comm.Slug
+	}
+	return fallbackSiteByCommunityID(id)
 }
 
 func (s *MemoryStore) Categories(communityID int64) []domain.Category {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	out := []domain.Category{}
-	for _, key := range s.boardOrder {
-		if key == "all" {
+	for _, cat := range s.categories {
+		if communityID > 0 && cat.CommunityID != communityID {
 			continue
 		}
-		board, ok := s.boards[key]
-		if !ok {
-			continue
+		cp := *cat
+		if cp.ContentType == "" {
+			cp.ContentType = cp.Type
 		}
-		cat := domain.Category{
-			ID:          categoryIDForBoard(communityID, board.Key),
-			CommunityID: communityID,
-			Name:        board.Name,
-			Slug:        board.Key,
-			Type:        contentTypeForBoard(board.Key),
-			Description: board.Name,
-			Icon:        "",
-			SortOrder:   board.Sort,
-			Visible:     board.Visible,
-			Status:      1,
-			CreatedAt:   Now(),
-		}
-		out = append(out, cat)
+		out = append(out, cp)
 	}
+	sort.Slice(out, func(i, j int) bool {
+		if out[i].SortOrder == out[j].SortOrder {
+			return out[i].ID < out[j].ID
+		}
+		return out[i].SortOrder < out[j].SortOrder
+	})
 	return out
+}
+
+func (s *MemoryStore) CommunityStats(communityID int64) domain.CommunityStats {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.communityStatsLocked(communityID)
+}
+
+func (s *MemoryStore) CreateCommunity(req domain.CommunityRequest) (domain.Community, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	comm, err := s.normalizeCommunityRequestLocked(req, nil)
+	if err != nil {
+		return domain.Community{}, err
+	}
+	for _, existing := range s.communities {
+		if existing.Slug == comm.Slug {
+			return domain.Community{}, errors.New("子站 slug 已存在")
+		}
+	}
+	comm.ID = s.nextCommunityID
+	s.nextCommunityID++
+	now := Now()
+	comm.CreatedAt = now
+	comm.UpdatedAt = now
+	s.communities[comm.ID] = comm
+	for _, cat := range defaultCategorySeeds(comm.ID) {
+		cp := cat
+		if cp.ID >= s.nextCategoryID {
+			cp.ID = s.nextCategoryID
+		}
+		s.nextCategoryID = cp.ID + 1
+		cp.CommunityID = comm.ID
+		s.categories[cp.ID] = &cp
+	}
+	cp := *comm
+	s.applyCommunityStatsLocked(&cp)
+	return cp, nil
+}
+
+func (s *MemoryStore) UpdateCommunity(id int64, req domain.CommunityRequest) (domain.Community, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	current, ok := s.communities[id]
+	if !ok {
+		return domain.Community{}, errors.New("子站不存在")
+	}
+	updated, err := s.normalizeCommunityRequestLocked(req, current)
+	if err != nil {
+		return domain.Community{}, err
+	}
+	for _, existing := range s.communities {
+		if existing.ID != id && existing.Slug == updated.Slug {
+			return domain.Community{}, errors.New("子站 slug 已存在")
+		}
+	}
+	updated.ID = id
+	updated.CreatedAt = current.CreatedAt
+	updated.UpdatedAt = Now()
+	s.communities[id] = updated
+	cp := *updated
+	s.applyCommunityStatsLocked(&cp)
+	return cp, nil
+}
+
+func (s *MemoryStore) SetCommunityStatus(id int64, status int) (domain.Community, error) {
+	if status != 0 && status != 1 && status != 2 {
+		return domain.Community{}, errors.New("子站状态不合法")
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	comm, ok := s.communities[id]
+	if !ok {
+		return domain.Community{}, errors.New("子站不存在")
+	}
+	comm.Status = status
+	comm.UpdatedAt = Now()
+	cp := *comm
+	s.applyCommunityStatsLocked(&cp)
+	return cp, nil
+}
+
+func (s *MemoryStore) ReorderCommunities(ids []int64) int {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	updated := 0
+	for i, id := range ids {
+		if comm, ok := s.communities[id]; ok {
+			comm.SortOrder = i + 1
+			comm.UpdatedAt = Now()
+			updated++
+		}
+	}
+	return updated
+}
+
+func (s *MemoryStore) CreateCategory(communityID int64, req domain.CategoryRequest) (domain.Category, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if _, ok := s.communities[communityID]; !ok {
+		return domain.Category{}, errors.New("子站不存在")
+	}
+	cat, err := s.normalizeCategoryRequestLocked(req, nil)
+	if err != nil {
+		return domain.Category{}, err
+	}
+	cat.CommunityID = communityID
+	for _, existing := range s.categories {
+		if existing.CommunityID == communityID && existing.Slug == cat.Slug {
+			return domain.Category{}, errors.New("板块 slug 已存在")
+		}
+	}
+	cat.ID = s.nextCategoryID
+	s.nextCategoryID++
+	now := Now()
+	cat.CreatedAt = now
+	cat.UpdatedAt = now
+	s.categories[cat.ID] = cat
+	return *cat, nil
+}
+
+func (s *MemoryStore) UpdateCategory(id int64, req domain.CategoryRequest) (domain.Category, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	current, ok := s.categories[id]
+	if !ok {
+		return domain.Category{}, errors.New("板块不存在")
+	}
+	updated, err := s.normalizeCategoryRequestLocked(req, current)
+	if err != nil {
+		return domain.Category{}, err
+	}
+	for _, existing := range s.categories {
+		if existing.ID != id && existing.CommunityID == updated.CommunityID && existing.Slug == updated.Slug {
+			return domain.Category{}, errors.New("板块 slug 已存在")
+		}
+	}
+	updated.ID = id
+	updated.CreatedAt = current.CreatedAt
+	updated.UpdatedAt = Now()
+	s.categories[id] = updated
+	return *updated, nil
+}
+
+func (s *MemoryStore) SetCategoryStatus(id int64, status int) (domain.Category, error) {
+	if status != 0 && status != 1 {
+		return domain.Category{}, errors.New("板块状态不合法")
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	cat, ok := s.categories[id]
+	if !ok {
+		return domain.Category{}, errors.New("板块不存在")
+	}
+	cat.Status = status
+	cat.Visible = status == 1
+	cat.NavVisible = status == 1
+	cat.UpdatedAt = Now()
+	return *cat, nil
+}
+
+func (s *MemoryStore) ReorderCategories(ids []int64) int {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	updated := 0
+	for i, id := range ids {
+		if cat, ok := s.categories[id]; ok {
+			cat.SortOrder = i + 1
+			cat.UpdatedAt = Now()
+			updated++
+		}
+	}
+	return updated
+}
+
+func (s *MemoryStore) normalizeCommunityRequestLocked(req domain.CommunityRequest, current *domain.Community) (*domain.Community, error) {
+	comm := &domain.Community{Status: 1}
+	if current != nil {
+		cp := *current
+		comm = &cp
+	}
+	if strings.TrimSpace(req.Name) != "" {
+		comm.Name = strings.TrimSpace(req.Name)
+	}
+	if comm.Name == "" {
+		return nil, errors.New("子站名称不能为空")
+	}
+	slug := normalizeSlug(req.Slug)
+	if slug != "" {
+		comm.Slug = slug
+	} else if comm.Slug == "" {
+		comm.Slug = normalizeSlug(comm.Name)
+	}
+	if comm.Slug == "" {
+		return nil, errors.New("子站 slug 不能为空")
+	}
+	comm.Logo = strings.TrimSpace(req.Logo)
+	if comm.Logo == "" && current == nil {
+		comm.Logo = strings.ToUpper(firstRunes(comm.Name, 2))
+	}
+	if strings.TrimSpace(req.CoverImage) != "" || current == nil {
+		comm.CoverImage = strings.TrimSpace(req.CoverImage)
+	}
+	if strings.TrimSpace(req.Slogan) != "" || current == nil {
+		comm.Slogan = strings.TrimSpace(req.Slogan)
+	}
+	if strings.TrimSpace(req.Description) != "" || current == nil {
+		comm.Description = strings.TrimSpace(req.Description)
+	}
+	if strings.TrimSpace(req.ThemeColor) != "" || current == nil {
+		comm.ThemeColor = strings.TrimSpace(req.ThemeColor)
+	}
+	if comm.ThemeColor == "" {
+		comm.ThemeColor = "#2563eb"
+	}
+	comm.SEOTitle = strings.TrimSpace(req.SEOTitle)
+	if comm.SEOTitle == "" && current != nil {
+		comm.SEOTitle = current.SEOTitle
+	}
+	if comm.SEOTitle == "" {
+		comm.SEOTitle = comm.Name + " 技术社区"
+	}
+	comm.SEODescription = strings.TrimSpace(req.SEODescription)
+	if comm.SEODescription == "" && current != nil {
+		comm.SEODescription = current.SEODescription
+	}
+	if comm.SEODescription == "" {
+		comm.SEODescription = comm.Description
+	}
+	comm.SEOKeywords = strings.TrimSpace(req.SEOKeywords)
+	if comm.SEOKeywords == "" && current != nil {
+		comm.SEOKeywords = current.SEOKeywords
+	}
+	if req.SortOrder != nil {
+		comm.SortOrder = *req.SortOrder
+	} else if current == nil && comm.SortOrder == 0 {
+		comm.SortOrder = len(s.communities) + 1
+	}
+	if req.Status != nil {
+		if !validCommunityStatus(*req.Status) {
+			return nil, errors.New("子站状态不合法")
+		}
+		comm.Status = *req.Status
+	}
+	comm.AnnouncementTitle = strings.TrimSpace(req.AnnouncementTitle)
+	if comm.AnnouncementTitle == "" && current != nil {
+		comm.AnnouncementTitle = current.AnnouncementTitle
+	}
+	comm.AnnouncementContent = strings.TrimSpace(req.AnnouncementContent)
+	if comm.AnnouncementContent == "" && current != nil {
+		comm.AnnouncementContent = current.AnnouncementContent
+	}
+	comm.AnnouncementURL = strings.TrimSpace(req.AnnouncementURL)
+	if comm.AnnouncementURL == "" && current != nil {
+		comm.AnnouncementURL = current.AnnouncementURL
+	}
+	return comm, nil
+}
+
+func (s *MemoryStore) normalizeCategoryRequestLocked(req domain.CategoryRequest, current *domain.Category) (*domain.Category, error) {
+	cat := &domain.Category{Visible: true, NavVisible: true, Postable: true, Status: 1}
+	if current != nil {
+		cp := *current
+		cat = &cp
+	}
+	if req.CommunityID > 0 {
+		if _, ok := s.communities[req.CommunityID]; !ok {
+			return nil, errors.New("子站不存在")
+		}
+		cat.CommunityID = req.CommunityID
+	}
+	if strings.TrimSpace(req.Name) != "" {
+		cat.Name = strings.TrimSpace(req.Name)
+	}
+	if cat.Name == "" {
+		return nil, errors.New("板块名称不能为空")
+	}
+	slug := normalizeSlug(req.Slug)
+	if slug != "" {
+		cat.Slug = slug
+	} else if cat.Slug == "" {
+		cat.Slug = normalizeSlug(cat.Name)
+	}
+	if cat.Slug == "" {
+		return nil, errors.New("板块 slug 不能为空")
+	}
+	contentType := strings.TrimSpace(firstNonEmptyString(req.ContentType, req.Type))
+	if contentType != "" {
+		if !validCategoryContentType(contentType) {
+			return nil, errors.New("内容类型不合法")
+		}
+		cat.Type = contentType
+		cat.ContentType = contentType
+	}
+	if cat.Type == "" {
+		cat.Type = "article"
+		cat.ContentType = "article"
+	}
+	if cat.ContentType == "" {
+		cat.ContentType = cat.Type
+	}
+	if strings.TrimSpace(req.Description) != "" || current == nil {
+		cat.Description = strings.TrimSpace(req.Description)
+	}
+	if strings.TrimSpace(req.Icon) != "" || current == nil {
+		cat.Icon = strings.TrimSpace(req.Icon)
+	}
+	if req.SortOrder != nil {
+		cat.SortOrder = *req.SortOrder
+	} else if current == nil && cat.SortOrder == 0 {
+		cat.SortOrder = len(s.categories) + 1
+	}
+	if req.Visible != nil {
+		cat.Visible = *req.Visible
+	}
+	if req.NavVisible != nil {
+		cat.NavVisible = *req.NavVisible
+	}
+	if req.Postable != nil {
+		cat.Postable = *req.Postable
+	}
+	if req.Status != nil {
+		if !validCategoryStatus(*req.Status) {
+			return nil, errors.New("板块状态不合法")
+		}
+		cat.Status = *req.Status
+	}
+	cat.SEOTitle = strings.TrimSpace(req.SEOTitle)
+	if cat.SEOTitle == "" && current != nil {
+		cat.SEOTitle = current.SEOTitle
+	}
+	cat.SEODescription = strings.TrimSpace(req.SEODescription)
+	if cat.SEODescription == "" && current != nil {
+		cat.SEODescription = current.SEODescription
+	}
+	return cat, nil
+}
+
+func (s *MemoryStore) applyCommunityStatsLocked(comm *domain.Community) {
+	if comm == nil {
+		return
+	}
+	stats := s.communityStatsLocked(comm.ID)
+	comm.FollowerCount = stats.FollowerCount
+	comm.TopicCount = stats.TopicCount
+	comm.CommentCount = stats.CommentCount
+	comm.HotScore = stats.HotScore
+}
+
+func (s *MemoryStore) communityStatsLocked(communityID int64) domain.CommunityStats {
+	stats := domain.CommunityStats{}
+	slug := s.communitySlugByIDLocked(communityID)
+	for _, p := range s.posts {
+		if p.Site != slug || !memoryPostVisible(p) {
+			continue
+		}
+		stats.TopicCount++
+		stats.CommentCount += p.Comments
+		stats.HotScore += p.Views + p.Comments*5 + p.Likes*3 + s.favoriteCountLocked("topic", p.ID)*4
+		if contentTypeForBoard(p.Board) == "question" {
+			stats.QuestionCount++
+			if !s.topicIsSolvedLocked(p) {
+				stats.UnsolvedCount++
+			}
+		}
+		if strings.HasPrefix(p.CreatedAt, time.Now().Format("2006-01-02")) {
+			stats.TodayTopicCount++
+		}
+	}
+	for _, c := range s.comments {
+		if c.Status != "normal" {
+			continue
+		}
+		if p, ok := s.posts[c.PostID]; ok && p.Site == slug && strings.HasPrefix(c.CreatedAt, time.Now().Format("2006-01-02")) {
+			stats.TodayCommentCount++
+		}
+	}
+	for key := range s.follows {
+		parts := strings.Split(key, ":")
+		if len(parts) == 3 && parts[1] == "community" {
+			if id, _ := strconv.ParseInt(parts[2], 10, 64); id == communityID {
+				stats.FollowerCount++
+			}
+		}
+	}
+	for _, moderator := range s.moderators {
+		if moderator.CommunityID == communityID && moderator.Status == 1 {
+			stats.ModeratorCount++
+		}
+	}
+	return stats
 }
 
 func (s *MemoryStore) TopicsByFilter(communityID, categoryID int64, contentType, sortBy string, isSolved *bool, tag string, page, pageSize int) ([]domain.Topic, int) {
@@ -2152,8 +2816,8 @@ func (s *MemoryStore) TopicsByFilter(communityID, categoryID int64, contentType,
 		favoriteCount := s.favoriteCountLocked("topic", p.ID)
 		topic := domain.Topic{
 			ID:            p.ID,
-			CommunityID:   communityIDBySite(p.Site),
-			CategoryID:    categoryIDForBoard(communityIDBySite(p.Site), p.Board),
+			CommunityID:   s.communityIDBySlugLocked(p.Site),
+			CategoryID:    s.categoryIDForBoardLocked(s.communityIDBySlugLocked(p.Site), p.Board),
 			UserID:        p.UserID,
 			Title:         p.Title,
 			ContentType:   contentTypeForBoard(p.Board),
@@ -2278,8 +2942,11 @@ func (s *MemoryStore) CreateTopic(req domain.CreateTopicRequest) (*domain.Topic,
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	site := siteByCommunityID(req.CommunityID)
+	site := s.communitySlugByIDLocked(req.CommunityID)
 	board := boardByContentType(req.ContentType)
+	if req.CategoryID > 0 {
+		board = s.boardByCategoryIDLocked(req.CategoryID)
+	}
 	if site == "" {
 		return nil, errors.New("子站不存在")
 	}
@@ -2353,16 +3020,16 @@ func (s *MemoryStore) UpdateTopic(id int64, req domain.UpdateTopicRequest) (*dom
 			communityID = *req.CommunityID
 		}
 		if communityID == 0 && req.CommunitySlug != nil {
-			communityID = communityIDBySite(strings.TrimSpace(*req.CommunitySlug))
+			communityID = s.communityIDBySlugLocked(strings.TrimSpace(*req.CommunitySlug))
 		}
-		site := siteByCommunityID(communityID)
+		site := s.communitySlugByIDLocked(communityID)
 		if site == "" {
 			return nil, errors.New("子站不存在")
 		}
 		p.Site = site
 	}
 	if req.CategoryID != nil && *req.CategoryID > 0 {
-		p.Board = boardByCategoryID(*req.CategoryID)
+		p.Board = s.boardByCategoryIDLocked(*req.CategoryID)
 	}
 	if req.ContentType != nil && strings.TrimSpace(*req.ContentType) != "" {
 		p.Board = boardByContentType(strings.TrimSpace(*req.ContentType))
@@ -2418,12 +3085,12 @@ func (s *MemoryStore) SearchTopics(req domain.SearchRequest) ([]domain.Topic, in
 			continue
 		}
 		status := memoryTopicStatus(p)
-		communityID := communityIDBySite(p.Site)
+		communityID := s.communityIDBySlugLocked(p.Site)
 		favoriteCount := s.favoriteCountLocked("topic", p.ID)
 		topic := domain.Topic{
 			ID:            p.ID,
 			CommunityID:   communityID,
-			CategoryID:    categoryIDForBoard(communityID, p.Board),
+			CategoryID:    s.categoryIDForBoardLocked(communityID, p.Board),
 			UserID:        p.UserID,
 			Title:         p.Title,
 			ContentType:   contentTypeForBoard(p.Board),
@@ -2545,7 +3212,7 @@ func (s *MemoryStore) ToggleReaction(userID int64, targetID int64, targetType, r
 		p := s.posts[targetID]
 		p.Likes++
 		p.UpdatedAt = now
-		communityID := communityIDBySite(p.Site)
+		communityID := s.communityIDBySlugLocked(p.Site)
 		s.appendActivityLocked(userID, communityID, "liked", "topic", targetID, targetID, p.Title)
 		s.createUserNoticeLocked(int64(1), userID, "topic_liked", "topic", targetID, targetID, 0, "你的内容被点赞", fmt.Sprintf("主题《%s》获得了新的点赞。", p.Title))
 		return true, p.Likes, nil
@@ -2591,7 +3258,7 @@ func (s *MemoryStore) ToggleFavorite(userID int64, targetID int64, targetType st
 		UpdatedAt:  now,
 	}
 	s.nextFavoriteID++
-	communityID := communityIDBySite(p.Site)
+	communityID := s.communityIDBySlugLocked(p.Site)
 	s.appendActivityLocked(userID, communityID, "favorited", "topic", targetID, targetID, p.Title)
 	s.createUserNoticeLocked(int64(1), userID, "topic_favorited", "topic", targetID, targetID, 0, "你的内容被收藏", fmt.Sprintf("主题《%s》被收藏。", p.Title))
 	p.UpdatedAt = now
@@ -2637,7 +3304,7 @@ func (s *MemoryStore) ToggleFollow(userID int64, targetID int64, targetType stri
 	}
 	if targetType == "topic" {
 		if p, ok := s.posts[targetID]; ok {
-			communityID = communityIDBySite(p.Site)
+			communityID = s.communityIDBySlugLocked(p.Site)
 			topicID = targetID
 		}
 	}
@@ -2950,7 +3617,7 @@ func (s *MemoryStore) CreateComment(topicID int64, author string, text string, p
 	c.UserName = firstNonEmptyString(c.Author, "Demo 用户")
 	c.UpdatedAt = c.CreatedAt
 	p.UpdatedAt = Now()
-	communityID := communityIDBySite(p.Site)
+	communityID := s.communityIDBySlugLocked(p.Site)
 	targetType := "topic"
 	targetID := topicID
 	if parentID > 0 {
@@ -3019,7 +3686,7 @@ func (s *MemoryStore) CreateCommentWithRequest(topicID int64, req domain.CreateC
 	c.ReplyToUserID = replyToUserID
 	c.UpdatedAt = c.CreatedAt
 	p.UpdatedAt = Now()
-	communityID := communityIDBySite(p.Site)
+	communityID := s.communityIDBySlugLocked(p.Site)
 	targetType := "topic"
 	targetID := topicID
 	if req.ParentID > 0 {
@@ -3063,7 +3730,7 @@ func (s *MemoryStore) AcceptBestAnswer(topicID int64, commentID int64, actorUser
 	now := Now()
 	p.UpdatedAt = now
 	c.UpdatedAt = now
-	communityID := communityIDBySite(p.Site)
+	communityID := s.communityIDBySlugLocked(p.Site)
 	s.appendActivityLocked(actorUserID, communityID, "accepted_answer", "comment", commentID, topicID, p.Title)
 	receiverID := c.UserID
 	if receiverID == 0 {
@@ -3215,7 +3882,7 @@ func (s *MemoryStore) CommunityModerators(filter domain.CommunityModeratorFilter
 	defer s.mu.RUnlock()
 	communityID := filter.CommunityID
 	if communityID == 0 && filter.CommunitySlug != "" && filter.CommunitySlug != "all" && filter.CommunitySlug != "portal" {
-		communityID = communityIDBySite(filter.CommunitySlug)
+		communityID = s.communityIDBySlugLocked(filter.CommunitySlug)
 	}
 	items := []domain.CommunityModerator{}
 	for _, moderator := range s.moderators {
@@ -3402,7 +4069,7 @@ func (s *MemoryStore) reportTargetContextLocked(targetType string, targetID int6
 		if !ok {
 			return 0, 0, "", "", errors.New("主题不存在")
 		}
-		return communityIDBySite(p.Site), p.ID, p.Title, firstNonEmptyString(p.Summary, p.Content), nil
+		return s.communityIDBySlugLocked(p.Site), p.ID, p.Title, firstNonEmptyString(p.Summary, p.Content), nil
 	case "comment":
 		c, ok := s.comments[targetID]
 		if !ok || c.Status == "deleted" {
@@ -3412,7 +4079,7 @@ func (s *MemoryStore) reportTargetContextLocked(targetType string, targetID int6
 		if !ok {
 			return 0, 0, "", "", errors.New("主题不存在")
 		}
-		return communityIDBySite(p.Site), p.ID, p.Title, c.Content, nil
+		return s.communityIDBySlugLocked(p.Site), p.ID, p.Title, c.Content, nil
 	case "user", "wiki":
 		return 0, 0, fmt.Sprintf("%s#%d", targetType, targetID), "", nil
 	default:
@@ -3486,10 +4153,10 @@ func (s *MemoryStore) normalizeModeratorRequestLocked(req domain.CommunityModera
 	}
 	communityID := req.CommunityID
 	if communityID == 0 && strings.TrimSpace(req.CommunitySlug) != "" {
-		communityID = communityIDBySite(strings.TrimSpace(req.CommunitySlug))
+		communityID = s.communityIDBySlugLocked(strings.TrimSpace(req.CommunitySlug))
 	}
 	if communityID > 0 {
-		if siteByCommunityID(communityID) == "" {
+		if s.communitySlugByIDLocked(communityID) == "" {
 			return nil, errors.New("子站不存在")
 		}
 		moderator.CommunityID = communityID

@@ -26,10 +26,12 @@ const (
 )
 
 type accessClaims struct {
-	Sub int64  `json:"sub"`
-	Exp int64  `json:"exp"`
-	Iat int64  `json:"iat"`
-	Typ string `json:"typ"`
+	Sub       int64  `json:"sub"`
+	Exp       int64  `json:"exp"`
+	Iat       int64  `json:"iat"`
+	Typ       string `json:"typ"`
+	TokenType string `json:"token_type,omitempty"`
+	Audience  string `json:"aud,omitempty"`
 }
 
 func hashPassword(password string) (string, error) {
@@ -42,8 +44,16 @@ func checkPassword(hash, password string) bool {
 }
 
 func newAccessToken(userID int64) (string, int64, error) {
+	return newScopedAccessToken(userID, "user", "devhub_frontend")
+}
+
+func newAdminAccessToken(adminUserID int64) (string, int64, error) {
+	return newScopedAccessToken(adminUserID, "admin", "devhub_admin")
+}
+
+func newScopedAccessToken(subjectID int64, tokenType, audience string) (string, int64, error) {
 	now := time.Now()
-	claims := accessClaims{Sub: userID, Iat: now.Unix(), Exp: now.Add(accessTokenTTL).Unix(), Typ: "access"}
+	claims := accessClaims{Sub: subjectID, Iat: now.Unix(), Exp: now.Add(accessTokenTTL).Unix(), Typ: "access", TokenType: tokenType, Audience: audience}
 	header := map[string]string{"alg": "HS256", "typ": "JWT"}
 	headerJSON, _ := json.Marshal(header)
 	claimsJSON, _ := json.Marshal(claims)
@@ -53,6 +63,14 @@ func newAccessToken(userID int64) (string, int64, error) {
 }
 
 func parseAccessToken(token string) (int64, error) {
+	return parseScopedAccessToken(token, "user", "devhub_frontend")
+}
+
+func parseAdminAccessToken(token string) (int64, error) {
+	return parseScopedAccessToken(token, "admin", "devhub_admin")
+}
+
+func parseScopedAccessToken(token, expectedType, expectedAudience string) (int64, error) {
 	parts := strings.Split(token, ".")
 	if len(parts) != 3 {
 		return 0, errors.New("token 格式不合法")
@@ -71,6 +89,15 @@ func parseAccessToken(token string) (int64, error) {
 	}
 	if claims.Typ != "access" || claims.Sub <= 0 {
 		return 0, errors.New("token 声明无效")
+	}
+	if claims.TokenType == "" {
+		return 0, errors.New("token 缺少身份类型")
+	}
+	if claims.TokenType != expectedType {
+		return 0, errors.New("token 身份类型不匹配")
+	}
+	if expectedAudience != "" && claims.Audience != "" && claims.Audience != expectedAudience {
+		return 0, errors.New("token 受众不匹配")
 	}
 	if time.Now().Unix() >= claims.Exp {
 		return 0, errors.New("token 已过期")
@@ -168,6 +195,15 @@ func logInSite(log domain.AdminLog, site string) bool {
 var adminLogTargetPattern = regexp.MustCompile(`^([A-Za-z_]+)[#:](\d+)`)
 
 func enrichAdminLog(log domain.AdminLog, users []domain.AdminUser) domain.AdminLog {
+	if log.ActorType == "" {
+		if log.Actor == "system" || log.Actor == "" {
+			log.ActorType = "system"
+		} else if log.Role == "moderator" {
+			log.ActorType = "moderator"
+		} else {
+			log.ActorType = "admin_user"
+		}
+	}
 	target := strings.TrimSpace(log.Target)
 	if log.TargetType == "" {
 		if index := strings.IndexAny(target, "#:"); index > 0 {
@@ -187,6 +223,12 @@ func enrichAdminLog(log domain.AdminLog, users []domain.AdminUser) domain.AdminL
 				break
 			}
 		}
+	}
+	if log.ActorID == 0 {
+		log.ActorID = log.ActorUserID
+	}
+	if log.ActorUserID == 0 && log.ActorID > 0 {
+		log.ActorUserID = log.ActorID
 	}
 	if log.CommunityID == 0 {
 		log.CommunityID = communityIDBySite(normalizeSiteScope(log.Site))

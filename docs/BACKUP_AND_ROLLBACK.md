@@ -4,7 +4,7 @@
 
 更新时间：2026-05-09
 
-本文档用于 DevHub v1.0.0 的上线前归档、备份和紧急回滚。生产执行前请先在预发环境演练，避免直接覆盖线上数据。
+本文档用于 DevHub v1.x 的上线前归档、备份和紧急回滚。当前版本为 v1.1.3；生产执行前请先在预发环境演练，避免直接覆盖线上数据。
 
 ## 需要备份的内容
 
@@ -112,19 +112,20 @@ PORT=8090 CMS_STORE=memory ./.devhub/devhub
 
 ```bash
 git tag
+git show v1.1.0
 git show v1.0.0
 ```
 
-回到 v1.0.0：
+回到 v1.1.0：
 
 ```bash
-git checkout v1.0.0
+git checkout v1.1.0
 ```
 
 如果需要从 tag 创建修复分支：
 
 ```bash
-git checkout -b hotfix/v1.0.0 v1.0.0
+git checkout -b hotfix/v1.1.0 v1.1.0
 ```
 
 生产发布不建议直接在服务器上做复杂 Git 操作；更稳妥的方式是在 CI 或构建机产出 release 包，再部署到服务器。

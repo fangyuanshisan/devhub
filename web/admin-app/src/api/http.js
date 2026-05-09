@@ -19,6 +19,7 @@ http.interceptors.response.use(
     ElMessage.error(message);
     if (error.response?.status === 401) {
       sessionStorage.removeItem('devhub_admin_token');
+      sessionStorage.removeItem('devhub_admin_refresh_token');
       sessionStorage.removeItem('devhub_admin_user');
       if (!location.pathname.includes('/login')) location.href = '/admin-next/login';
     }

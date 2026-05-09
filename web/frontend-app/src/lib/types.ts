@@ -2,6 +2,7 @@ export type Site = {
   key: string;
   name: string;
   logo: string;
+  cover_image?: string;
   title: string;
   sub: string;
   pub: string;
@@ -9,6 +10,17 @@ export type Site = {
   color: string;
   status: string;
   sort: number;
+  slogan?: string;
+  seo_title?: string;
+  seo_description?: string;
+  seo_keywords?: string;
+  follower_count?: number;
+  topic_count?: number;
+  comment_count?: number;
+  hot_score?: number;
+  announcement_title?: string;
+  announcement_content?: string;
+  announcement_url?: string;
 };
 
 export type Board = {
@@ -48,6 +60,18 @@ export type Post = {
 export type TagStat = {
   name: string;
   count: number;
+};
+
+export type CommunityStats = {
+  topic_count: number;
+  comment_count: number;
+  question_count: number;
+  unsolved_count: number;
+  follower_count: number;
+  today_topic_count: number;
+  today_comment_count: number;
+  moderator_count: number;
+  hot_score: number;
 };
 
 export type CommentNode = {

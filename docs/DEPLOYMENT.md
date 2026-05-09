@@ -111,6 +111,66 @@ mysql -h127.0.0.1 -P3307 -u devhub -p devhub < db/mysql/001_schema.sql
 
 如果已经运行过旧版本，请先确认 `db/mysql/migrations/` 中的迁移是否已经在目标库执行。
 
+## v1.1.0 Schema 升级说明
+
+v1.1.0 增强了 `communities` 和 `categories` 表。新库可直接使用 `db/mysql/001_schema.sql` 初始化；旧库升级前建议先在预发环境验证。
+
+新增或确认的 `communities` 字段：
+
+```text
+logo, cover_image, slogan, theme_color,
+seo_title, seo_description, seo_keywords,
+sort_order, status,
+follower_count, topic_count, comment_count, hot_score,
+announcement_title, announcement_content, announcement_url
+```
+
+新增或确认的 `categories` 字段：
+
+```text
+visible, nav_visible, postable, seo_title, seo_description, status
+```
+
+当前 Go 启动时会通过内置迁移辅助尽量补齐缺失列，并补齐 PHP、Go、Java、AI、Frontend 子站 seed 数据。生产库仍建议：
+
+1. 先备份 MySQL。
+2. 在预发库执行启动和接口回归。
+3. 确认 `/api/v1/communities/php`、`/api/v1/communities/php/stats`、`/c/php/` 和 `/sitemap.xml` 正常。
+
+## v1.1.1 身份边界升级说明
+
+v1.1.1 增加或确认以下字段，用于区分前台用户、后台人员和子站版主审计来源：
+
+```text
+refresh_tokens.token_type
+admin_logs.actor_type
+admin_logs.actor_id
+```
+
+新库可直接使用 `db/mysql/001_schema.sql` 初始化；旧库启动时由内置迁移辅助尽量补齐。生产库建议先在预发环境确认：
+
+- 前台登录返回 `token_type=user`。
+- 后台登录返回 `token_type=admin`。
+- 前台 refresh token 和后台 refresh token 互不刷新。
+- 审计日志能返回 `actor_type` 和 `actor_id`。
+
+说明：`refresh_tokens.user_id` 当前按 `token_type=user/admin` 分别指向 `users.id` 或 `admin_users.id`，v1.1.1 会尝试移除旧的单一 `users` 外键。生产库如果历史外键名称不同，需要 DBA 手动确认并处理。
+
+## v1.1.3 版主工作台升级说明
+
+v1.1.3 新增前台版主工作台静态页面和 `/api/v1/moderator/*` API，不新增 MySQL schema。升级时需要重新构建前台 Astro 产物，确保以下文件存在：
+
+```text
+web/frontend/moderator/index.html
+web/frontend/moderator/reports/index.html
+web/frontend/moderator/topics/index.html
+web/frontend/moderator/comments/index.html
+web/frontend/moderator/audit-logs/index.html
+```
+
+后端仍使用 `community_moderators` 判断版主范围，使用 `admin_logs` 写入 `actor_type=moderator` 的审计记录。生产升级后建议验证普通用户访问 `/api/v1/moderator/*` 返回 403，PHP 版主只能访问 PHP 子站数据。
+4. 再切换生产服务。
+
 ## 生产部署建议
 
 - 使用 `go build -o devhub .` 产出二进制，配合 systemd、supervisor 或容器编排守护进程。
@@ -207,7 +267,7 @@ docker run --rm -e NPM_CONFIG_REGISTRY=https://registry.npmmirror.com -v "$PWD/w
 
 构建产物仍输出到 `web/admin-vue`，由 Go 在 `/admin-next` 挂载。修改 Go 后端后仍需执行 `./dev.sh --restart`，或先 `go build -o .devhub/devhub .` 再按二进制排障启动。
 
-## v1.0.0 上线前检查
+## v1.1.0 上线前检查
 
 ```bash
 go test ./...
@@ -215,7 +275,12 @@ go build -o .devhub/devhub .
 ./dev.sh --restart
 curl -I http://127.0.0.1:8090/
 curl http://127.0.0.1:8090/api/v1/health
+curl http://127.0.0.1:8090/api/v1/communities/php
+curl http://127.0.0.1:8090/api/v1/communities/php/stats
 curl http://127.0.0.1:8090/admin-next
+curl http://127.0.0.1:8090/admin-next/communities
+curl http://127.0.0.1:8090/c/php/
+curl -I http://127.0.0.1:8090/site/php
 curl http://127.0.0.1:8090/topics/1
 curl http://127.0.0.1:8090/sitemap.xml
 curl http://127.0.0.1:8090/robots.txt

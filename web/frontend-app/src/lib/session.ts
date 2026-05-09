@@ -21,8 +21,10 @@ type SessionPayload = {
   user?: DevHubUser;
 };
 
-const accessTokenKey = 'devhub_access_token';
-const refreshTokenKey = 'devhub_refresh_token';
+const accessTokenKey = 'devhub_user_token';
+const refreshTokenKey = 'devhub_user_refresh_token';
+const legacyAccessTokenKey = 'devhub_access_token';
+const legacyRefreshTokenKey = 'devhub_refresh_token';
 const userKey = 'devhub_user';
 
 function inBrowser() {
@@ -30,13 +32,17 @@ function inBrowser() {
 }
 
 export function getAccessToken() {
-  if (!inBrowser()) return '';
-  return localStorage.getItem(accessTokenKey) || '';
+	if (!inBrowser()) return '';
+	const token = localStorage.getItem(accessTokenKey) || localStorage.getItem(legacyAccessTokenKey) || '';
+	if (token && !localStorage.getItem(accessTokenKey)) localStorage.setItem(accessTokenKey, token);
+	return token;
 }
 
 export function getRefreshToken() {
-  if (!inBrowser()) return '';
-  return localStorage.getItem(refreshTokenKey) || '';
+	if (!inBrowser()) return '';
+	const token = localStorage.getItem(refreshTokenKey) || localStorage.getItem(legacyRefreshTokenKey) || '';
+	if (token && !localStorage.getItem(refreshTokenKey)) localStorage.setItem(refreshTokenKey, token);
+	return token;
 }
 
 export function getStoredUser(): DevHubUser | null {
@@ -59,13 +65,15 @@ export function authHeaders(extra: Record<string, string> = {}) {
 
 export function saveSession(session: SessionPayload) {
   if (!inBrowser()) return null;
-  const accessToken = session.access_token || session.token || '';
-  const refreshToken = session.refresh_token || '';
-  if (accessToken) localStorage.setItem(accessTokenKey, accessToken);
-  if (refreshToken) localStorage.setItem(refreshTokenKey, refreshToken);
-  if (session.user) localStorage.setItem(userKey, JSON.stringify(session.user));
-  notifySessionChange(session.user || getStoredUser());
-  return session.user || null;
+	const accessToken = session.access_token || session.token || '';
+	const refreshToken = session.refresh_token || '';
+	if (accessToken) localStorage.setItem(accessTokenKey, accessToken);
+	if (refreshToken) localStorage.setItem(refreshTokenKey, refreshToken);
+	localStorage.removeItem(legacyAccessTokenKey);
+	localStorage.removeItem(legacyRefreshTokenKey);
+	if (session.user) localStorage.setItem(userKey, JSON.stringify(session.user));
+	notifySessionChange(session.user || getStoredUser());
+	return session.user || null;
 }
 
 export function saveUser(user: DevHubUser | null) {
@@ -80,10 +88,12 @@ export function saveUser(user: DevHubUser | null) {
 
 export function clearSession() {
   if (!inBrowser()) return;
-  localStorage.removeItem(accessTokenKey);
-  localStorage.removeItem(refreshTokenKey);
-  localStorage.removeItem(userKey);
-  notifySessionChange(null);
+	localStorage.removeItem(accessTokenKey);
+	localStorage.removeItem(refreshTokenKey);
+	localStorage.removeItem(legacyAccessTokenKey);
+	localStorage.removeItem(legacyRefreshTokenKey);
+	localStorage.removeItem(userKey);
+	notifySessionChange(null);
 }
 
 export function notifySessionChange(user: DevHubUser | null = getStoredUser()) {

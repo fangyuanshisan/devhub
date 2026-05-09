@@ -6,7 +6,7 @@
 
 本文档用于当前真实实现的手工验收。完成代码变更后，优先执行自动检查，再按页面、接口、业务闭环、SEO 顺序回归。
 
-## v1.0.0 测试矩阵
+## v1.1.0 测试矩阵
 
 基础启动：
 
@@ -26,6 +26,7 @@
 - `/c/java`
 - `/c/ai`
 - `/c/frontend`
+- `/site/php`
 - `/search`
 - `/topics/new`
 - `/c/php/topics/new`
@@ -38,6 +39,11 @@
 核心 API：
 
 - `GET /api/v1/communities`
+- `GET /api/v1/communities/php`
+- `GET /api/v1/communities/php/stats`
+- `GET /api/v1/communities/php/categories`
+- `GET /api/v1/communities/php/tags`
+- `GET /api/v1/communities/php/moderators`
 - `GET /api/v1/topics`
 - `GET /api/v1/topics/:id`
 - `GET /api/v1/search/topics`
@@ -72,10 +78,29 @@
 - `POST /api/v1/admin/topics/:id/unlock-comments`
 - `POST /api/v1/admin/topics/batch`
 - `POST /api/v1/admin/comments/batch`
+- `GET /api/v1/admin/communities`
+- `POST /api/v1/admin/communities`
+- `GET /api/v1/admin/communities/:id`
+- `PUT /api/v1/admin/communities/:id`
+- `POST /api/v1/admin/communities/:id/enable`
+- `POST /api/v1/admin/communities/:id/disable`
+- `POST /api/v1/admin/communities/reorder`
+- `GET /api/v1/admin/communities/:id/categories`
+- `POST /api/v1/admin/communities/:id/categories`
+- `PUT /api/v1/admin/categories/:id`
+- `POST /api/v1/admin/categories/:id/enable`
+- `POST /api/v1/admin/categories/:id/disable`
+- `POST /api/v1/admin/categories/reorder`
 - `GET /api/v1/admin/audit-logs`
 
 SEO 回归：
 
+- `/c/:slug` HTML 源码有 `<title>`。
+- `/c/:slug` HTML 源码有 `meta name="description"`。
+- `/c/:slug` HTML 源码有 canonical。
+- `/c/:slug` HTML 源码有 `<h1>`。
+- `/c/:slug` HTML 源码有子站简介、板块链接、Topic 链接和标签链接。
+- `/site/:slug` 301 到 `/c/:slug/`。
 - `/topics/:id` HTML 源码有 `<title>`。
 - `/topics/:id` HTML 源码有 `meta name="description"`。
 - `/topics/:id` HTML 源码有 `<h1>`。
@@ -95,6 +120,7 @@ SEO 回归：
 - `/admin-next/reports`
 - `/admin-next/moderators`
 - `/admin-next/audit-logs`
+- `/admin-next/communities`
 - `/admin-next/sites`
 - `/admin-next/users`
 - `/admin-next/system`
@@ -110,7 +136,91 @@ SEO 回归：
 - `docs/PROJECT_PROGRESS.md`
 - `docs/BACKUP_AND_ROLLBACK.md`
 - `CHANGELOG.md`
+- `docs/releases/v1.1.0.md`
 - `docs/releases/v1.0.0.md`
+
+## v1.1.1 身份边界测试清单
+
+前台 / 后台登录态：
+
+- 前台登录 `POST /api/v1/auth/login` 返回 `token_type=user`、`aud=devhub_frontend`。
+- 后台登录 `POST /api/v1/admin/login` 返回 `token_type=admin`、`aud=devhub_admin`。
+- 前台 localStorage 使用 `devhub_user_token`、`devhub_user_refresh_token`，兼容旧 `devhub_access_token`、`devhub_refresh_token`。
+- 后台 sessionStorage 使用 `devhub_admin_token`、`devhub_admin_refresh_token`。
+- 前台退出只清理前台 token；后台退出只清理后台 token。
+
+API 边界：
+
+- 前台登录后调用前台接口成功。
+- 前台 token 调用 `/api/v1/admin/users`、`/api/v1/admin/settings` 等特权后台接口应失败。
+- 后台登录后调用后台接口成功。
+- 后台 token 调用 `/api/v1/auth/me` 或前台写操作不应被识别为 `users` 身份。
+- 普通 user 不能隐藏 topic。
+- 普通 user 不能处理 report。
+- `super_admin` 可以治理全站。
+
+版主 scope：
+
+- 已启用 PHP 版主 user token 可以查看和治理 PHP 子站举报 / 内容。
+- PHP 版主不能治理 Go 子站。
+- Go 版主不能治理 PHP 子站。
+- 版主不能新增、更新、停用版主。
+- 版主不能管理后台人员。
+- 版主不能修改系统设置。
+
+审计日志：
+
+- 后台管理员操作写入 `actor_type=admin_user`，`actor_id` 对应 `admin_users.id`。
+- 子站版主治理操作写入 `actor_type=moderator`，`actor_id` 对应 `users.id`。
+- 系统自动或 seed 日志可写入 `actor_type=system`。
+- `GET /api/v1/admin/audit-logs?actor_type=admin_user` 可筛选后台人员操作。
+- `GET /api/v1/admin/audit-logs?actor_type=moderator` 可筛选版主操作。
+- demo user 规则仅在开发模式或文档标注范围内生效。
+
+## v1.1.3 独立版主工作台测试清单
+
+页面：
+
+- 普通用户访问 `/moderator` 显示无权限或需要版主身份。
+- PHP 版主访问 `/moderator` 成功。
+- PHP 版主访问 `/moderator/reports` 成功。
+- PHP 版主访问 `/moderator/topics` 成功。
+- PHP 版主访问 `/moderator/comments` 成功。
+- PHP 版主访问 `/moderator/audit-logs` 成功。
+- 页面不要白屏，浏览器 Console 不应有明显错误。
+- `/topics/:id` SEO 不受影响。
+- `/c/:slug` SEO 不受影响。
+
+API：
+
+```bash
+curl "http://127.0.0.1:8090/api/v1/moderator/communities" -H "Authorization: Bearer <user_token>"
+curl "http://127.0.0.1:8090/api/v1/moderator/dashboard" -H "Authorization: Bearer <user_token>"
+curl "http://127.0.0.1:8090/api/v1/moderator/reports?community_id=1&status=pending" -H "Authorization: Bearer <user_token>"
+curl "http://127.0.0.1:8090/api/v1/moderator/topics?community_id=1" -H "Authorization: Bearer <user_token>"
+curl "http://127.0.0.1:8090/api/v1/moderator/comments?community_id=1" -H "Authorization: Bearer <user_token>"
+curl "http://127.0.0.1:8090/api/v1/moderator/audit-logs?community_id=1" -H "Authorization: Bearer <user_token>"
+```
+
+权限：
+
+- 普通 user 调用 `/api/v1/moderator/*` 返回 403。
+- PHP 版主只能看到 PHP 子站。
+- PHP 版主看不到 Go 子站数据。
+- Go 版主只能看到 Go 子站。
+- 多子站版主可以切换自己负责的子站。
+- PHP 版主处理 PHP report 成功。
+- PHP 版主处理 Go report 返回 403。
+- PHP 版主隐藏 PHP topic 成功。
+- PHP 版主隐藏 Go topic 返回 403。
+- PHP 版主隐藏 PHP comment 成功。
+- PHP 版主隐藏 Go comment 返回 403。
+- 版主不能访问 admin_users 管理。
+- 版主不能访问 moderators 管理。
+- 版主不能访问 system settings。
+- 版主操作写入 audit logs。
+- audit logs `actor_type=moderator`。
+- audit logs `community_id` 正确。
 
 ## 启动检查
 
@@ -161,6 +271,7 @@ docker run --rm -e NPM_CONFIG_REGISTRY=https://registry.npmmirror.com -v "$PWD/w
 - `/c/java`
 - `/c/ai`
 - `/c/frontend`
+- `/site/php`
 - `/topics/:id`
 - `/me/favorites`
 - `/me/follows`
@@ -175,7 +286,86 @@ docker run --rm -e NPM_CONFIG_REGISTRY=https://registry.npmmirror.com -v "$PWD/w
 - `/topics/:id` 刷新不 404。
 - `/api/*` 不被前端 fallback 吃掉。
 - `/posts/:id` 301 跳转到 `/topics/:id/`。
+- `/site/:slug` 301 跳转到 `/c/:slug/`。
 - `/admin`、`/admin/:site` 只兼容重定向到 `/admin-next`。
+
+## v1.1.0 子站增强
+
+公开子站 API：
+
+```bash
+curl "http://127.0.0.1:8090/api/v1/communities"
+curl "http://127.0.0.1:8090/api/v1/communities/php"
+curl "http://127.0.0.1:8090/api/v1/communities/php/stats"
+curl "http://127.0.0.1:8090/api/v1/communities/php/categories"
+curl "http://127.0.0.1:8090/api/v1/communities/php/tags"
+curl "http://127.0.0.1:8090/api/v1/communities/php/moderators"
+```
+
+应验证：
+
+- `communities` 返回 logo、cover_image、slogan、theme_color、SEO、统计和公告字段。
+- `stats` 返回 topic_count、comment_count、question_count、unsolved_count、follower_count、today_topic_count、today_comment_count、moderator_count 和 hot_score。
+- `categories` 返回启用状态、nav_visible、postable 和 content_type。
+- `moderators` 只返回启用版主。
+
+子站页面和 SEO：
+
+```bash
+curl -s "http://127.0.0.1:8090/c/php/" | rg '<title>|description|canonical|<h1|/topics/|tag-cloud'
+curl -I "http://127.0.0.1:8090/site/php"
+curl "http://127.0.0.1:8090/c/go/"
+curl "http://127.0.0.1:8090/c/java/"
+curl "http://127.0.0.1:8090/c/ai/"
+curl "http://127.0.0.1:8090/c/frontend/"
+```
+
+应验证：
+
+- `/c/php/` 源码有 title、meta description、canonical、h1、简介、板块链接、Topic 链接和标签链接。
+- `/site/php` 返回 301，Location 指向 `/c/php/`。
+- 子站不存在返回友好 404。
+- 禁用或归档子站返回 noindex 不可用页面，并不进入 sitemap。
+- `/topics/:id` SEO 不受影响。
+
+子站关注：
+
+```bash
+curl -X POST "http://127.0.0.1:8090/api/v1/follows/toggle" \
+  -H "Content-Type: application/json" \
+  -d '{"target_type":"community","target_id":1}'
+```
+
+应验证：
+
+- 第一次返回 `followed=true`，再次返回 `followed=false`。
+- follower_count 增加 / 减少且不小于 0。
+- 关注写入 `activities.action=followed`。
+- 我的关注接口和页面可看到 community 关注记录。
+
+后台子站和板块管理：
+
+```bash
+curl "http://127.0.0.1:8090/api/v1/admin/communities" -H "Authorization: Bearer <token>"
+curl -X POST "http://127.0.0.1:8090/api/v1/admin/communities" \
+  -H "Authorization: Bearer <token>" \
+  -H "Content-Type: application/json" \
+  -d '{"name":"Rust","slug":"rust","slogan":"Rust 工程实践","description":"Rust 子站","theme_color":"#b45309","status":1}'
+curl -X PUT "http://127.0.0.1:8090/api/v1/admin/communities/<id>" \
+  -H "Authorization: Bearer <token>" \
+  -H "Content-Type: application/json" \
+  -d '{"name":"Rust","slug":"rust","seo_title":"Rust 技术社区","announcement_title":"欢迎","announcement_content":"欢迎加入 Rust 子站","status":1}'
+curl "http://127.0.0.1:8090/api/v1/admin/communities/<id>/categories" -H "Authorization: Bearer <token>"
+```
+
+应验证：
+
+- `/admin-next/communities` 可以打开。
+- 可以新增、编辑、启用 / 禁用子站。
+- 可以设置子站 SEO 和公告。
+- 可以查看、新增、编辑、启用 / 禁用、排序子站板块。
+- 子站板块启用 / 禁用会影响 `/c/:slug/` 前台导航。
+- 操作写入 `/admin-next/audit-logs`。
 
 ## 互动回归
 
@@ -546,6 +736,9 @@ curl -s http://127.0.0.1:8090/robots.txt
 - 新发布 Topic、新评论、采纳答案后，不需要重新 build。
 - `/sitemap.xml` 包含已发布 Topic。
 - `/sitemap.xml` 不包含 `status=0` 隐藏 Topic。
+- `/sitemap.xml` 包含启用子站 `/c/php/` 等 canonical URL。
+- `/sitemap.xml` 不包含 `/site/:slug` 兼容 URL。
+- `/sitemap.xml` 不包含禁用或归档子站。
 - `/robots.txt` 不屏蔽必要 CSS / JS / 图片资源。
 
 隐藏 Topic SEO：
@@ -580,6 +773,7 @@ MySQL 模式应验证：
 - 分页 total 不因 replies join 重复。
 - `reports` 和 `community_moderators` 读写、举报分页、举报处理、版主权限判断可用。
 - 版主管理 CRUD、后台内容 CRUD、批量 topic/comment/report 治理、举报 pending 去重和审计日志筛选可用。
+- 子站增强字段、子站统计、后台子站 CRUD、后台子站板块 CRUD、子站关注 follower_count 和 sitemap 子站过滤可用。
 - Topic 精华、置顶、隐藏、恢复、评论锁定字段更新正确。
 - Comment 隐藏、恢复字段更新正确。
 - 普通列表、搜索、评论列表过滤隐藏内容。
@@ -608,6 +802,8 @@ MySQL 模式应验证：
 - `reports.topic_id`
 - `reports.handle_note`
 - `community_moderators.community_id/user_id/role/status`
+- `communities.logo/cover_image/slogan/theme_color/seo_title/seo_description/seo_keywords/sort_order/status/follower_count/topic_count/comment_count/hot_score/announcement_title/announcement_content/announcement_url`
+- `categories.visible/nav_visible/postable/seo_title/seo_description/status`
 - `activities.topic_id`
 - `notifications.actor_user_id/type/target_type/target_id/topic_id/comment_id/read_at`
 
@@ -616,7 +812,7 @@ MySQL 模式应验证：
 - 评论点赞入口没有纳入第六轮，只保留旧 `POST /api/v1/comments/:id/like` 和字段。
 - 采纳支持更换最佳答案，暂不支持取消已解决状态。
 - 最佳答案当前通过详情页运行时评论区展示，不进入初始 SEO HTML。
-- 标签高级能力、标签后台和标签 SEO 聚合页不属于 v1.0.0 主线。
+- 标签高级能力、标签后台和标签 SEO 聚合页不属于 v1.1.0 主线，计划放入 v1.2.0。
 
 ## CI 回归
 
@@ -691,3 +887,30 @@ CI 不依赖本地私有 token 或私有代理；前端和后台构建使用 pac
 - SEO 回归：`/topics/1` 源码包含 `<title>`、`meta description`、`<h1>`、`<article>`、正文、标签链接、发布时间和 Article JSON-LD，且不是纯 CSR 空壳。
 - 隐藏内容 SEO：隐藏 Topic 1 时详情页返回“内容已隐藏”/`noindex`，严格匹配 sitemap 不含 `/topics/1/`；恢复后 `/topics/1` SEO 正常，sitemap 重新包含 `/topics/1/`。
 - 文档对账：`README.md`、`docs/README.md`、`docs/API.md`、`docs/TESTING.md`、`docs/DEPLOYMENT.md`、`docs/SEO.md`、`docs/PROJECT_PROGRESS.md`、`docs/BACKUP_AND_ROLLBACK.md`、`CHANGELOG.md`、`docs/releases/v1.0.0.md` 已同步 v1.0.0 状态。
+
+## v1.1.0 子站增强实测记录
+
+2026-05-09 已完成 v1.1.0 子站增强验收：
+
+- `bash -n dev.sh`：通过。
+- `go test ./...`：通过。
+- `go build -o .devhub/devhub .`：通过。
+- 本机 `npm run build`：失败，原因是本机没有 `npm`，符合当前环境预期。
+- 前台 Docker Node 构建：通过，Astro 输出到 `web/frontend`。
+- 后台 Docker Node 构建：通过，Vite 仅提示 chunk size warning，产物包含 `Communities-*.js`。
+- `./dev.sh --restart`：通过，完成前后台构建并启动 Docker Go 服务。
+- 稳定服务：最终按文档切换为 `PORT=8090 CMS_STORE=memory ./.devhub/devhub` 二进制后台常驻；`lsof -i :8090` 显示 `./.devhub/devhub` 监听。
+- 健康检查：`GET /api/v1/health` 返回 200，`store=memory`。
+- 子站 API：`GET /api/v1/communities`、`/api/v1/communities/php`、`/stats`、`/categories`、`/tags`、`/moderators` 均返回 200，并返回 v1.1.0 增强字段。
+- 子站页面：`/c/php/`、`/c/go/`、`/c/java/`、`/c/ai/`、`/c/frontend/` 均返回 200。
+- 兼容入口：`GET /site/php` 和 `HEAD /site/php` 均返回 301，Location 为 `/c/php/`。
+- 子站 SEO：`/c/php/` 源码包含 `<title>`、`meta description`、canonical、`<h1>`、子站简介、公告、Topic 链接和标签链接。
+- Topic SEO 回归：`/topics/1` 源码包含 `<title>`、`meta description`、`<h1>`、`<article>`、正文、标签链接和 Article JSON-LD。
+- sitemap：`/sitemap.xml` 包含 `/c/php/`、`/c/go/`、`/c/java/`、`/c/ai/`、`/c/frontend/` 和 `/topics/1/`，不包含 `/site/php`。
+- robots：`/robots.txt` 返回 200。
+- 后台页面：`/admin-next`、`/admin-next/communities`、`/admin-next/moderators`、`/admin-next/audit-logs` 均返回 200。
+- 子站关注：`POST /api/v1/follows/toggle` 使用 `target_type=community,target_id=1` 时第一次返回 `followed=true`，`follower_count` 从 0 到 1；第二次返回 `followed=false`，`follower_count` 回到 0；动态中出现 `action=followed,target_type=community`。
+- 子站后台 CRUD：使用临时 memory 子站验证新增、编辑 SEO / 公告、禁用、启用均成功。
+- 子站板块 CRUD：使用临时 memory 子站验证新增板块、禁用、启用均成功。
+- 禁用子站 SEO：临时子站禁用后 `/c/:slug/` 返回 404 且包含 `noindex`，不进入 sitemap；启用后页面恢复 200。
+- 审计日志：子站新增 / 更新 / 启用 / 禁用、子站板块新增 / 启用 / 禁用均写入 `/api/v1/admin/audit-logs`。

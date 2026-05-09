@@ -238,13 +238,15 @@ type RegisterRequest struct {
 	Password string `json:"password" binding:"required"`
 }
 
-// AdminSession 表示后台登录成功后返回的轻量会话信息。
+// AdminSession 表示登录成功后返回的轻量会话信息。
 type AdminSession struct {
 	Token        string         `json:"token"`
 	AccessToken  string         `json:"access_token"`
 	RefreshToken string         `json:"refresh_token,omitempty"`
 	ExpiresIn    int64          `json:"expires_in"`
 	User         AdminLoginUser `json:"user"`
+	TokenType    string         `json:"token_type,omitempty"`
+	Audience     string         `json:"aud,omitempty"`
 }
 
 // AdminLoginUser 表示后台当前登录用户信息。
@@ -272,6 +274,9 @@ type AuthUser struct {
 	RoleName    string   `json:"role_name"`
 	Sites       []string `json:"sites"`
 	Permissions []string `json:"permissions"`
+	TokenType   string   `json:"token_type,omitempty"`
+	Audience    string   `json:"aud,omitempty"`
+	Identity    string   `json:"identity,omitempty"`
 }
 
 // AdminContext 表示后台请求解析后的权限上下文。
@@ -320,7 +325,9 @@ type AdminLog struct {
 	Site        string `json:"site"`
 	Type        string `json:"type"`
 	Actor       string `json:"actor"`
+	ActorType   string `json:"actor_type"`
 	ActorUserID int64  `json:"actor_user_id"`
+	ActorID     int64  `json:"actor_id"`
 	Role        string `json:"role,omitempty"`
 	Action      string `json:"action"`
 	Target      string `json:"target"`
@@ -413,31 +420,49 @@ type PushNotificationRequest struct {
 
 // Community 描述一个子站（技术社区）。
 type Community struct {
-	ID          int64  `json:"id"`
-	Name        string `json:"name"`
-	Slug        string `json:"slug"`
-	Logo        string `json:"logo"`
-	Description string `json:"description"`
-	SortOrder   int    `json:"sort_order"`
-	Status      int    `json:"status"`
-	CreatedAt   string `json:"created_at,omitempty"`
-	UpdatedAt   string `json:"updated_at,omitempty"`
+	ID                  int64  `json:"id"`
+	Name                string `json:"name"`
+	Slug                string `json:"slug"`
+	Logo                string `json:"logo"`
+	CoverImage          string `json:"cover_image"`
+	Slogan              string `json:"slogan"`
+	Description         string `json:"description"`
+	ThemeColor          string `json:"theme_color"`
+	SEOTitle            string `json:"seo_title"`
+	SEODescription      string `json:"seo_description"`
+	SEOKeywords         string `json:"seo_keywords"`
+	SortOrder           int    `json:"sort_order"`
+	Status              int    `json:"status"`
+	FollowerCount       int    `json:"follower_count"`
+	TopicCount          int    `json:"topic_count"`
+	CommentCount        int    `json:"comment_count"`
+	HotScore            int    `json:"hot_score"`
+	AnnouncementTitle   string `json:"announcement_title"`
+	AnnouncementContent string `json:"announcement_content"`
+	AnnouncementURL     string `json:"announcement_url"`
+	CreatedAt           string `json:"created_at,omitempty"`
+	UpdatedAt           string `json:"updated_at,omitempty"`
 }
 
 // Category 描述内容板块/分类，支持多种内容类型。
 type Category struct {
-	ID          int64  `json:"id"`
-	CommunityID int64  `json:"community_id"`
-	Name        string `json:"name"`
-	Slug        string `json:"slug"`
-	Type        string `json:"type"`
-	Description string `json:"description"`
-	Icon        string `json:"icon"`
-	SortOrder   int    `json:"sort_order"`
-	Visible     bool   `json:"visible"`
-	Status      int    `json:"status"`
-	CreatedAt   string `json:"created_at,omitempty"`
-	UpdatedAt   string `json:"updated_at,omitempty"`
+	ID             int64  `json:"id"`
+	CommunityID    int64  `json:"community_id"`
+	Name           string `json:"name"`
+	Slug           string `json:"slug"`
+	Type           string `json:"type"`
+	ContentType    string `json:"content_type"`
+	Description    string `json:"description"`
+	Icon           string `json:"icon"`
+	SortOrder      int    `json:"sort_order"`
+	Visible        bool   `json:"visible"`
+	NavVisible     bool   `json:"nav_visible"`
+	Postable       bool   `json:"postable"`
+	SEOTitle       string `json:"seo_title"`
+	SEODescription string `json:"seo_description"`
+	Status         int    `json:"status"`
+	CreatedAt      string `json:"created_at,omitempty"`
+	UpdatedAt      string `json:"updated_at,omitempty"`
 }
 
 // Topic 表示社区主题内容，支持多种内容类型。
@@ -609,6 +634,17 @@ type CommunityModerator struct {
 	UpdatedAt     string `json:"updated_at,omitempty"`
 }
 
+// ModeratorDashboard 表示独立版主工作台概览。
+type ModeratorDashboard struct {
+	ManagedCommunities []Community `json:"managed_communities"`
+	PendingReportCount int         `json:"pending_report_count"`
+	TopicCount         int         `json:"topic_count"`
+	CommentCount       int         `json:"comment_count"`
+	TodayActionCount   int         `json:"today_action_count"`
+	RecentReports      []Report    `json:"recent_reports"`
+	RecentAuditLogs    []AdminLog  `json:"recent_audit_logs"`
+}
+
 // CreateReportRequest 是前台创建举报的请求体。
 type CreateReportRequest struct {
 	ReporterUserID int64  `json:"-"`
@@ -657,6 +693,61 @@ type CommunityModeratorRequest struct {
 	Status        *int   `json:"status"`
 }
 
+// CommunityRequest 是后台新增或更新子站的请求体。
+type CommunityRequest struct {
+	Name                string `json:"name"`
+	Slug                string `json:"slug"`
+	Logo                string `json:"logo"`
+	CoverImage          string `json:"cover_image"`
+	Slogan              string `json:"slogan"`
+	Description         string `json:"description"`
+	ThemeColor          string `json:"theme_color"`
+	SEOTitle            string `json:"seo_title"`
+	SEODescription      string `json:"seo_description"`
+	SEOKeywords         string `json:"seo_keywords"`
+	SortOrder           *int   `json:"sort_order"`
+	Status              *int   `json:"status"`
+	AnnouncementTitle   string `json:"announcement_title"`
+	AnnouncementContent string `json:"announcement_content"`
+	AnnouncementURL     string `json:"announcement_url"`
+}
+
+// CategoryRequest 是后台新增或更新子站板块的请求体。
+type CategoryRequest struct {
+	CommunityID    int64  `json:"community_id"`
+	Name           string `json:"name"`
+	Slug           string `json:"slug"`
+	Type           string `json:"type"`
+	ContentType    string `json:"content_type"`
+	Description    string `json:"description"`
+	Icon           string `json:"icon"`
+	SortOrder      *int   `json:"sort_order"`
+	Visible        *bool  `json:"visible"`
+	NavVisible     *bool  `json:"nav_visible"`
+	Postable       *bool  `json:"postable"`
+	SEOTitle       string `json:"seo_title"`
+	SEODescription string `json:"seo_description"`
+	Status         *int   `json:"status"`
+}
+
+// ReorderRequest 表示后台排序请求。
+type ReorderRequest struct {
+	IDs []int64 `json:"ids"`
+}
+
+// CommunityStats 表示子站统计信息。
+type CommunityStats struct {
+	TopicCount        int `json:"topic_count"`
+	CommentCount      int `json:"comment_count"`
+	QuestionCount     int `json:"question_count"`
+	UnsolvedCount     int `json:"unsolved_count"`
+	FollowerCount     int `json:"follower_count"`
+	TodayTopicCount   int `json:"today_topic_count"`
+	TodayCommentCount int `json:"today_comment_count"`
+	ModeratorCount    int `json:"moderator_count"`
+	HotScore          int `json:"hot_score"`
+}
+
 // BatchModerationRequest 是后台批量治理请求体。
 type BatchModerationRequest struct {
 	IDs        []int64 `json:"ids" binding:"required"`
@@ -685,6 +776,7 @@ type BatchModerationResponse struct {
 type AdminLogFilter struct {
 	Site        string `json:"site"`
 	Type        string `json:"type"`
+	ActorType   string `json:"actor_type"`
 	Action      string `json:"action"`
 	Target      string `json:"target"`
 	TargetType  string `json:"target_type"`

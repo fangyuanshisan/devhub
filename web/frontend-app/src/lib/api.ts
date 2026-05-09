@@ -1,7 +1,7 @@
 import { ofetch } from 'ofetch';
 import { z } from 'zod';
 import { fallbackBoards, fallbackPosts, fallbackSites, fallbackTags } from './fallback';
-import type { Board, CommentNode, Post, Site, TagStat } from './types';
+import type { Board, CommentNode, CommunityStats, Post, Site, TagStat } from './types';
 
 const API_BASE = process.env.FRONTEND_API_BASE || '';
 const API_PREFIX = '/api/v1';
@@ -32,9 +32,22 @@ const communitySchema = z.object({
   name: z.string(),
   slug: z.string(),
   logo: z.string().default(''),
+  cover_image: z.string().default(''),
+  slogan: z.string().default(''),
   description: z.string().default(''),
+  theme_color: z.string().default('#2563eb'),
+  seo_title: z.string().default(''),
+  seo_description: z.string().default(''),
+  seo_keywords: z.string().default(''),
   sort_order: z.number().default(0),
   status: z.number().default(1),
+  follower_count: z.number().default(0),
+  topic_count: z.number().default(0),
+  comment_count: z.number().default(0),
+  hot_score: z.number().default(0),
+  announcement_title: z.string().default(''),
+  announcement_content: z.string().default(''),
+  announcement_url: z.string().default(''),
 });
 
 const categorySchema = z.object({
@@ -43,11 +56,26 @@ const categorySchema = z.object({
   name: z.string(),
   slug: z.string(),
   type: z.string().default('article'),
+  content_type: z.string().default('article'),
   description: z.string().default(''),
   icon: z.string().default(''),
   sort_order: z.number().default(0),
   visible: z.boolean().default(true),
+  nav_visible: z.boolean().default(true),
+  postable: z.boolean().default(true),
   status: z.number().default(1),
+});
+
+const communityStatsSchema = z.object({
+  topic_count: z.number().default(0),
+  comment_count: z.number().default(0),
+  question_count: z.number().default(0),
+  unsolved_count: z.number().default(0),
+  follower_count: z.number().default(0),
+  today_topic_count: z.number().default(0),
+  today_comment_count: z.number().default(0),
+  moderator_count: z.number().default(0),
+  hot_score: z.number().default(0),
 });
 
 const postSchema = z.object({
@@ -128,6 +156,51 @@ export async function getSites(): Promise<Site[]> {
   const schema = z.object({ items: z.array(siteSchema) });
   const data = await request('/sites', { items: fallbackSites }, schema);
   return data.items;
+}
+
+export async function getCommunity(slug: string): Promise<Site | undefined> {
+  const data = await request(`/communities/${encodeURIComponent(slug)}`, undefined, communitySchema.optional());
+  return data ? communityToSite(data) : undefined;
+}
+
+export async function getCommunityStats(slug: string): Promise<CommunityStats> {
+  return request(`/communities/${encodeURIComponent(slug)}/stats`, {
+    topic_count: 0,
+    comment_count: 0,
+    question_count: 0,
+    unsolved_count: 0,
+    follower_count: 0,
+    today_topic_count: 0,
+    today_comment_count: 0,
+    moderator_count: 0,
+    hot_score: 0,
+  }, communityStatsSchema);
+}
+
+export async function getCommunityCategories(slug: string): Promise<Board[]> {
+  const data = await request(`/communities/${encodeURIComponent(slug)}/categories`, { items: [] }, z.object({ items: z.array(categorySchema) }));
+  return data.items.map((category) => categoryToBoard(category, slug));
+}
+
+export async function getCommunityTags(slug: string): Promise<TagStat[]> {
+  return getTags(slug);
+}
+
+export async function getCommunityModerators(slug: string) {
+  const data = await request(`/communities/${encodeURIComponent(slug)}/moderators`, { items: [] });
+  return data.items || [];
+}
+
+export async function getCommunityTopics(slug: string, params: { board?: string; sort?: string; page_size?: number; featured?: boolean } = {}): Promise<Post[]> {
+  return getPosts({ ...params, site: slug });
+}
+
+export async function followCommunity(id: number): Promise<{ followed: boolean }> {
+  const response = await ofetch(endpoint('/follows/toggle'), {
+    method: 'POST',
+    body: { target_type: 'community', target_id: id },
+  });
+  return response as { followed: boolean };
 }
 
 export async function getBoards(): Promise<Board[]> {
@@ -305,13 +378,25 @@ function communityToSite(community: z.infer<typeof communitySchema>): Site {
     key: community.slug,
     name: community.name,
     logo: community.logo || fallback?.logo || community.name.slice(0, 2),
-    title: fallback?.title || `${community.name} 开发者站`,
-    sub: fallback?.sub || community.description,
+    cover_image: community.cover_image,
+    title: community.seo_title || fallback?.title || `${community.name} 开发者站`,
+    sub: community.slogan || fallback?.sub || community.description,
     pub: fallback?.pub || `发布 ${community.name} 内容`,
     description: community.description || fallback?.description || `${community.name} 技术社区`,
-    color: fallback?.color || '#2563eb',
+    color: community.theme_color || fallback?.color || '#2563eb',
     status: community.status === 1 ? 'active' : 'disabled',
     sort: community.sort_order,
+    slogan: community.slogan,
+    seo_title: community.seo_title,
+    seo_description: community.seo_description,
+    seo_keywords: community.seo_keywords,
+    follower_count: community.follower_count,
+    topic_count: community.topic_count,
+    comment_count: community.comment_count,
+    hot_score: community.hot_score,
+    announcement_title: community.announcement_title,
+    announcement_content: community.announcement_content,
+    announcement_url: community.announcement_url,
   };
 }
 
@@ -320,9 +405,9 @@ function categoryToBoard(category: z.infer<typeof categorySchema>, site: string)
     key: category.slug,
     name: category.name,
     site,
-    type: category.type,
+    type: category.content_type || category.type,
     sort: category.sort_order,
-    visible: category.visible && category.status === 1,
+    visible: category.visible && category.nav_visible && category.status === 1,
   };
 }
 

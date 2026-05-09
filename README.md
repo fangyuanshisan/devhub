@@ -2,7 +2,7 @@
 
 DevHub 是一个多子站技术社区 CMS。当前项目使用 Go + Gin 提供后端 API 与静态资源托管，前台使用 Astro + Vue Islands，后台使用 Vue 3 + Element Plus。
 
-当前版本：`v1.0.0`。
+当前版本：`v1.1.3`，版本主题为“独立版主工作台 MVP”。
 
 当前只维护两个入口：
 
@@ -19,35 +19,52 @@ DevHub 是一个多子站技术社区 CMS。当前项目使用 Go + Gin 提供�
 
 常用文档：
 
+- [Codex / AI Agent 固定规则](docs/AGENT_RULES.md)
 - [项目进度](docs/PROJECT_PROGRESS.md)
 - [API 文档](docs/API.md)
 - [测试文档](docs/TESTING.md)
 - [部署启动文档](docs/DEPLOYMENT.md)
 - [备份与回滚](docs/BACKUP_AND_ROLLBACK.md)
 - [SEO 文档](docs/SEO.md)
+- [v1.1.3 Release Notes](docs/releases/v1.1.3.md)
+- [v1.1.1 Release Notes](docs/releases/v1.1.1.md)
+- [v1.1.0 Release Notes](docs/releases/v1.1.0.md)
 - [v1.0.0 Release Notes](docs/releases/v1.0.0.md)
 - [变更日志](CHANGELOG.md)
 - [需求原文](更新.md)
 
 ## 当前能力
 
-- 多子站：总站、PHP、Go、Java、AI、Frontend。
-- 多板块：社区、问答中心、开源项目、AI 作品、招聘内推、Wiki、文档。
+- 多子站：总站、PHP、Go、Java、AI、Frontend；v1.1.0 起子站具备独立首页、SEO、配置、板块、版主、统计、关注和公告。
+- 多板块：社区、问答中心、开源项目、AI 作品、招聘内推、Wiki、文档；后台支持按子站管理板块、启用 / 禁用、排序和导航展示。
 - 内容：列表、详情、发布、编辑、删除、浏览数、点赞、收藏、关注、标签、热门排序。
 - 通用 Topic：已支持 `article`、`question`、`project`、`ai_work`、`job`、`wiki`、`doc`、`news` 等内容类型。
 - 搜索：支持全站、子站、板块、关键词、标签筛选，并支持 `sort=unsolved` 未解决问答筛选。
 - 评论：支持 Topic 评论列表、加载更多、发表评论、回复评论、问答采纳和最佳答案展示；评论点赞仍仅保留旧兼容接口。
 - 互动：MemoryStore / MySQLStore 均支持 Topic 点赞、收藏、关注、我的收藏、我的关注、我的动态、通知中心、评论动态和评论通知。
 - 治理：支持举报 Topic / Comment，后台举报处理，版主子站范围管理，精华、置顶、隐藏、恢复、评论锁定、评论隐藏。
-- 用户与权限：前台登录、注册、会话恢复、refresh token 刷新、退出登录、JWT 会话、后台 RBAC 与站点范围上下文。
-- 后台：控制台、内容管理、举报管理、评论审核、站点管理、用户权限、运营工具、数据统计、系统设置。
+- 用户与权限：前台 `users`、后台 `admin_users`、子站版主 `community_moderators` 边界已整理；前台 / 后台 token 分离，后台 RBAC 与版主子站范围治理可用。
+- 版主工作台：`/moderator` 提供独立轻量工作台，版主可处理自己子站的举报、主题、评论和审计日志。
+- 后台：控制台、内容管理、举报管理、评论审核、子站管理、子站板块管理、版主管理、用户权限、运营工具、数据统计、系统设置。
 - 存储：支持内存模式和 MySQL 模式。
 
-## v1.0.0 定位
+## v1.1.3 定位
 
-DevHub v1.0.0 是第一个可运行的大版本归档，覆盖多子站、Topic 发布、搜索、标签基础、互动、评论问答、举报治理、admin-next 后台、百度 SEO 动态详情页、MemoryStore / MySQLStore 和上线文档闭环。
+DevHub v1.1.3 是“独立版主工作台 MVP”。本版本新增 `/moderator`、`/moderator/reports`、`/moderator/topics`、`/moderator/comments`、`/moderator/audit-logs`，让子站版主使用前台 `users` 登录态和 `community_moderators` 授权关系治理自己负责的子站。
 
-v1.0.0 不把标签专项增强、评论点赞、取消已解决状态、推荐系统和复杂运营分析作为主线；这些能力放入 v1.1.0 或后续版本规划。
+版主工作台复用现有举报、Topic、Comment 治理能力和 `admin_logs`，但通过 `/api/v1/moderator/*` 做专用权限入口。普通用户不能访问，跨子站治理返回 403，复杂 RBAC 和版主任期 / 绩效统计留到后续。
+
+## v1.1.1 定位
+
+DevHub v1.1.1 是“前后台身份边界整理版”。本版本明确 `users`、`admin_users`、`community_moderators` 三类身份：前台用户负责社区行为，后台人员负责后台管理，子站版主通过前台用户身份获得指定子站的治理权限。
+
+前台登录态和后台登录态已经分离。前台推荐使用 `devhub_user_token` / `devhub_user_refresh_token`，后台使用 `devhub_admin_token` / `devhub_admin_refresh_token`；普通前台 token 不能访问后台特权接口，后台 admin token 也不会被当作前台用户身份。
+
+## v1.1.0 定位
+
+DevHub v1.1.0 是“子站模块增强版”。本版本把子站从“内容筛选维度”升级为“独立社区空间”：每个启用子站都有 `/c/:slug/` 首页、Go 动态 SEO HTML、独立配置、独立板块、版主展示、统计、关注按钮和公告区域。
+
+DevHub v1.0.0 仍是第一个可运行大版本归档；v1.1.0 在不改变前台 `/`、后台 `/admin-next`、默认端口 `8090` 和 `/topics/:id` SEO 动态详情页的前提下增强子站模块。
 
 ## 目录结构
 
@@ -155,8 +172,8 @@ Database: devhub
 
 ```text
 /                       前台总站
-/site/php/              PHP 子站
-/c/php/                 PHP 子站别名
+/c/php/                 PHP 子站 canonical 首页，Go 动态输出 SEO HTML
+/site/php/              PHP 子站兼容入口，301 到 /c/php/
 /search/                搜索页
 /topics/new/            发布 Topic
 /c/:site/topics/new/    子站发布 Topic
@@ -168,10 +185,16 @@ Database: devhub
 /me/activities          我的动态
 /notifications          通知中心
 /me/notifications       通知中心别名
+/moderator              独立版主工作台
+/moderator/reports      版主举报处理
+/moderator/topics       版主内容治理
+/moderator/comments     版主评论治理
+/moderator/audit-logs   版主审计日志
 /admin-next             当前后台
 /admin-next/content     内容管理
 /admin-next/comments    评论管理
 /admin-next/reports     举报管理
+/admin-next/communities 子站管理
 /admin-next/moderators  版主管理
 /admin-next/audit-logs  治理审计日志
 /admin-next/...         后台前端路由
@@ -214,8 +237,10 @@ GET    /api/v1/posts/:id/comments
 GET    /api/v1/communities
 GET    /api/v1/communities/:slug
 GET    /api/v1/communities/:slug/home
+GET    /api/v1/communities/:slug/stats
 GET    /api/v1/communities/:slug/categories
 GET    /api/v1/communities/:slug/tags
+GET    /api/v1/communities/:slug/moderators
 GET    /api/v1/topics
 GET    /api/v1/topics/:id
 POST   /api/v1/topics
@@ -259,6 +284,19 @@ POST /api/v1/admin/refresh
 POST /api/v1/admin/logout
 GET  /api/v1/admin/me
 GET  /api/v1/admin/overview
+GET  /api/v1/admin/communities
+POST /api/v1/admin/communities
+GET  /api/v1/admin/communities/:id
+PUT  /api/v1/admin/communities/:id
+POST /api/v1/admin/communities/:id/enable
+POST /api/v1/admin/communities/:id/disable
+POST /api/v1/admin/communities/reorder
+GET  /api/v1/admin/communities/:id/categories
+POST /api/v1/admin/communities/:id/categories
+PUT  /api/v1/admin/categories/:id
+POST /api/v1/admin/categories/:id/enable
+POST /api/v1/admin/categories/:id/disable
+POST /api/v1/admin/categories/reorder
 GET  /api/v1/admin/posts
 POST /api/v1/admin/posts
 PUT  /api/v1/admin/posts/:id
@@ -291,7 +329,31 @@ GET  /api/v1/admin/tags
 GET  /api/v1/admin/settings
 ```
 
-说明：`/admin-next/moderators`、`/admin-next/content`、`/admin-next/comments`、`/admin-next/reports` 和 `/admin-next/audit-logs` 已接入当前真实后台 API。批量 Topic / Comment 治理和批量举报处理都会写入 `admin_logs`；审计接口返回的 `actor_user_id`、`target_type`、`target_id`、`community_id` 为基于当前文本日志的派生字段。
+版主工作台 API：
+
+```text
+GET  /api/v1/moderator/communities
+GET  /api/v1/moderator/dashboard
+GET  /api/v1/moderator/reports
+POST /api/v1/moderator/reports/:id/handle
+GET  /api/v1/moderator/topics
+POST /api/v1/moderator/topics/:id/feature
+POST /api/v1/moderator/topics/:id/unfeature
+POST /api/v1/moderator/topics/:id/pin
+POST /api/v1/moderator/topics/:id/unpin
+POST /api/v1/moderator/topics/:id/hide
+POST /api/v1/moderator/topics/:id/restore
+POST /api/v1/moderator/topics/:id/lock-comments
+POST /api/v1/moderator/topics/:id/unlock-comments
+GET  /api/v1/moderator/comments
+POST /api/v1/moderator/comments/:id/hide
+POST /api/v1/moderator/comments/:id/restore
+GET  /api/v1/moderator/audit-logs
+```
+
+说明：`/api/v1/moderator/*` 使用前台 user token，并强制校验 `community_moderators` 子站授权；普通用户和跨子站访问返回 403。
+
+说明：`/admin-next/communities`、`/admin-next/moderators`、`/admin-next/content`、`/admin-next/comments`、`/admin-next/reports` 和 `/admin-next/audit-logs` 已接入当前真实后台 API。子站配置、子站板块、批量 Topic / Comment 治理和批量举报处理都会写入 `admin_logs`；审计接口返回的 `actor_user_id`、`target_type`、`target_id`、`community_id` 为基于当前文本日志的派生字段。
 
 后台开发种子账号：
 
@@ -363,29 +425,37 @@ git status
 
 本地没有 `npm` 时，可使用 `dev.sh` 或 Docker Node 构建；构建产物由脚本生成，不需要提交。
 
-v1.0.0 归档建议命令：
+v1.1.3 归档建议命令：
 
 ```bash
 git status
 git diff
 git add .
-git commit -m "chore: release DevHub v1.0.0"
-git tag v1.0.0
+git commit -m "chore: release DevHub v1.1.3"
+git tag v1.1.3
 git push origin main
-git push origin v1.0.0
+git push origin v1.1.3
 ```
 
 打 tag 前必须先确认工作区没有未审阅差异，且测试矩阵通过。
 
 ## 已知限制
 
-- 标签系统仍是基础能力，标签详情 SEO 页、标签后台管理、标签合并 / 别名和趋势统计留到 v1.1.0。
-- 评论点赞未纳入 v1.0.0 主线。
+- 子站自定义导航仍使用“启用板块生成默认导航”的方式，深度自定义导航留到后续版本。
+- 版主工作台是 MVP，不包含复杂 RBAC、权限点矩阵、版主任期或绩效统计。
+- MySQL refresh token 仍通过 `token_type` 区分前台用户和后台人员，并已移除单一 `users` 外键；后续生产化 migration 可进一步拆分字段命名。
+- 后台人员参与前台社区互动时仍应拥有独立 `users` 身份，admin-user 绑定关系留到后续。
+- 标签系统仍是基础能力，标签详情 SEO 页、标签后台管理、标签合并 / 别名和趋势统计留到 v1.2.0。
+- 评论点赞未纳入 v1.1.0 主线。
 - 问答支持采纳和更换最佳答案，暂不支持取消已解决状态。
-- 标签关注、用户关注已有后端基础，前台入口仍可继续增强。
+- 标签关注、用户关注已有后端基础，前台入口仍可继续增强；完整关注流留到 v1.3.0。
 - `/sitemap.xml` 目前动态输出但未做大规模分片。
 - 生产部署仍需按实际环境配置进程守护、反向代理、HTTPS、日志轮转和定时备份。
 
 ## Roadmap
 
-v1.1.0 建议聚焦标签专项增强、标签 SEO 聚合页、标签后台管理、标签合并 / 别名、推荐和相关内容、sitemap 分片、运营分析、评论点赞和问答取消已解决状态。
+- v1.2.0：标签系统增强、标签 SEO 聚合页、标签后台管理、标签合并 / 别名。
+- v1.3.0：推荐、关注流和内容发现。
+- v1.4.0：用户成长、声望和个人主页。
+- v1.5.0：后台运营、治理和数据统计增强。
+- v1.6.0：生产化、migration、性能和 CI/CD。

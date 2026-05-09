@@ -8,10 +8,13 @@ type Repository interface {
 	ValidateSite(site string) bool
 	ValidateBoard(board string) bool
 	AdminLogin(account, password string) (*domain.AdminSession, error)
+	UserLogin(account, password string) (*domain.AdminSession, error)
 	Register(req domain.RegisterRequest) (*domain.AdminSession, error)
 	RefreshSession(refreshToken string) (*domain.AdminSession, error)
+	RefreshAdminSession(refreshToken string) (*domain.AdminSession, error)
 	Logout(refreshToken string) error
 	AuthUser(accessToken string) (*domain.AuthUser, error)
+	AuthAdmin(accessToken string) (*domain.AuthUser, error)
 	GetSite(key string) (domain.Site, bool)
 	CreateSite(req domain.Site) (domain.Site, error)
 	UpdateSite(key string, req domain.Site) (domain.Site, bool)
@@ -61,6 +64,15 @@ type Repository interface {
 	Communities() []domain.Community
 	CommunityBySlug(slug string) (domain.Community, bool)
 	Categories(communityID int64) []domain.Category
+	CommunityStats(communityID int64) domain.CommunityStats
+	CreateCommunity(req domain.CommunityRequest) (domain.Community, error)
+	UpdateCommunity(id int64, req domain.CommunityRequest) (domain.Community, error)
+	SetCommunityStatus(id int64, status int) (domain.Community, error)
+	ReorderCommunities(ids []int64) int
+	CreateCategory(communityID int64, req domain.CategoryRequest) (domain.Category, error)
+	UpdateCategory(id int64, req domain.CategoryRequest) (domain.Category, error)
+	SetCategoryStatus(id int64, status int) (domain.Category, error)
+	ReorderCategories(ids []int64) int
 	TopicsByFilter(communityID, categoryID int64, contentType, sort string, isSolved *bool, tag string, page, pageSize int) ([]domain.Topic, int)
 	TopicByID(id int64, increaseView bool) (*domain.Topic, error)
 	CreateTopic(req domain.CreateTopicRequest) (*domain.Topic, error)
@@ -123,6 +135,11 @@ func (s *Service) AdminLogin(account, password string) (*domain.AdminSession, er
 	return s.repo.AdminLogin(account, password)
 }
 
+// UserLogin 校验前台用户账号并返回前台登录态。
+func (s *Service) UserLogin(account, password string) (*domain.AdminSession, error) {
+	return s.repo.UserLogin(account, password)
+}
+
 // Register 创建前台用户并返回登录态。
 func (s *Service) Register(req domain.RegisterRequest) (*domain.AdminSession, error) {
 	return s.repo.Register(req)
@@ -133,12 +150,22 @@ func (s *Service) RefreshSession(refreshToken string) (*domain.AdminSession, err
 	return s.repo.RefreshSession(refreshToken)
 }
 
+// RefreshAdminSession 使用后台 refresh token 轮转后台登录态。
+func (s *Service) RefreshAdminSession(refreshToken string) (*domain.AdminSession, error) {
+	return s.repo.RefreshAdminSession(refreshToken)
+}
+
 // Logout 撤销 refresh token。
 func (s *Service) Logout(refreshToken string) error { return s.repo.Logout(refreshToken) }
 
 // AuthUser 解析 access token 并返回当前用户。
 func (s *Service) AuthUser(accessToken string) (*domain.AuthUser, error) {
 	return s.repo.AuthUser(accessToken)
+}
+
+// AuthAdmin 解析后台 access token 并返回当前后台人员上下文。
+func (s *Service) AuthAdmin(accessToken string) (*domain.AuthUser, error) {
+	return s.repo.AuthAdmin(accessToken)
 }
 
 // GetSite 按 key 获取站点配置。
@@ -346,6 +373,47 @@ func (s *Service) CommunityBySlug(slug string) (domain.Community, bool) {
 func (s *Service) Categories(communityID int64) []domain.Category {
 	return s.repo.Categories(communityID)
 }
+
+// CommunityStats 返回子站统计。
+func (s *Service) CommunityStats(communityID int64) domain.CommunityStats {
+	return s.repo.CommunityStats(communityID)
+}
+
+// CreateCommunity 新增子站。
+func (s *Service) CreateCommunity(req domain.CommunityRequest) (domain.Community, error) {
+	return s.repo.CreateCommunity(req)
+}
+
+// UpdateCommunity 更新子站。
+func (s *Service) UpdateCommunity(id int64, req domain.CommunityRequest) (domain.Community, error) {
+	return s.repo.UpdateCommunity(id, req)
+}
+
+// SetCommunityStatus 设置子站状态。
+func (s *Service) SetCommunityStatus(id int64, status int) (domain.Community, error) {
+	return s.repo.SetCommunityStatus(id, status)
+}
+
+// ReorderCommunities 更新子站排序。
+func (s *Service) ReorderCommunities(ids []int64) int { return s.repo.ReorderCommunities(ids) }
+
+// CreateCategory 新增板块。
+func (s *Service) CreateCategory(communityID int64, req domain.CategoryRequest) (domain.Category, error) {
+	return s.repo.CreateCategory(communityID, req)
+}
+
+// UpdateCategory 更新板块。
+func (s *Service) UpdateCategory(id int64, req domain.CategoryRequest) (domain.Category, error) {
+	return s.repo.UpdateCategory(id, req)
+}
+
+// SetCategoryStatus 设置板块状态。
+func (s *Service) SetCategoryStatus(id int64, status int) (domain.Category, error) {
+	return s.repo.SetCategoryStatus(id, status)
+}
+
+// ReorderCategories 更新板块排序。
+func (s *Service) ReorderCategories(ids []int64) int { return s.repo.ReorderCategories(ids) }
 
 // TopicsByFilter 按筛选条件返回主题列表。
 func (s *Service) TopicsByFilter(communityID, categoryID int64, contentType, sort string, isSolved *bool, tag string, page, pageSize int) ([]domain.Topic, int) {

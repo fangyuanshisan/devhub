@@ -1,5 +1,83 @@
 # Changelog
 
+## v1.1.3
+
+DevHub v1.1.3 is the independent moderator workspace MVP release.
+
+### Added
+
+- Independent frontend moderator workspace at `/moderator`, `/moderator/reports`, `/moderator/topics`, `/moderator/comments`, and `/moderator/audit-logs`.
+- Dedicated `/api/v1/moderator/*` APIs that use frontend `users` tokens and `community_moderators` scope checks.
+- Moderator dashboard, managed community list, scoped reports, scoped topics, scoped comments, and scoped audit-log views.
+- Moderator actions for handling reports, feature/unfeature, pin/unpin, hide/restore topics, lock/unlock comments, and hide/restore comments.
+- Moderator audit-log writes with `actor_type=moderator`, `actor_id=users.id`, and community scope.
+
+### Changed
+
+- The frontend user menu now links to the independent moderator workspace.
+- Moderator governance no longer needs to enter the full admin-next UI for the MVP workflow.
+
+### Known Limitations
+
+- Complex RBAC, permission matrix editing, moderator tenure, and performance statistics remain out of scope.
+- The moderator workspace is a lightweight runtime API page and not a full replacement for admin-next.
+- Super admins should continue to use admin APIs and admin-next for full-system governance.
+
+## v1.1.1
+
+DevHub v1.1.1 is the frontend/admin identity boundary cleanup release.
+
+### Added
+
+- Scoped JWT claims for frontend user tokens and backend admin tokens.
+- Separate frontend user login and backend admin login flows.
+- Moderator-scoped admin API access for enabled community moderators.
+- `actor_type` and `actor_id` audit-log fields for admin, moderator, and system actions.
+- Identity-boundary test cases and v1.1.1 release documentation.
+
+### Changed
+
+- `/api/v1/admin/*` now uses backend admin identity by default, with explicit scoped moderator allowance.
+- Frontend token storage now prefers `devhub_user_token` and `devhub_user_refresh_token`, while keeping compatibility with old keys.
+- Audit log UI now displays and filters actor identity type.
+
+### Known Limitations
+
+- MemoryStore still uses demo seed users for local development.
+- MySQL refresh tokens still use `user_id` with `token_type` to distinguish `users.id` from `admin_users.id`.
+- Admin-user to frontend-user binding is left for a later productionization pass.
+
+## v1.1.0
+
+DevHub v1.1.0 is the sub-site module enhancement release. It upgrades communities from a simple content filter into independent community spaces with their own profile, SEO, boards, moderators, stats, follow state, and announcements.
+
+### Added
+
+- Enhanced community profile fields: logo, cover image, slogan, theme color, SEO title/description/keywords, counters, hot score, and announcement fields.
+- Go-rendered Baidu-friendly community SEO pages for `/c/:slug`, including title, description, canonical, h1, board links, topic links, tag links, stats, moderators, and follow action.
+- `/site/:slug` compatibility redirect to canonical `/c/:slug/`.
+- Community stats API, public community moderator API, enhanced community tags/categories responses, and community follow counter updates.
+- admin-next community management page at `/admin-next/communities`, with create/edit, enable/disable, sort order, SEO fields, announcement fields, frontend links, moderator links, and board management.
+- Admin community and category CRUD APIs, reorder APIs, status APIs, and audit-log writes for community/board changes.
+- MemoryStore and MySQLStore support for enhanced communities, enhanced categories, community stats, community sitemap filtering, public moderators, and community follow counts.
+- Sitemap entries for enabled communities such as `/c/php/`, `/c/go/`, `/c/java/`, `/c/ai/`, and `/c/frontend/`.
+- v1.1.0 release documentation and test matrix.
+
+### Changed
+
+- Community pages are now treated as first-class spaces instead of only content-list aliases.
+- `/c/:slug` is the canonical community URL; `/site/:slug` remains compatible by redirecting.
+- MySQL schema and startup migration helpers now include v1.1.0 community/category fields.
+- README, API, SEO, deployment, testing, and project progress docs are updated for the v1.1.0 scope.
+
+### Known Limitations
+
+- v1.1.0 uses enabled categories as the default community navigation; deeper custom navigation is left for a later release.
+- Advanced tag features such as aliases, merging, trend statistics, and tag admin remain planned for v1.2.0.
+- A complete followed-community feed remains planned for v1.3.0; this release completes follow state, follower count, activities, and "my follows" visibility.
+- Comment likes, canceling solved status, recommendation algorithms, reputation, and complex analytics are outside this release.
+- Sitemap output is still single-file dynamic output and is not yet sharded for very large installations.
+
 ## v1.0.0
 
 DevHub v1.0.0 is the first runnable archive release of the project.
@@ -28,7 +106,7 @@ DevHub v1.0.0 is the first runnable archive release of the project.
 
 ### Known Limitations
 
-- Advanced tag features are planned for v1.1.0, including tag detail SEO pages, tag admin, aliases, merging, and trends.
+- Advanced tag features are planned for v1.2.0, including tag detail SEO pages, tag admin, aliases, merging, and trends.
 - Runtime comment likes are not part of v1.0.0.
 - Accepted questions support changing the best answer, but do not yet support canceling solved status.
 - Tag-follow and user-follow backend support exists, while richer frontend entry points remain future work.

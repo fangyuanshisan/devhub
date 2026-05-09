@@ -1,0 +1,17 @@
+---
+import SiteHeader from '../../components/SiteHeader.astro';
+import ModeratorWorkbench from '../../components/ModeratorWorkbench.astro';
+import SeoLayout from '../../layouts/SeoLayout.astro';
+import { devhubSites as sites } from '../../lib/sites';
+---
+<SeoLayout title="审计日志 - 版主工作台 - DevHub" description="DevHub 子站版主查看自己负责子站的治理审计记录。" canonical="/moderator/audit-logs/">
+  <SiteHeader sites={sites} activeSite="portal" />
+  <main>
+    <section class="page-title">
+      <span>Moderator Workspace</span>
+      <h1>审计日志</h1>
+      <p>只展示当前版主负责子站的治理记录。</p>
+    </section>
+    <ModeratorWorkbench />
+  </main>
+</SeoLayout>

@@ -9,6 +9,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"time"
 
 	"devhub-gin-backend/internal/domain"
 	"devhub-gin-backend/internal/service"
@@ -69,43 +70,79 @@ func NewRouter(svc *service.Service) *gin.Engine {
 		api.GET("/communities/:slug", srv.getCommunity)
 		api.GET("/communities/:slug/home", srv.communityOverview)
 		api.GET("/communities/:slug/overview", srv.communityOverview)
+		api.GET("/communities/:slug/stats", srv.communityStats)
 		api.GET("/communities/:slug/categories", srv.listCategories)
 		api.GET("/communities/:slug/tags", srv.listCommunityTags)
+		api.GET("/communities/:slug/moderators", srv.listCommunityModerators)
 		api.GET("/topics", srv.listTopics)
 		api.GET("/topics/:id", srv.getTopic)
 		api.GET("/topics/:id/comments", srv.topicComments)
-		api.POST("/topics/:id/comments", srv.createTopicComment)
-		api.POST("/topics/:id/comments/:commentId/replies", srv.replyTopicComment)
-		api.POST("/topics/:id/comments/:commentId/accept", srv.acceptTopicComment)
-		api.POST("/topics", srv.createTopic)
+		api.POST("/topics/:id/comments", srv.userAuthRequired(), srv.createTopicComment)
+		api.POST("/topics/:id/comments/:commentId/replies", srv.userAuthRequired(), srv.replyTopicComment)
+		api.POST("/topics/:id/comments/:commentId/accept", srv.userAuthRequired(), srv.acceptTopicComment)
+		api.POST("/topics", srv.userAuthRequired(), srv.createTopic)
 		api.PUT("/topics/:id", srv.authRequired(), srv.updateTopic)
 		api.DELETE("/topics/:id", srv.authRequired(), srv.deleteTopic)
-		api.POST("/topics/:id/like", srv.likeTopic)
-		api.POST("/topics/:id/favorite", srv.favoriteTopic)
+		api.POST("/topics/:id/like", srv.userAuthRequired(), srv.likeTopic)
+		api.POST("/topics/:id/favorite", srv.userAuthRequired(), srv.favoriteTopic)
 		api.GET("/topics/:id/interaction", srv.topicInteraction)
 		api.POST("/topics/:id/solve", srv.authRequired(), srv.solveTopic)
 		api.GET("/search/topics", srv.searchTopics)
-		api.POST("/actions/toggle", srv.toggleReaction)
-		api.POST("/reactions/toggle", srv.toggleReaction)
-		api.POST("/favorites/toggle", srv.toggleFavorite)
-		api.POST("/follows/toggle", srv.toggleFollow)
-		api.GET("/activities", srv.userActivities)
-		api.GET("/me/favorites", srv.myFavorites)
-		api.GET("/me/follows", srv.myFollows)
-		api.GET("/me/activities", srv.myActivities)
-		api.GET("/me/notifications", srv.myNotifications)
-		api.POST("/me/notifications/read-all", srv.readAllMyNotifications)
-		api.POST("/me/notifications/:id/read", srv.readMyNotification)
-		api.POST("/reports", srv.optionalAuth(), srv.createReport)
+		api.POST("/actions/toggle", srv.userAuthRequired(), srv.toggleReaction)
+		api.POST("/reactions/toggle", srv.userAuthRequired(), srv.toggleReaction)
+		api.POST("/favorites/toggle", srv.userAuthRequired(), srv.toggleFavorite)
+		api.POST("/follows/toggle", srv.userAuthRequired(), srv.toggleFollow)
+		api.GET("/activities", srv.userAuthRequired(), srv.userActivities)
+		api.GET("/me/favorites", srv.userAuthRequired(), srv.myFavorites)
+		api.GET("/me/follows", srv.userAuthRequired(), srv.myFollows)
+		api.GET("/me/activities", srv.userAuthRequired(), srv.myActivities)
+		api.GET("/me/notifications", srv.userAuthRequired(), srv.myNotifications)
+		api.POST("/me/notifications/read-all", srv.userAuthRequired(), srv.readAllMyNotifications)
+		api.POST("/me/notifications/:id/read", srv.userAuthRequired(), srv.readMyNotification)
+		api.POST("/reports", srv.userAuthRequired(), srv.createReport)
+
+		moderator := api.Group("/moderator", srv.moderatorAuthRequired())
+		{
+			moderator.GET("/communities", srv.moderatorCommunities)
+			moderator.GET("/dashboard", srv.moderatorDashboard)
+			moderator.GET("/reports", srv.moderatorReports)
+			moderator.POST("/reports/:id/handle", srv.handleModeratorReport)
+			moderator.GET("/topics", srv.moderatorTopics)
+			moderator.POST("/topics/:id/feature", srv.featureModeratorTopic)
+			moderator.POST("/topics/:id/unfeature", srv.unfeatureModeratorTopic)
+			moderator.POST("/topics/:id/pin", srv.pinModeratorTopic)
+			moderator.POST("/topics/:id/unpin", srv.unpinModeratorTopic)
+			moderator.POST("/topics/:id/hide", srv.hideModeratorTopic)
+			moderator.POST("/topics/:id/restore", srv.restoreModeratorTopic)
+			moderator.POST("/topics/:id/lock-comments", srv.lockModeratorTopicComments)
+			moderator.POST("/topics/:id/unlock-comments", srv.unlockModeratorTopicComments)
+			moderator.GET("/comments", srv.moderatorComments)
+			moderator.POST("/comments/:id/hide", srv.hideModeratorComment)
+			moderator.POST("/comments/:id/restore", srv.restoreModeratorComment)
+			moderator.GET("/audit-logs", srv.moderatorAuditLogs)
+		}
 
 		admin := api.Group("/admin")
 		{
 			admin.POST("/login", srv.adminLogin)
-			admin.POST("/refresh", srv.refreshSession)
+			admin.POST("/refresh", srv.refreshAdminSession)
 			admin.POST("/logout", srv.logout)
-			protected := admin.Group("", srv.authRequired(), srv.adminContext())
+			protected := admin.Group("", srv.adminAuthRequired(), srv.adminContext())
 			protected.GET("/me", srv.adminMe)
 			protected.GET("/overview", srv.requirePermission("dashboard.read"), srv.adminOverview)
+			protected.GET("/communities", srv.requirePermission("site.read"), srv.adminCommunities)
+			protected.POST("/communities", srv.requirePermission("site.write"), srv.createAdminCommunity)
+			protected.GET("/communities/:id", srv.requirePermission("site.read"), srv.adminCommunity)
+			protected.PUT("/communities/:id", srv.requirePermission("site.write"), srv.updateAdminCommunity)
+			protected.POST("/communities/:id/enable", srv.requirePermission("site.write"), srv.enableAdminCommunity)
+			protected.POST("/communities/:id/disable", srv.requirePermission("site.write"), srv.disableAdminCommunity)
+			protected.POST("/communities/reorder", srv.requirePermission("site.write"), srv.reorderAdminCommunities)
+			protected.GET("/communities/:id/categories", srv.requirePermission("board.read"), srv.adminCommunityCategories)
+			protected.POST("/communities/:id/categories", srv.requirePermission("board.write"), srv.createAdminCommunityCategory)
+			protected.PUT("/categories/:id", srv.requirePermission("board.write"), srv.updateAdminCategory)
+			protected.POST("/categories/:id/enable", srv.requirePermission("board.write"), srv.enableAdminCategory)
+			protected.POST("/categories/:id/disable", srv.requirePermission("board.write"), srv.disableAdminCategory)
+			protected.POST("/categories/reorder", srv.requirePermission("board.write"), srv.reorderAdminCategories)
 			protected.GET("/posts", srv.requirePermission("post.read"), srv.adminPosts)
 			protected.POST("/posts", srv.requirePermission("post.create"), srv.createAdminPost)
 			protected.PUT("/posts/:id", srv.requirePermission("post.update"), srv.updateAdminPost)
@@ -193,6 +230,16 @@ func NewRouter(svc *service.Service) *gin.Engine {
 	r.GET("/me/notifications/", func(c *gin.Context) {
 		serveFrontendFile(c, "./web/frontend/notifications/index.html")
 	})
+	r.GET("/moderator", srv.moderatorWorkbenchPage)
+	r.GET("/moderator/", srv.moderatorWorkbenchPage)
+	r.GET("/moderator/reports", srv.moderatorWorkbenchPage)
+	r.GET("/moderator/reports/", srv.moderatorWorkbenchPage)
+	r.GET("/moderator/topics", srv.moderatorWorkbenchPage)
+	r.GET("/moderator/topics/", srv.moderatorWorkbenchPage)
+	r.GET("/moderator/comments", srv.moderatorWorkbenchPage)
+	r.GET("/moderator/comments/", srv.moderatorWorkbenchPage)
+	r.GET("/moderator/audit-logs", srv.moderatorWorkbenchPage)
+	r.GET("/moderator/audit-logs/", srv.moderatorWorkbenchPage)
 	r.StaticFile("/admin-next", "./web/admin-vue/index.html")
 	r.StaticFile("/admin-next/", "./web/admin-vue/index.html")
 	r.GET("/admin", func(c *gin.Context) {
@@ -201,18 +248,12 @@ func NewRouter(svc *service.Service) *gin.Engine {
 	r.GET("/admin/", func(c *gin.Context) {
 		c.Redirect(http.StatusMovedPermanently, "/admin-next")
 	})
-	r.GET("/site/:site", func(c *gin.Context) {
-		c.File(fmt.Sprintf("./web/frontend/site/%s/index.html", c.Param("site")))
-	})
-	r.GET("/site/:site/", func(c *gin.Context) {
-		c.File(fmt.Sprintf("./web/frontend/site/%s/index.html", c.Param("site")))
-	})
-	r.GET("/c/:site", func(c *gin.Context) {
-		c.File(fmt.Sprintf("./web/frontend/site/%s/index.html", c.Param("site")))
-	})
-	r.GET("/c/:site/", func(c *gin.Context) {
-		c.File(fmt.Sprintf("./web/frontend/site/%s/index.html", c.Param("site")))
-	})
+	r.GET("/site/:site", srv.redirectSiteToCommunity)
+	r.GET("/site/:site/", srv.redirectSiteToCommunity)
+	r.HEAD("/site/:site", srv.redirectSiteToCommunity)
+	r.HEAD("/site/:site/", srv.redirectSiteToCommunity)
+	r.GET("/c/:site", srv.communitySEOPage)
+	r.GET("/c/:site/", srv.communitySEOPage)
 	r.GET("/c/:site/topics/new", func(c *gin.Context) {
 		serveFrontendFile(c, fmt.Sprintf("./web/frontend/c/%s/topics/new/index.html", c.Param("site")))
 	})
@@ -268,6 +309,10 @@ func serveFrontendFile(c *gin.Context, file string) {
 	c.File("./web/frontend/index.html")
 }
 
+func (s *Server) moderatorWorkbenchPage(c *gin.Context) {
+	serveFrontendFile(c, "./web/frontend/moderator/index.html")
+}
+
 func (s *Server) redirectPostToTopic(c *gin.Context) {
 	id := strings.TrimSpace(c.Param("id"))
 	if id == "" {
@@ -275,6 +320,163 @@ func (s *Server) redirectPostToTopic(c *gin.Context) {
 		return
 	}
 	c.Redirect(http.StatusMovedPermanently, "/topics/"+id+"/")
+}
+
+func (s *Server) redirectSiteToCommunity(c *gin.Context) {
+	slug := strings.Trim(strings.TrimSpace(c.Param("site")), "/")
+	if slug == "" {
+		c.Redirect(http.StatusMovedPermanently, "/")
+		return
+	}
+	c.Redirect(http.StatusMovedPermanently, "/c/"+pathEsc(slug)+"/")
+}
+
+func (s *Server) communitySEOPage(c *gin.Context) {
+	slug := strings.Trim(strings.TrimSpace(c.Param("site")), "/")
+	comm, ok := s.svc.CommunityBySlug(slug)
+	if !ok || comm.Slug == "" {
+		c.Data(http.StatusNotFound, "text/html; charset=utf-8", []byte(s.communityNotFoundHTML()))
+		return
+	}
+	if comm.Status != 1 {
+		c.Data(http.StatusNotFound, "text/html; charset=utf-8", []byte(s.communityDisabledHTML(comm)))
+		return
+	}
+	c.Data(http.StatusOK, "text/html; charset=utf-8", []byte(s.renderCommunityHTML(c, comm)))
+}
+
+func (s *Server) communityNotFoundHTML() string {
+	return fmt.Sprintf(`<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>子站不存在 - DevHub</title><meta name="description" content="该子站不存在或已被关闭。"><meta name="robots" content="noindex,follow"><link rel="canonical" href="/"><link rel="stylesheet" href="%s"></head><body><main class="article-shell"><article class="article-main"><h1>子站不存在</h1><p>该子站不存在或已被关闭。</p><p><a href="/">返回 DevHub 首页</a></p></article></main></body></html>`, esc(frontendStylesheetHref()))
+}
+
+func (s *Server) communityDisabledHTML(comm domain.Community) string {
+	title := "子站暂不可用 - DevHub"
+	return fmt.Sprintf(`<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>%s</title><meta name="description" content="该子站暂不可用。"><meta name="robots" content="noindex,follow"><link rel="canonical" href="/c/%s/"><link rel="stylesheet" href="%s"></head><body><main class="article-shell"><article class="article-main"><h1>%s 暂不可用</h1><p>该子站当前已禁用或归档。</p><p><a href="/">返回 DevHub 首页</a></p></article></main></body></html>`, esc(title), pathEsc(comm.Slug), esc(frontendStylesheetHref()), esc(comm.Name))
+}
+
+func (s *Server) renderCommunityHTML(c *gin.Context, comm domain.Community) string {
+	stats := s.svc.CommunityStats(comm.ID)
+	categories := s.visibleCommunityCategories(comm.ID)
+	pinned, _ := s.svc.TopicsByFilter(comm.ID, 0, "", "latest", nil, "", 1, 12)
+	pinned = filterTopicsByState(pinned, func(topic domain.Topic) bool { return topic.IsPinned })
+	featured, _ := s.svc.TopicsByFilter(comm.ID, 0, "", "featured", nil, "", 1, 8)
+	latest, _ := s.svc.TopicsByFilter(comm.ID, 0, "", "latest", nil, "", 1, 8)
+	hot, _ := s.svc.TopicsByFilter(comm.ID, 0, "", "hot", nil, "", 1, 8)
+	unsolved := false
+	questions, _ := s.svc.TopicsByFilter(comm.ID, 0, "question", "latest", &unsolved, "", 1, 8)
+	tags := s.communityHotTags(comm.ID, comm.Slug)
+	moderators, _ := s.svc.CommunityModerators(domain.CommunityModeratorFilter{CommunityID: comm.ID, Status: "1", Page: 1, PageSize: 20, ActorIsAdmin: true})
+
+	title := firstNonEmpty(comm.SEOTitle, comm.Name+" 技术社区") + " - DevHub"
+	description := firstNonEmpty(comm.SEODescription, comm.Description, comm.Slogan, comm.Name+" 技术社区")
+	canonicalPath := fmt.Sprintf("/c/%s/", comm.Slug)
+	canonicalURL := absoluteURL(c, canonicalPath)
+	themeColor := firstNonEmpty(comm.ThemeColor, "#2563eb")
+	jsonLD := fmt.Sprintf(`{"@context":"https://schema.org","@type":"WebSite","name":%q,"description":%q,"url":%q,"publisher":{"@type":"Organization","name":"DevHub"}}`, comm.Name+" - DevHub", description, canonicalURL)
+
+	return fmt.Sprintf(`<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>%s</title>
+  <meta name="description" content="%s">
+  <meta name="keywords" content="%s">
+  <link rel="canonical" href="%s">
+  <meta property="og:site_name" content="DevHub">
+  <meta property="og:type" content="website">
+  <meta property="og:title" content="%s">
+  <meta property="og:description" content="%s">
+  <meta property="og:url" content="%s">
+  <meta name="theme-color" content="%s">
+  <link rel="stylesheet" href="%s">
+  <script type="application/ld+json">%s</script>
+</head>
+<body>
+  <header class="site-header">
+    <div class="top-accent"></div>
+    <div class="header-inner">
+      <a class="brand" href="/"><span>DH</span><strong>DevHub</strong></a>
+      <nav class="site-nav" aria-label="主导航">
+        <a href="/">首页</a>
+        <a href="/c/%s/">%s</a>
+        <a href="/search/?scope=community&amp;community_slug=%s">搜索</a>
+        <a href="/me/follows">我的关注</a>
+        <a href="/notifications">通知</a>
+      </nav>
+      <div class="header-actions"><a class="publish-link" href="/c/%s/topics/new/">发布内容</a><a href="/admin-next">后台</a></div>
+    </div>
+  </header>
+  <main>
+    <section class="site-hero community-hero" style="--accent:%s" data-community-hero data-community-id="%d" data-community="%s">
+      <span>%s 子站</span>
+      <h1>%s</h1>
+      <p>%s</p>
+      <div class="hero-actions">
+        <a class="primary-link" href="/c/%s/topics/new/">在当前子站发布</a>
+        <button class="secondary-action" type="button" data-community-follow>关注子站</button>
+        <span class="action-message" data-community-message></span>
+      </div>
+      <div class="community-stats">%s</div>
+    </section>
+    <nav class="board-tabs js-board-tabs" aria-label="子站板块">%s</nav>
+    <section class="content-layout">
+      <div>
+        %s
+        %s
+        %s
+        %s
+        %s
+      </div>
+      <aside class="sidebar">
+        %s
+        <section><h2>热门标签</h2><div class="tag-cloud">%s</div></section>
+        <section><h2>版主</h2>%s</section>
+        <section class="community-rules"><h2>子站简介</h2><p>%s</p></section>
+      </aside>
+    </section>
+  </main>
+  <script>
+    (() => {
+      const root = document.querySelector('[data-community-hero]');
+      const button = document.querySelector('[data-community-follow]');
+      const message = document.querySelector('[data-community-message]');
+      const id = Number(root?.dataset.communityId || 0);
+      const setMessage = (text, danger = false) => {
+        if (!message) return;
+        message.textContent = text || '';
+        message.style.color = danger ? '#dc2626' : '';
+      };
+      button?.addEventListener('click', () => {
+        if (!id) return;
+        button.disabled = true;
+        fetch('/api/v1/follows/toggle', {
+          method: 'POST',
+          headers: {'Content-Type': 'application/json'},
+          body: JSON.stringify({target_type: 'community', target_id: id}),
+        }).then(async (response) => {
+          const data = await response.json().catch(() => ({}));
+          if (!response.ok) throw new Error(data.error || '操作失败');
+          button.textContent = data.followed ? '已关注子站' : '关注子站';
+          setMessage(data.followed ? '已关注子站' : '已取消关注');
+        }).catch((err) => setMessage(err?.message || '操作失败', true)).finally(() => {
+          button.disabled = false;
+        });
+      });
+    })();
+  </script>
+</body>
+</html>`,
+		esc(title), esc(description), esc(comm.SEOKeywords), esc(canonicalPath), esc(title), esc(description), esc(canonicalURL), esc(themeColor), esc(frontendStylesheetHref()), jsonLD,
+		pathEsc(comm.Slug), esc(comm.Name), queryEsc(comm.Slug), pathEsc(comm.Slug), esc(themeColor), comm.ID, esc(comm.Slug),
+		esc(comm.Name), esc(firstNonEmpty(comm.SEOTitle, comm.Name+" 技术社区")), esc(firstNonEmpty(comm.Slogan, comm.Description)),
+		pathEsc(comm.Slug), communityStatsHTML(stats), communityCategoryNavHTML(comm.Slug, categories),
+		communityTopicSectionHTML("置顶内容", pinned, comm.Slug, "暂无置顶内容。"),
+		communityTopicSectionHTML("精华内容", featured, comm.Slug, "暂无精华内容。"),
+		communityTopicSectionHTML("最新内容", latest, comm.Slug, "还没有内容，欢迎发布第一篇。"),
+		communityTopicSectionHTML("热门内容", hot, comm.Slug, "暂无热门内容。"),
+		communityTopicSectionHTML("未解决问答", questions, comm.Slug, "暂无未解决问答。"),
+		communityAnnouncementHTML(comm), communityTagsHTML(tags, comm.Slug), communityModeratorsHTML(moderators), esc(comm.Description))
 }
 
 func (s *Server) topicSEOPage(c *gin.Context) {
@@ -445,7 +647,7 @@ func (s *Server) renderTopicHTML(c *gin.Context, topic *domain.Topic) string {
 	    let commentPage = 1;
 	    let commentHasMore = false;
 	    let commentLoading = false;
-	    const accessToken = () => localStorage.getItem('devhub_access_token') || '';
+	    const accessToken = () => localStorage.getItem('devhub_user_token') || localStorage.getItem('devhub_access_token') || '';
 	    const currentUserID = () => {
 	      try {
 	        const raw = localStorage.getItem('devhub_user');
@@ -1182,7 +1384,17 @@ func (s *Server) adminLogin(c *gin.Context) {
 }
 
 func (s *Server) frontLogin(c *gin.Context) {
-	s.adminLogin(c)
+	var req domain.AdminLoginRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		fail(c, http.StatusBadRequest, err.Error())
+		return
+	}
+	session, err := s.svc.UserLogin(req.Account, req.Password)
+	if err != nil {
+		fail(c, http.StatusUnauthorized, err.Error())
+		return
+	}
+	c.JSON(http.StatusOK, session)
 }
 
 func (s *Server) register(c *gin.Context) {
@@ -1206,6 +1418,20 @@ func (s *Server) refreshSession(c *gin.Context) {
 		return
 	}
 	session, err := s.svc.RefreshSession(req.RefreshToken)
+	if err != nil {
+		fail(c, http.StatusUnauthorized, err.Error())
+		return
+	}
+	c.JSON(http.StatusOK, session)
+}
+
+func (s *Server) refreshAdminSession(c *gin.Context) {
+	var req domain.RefreshTokenRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		fail(c, http.StatusBadRequest, err.Error())
+		return
+	}
+	session, err := s.svc.RefreshAdminSession(req.RefreshToken)
 	if err != nil {
 		fail(c, http.StatusUnauthorized, err.Error())
 		return
@@ -1286,7 +1512,11 @@ func (s *Server) createAdminPost(c *gin.Context) {
 		fail(c, http.StatusBadRequest, err.Error())
 		return
 	}
-	topicReq.UserID = currentUserID(c)
+	if user, ok := currentUser(c); ok && user.TokenType == "user" {
+		topicReq.UserID = user.ID
+	} else {
+		topicReq.UserID = currentDemoUserID()
+	}
 	if !ensureSiteAllowed(c, req.Site) {
 		return
 	}
@@ -1445,6 +1675,238 @@ func (s *Server) updateAdminBoard(c *gin.Context) {
 	c.JSON(http.StatusOK, board)
 }
 
+func (s *Server) adminCommunities(c *gin.Context) {
+	items := s.svc.Communities()
+	if !isAdminUser(c) {
+		scope := adminSiteScope(c)
+		filtered := make([]domain.Community, 0, len(items))
+		for _, item := range items {
+			if item.Slug == scope || s.svc.IsCommunityModerator(currentUserID(c), item.ID) {
+				filtered = append(filtered, item)
+			}
+		}
+		items = filtered
+	}
+	c.JSON(http.StatusOK, gin.H{"items": items, "total": len(items)})
+}
+
+func (s *Server) adminCommunity(c *gin.Context) {
+	id, ok := idParam(c, "id")
+	if !ok {
+		return
+	}
+	comm, ok := s.communityByID(id)
+	if !ok {
+		fail(c, http.StatusNotFound, "子站不存在")
+		return
+	}
+	if !s.canManageCommunityConfig(c, comm.ID) {
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"community": comm, "item": comm, "stats": s.svc.CommunityStats(comm.ID)})
+}
+
+func (s *Server) createAdminCommunity(c *gin.Context) {
+	if !isAdminUser(c) {
+		fail(c, http.StatusForbidden, "只有管理员可以新增子站")
+		return
+	}
+	var req domain.CommunityRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		fail(c, http.StatusBadRequest, err.Error())
+		return
+	}
+	comm, err := s.svc.CreateCommunity(req)
+	if err != nil {
+		fail(c, http.StatusBadRequest, err.Error())
+		return
+	}
+	s.audit(c, "system", "新增子站", fmt.Sprintf("communities#%d", comm.ID))
+	c.JSON(http.StatusCreated, comm)
+}
+
+func (s *Server) updateAdminCommunity(c *gin.Context) {
+	id, ok := idParam(c, "id")
+	if !ok {
+		return
+	}
+	if !s.canManageCommunityConfig(c, id) {
+		return
+	}
+	var req domain.CommunityRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		fail(c, http.StatusBadRequest, err.Error())
+		return
+	}
+	comm, err := s.svc.UpdateCommunity(id, req)
+	if err != nil {
+		fail(c, http.StatusBadRequest, err.Error())
+		return
+	}
+	s.audit(c, "system", "更新子站配置", fmt.Sprintf("communities#%d", id))
+	c.JSON(http.StatusOK, comm)
+}
+
+func (s *Server) enableAdminCommunity(c *gin.Context) {
+	s.setAdminCommunityStatus(c, 1)
+}
+
+func (s *Server) disableAdminCommunity(c *gin.Context) {
+	s.setAdminCommunityStatus(c, 0)
+}
+
+func (s *Server) setAdminCommunityStatus(c *gin.Context, status int) {
+	id, ok := idParam(c, "id")
+	if !ok {
+		return
+	}
+	if !s.canManageCommunityConfig(c, id) {
+		return
+	}
+	comm, err := s.svc.SetCommunityStatus(id, status)
+	if err != nil {
+		fail(c, http.StatusBadRequest, err.Error())
+		return
+	}
+	action := "启用子站"
+	if status == 0 {
+		action = "禁用子站"
+	}
+	s.audit(c, "system", action, fmt.Sprintf("communities#%d", id))
+	c.JSON(http.StatusOK, comm)
+}
+
+func (s *Server) reorderAdminCommunities(c *gin.Context) {
+	if !isAdminUser(c) {
+		fail(c, http.StatusForbidden, "只有管理员可以排序子站")
+		return
+	}
+	var req domain.ReorderRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		fail(c, http.StatusBadRequest, err.Error())
+		return
+	}
+	updated := s.svc.ReorderCommunities(uniqueInt64s(req.IDs))
+	s.audit(c, "system", "子站排序", fmt.Sprintf("communities:%d", updated))
+	c.JSON(http.StatusOK, gin.H{"updated": updated})
+}
+
+func (s *Server) adminCommunityCategories(c *gin.Context) {
+	id, ok := idParam(c, "id")
+	if !ok {
+		return
+	}
+	if !s.canManageCommunityConfig(c, id) {
+		return
+	}
+	items := s.svc.Categories(id)
+	c.JSON(http.StatusOK, gin.H{"items": items, "total": len(items)})
+}
+
+func (s *Server) createAdminCommunityCategory(c *gin.Context) {
+	communityID, ok := idParam(c, "id")
+	if !ok {
+		return
+	}
+	if !s.canManageCommunityConfig(c, communityID) {
+		return
+	}
+	var req domain.CategoryRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		fail(c, http.StatusBadRequest, err.Error())
+		return
+	}
+	cat, err := s.svc.CreateCategory(communityID, req)
+	if err != nil {
+		fail(c, http.StatusBadRequest, err.Error())
+		return
+	}
+	s.audit(c, "system", "新增子站板块", fmt.Sprintf("categories#%d", cat.ID))
+	c.JSON(http.StatusCreated, cat)
+}
+
+func (s *Server) updateAdminCategory(c *gin.Context) {
+	id, ok := idParam(c, "id")
+	if !ok {
+		return
+	}
+	current, ok := s.categoryByID(id)
+	if !ok {
+		fail(c, http.StatusNotFound, "板块不存在")
+		return
+	}
+	if !s.canManageCommunityConfig(c, current.CommunityID) {
+		return
+	}
+	var req domain.CategoryRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		fail(c, http.StatusBadRequest, err.Error())
+		return
+	}
+	cat, err := s.svc.UpdateCategory(id, req)
+	if err != nil {
+		fail(c, http.StatusBadRequest, err.Error())
+		return
+	}
+	s.audit(c, "system", "更新子站板块", fmt.Sprintf("categories#%d", id))
+	c.JSON(http.StatusOK, cat)
+}
+
+func (s *Server) enableAdminCategory(c *gin.Context) {
+	s.setAdminCategoryStatus(c, 1)
+}
+
+func (s *Server) disableAdminCategory(c *gin.Context) {
+	s.setAdminCategoryStatus(c, 0)
+}
+
+func (s *Server) setAdminCategoryStatus(c *gin.Context, status int) {
+	id, ok := idParam(c, "id")
+	if !ok {
+		return
+	}
+	current, ok := s.categoryByID(id)
+	if !ok {
+		fail(c, http.StatusNotFound, "板块不存在")
+		return
+	}
+	if !s.canManageCommunityConfig(c, current.CommunityID) {
+		return
+	}
+	cat, err := s.svc.SetCategoryStatus(id, status)
+	if err != nil {
+		fail(c, http.StatusBadRequest, err.Error())
+		return
+	}
+	action := "启用子站板块"
+	if status == 0 {
+		action = "禁用子站板块"
+	}
+	s.audit(c, "system", action, fmt.Sprintf("categories#%d", id))
+	c.JSON(http.StatusOK, cat)
+}
+
+func (s *Server) reorderAdminCategories(c *gin.Context) {
+	var req domain.ReorderRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		fail(c, http.StatusBadRequest, err.Error())
+		return
+	}
+	if len(req.IDs) > 0 {
+		cat, ok := s.categoryByID(req.IDs[0])
+		if !ok {
+			fail(c, http.StatusNotFound, "板块不存在")
+			return
+		}
+		if !s.canManageCommunityConfig(c, cat.CommunityID) {
+			return
+		}
+	}
+	updated := s.svc.ReorderCategories(uniqueInt64s(req.IDs))
+	s.audit(c, "system", "子站板块排序", fmt.Sprintf("categories:%d", updated))
+	c.JSON(http.StatusOK, gin.H{"updated": updated})
+}
+
 func (s *Server) adminUsers(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"items": s.svc.AdminUsers()})
 }
@@ -1581,6 +2043,7 @@ func (s *Server) adminAuditLogs(c *gin.Context) {
 	filter := domain.AdminLogFilter{
 		Site:        adminSiteScope(c),
 		Type:        strings.TrimSpace(c.DefaultQuery("type", "all")),
+		ActorType:   strings.TrimSpace(c.Query("actor_type")),
 		Action:      strings.TrimSpace(c.Query("action")),
 		Target:      strings.TrimSpace(c.Query("target")),
 		TargetType:  strings.TrimSpace(c.Query("target_type")),
@@ -1625,6 +2088,148 @@ func (s *Server) createReport(c *gin.Context) {
 		return
 	}
 	c.JSON(http.StatusCreated, gin.H{"report": report, "item": report})
+}
+
+func (s *Server) moderatorCommunities(c *gin.Context) {
+	communities := s.moderatorCommunitiesForCurrentUser(c)
+	c.JSON(http.StatusOK, gin.H{"items": communities, "total": len(communities)})
+}
+
+func (s *Server) moderatorDashboard(c *gin.Context) {
+	communities := s.moderatorCommunitiesForCurrentUser(c)
+	communityIDs := make([]int64, 0, len(communities))
+	for _, comm := range communities {
+		communityIDs = append(communityIDs, comm.ID)
+	}
+	pendingReports := s.moderatorReportsForCommunities(communityIDs, "pending", "all", 1, 50)
+	topics := s.moderatorTopicsForCommunities(communityIDs, "all", "all", "", 1, 50)
+	comments := s.moderatorCommentsForCommunities(communityIDs, "all", "", 1, 50)
+	allLogs := s.moderatorLogsForCommunities(c, communityIDs, "", "all", "", "", 1, 1000)
+	recentLogs := allLogs
+	if len(recentLogs) > 5 {
+		recentLogs = recentLogs[:5]
+	}
+	dashboard := domain.ModeratorDashboard{
+		ManagedCommunities: communities,
+		PendingReportCount: len(pendingReports),
+		TopicCount:         len(topics),
+		CommentCount:       len(comments),
+		TodayActionCount:   countTodayModeratorActions(allLogs),
+		RecentReports:      limitReports(pendingReports, 5),
+		RecentAuditLogs:    recentLogs,
+	}
+	c.JSON(http.StatusOK, dashboard)
+}
+
+func (s *Server) moderatorReports(c *gin.Context) {
+	communityID, ok := s.moderatorRequestedCommunityID(c)
+	if !ok {
+		return
+	}
+	page, pageSize := pagination(c)
+	communityIDs := s.moderatorCommunityIDs(c, communityID)
+	items := s.moderatorReportsForCommunities(communityIDs, c.DefaultQuery("status", "all"), c.DefaultQuery("target_type", "all"), 1, 1000)
+	c.JSON(http.StatusOK, domain.PageResponse{Items: paginate(items, page, pageSize), Total: len(items), Page: page, PageSize: pageSize, HasMore: page*pageSize < len(items)})
+}
+
+func (s *Server) handleModeratorReport(c *gin.Context) {
+	id, ok := idParam(c, "id")
+	if !ok {
+		return
+	}
+	report, err := s.svc.ReportByID(id)
+	if err != nil {
+		fail(c, http.StatusNotFound, err.Error())
+		return
+	}
+	if !s.canModerateCommunityStrict(c, report.CommunityID) {
+		return
+	}
+	var req domain.HandleReportRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		fail(c, http.StatusBadRequest, err.Error())
+		return
+	}
+	updated, err := s.svc.HandleReport(id, req.Status, req.HandleNote, currentUserID(c))
+	if err != nil {
+		fail(c, http.StatusBadRequest, err.Error())
+		return
+	}
+	s.moderatorAudit(c, report.CommunityID, "handle_report", fmt.Sprintf("reports#%d", id))
+	c.JSON(http.StatusOK, gin.H{"handled": true, "report": updated})
+}
+
+func (s *Server) moderatorTopics(c *gin.Context) {
+	communityID, ok := s.moderatorRequestedCommunityID(c)
+	if !ok {
+		return
+	}
+	page, pageSize := pagination(c)
+	communityIDs := s.moderatorCommunityIDs(c, communityID)
+	items := s.moderatorTopicsForCommunities(communityIDs, c.DefaultQuery("status", "all"), c.DefaultQuery("content_type", "all"), strings.TrimSpace(c.Query("keyword")), 1, 1000)
+	c.JSON(http.StatusOK, domain.PageResponse{Items: paginate(items, page, pageSize), Total: len(items), Page: page, PageSize: pageSize, HasMore: page*pageSize < len(items)})
+}
+
+func (s *Server) featureModeratorTopic(c *gin.Context) {
+	s.setModeratorTopicFeatured(c, true)
+}
+
+func (s *Server) unfeatureModeratorTopic(c *gin.Context) {
+	s.setModeratorTopicFeatured(c, false)
+}
+
+func (s *Server) pinModeratorTopic(c *gin.Context) {
+	s.setModeratorTopicPinned(c, true)
+}
+
+func (s *Server) unpinModeratorTopic(c *gin.Context) {
+	s.setModeratorTopicPinned(c, false)
+}
+
+func (s *Server) hideModeratorTopic(c *gin.Context) {
+	s.setModeratorTopicStatus(c, 0, "hide_topic")
+}
+
+func (s *Server) restoreModeratorTopic(c *gin.Context) {
+	s.setModeratorTopicStatus(c, 1, "restore_topic")
+}
+
+func (s *Server) lockModeratorTopicComments(c *gin.Context) {
+	s.setModeratorTopicLock(c, true)
+}
+
+func (s *Server) unlockModeratorTopicComments(c *gin.Context) {
+	s.setModeratorTopicLock(c, false)
+}
+
+func (s *Server) moderatorComments(c *gin.Context) {
+	communityID, ok := s.moderatorRequestedCommunityID(c)
+	if !ok {
+		return
+	}
+	page, pageSize := pagination(c)
+	communityIDs := s.moderatorCommunityIDs(c, communityID)
+	items := s.moderatorCommentsForCommunities(communityIDs, c.DefaultQuery("status", "all"), strings.TrimSpace(c.Query("keyword")), 1, 1000)
+	c.JSON(http.StatusOK, domain.PageResponse{Items: paginate(items, page, pageSize), Total: len(items), Page: page, PageSize: pageSize, HasMore: page*pageSize < len(items)})
+}
+
+func (s *Server) hideModeratorComment(c *gin.Context) {
+	s.setModeratorCommentStatus(c, "hidden")
+}
+
+func (s *Server) restoreModeratorComment(c *gin.Context) {
+	s.setModeratorCommentStatus(c, "normal")
+}
+
+func (s *Server) moderatorAuditLogs(c *gin.Context) {
+	communityID, ok := s.moderatorRequestedCommunityID(c)
+	if !ok {
+		return
+	}
+	page, pageSize := pagination(c)
+	communityIDs := s.moderatorCommunityIDs(c, communityID)
+	items := s.moderatorLogsForCommunities(c, communityIDs, c.Query("actor_type"), c.DefaultQuery("type", "all"), c.Query("action"), c.Query("target_type"), 1, 1000)
+	c.JSON(http.StatusOK, domain.PageResponse{Items: paginate(items, page, pageSize), Total: len(items), Page: page, PageSize: pageSize, HasMore: page*pageSize < len(items)})
 }
 
 func (s *Server) adminReports(c *gin.Context) {
@@ -1904,6 +2509,10 @@ func corsMiddleware() gin.HandlerFunc {
 }
 
 func (s *Server) authRequired() gin.HandlerFunc {
+	return s.userAuthRequired()
+}
+
+func (s *Server) userAuthRequired() gin.HandlerFunc {
 	return func(c *gin.Context) {
 		token := bearerToken(c.GetHeader("Authorization"))
 		if token == "" {
@@ -1919,6 +2528,59 @@ func (s *Server) authRequired() gin.HandlerFunc {
 		}
 		c.Set("auth_user", *user)
 		c.Next()
+	}
+}
+
+func (s *Server) moderatorAuthRequired() gin.HandlerFunc {
+	return func(c *gin.Context) {
+		token := bearerToken(c.GetHeader("Authorization"))
+		if token == "" {
+			fail(c, http.StatusUnauthorized, "未登录")
+			c.Abort()
+			return
+		}
+		user, err := s.svc.AuthUser(token)
+		if err != nil {
+			fail(c, http.StatusUnauthorized, err.Error())
+			c.Abort()
+			return
+		}
+		moderator, ok := s.moderatorUserForAdmin(*user)
+		if !ok {
+			fail(c, http.StatusForbidden, "当前用户不是启用状态子站版主")
+			c.Abort()
+			return
+		}
+		c.Set("auth_user", moderator)
+		c.Set("moderator_context", moderator)
+		c.Next()
+	}
+}
+
+func (s *Server) adminAuthRequired() gin.HandlerFunc {
+	return func(c *gin.Context) {
+		token := bearerToken(c.GetHeader("Authorization"))
+		if token == "" {
+			fail(c, http.StatusUnauthorized, "后台未登录")
+			c.Abort()
+			return
+		}
+		user, err := s.svc.AuthAdmin(token)
+		if err == nil && user != nil {
+			c.Set("auth_user", *user)
+			c.Next()
+			return
+		}
+		frontUser, userErr := s.svc.AuthUser(token)
+		if userErr == nil && frontUser != nil {
+			if moderator, ok := s.moderatorUserForAdmin(*frontUser); ok {
+				c.Set("auth_user", moderator)
+				c.Next()
+				return
+			}
+		}
+		fail(c, http.StatusUnauthorized, err.Error())
+		c.Abort()
 	}
 }
 
@@ -2016,19 +2678,74 @@ func (s *Server) audit(c *gin.Context, logType, action, target string) {
 	if actor == "" {
 		actor = adminCtx.CurrentUser.Nickname
 	}
+	actorType := "admin_user"
+	if adminCtx.CurrentUser.TokenType == "user" {
+		actorType = "moderator"
+	}
 	site := adminCtx.CurrentSite
 	if site == "" {
 		site = adminSiteScope(c)
 	}
 	s.svc.AppendAdminLog(domain.AdminLog{
-		Site:   site,
-		Type:   logType,
-		Actor:  actor,
-		Role:   adminCtx.CurrentUser.RoleCode,
-		Action: action,
-		Target: target,
-		IP:     c.ClientIP(),
+		Site:        site,
+		Type:        logType,
+		Actor:       actor,
+		ActorType:   actorType,
+		ActorUserID: adminCtx.CurrentUser.ID,
+		ActorID:     adminCtx.CurrentUser.ID,
+		Role:        adminCtx.CurrentUser.RoleCode,
+		Action:      action,
+		Target:      target,
+		IP:          c.ClientIP(),
 	})
+}
+
+func (s *Server) moderatorUserForAdmin(user domain.AuthUser) (domain.AuthUser, bool) {
+	items, total := s.svc.CommunityModerators(domain.CommunityModeratorFilter{
+		UserID:       user.ID,
+		Status:       "1",
+		ActorIsAdmin: true,
+		Page:         1,
+		PageSize:     1000,
+	})
+	if total <= 0 || len(items) == 0 {
+		return domain.AuthUser{}, false
+	}
+	sites := make([]string, 0, len(items))
+	seen := map[string]bool{}
+	for _, item := range items {
+		if item.Status != 1 || strings.TrimSpace(item.CommunitySlug) == "" {
+			continue
+		}
+		if !seen[item.CommunitySlug] {
+			seen[item.CommunitySlug] = true
+			sites = append(sites, item.CommunitySlug)
+		}
+	}
+	if len(sites) == 0 {
+		return domain.AuthUser{}, false
+	}
+	sort.Strings(sites)
+	user.RoleCode = "moderator"
+	user.RoleName = "子站版主"
+	user.Sites = sites
+	user.Permissions = []string{
+		"dashboard.read",
+		"site.read",
+		"board.read",
+		"post.read",
+		"topic.moderate",
+		"comment.read",
+		"comment.moderate",
+		"report.read",
+		"report.handle",
+		"moderator.read",
+		"log.read",
+	}
+	user.TokenType = "user"
+	user.Identity = "moderator"
+	user.Audience = "devhub_frontend"
+	return user, true
 }
 
 func hasPermission(perms []string, permission string) bool {
@@ -2072,7 +2789,7 @@ func adminSiteScope(c *gin.Context) string {
 	if adminCtx.IsGlobal {
 		return c.DefaultQuery("site", adminCtx.CurrentSite)
 	}
-	if adminCtx.CurrentSite != "" && adminCtx.CurrentSite != "portal" {
+	if adminCtx.CurrentSite != "" && adminCtx.CurrentSite != "portal" && hasSite(adminCtx.CurrentUser.Sites, adminCtx.CurrentSite) {
 		return adminCtx.CurrentSite
 	}
 	if len(adminCtx.CurrentUser.Sites) > 0 {
@@ -2103,17 +2820,32 @@ func scopedSite(c *gin.Context, requested string) (string, bool) {
 func isAdminUser(c *gin.Context) bool {
 	user, ok := currentUser(c)
 	if !ok {
-		return currentUserID(c) == 1
+		return false
 	}
-	return user.ID == 1 || user.RoleCode == "super_admin" || hasPermission(user.Permissions, "*")
+	return user.TokenType == "admin" && (user.RoleCode == "super_admin" || hasPermission(user.Permissions, "*"))
+}
+
+func isAdminIdentity(c *gin.Context) bool {
+	user, ok := currentUser(c)
+	return ok && user.TokenType == "admin"
 }
 
 func (s *Server) canModerateCommunity(c *gin.Context, communityID int64) bool {
-	if isAdminUser(c) {
-		return true
-	}
 	if communityID <= 0 {
+		if isAdminUser(c) {
+			return true
+		}
 		fail(c, http.StatusForbidden, "只有管理员可以管理全局举报")
+		return false
+	}
+	if user, ok := currentUser(c); ok && user.TokenType == "admin" {
+		if user.RoleCode == "super_admin" || hasSite(user.Sites, "*") {
+			return true
+		}
+		if comm, ok := s.communityByID(communityID); ok && hasSite(user.Sites, comm.Slug) {
+			return true
+		}
+		fail(c, http.StatusForbidden, "无权管理该子站内容")
 		return false
 	}
 	if s.svc.IsCommunityModerator(currentUserID(c), communityID) {
@@ -2124,8 +2856,17 @@ func (s *Server) canModerateCommunity(c *gin.Context, communityID int64) bool {
 }
 
 func (s *Server) canModerateCommunityForBatch(c *gin.Context, communityID int64) bool {
-	if isAdminUser(c) {
-		return true
+	if communityID <= 0 {
+		return false
+	}
+	if user, ok := currentUser(c); ok && user.TokenType == "admin" {
+		if user.RoleCode == "super_admin" || hasSite(user.Sites, "*") {
+			return true
+		}
+		if comm, ok := s.communityByID(communityID); ok && hasSite(user.Sites, comm.Slug) {
+			return true
+		}
+		return false
 	}
 	return communityID > 0 && s.svc.IsCommunityModerator(currentUserID(c), communityID)
 }
@@ -2142,10 +2883,42 @@ func (s *Server) canModerateTopicForBatch(c *gin.Context, topic *domain.Topic) b
 	return topic != nil && s.canModerateCommunityForBatch(c, topic.CommunityID)
 }
 
+func (s *Server) canManageCommunityConfig(c *gin.Context, communityID int64) bool {
+	if isAdminUser(c) {
+		return true
+	}
+	return s.canModerateCommunity(c, communityID)
+}
+
+func (s *Server) communityByID(id int64) (domain.Community, bool) {
+	for _, item := range s.svc.Communities() {
+		if item.ID == id {
+			return item, true
+		}
+	}
+	return domain.Community{}, false
+}
+
+func (s *Server) categoryByID(id int64) (domain.Category, bool) {
+	for _, comm := range s.svc.Communities() {
+		for _, category := range s.svc.Categories(comm.ID) {
+			if category.ID == id {
+				return category, true
+			}
+		}
+	}
+	return domain.Category{}, false
+}
+
 func (s *Server) reportFilter(c *gin.Context) domain.ReportFilter {
 	page, pageSize := pagination(c)
 	communityID := int64(0)
 	communitySlug := strings.TrimSpace(firstQuery(c, "community_slug", "site"))
+	if (communitySlug == "" || communitySlug == "all" || communitySlug == "portal") && !isAdminUser(c) {
+		if scope := adminSiteScope(c); scope != "" && scope != "portal" && scope != "all" {
+			communitySlug = scope
+		}
+	}
 	if communitySlug != "" && communitySlug != "all" && communitySlug != "portal" {
 		if comm, ok := s.svc.CommunityBySlug(communitySlug); ok {
 			communityID = comm.ID
@@ -2159,7 +2932,7 @@ func (s *Server) reportFilter(c *gin.Context) domain.ReportFilter {
 		Page:          page,
 		PageSize:      pageSize,
 		ActorUserID:   currentUserID(c),
-		ActorIsAdmin:  isAdminUser(c),
+		ActorIsAdmin:  isAdminIdentity(c),
 	}
 }
 
@@ -2167,6 +2940,11 @@ func (s *Server) moderatorFilter(c *gin.Context) domain.CommunityModeratorFilter
 	page, pageSize := pagination(c)
 	communityID := int64(0)
 	communitySlug := strings.TrimSpace(firstQuery(c, "community_slug", "site"))
+	if (communitySlug == "" || communitySlug == "all" || communitySlug == "portal") && !isAdminUser(c) {
+		if scope := adminSiteScope(c); scope != "" && scope != "portal" && scope != "all" {
+			communitySlug = scope
+		}
+	}
 	if communitySlug != "" && communitySlug != "all" && communitySlug != "portal" {
 		if comm, ok := s.svc.CommunityBySlug(communitySlug); ok {
 			communityID = comm.ID
@@ -2180,7 +2958,7 @@ func (s *Server) moderatorFilter(c *gin.Context) domain.CommunityModeratorFilter
 		Page:          page,
 		PageSize:      pageSize,
 		ActorUserID:   currentUserID(c),
-		ActorIsAdmin:  isAdminUser(c),
+		ActorIsAdmin:  isAdminIdentity(c),
 	}
 }
 
@@ -2360,6 +3138,373 @@ func (s *Server) setAdminCommentStatus(c *gin.Context, status string) {
 	c.JSON(http.StatusOK, gin.H{"comment": updated, "changed": true})
 }
 
+func (s *Server) moderatorCommunitiesForCurrentUser(c *gin.Context) []domain.Community {
+	items, _ := s.svc.CommunityModerators(domain.CommunityModeratorFilter{
+		UserID:       currentUserID(c),
+		Status:       "1",
+		ActorIsAdmin: true,
+		Page:         1,
+		PageSize:     1000,
+	})
+	seen := map[int64]bool{}
+	communities := make([]domain.Community, 0, len(items))
+	for _, item := range items {
+		if item.Status != 1 || item.CommunityID <= 0 || seen[item.CommunityID] {
+			continue
+		}
+		if comm, ok := s.communityByID(item.CommunityID); ok && comm.Status == 1 {
+			communities = append(communities, comm)
+			seen[item.CommunityID] = true
+		}
+	}
+	sort.Slice(communities, func(i, j int) bool {
+		if communities[i].SortOrder == communities[j].SortOrder {
+			return communities[i].ID < communities[j].ID
+		}
+		return communities[i].SortOrder < communities[j].SortOrder
+	})
+	return communities
+}
+
+func (s *Server) moderatorRequestedCommunityID(c *gin.Context) (int64, bool) {
+	communityID := int64Query(c, "community_id", 0)
+	if communityID == 0 {
+		slug := strings.TrimSpace(firstQuery(c, "community_slug", "site"))
+		if slug != "" && slug != "all" && slug != "portal" {
+			if comm, ok := s.svc.CommunityBySlug(slug); ok {
+				communityID = comm.ID
+			} else {
+				fail(c, http.StatusNotFound, "子站不存在")
+				return 0, false
+			}
+		}
+	}
+	if communityID > 0 && !s.canModerateCommunityStrict(c, communityID) {
+		return 0, false
+	}
+	return communityID, true
+}
+
+func (s *Server) moderatorCommunityIDs(c *gin.Context, requested int64) []int64 {
+	if requested > 0 {
+		return []int64{requested}
+	}
+	communities := s.moderatorCommunitiesForCurrentUser(c)
+	ids := make([]int64, 0, len(communities))
+	for _, comm := range communities {
+		ids = append(ids, comm.ID)
+	}
+	return ids
+}
+
+func (s *Server) moderatorReportsForCommunities(communityIDs []int64, status, targetType string, page, pageSize int) []domain.Report {
+	out := []domain.Report{}
+	for _, communityID := range uniqueInt64s(communityIDs) {
+		if communityID <= 0 {
+			continue
+		}
+		items, _ := s.svc.Reports(domain.ReportFilter{
+			Status:       status,
+			TargetType:   targetType,
+			CommunityID:  communityID,
+			Page:         page,
+			PageSize:     pageSize,
+			ActorIsAdmin: true,
+		})
+		out = append(out, items...)
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].ID > out[j].ID })
+	return out
+}
+
+func (s *Server) moderatorTopicsForCommunities(communityIDs []int64, status, contentType, keyword string, page, pageSize int) []domain.Post {
+	out := []domain.Post{}
+	keyword = strings.ToLower(strings.TrimSpace(keyword))
+	for _, communityID := range uniqueInt64s(communityIDs) {
+		if communityID <= 0 {
+			continue
+		}
+		site := slugByCommunityID(communityID)
+		if comm, ok := s.communityByID(communityID); ok && comm.Slug != "" {
+			site = comm.Slug
+		}
+		posts := s.svc.AdminTopics(site, "all", keyword)
+		for _, post := range posts {
+			if status != "" && status != "all" {
+				switch status {
+				case "featured":
+					if !post.Recommended {
+						continue
+					}
+				case "pinned":
+					if !post.Pinned {
+						continue
+					}
+				case "locked":
+					if !post.CommentLocked {
+						continue
+					}
+				default:
+					if post.Status != status {
+						continue
+					}
+				}
+			}
+			if contentType != "" && contentType != "all" && adminContentTypeByBoard(post.Board) != contentType {
+				continue
+			}
+			out = append(out, post)
+		}
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].ID > out[j].ID })
+	return paginate(out, page, pageSize)
+}
+
+func (s *Server) moderatorCommentsForCommunities(communityIDs []int64, status, keyword string, page, pageSize int) []domain.AdminComment {
+	out := []domain.AdminComment{}
+	keyword = strings.ToLower(strings.TrimSpace(keyword))
+	for _, communityID := range uniqueInt64s(communityIDs) {
+		if communityID <= 0 {
+			continue
+		}
+		site := slugByCommunityID(communityID)
+		if comm, ok := s.communityByID(communityID); ok && comm.Slug != "" {
+			site = comm.Slug
+		}
+		comments := s.svc.AdminComments(site)
+		for _, comment := range comments {
+			if status != "" && status != "all" && comment.Status != status {
+				continue
+			}
+			if keyword != "" {
+				haystack := strings.ToLower(strings.Join([]string{comment.PostTitle, comment.Author, comment.To, comment.Text}, " "))
+				if !strings.Contains(haystack, keyword) {
+					continue
+				}
+			}
+			out = append(out, comment)
+		}
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].ID > out[j].ID })
+	return paginate(out, page, pageSize)
+}
+
+func (s *Server) moderatorLogsForCommunities(c *gin.Context, communityIDs []int64, actorType, logType, action, targetType string, page, pageSize int) []domain.AdminLog {
+	out := []domain.AdminLog{}
+	if strings.TrimSpace(logType) == "" {
+		logType = "all"
+	}
+	for _, communityID := range uniqueInt64s(communityIDs) {
+		if communityID <= 0 {
+			continue
+		}
+		filter := domain.AdminLogFilter{
+			Type:        logType,
+			ActorType:   strings.TrimSpace(actorType),
+			Action:      strings.TrimSpace(action),
+			TargetType:  strings.TrimSpace(targetType),
+			CommunityID: communityID,
+			Page:        page,
+			PageSize:    pageSize,
+		}
+		items, _ := s.svc.AdminLogsByFilter(filter)
+		out = append(out, items...)
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].ID > out[j].ID })
+	return paginate(out, page, pageSize)
+}
+
+func (s *Server) canModerateCommunityStrict(c *gin.Context, communityID int64) bool {
+	if communityID <= 0 {
+		fail(c, http.StatusForbidden, "版主只能治理具体子站")
+		return false
+	}
+	user, ok := currentUser(c)
+	if !ok || user.TokenType != "user" {
+		fail(c, http.StatusForbidden, "版主工作台仅支持前台用户身份")
+		return false
+	}
+	if s.svc.IsCommunityModerator(user.ID, communityID) {
+		return true
+	}
+	fail(c, http.StatusForbidden, "无权管理该子站内容")
+	return false
+}
+
+func (s *Server) moderatorAudit(c *gin.Context, communityID int64, action, target string) {
+	user, ok := currentUser(c)
+	if !ok {
+		return
+	}
+	site := slugByCommunityID(communityID)
+	if comm, ok := s.communityByID(communityID); ok && comm.Slug != "" {
+		site = comm.Slug
+	}
+	actor := firstNonEmpty(user.Username, user.Nickname, "moderator")
+	s.svc.AppendAdminLog(domain.AdminLog{
+		Site:        site,
+		Type:        "audit",
+		Actor:       actor,
+		ActorType:   "moderator",
+		ActorUserID: user.ID,
+		ActorID:     user.ID,
+		Role:        "moderator",
+		Action:      action,
+		Target:      target,
+		CommunityID: communityID,
+		IP:          c.ClientIP(),
+	})
+}
+
+func (s *Server) setModeratorTopicFeatured(c *gin.Context, featured bool) {
+	id, ok := idParam(c, "id")
+	if !ok {
+		return
+	}
+	topic, err := s.svc.TopicByID(id, false)
+	if err != nil {
+		fail(c, http.StatusNotFound, "主题不存在")
+		return
+	}
+	if !s.canModerateCommunityStrict(c, topic.CommunityID) {
+		return
+	}
+	updated, err := s.svc.SetTopicFeatured(id, featured)
+	if err != nil {
+		fail(c, http.StatusBadRequest, err.Error())
+		return
+	}
+	action := "feature_topic"
+	if !featured {
+		action = "unfeature_topic"
+	}
+	s.moderatorAudit(c, topic.CommunityID, action, fmt.Sprintf("topics#%d", id))
+	c.JSON(http.StatusOK, gin.H{"topic": updated, "changed": true})
+}
+
+func (s *Server) setModeratorTopicPinned(c *gin.Context, pinned bool) {
+	id, ok := idParam(c, "id")
+	if !ok {
+		return
+	}
+	topic, err := s.svc.TopicByID(id, false)
+	if err != nil {
+		fail(c, http.StatusNotFound, "主题不存在")
+		return
+	}
+	if !s.canModerateCommunityStrict(c, topic.CommunityID) {
+		return
+	}
+	updated, err := s.svc.SetTopicPinned(id, pinned)
+	if err != nil {
+		fail(c, http.StatusBadRequest, err.Error())
+		return
+	}
+	action := "pin_topic"
+	if !pinned {
+		action = "unpin_topic"
+	}
+	s.moderatorAudit(c, topic.CommunityID, action, fmt.Sprintf("topics#%d", id))
+	c.JSON(http.StatusOK, gin.H{"topic": updated, "changed": true})
+}
+
+func (s *Server) setModeratorTopicStatus(c *gin.Context, status int, action string) {
+	id, ok := idParam(c, "id")
+	if !ok {
+		return
+	}
+	topic, err := s.svc.TopicByID(id, false)
+	if err != nil {
+		fail(c, http.StatusNotFound, "主题不存在")
+		return
+	}
+	if !s.canModerateCommunityStrict(c, topic.CommunityID) {
+		return
+	}
+	updated, err := s.svc.SetTopicStatus(id, status)
+	if err != nil {
+		fail(c, http.StatusBadRequest, err.Error())
+		return
+	}
+	s.moderatorAudit(c, topic.CommunityID, action, fmt.Sprintf("topics#%d", id))
+	c.JSON(http.StatusOK, gin.H{"topic": updated, "changed": true})
+}
+
+func (s *Server) setModeratorTopicLock(c *gin.Context, locked bool) {
+	id, ok := idParam(c, "id")
+	if !ok {
+		return
+	}
+	topic, err := s.svc.TopicByID(id, false)
+	if err != nil {
+		fail(c, http.StatusNotFound, "主题不存在")
+		return
+	}
+	if !s.canModerateCommunityStrict(c, topic.CommunityID) {
+		return
+	}
+	updated, err := s.svc.SetTopicCommentLocked(id, locked)
+	if err != nil {
+		fail(c, http.StatusBadRequest, err.Error())
+		return
+	}
+	action := "lock_comments"
+	if !locked {
+		action = "unlock_comments"
+	}
+	s.moderatorAudit(c, topic.CommunityID, action, fmt.Sprintf("topics#%d", id))
+	c.JSON(http.StatusOK, gin.H{"topic": updated, "changed": true})
+}
+
+func (s *Server) setModeratorCommentStatus(c *gin.Context, status string) {
+	id, ok := idParam(c, "id")
+	if !ok {
+		return
+	}
+	comment, err := s.svc.CommentByID(id)
+	if err != nil {
+		fail(c, http.StatusNotFound, "评论不存在")
+		return
+	}
+	topic, err := s.svc.TopicByID(comment.TopicID, false)
+	if err != nil {
+		fail(c, http.StatusNotFound, "主题不存在")
+		return
+	}
+	if !s.canModerateCommunityStrict(c, topic.CommunityID) {
+		return
+	}
+	updated, err := s.svc.SetCommentStatus(id, status)
+	if err != nil {
+		fail(c, http.StatusBadRequest, err.Error())
+		return
+	}
+	action := "hide_comment"
+	if status == "normal" {
+		action = "restore_comment"
+	}
+	s.moderatorAudit(c, topic.CommunityID, action, fmt.Sprintf("comments#%d", id))
+	c.JSON(http.StatusOK, gin.H{"comment": updated, "changed": true})
+}
+
+func countTodayModeratorActions(logs []domain.AdminLog) int {
+	today := time.Now().Format("2006-01-02")
+	count := 0
+	for _, log := range logs {
+		if log.ActorType == "moderator" && strings.HasPrefix(log.CreatedAt, today) {
+			count++
+		}
+	}
+	return count
+}
+
+func limitReports(items []domain.Report, limit int) []domain.Report {
+	if limit <= 0 || len(items) <= limit {
+		return items
+	}
+	return items[:limit]
+}
+
 // fail 输出统一错误响应。
 func fail(c *gin.Context, code int, msg string) { c.JSON(code, gin.H{"error": msg}) }
 
@@ -2487,6 +3632,25 @@ func (s *Server) listCommunityTags(c *gin.Context) {
 		hotTags = s.svc.TagStats(comm.Slug)
 	}
 	c.JSON(http.StatusOK, gin.H{"items": hotTags})
+}
+
+func (s *Server) communityStats(c *gin.Context) {
+	comm, ok := s.svc.CommunityBySlug(c.Param("slug"))
+	if !ok || comm.Status != 1 {
+		fail(c, http.StatusNotFound, "子站不存在")
+		return
+	}
+	c.JSON(http.StatusOK, s.svc.CommunityStats(comm.ID))
+}
+
+func (s *Server) listCommunityModerators(c *gin.Context) {
+	comm, ok := s.svc.CommunityBySlug(c.Param("slug"))
+	if !ok || comm.Status != 1 {
+		fail(c, http.StatusNotFound, "子站不存在")
+		return
+	}
+	items, total := s.svc.CommunityModerators(domain.CommunityModeratorFilter{CommunityID: comm.ID, Status: "1", Page: 1, PageSize: 50, ActorIsAdmin: true})
+	c.JSON(http.StatusOK, gin.H{"items": items, "total": total})
 }
 
 func (s *Server) listTopics(c *gin.Context) {
@@ -3481,6 +4645,178 @@ func contentTypeLabel(contentType string) string {
 	}
 }
 
+func (s *Server) visibleCommunityCategories(communityID int64) []domain.Category {
+	categories := s.svc.Categories(communityID)
+	out := make([]domain.Category, 0, len(categories))
+	for _, category := range categories {
+		if category.Status == 1 && category.Visible && category.NavVisible {
+			out = append(out, category)
+		}
+	}
+	return out
+}
+
+func filterTopicsByState(topics []domain.Topic, keep func(domain.Topic) bool) []domain.Topic {
+	out := make([]domain.Topic, 0, len(topics))
+	for _, topic := range topics {
+		if keep(topic) {
+			out = append(out, topic)
+		}
+	}
+	return out
+}
+
+func (s *Server) communityHotTags(communityID int64, slug string) []domain.TagStat {
+	topics, _ := s.svc.TopicsByFilter(communityID, 0, "", "hot", nil, "", 1, 200)
+	counts := map[string]int{}
+	for _, topic := range topics {
+		for _, tag := range topic.Tags {
+			tag = strings.TrimSpace(tag)
+			if tag != "" {
+				counts[tag]++
+			}
+		}
+	}
+	tags := make([]domain.TagStat, 0, len(counts))
+	for name, count := range counts {
+		tags = append(tags, domain.TagStat{Name: name, Count: count})
+	}
+	sort.Slice(tags, func(i, j int) bool {
+		if tags[i].Count == tags[j].Count {
+			return tags[i].Name < tags[j].Name
+		}
+		return tags[i].Count > tags[j].Count
+	})
+	if len(tags) > 20 {
+		tags = tags[:20]
+	}
+	if len(tags) == 0 {
+		tags = s.svc.TagStats(slug)
+	}
+	return tags
+}
+
+func communityStatsHTML(stats domain.CommunityStats) string {
+	items := []struct {
+		Label string
+		Value int
+	}{
+		{"主题", stats.TopicCount},
+		{"评论", stats.CommentCount},
+		{"问答", stats.QuestionCount},
+		{"未解决", stats.UnsolvedCount},
+		{"关注", stats.FollowerCount},
+		{"今日主题", stats.TodayTopicCount},
+		{"今日评论", stats.TodayCommentCount},
+	}
+	parts := make([]string, 0, len(items))
+	for _, item := range items {
+		parts = append(parts, fmt.Sprintf(`<span><strong>%d</strong>%s</span>`, item.Value, esc(item.Label)))
+	}
+	return strings.Join(parts, "")
+}
+
+func communityCategoryNavHTML(slug string, categories []domain.Category) string {
+	links := []string{fmt.Sprintf(`<a class="active" href="/c/%s/">全部</a>`, pathEsc(slug))}
+	for _, category := range categories {
+		label := category.Name
+		if label == "" {
+			label = contentTypeLabel(firstNonEmpty(category.ContentType, category.Type))
+		}
+		links = append(links, fmt.Sprintf(`<a href="/c/%s/?category_slug=%s&amp;content_type=%s">%s</a>`, pathEsc(slug), queryEsc(category.Slug), queryEsc(firstNonEmpty(category.ContentType, category.Type)), esc(label)))
+	}
+	return strings.Join(links, "")
+}
+
+func communityTopicSectionHTML(title string, topics []domain.Topic, slug, emptyText string) string {
+	var b strings.Builder
+	b.WriteString(`<section><div class="section-head"><h2>`)
+	b.WriteString(esc(title))
+	b.WriteString(`</h2><a href="/search/?scope=community&amp;community_slug=`)
+	b.WriteString(queryEsc(slug))
+	b.WriteString(`">查看全部</a></div>`)
+	if len(topics) == 0 {
+		b.WriteString(`<div class="empty-state">`)
+		b.WriteString(esc(emptyText))
+		b.WriteString(`</div></section>`)
+		return b.String()
+	}
+	b.WriteString(`<div class="post-list">`)
+	for _, topic := range topics {
+		b.WriteString(communityTopicCardHTML(topic, slug))
+	}
+	b.WriteString(`</div></section>`)
+	return b.String()
+}
+
+func communityTopicCardHTML(topic domain.Topic, slug string) string {
+	summary := firstNonEmpty(topic.Summary, firstRunes(topic.Content, 120))
+	pills := []string{`<span class="type-pill">` + esc(contentTypeLabel(topic.ContentType)) + `</span>`}
+	if topic.IsPinned {
+		pills = append(pills, `<span class="state-pill">置顶</span>`)
+	}
+	if topic.IsFeatured {
+		pills = append(pills, `<span class="state-pill">精华</span>`)
+	}
+	if topic.ContentType == "question" {
+		if topic.IsSolved {
+			pills = append(pills, `<span class="state-pill solved">已解决</span>`)
+		} else {
+			pills = append(pills, `<span class="state-pill unsolved">未解决</span>`)
+		}
+	}
+	tagLinks := make([]string, 0, len(topic.Tags))
+	for _, tag := range topic.Tags {
+		if strings.TrimSpace(tag) == "" {
+			continue
+		}
+		tagLinks = append(tagLinks, fmt.Sprintf(`<a href="/search/?scope=community&amp;community_slug=%s&amp;tag=%s">%s</a>`, queryEsc(slug), queryEsc(tag), esc(tag)))
+	}
+	return fmt.Sprintf(`<article class="post-card"><div class="post-card-top">%s<a class="site-pill" href="/c/%s/">%s</a></div><h2><a href="/topics/%d/">%s</a></h2><p>%s</p><div class="post-tags">%s</div><footer><span>%s 发布</span><span>%d 浏览</span><span>%d 评论</span><span>%d 赞</span></footer></article>`,
+		strings.Join(pills, ""), pathEsc(slug), esc(slug), topic.ID, esc(topic.Title), esc(summary), strings.Join(tagLinks, ""), esc(topic.CreatedAt), topic.ViewCount, topic.CommentCount, topic.LikeCount)
+}
+
+func communityAnnouncementHTML(comm domain.Community) string {
+	if strings.TrimSpace(comm.AnnouncementTitle) == "" && strings.TrimSpace(comm.AnnouncementContent) == "" {
+		return ""
+	}
+	link := ""
+	if strings.TrimSpace(comm.AnnouncementURL) != "" {
+		link = fmt.Sprintf(`<p><a href="%s">查看公告链接</a></p>`, esc(comm.AnnouncementURL))
+	}
+	return fmt.Sprintf(`<section class="community-rules"><h2>%s</h2><p>%s</p>%s</section>`, esc(firstNonEmpty(comm.AnnouncementTitle, "子站公告")), esc(comm.AnnouncementContent), link)
+}
+
+func communityTagsHTML(tags []domain.TagStat, slug string) string {
+	if len(tags) == 0 {
+		return `<span>暂无标签</span>`
+	}
+	links := make([]string, 0, len(tags))
+	for _, tag := range tags {
+		if strings.TrimSpace(tag.Name) == "" {
+			continue
+		}
+		links = append(links, fmt.Sprintf(`<a href="/search/?scope=community&amp;community_slug=%s&amp;tag=%s">%s<span>%d</span></a>`, queryEsc(slug), queryEsc(tag.Name), esc(tag.Name), tag.Count))
+	}
+	return strings.Join(links, "")
+}
+
+func communityModeratorsHTML(items []domain.CommunityModerator) string {
+	if len(items) == 0 {
+		return `<p>暂无公开版主。</p>`
+	}
+	parts := make([]string, 0, len(items))
+	for _, item := range items {
+		name := firstNonEmpty(item.UserNickname, item.UserName, fmt.Sprintf("UID %d", item.UserID))
+		role := "版主"
+		if item.Role == "owner" {
+			role = "站长"
+		}
+		parts = append(parts, fmt.Sprintf(`<p><strong>%s</strong><span> %s</span></p>`, esc(name), esc(role)))
+	}
+	return strings.Join(parts, "")
+}
+
 func esc(value string) string {
 	return html.EscapeString(value)
 }
@@ -3540,10 +4876,18 @@ func frontendStylesheetHref() string {
 func firstNonEmpty(values ...string) string {
 	for _, value := range values {
 		if strings.TrimSpace(value) != "" {
-			return value
+			return strings.TrimSpace(value)
 		}
 	}
 	return ""
+}
+
+func firstRunes(value string, n int) string {
+	runes := []rune(strings.TrimSpace(value))
+	if n <= 0 || len(runes) <= n {
+		return string(runes)
+	}
+	return string(runes[:n]) + "..."
 }
 
 func ternary(condition bool, yes, no string) string {

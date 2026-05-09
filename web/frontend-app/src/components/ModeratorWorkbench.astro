@@ -1,0 +1,307 @@
+---
+---
+<section class="moderator-shell" data-moderator-app>
+  <div class="moderator-toolbar">
+    <label>
+      子站
+      <select data-community-select>
+        <option value="">加载中</option>
+      </select>
+    </label>
+    <span data-moderator-message></span>
+  </div>
+
+  <div class="moderator-stats">
+    <div><strong data-stat-communities>0</strong><span>负责子站</span></div>
+    <div><strong data-stat-reports>0</strong><span>待处理举报</span></div>
+    <div><strong data-stat-topics>0</strong><span>内容</span></div>
+    <div><strong data-stat-comments>0</strong><span>评论</span></div>
+    <div><strong data-stat-actions>0</strong><span>今日动作</span></div>
+  </div>
+
+  <nav class="tabs-line moderator-tabs" aria-label="版主工作台导航">
+    <a href="/moderator/" data-tab="dashboard">概览</a>
+    <a href="/moderator/reports" data-tab="reports">举报</a>
+    <a href="/moderator/topics" data-tab="topics">内容</a>
+    <a href="/moderator/comments" data-tab="comments">评论</a>
+    <a href="/moderator/audit-logs" data-tab="audit-logs">审计</a>
+  </nav>
+
+  <section data-panel="dashboard">
+    <div class="section-head"><h2>最近举报</h2><span data-recent-report-count>0 条</span></div>
+    <div class="moderator-list" data-dashboard-reports><div class="empty-state">正在加载...</div></div>
+    <div class="section-head"><h2>最近审计</h2><span>只显示负责子站</span></div>
+    <div class="moderator-list" data-dashboard-audits><div class="empty-state">正在加载...</div></div>
+  </section>
+
+  <section data-panel="reports" hidden>
+    <div class="moderator-filters">
+      <select data-report-status>
+        <option value="pending">待处理</option>
+        <option value="accepted">已接受</option>
+        <option value="rejected">已驳回</option>
+        <option value="all">全部</option>
+      </select>
+      <button type="button" data-load-reports>刷新</button>
+    </div>
+    <div class="moderator-list" data-report-list><div class="empty-state">请选择子站。</div></div>
+  </section>
+
+  <section data-panel="topics" hidden>
+    <div class="moderator-filters">
+      <select data-topic-status>
+        <option value="all">全部状态</option>
+        <option value="publish">正常</option>
+        <option value="offline">隐藏</option>
+        <option value="featured">精华</option>
+        <option value="pinned">置顶</option>
+        <option value="locked">评论锁定</option>
+      </select>
+      <select data-topic-type>
+        <option value="all">全部类型</option>
+        <option value="article">文章</option>
+        <option value="question">问答</option>
+        <option value="project">项目</option>
+        <option value="ai_work">AI作品</option>
+        <option value="job">招聘</option>
+        <option value="wiki">Wiki</option>
+        <option value="doc">文档</option>
+      </select>
+      <input type="search" data-topic-keyword placeholder="搜索标题或正文" />
+      <button type="button" data-load-topics>刷新</button>
+    </div>
+    <div class="moderator-list" data-topic-list><div class="empty-state">请选择子站。</div></div>
+  </section>
+
+  <section data-panel="comments" hidden>
+    <div class="moderator-filters">
+      <select data-comment-status>
+        <option value="all">全部状态</option>
+        <option value="normal">正常</option>
+        <option value="hidden">隐藏</option>
+      </select>
+      <input type="search" data-comment-keyword placeholder="搜索评论或主题" />
+      <button type="button" data-load-comments>刷新</button>
+    </div>
+    <div class="moderator-list" data-comment-list><div class="empty-state">请选择子站。</div></div>
+  </section>
+
+  <section data-panel="audit-logs" hidden>
+    <div class="moderator-filters">
+      <input type="search" data-audit-action placeholder="动作关键词" />
+      <select data-audit-target-type>
+        <option value="">全部对象</option>
+        <option value="reports">举报</option>
+        <option value="topics">主题</option>
+        <option value="comments">评论</option>
+      </select>
+      <button type="button" data-load-audits>刷新</button>
+    </div>
+    <div class="moderator-list" data-audit-list><div class="empty-state">请选择子站。</div></div>
+  </section>
+</section>
+
+<script is:inline>
+  (() => {
+    const root = document.querySelector('[data-moderator-app]');
+    if (!root) return;
+    const accessKey = 'devhub_user_token';
+    const legacyAccessKey = 'devhub_access_token';
+    const token = () => localStorage.getItem(accessKey) || localStorage.getItem(legacyAccessKey) || '';
+    const communitySelect = root.querySelector('[data-community-select]');
+    const message = root.querySelector('[data-moderator-message]');
+    const activeTab = () => {
+      const path = location.pathname.replace(/\/$/, '');
+      if (path.endsWith('/reports')) return 'reports';
+      if (path.endsWith('/topics')) return 'topics';
+      if (path.endsWith('/comments')) return 'comments';
+      if (path.endsWith('/audit-logs')) return 'audit-logs';
+      return 'dashboard';
+    };
+    const escapeHTML = (value) => String(value ?? '').replace(/[&<>"']/g, (char) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[char]));
+    const setMessage = (text, danger = false) => {
+      if (!message) return;
+      message.textContent = text || '';
+      message.style.color = danger ? '#dc2626' : '';
+    };
+    const api = (path, options = {}) => {
+      const headers = { ...(options.headers || {}) };
+      if (token()) headers.Authorization = `Bearer ${token()}`;
+      if (options.body && !headers['Content-Type']) headers['Content-Type'] = 'application/json';
+      return fetch(`/api/v1/moderator${path}`, { ...options, headers })
+        .then(async (response) => {
+          const data = await response.json().catch(() => ({}));
+          if (!response.ok) throw new Error(data.error || '请求失败');
+          return data;
+        });
+    };
+    const selectedCommunityID = () => Number(communitySelect?.value || 0);
+    const withCommunity = (params = {}) => {
+      const search = new URLSearchParams(params);
+      const id = selectedCommunityID();
+      if (id) search.set('community_id', String(id));
+      search.set('page_size', '50');
+      return search.toString();
+    };
+    const statusText = (status) => ({ pending: '待处理', accepted: '已接受', rejected: '已驳回', publish: '正常', offline: '隐藏', normal: '正常', hidden: '隐藏' }[status] || status || '-');
+    const actionText = (action) => ({
+      handle_report: '处理举报',
+      feature_topic: '设为精华',
+      unfeature_topic: '取消精华',
+      pin_topic: '置顶',
+      unpin_topic: '取消置顶',
+      hide_topic: '隐藏主题',
+      restore_topic: '恢复主题',
+      lock_comments: '锁定评论',
+      unlock_comments: '解锁评论',
+      hide_comment: '隐藏评论',
+      restore_comment: '恢复评论',
+    }[action] || action || '-');
+    const renderEmpty = (text) => `<div class="empty-state">${escapeHTML(text)}</div>`;
+    function syncPanels() {
+      const tab = activeTab();
+      root.querySelectorAll('[data-tab]').forEach((item) => item.classList.toggle('active', item.dataset.tab === tab));
+      root.querySelectorAll('[data-panel]').forEach((panel) => { panel.hidden = panel.dataset.panel !== tab; });
+    }
+    function loadCommunities() {
+      if (!token()) {
+        setMessage('请先以前台用户登录。', true);
+        communitySelect.innerHTML = '<option value="">未登录</option>';
+        return Promise.resolve(null);
+      }
+      return api('/communities').then((data) => {
+        const items = data.items || [];
+        root.querySelector('[data-stat-communities]').textContent = String(items.length);
+        communitySelect.innerHTML = items.length
+          ? items.map((item) => `<option value="${Number(item.id)}">${escapeHTML(item.name || item.slug)}</option>`).join('')
+          : '<option value="">无版主权限</option>';
+        if (!items.length) setMessage('当前用户不是启用状态子站版主。', true);
+        return items;
+      }).catch((err) => {
+        setMessage(err.message || '无法加载版主子站', true);
+        communitySelect.innerHTML = '<option value="">无权限</option>';
+        return [];
+      });
+    }
+    function loadDashboard() {
+      return api('/dashboard').then((data) => {
+        root.querySelector('[data-stat-reports]').textContent = String(data.pending_report_count || 0);
+        root.querySelector('[data-stat-topics]').textContent = String(data.topic_count || 0);
+        root.querySelector('[data-stat-comments]').textContent = String(data.comment_count || 0);
+        root.querySelector('[data-stat-actions]').textContent = String(data.today_action_count || 0);
+        const reports = data.recent_reports || [];
+        const audits = data.recent_audit_logs || [];
+        root.querySelector('[data-recent-report-count]').textContent = `${reports.length} 条`;
+        root.querySelector('[data-dashboard-reports]').innerHTML = reports.length ? reports.map(renderReport).join('') : renderEmpty('暂无待处理举报。');
+        root.querySelector('[data-dashboard-audits]').innerHTML = audits.length ? audits.map(renderAudit).join('') : renderEmpty('暂无审计记录。');
+      }).catch((err) => setMessage(err.message || '概览加载失败', true));
+    }
+    function renderReport(item) {
+      return `<article class="moderator-item">
+        <header><strong>${escapeHTML(item.target_title || `${item.target_type}#${item.target_id}`)}</strong><span>${statusText(item.status)}</span></header>
+        <p>${escapeHTML(item.reason_type || '')} ${escapeHTML(item.reason_text || '')}</p>
+        <footer><a href="${escapeHTML(item.target_url || '#')}">查看目标</a><button data-handle-report="${Number(item.id)}" data-status="accepted">接受</button><button data-handle-report="${Number(item.id)}" data-status="rejected">驳回</button></footer>
+      </article>`;
+    }
+    function loadReports() {
+      const status = root.querySelector('[data-report-status]').value;
+      return api(`/reports?${withCommunity({ status })}`).then((data) => {
+        const items = data.items || [];
+        root.querySelector('[data-report-list]').innerHTML = items.length ? items.map(renderReport).join('') : renderEmpty('暂无举报。');
+      }).catch((err) => setMessage(err.message || '举报加载失败', true));
+    }
+    function renderTopic(item) {
+      const status = item.status || 'publish';
+      return `<article class="moderator-item">
+        <header><strong><a href="/topics/${Number(item.id)}/">${escapeHTML(item.title)}</a></strong><span>${statusText(status)}</span></header>
+        <p>${escapeHTML(item.summary || String(item.content || '').slice(0, 120))}</p>
+        <footer>
+          <button data-topic-action="${item.recommended ? 'unfeature' : 'feature'}" data-topic-id="${Number(item.id)}">${item.recommended ? '取消精华' : '精华'}</button>
+          <button data-topic-action="${item.pinned ? 'unpin' : 'pin'}" data-topic-id="${Number(item.id)}">${item.pinned ? '取消置顶' : '置顶'}</button>
+          <button data-topic-action="${status === 'offline' ? 'restore' : 'hide'}" data-topic-id="${Number(item.id)}">${status === 'offline' ? '恢复' : '隐藏'}</button>
+          <button data-topic-action="${item.comment_locked ? 'unlock-comments' : 'lock-comments'}" data-topic-id="${Number(item.id)}">${item.comment_locked ? '解锁评论' : '锁定评论'}</button>
+        </footer>
+      </article>`;
+    }
+    function loadTopics() {
+      const status = root.querySelector('[data-topic-status]').value;
+      const content_type = root.querySelector('[data-topic-type]').value;
+      const keyword = root.querySelector('[data-topic-keyword]').value.trim();
+      return api(`/topics?${withCommunity({ status, content_type, keyword })}`).then((data) => {
+        const items = data.items || [];
+        root.querySelector('[data-topic-list]').innerHTML = items.length ? items.map(renderTopic).join('') : renderEmpty('暂无内容。');
+      }).catch((err) => setMessage(err.message || '内容加载失败', true));
+    }
+    function renderComment(item) {
+      return `<article class="moderator-item">
+        <header><strong>${escapeHTML(item.author || '用户')}</strong><span>${statusText(item.status)}</span></header>
+        <p>${escapeHTML(item.text || '')}</p>
+        <footer><a href="/topics/${Number(item.post_id)}/">${escapeHTML(item.post_title || '查看主题')}</a><button data-comment-action="${item.status === 'hidden' ? 'restore' : 'hide'}" data-comment-id="${Number(item.id)}">${item.status === 'hidden' ? '恢复' : '隐藏'}</button></footer>
+      </article>`;
+    }
+    function loadComments() {
+      const status = root.querySelector('[data-comment-status]').value;
+      const keyword = root.querySelector('[data-comment-keyword]').value.trim();
+      return api(`/comments?${withCommunity({ status, keyword })}`).then((data) => {
+        const items = data.items || [];
+        root.querySelector('[data-comment-list]').innerHTML = items.length ? items.map(renderComment).join('') : renderEmpty('暂无评论。');
+      }).catch((err) => setMessage(err.message || '评论加载失败', true));
+    }
+    function renderAudit(item) {
+      return `<article class="moderator-item">
+        <header><strong>${escapeHTML(actionText(item.action))}</strong><span>${escapeHTML(item.created_at || '')}</span></header>
+        <p>${escapeHTML(item.actor_type || '')} / ${escapeHTML(item.actor || '')} / ${escapeHTML(item.target || '')}</p>
+      </article>`;
+    }
+    function loadAudits() {
+      const action = root.querySelector('[data-audit-action]').value.trim();
+      const target_type = root.querySelector('[data-audit-target-type]').value;
+      return api(`/audit-logs?${withCommunity({ action, target_type })}`).then((data) => {
+        const items = data.items || [];
+        root.querySelector('[data-audit-list]').innerHTML = items.length ? items.map(renderAudit).join('') : renderEmpty('暂无审计记录。');
+      }).catch((err) => setMessage(err.message || '审计加载失败', true));
+    }
+    function refreshCurrent() {
+      setMessage('');
+      const tab = activeTab();
+      if (tab === 'dashboard') return loadDashboard();
+      if (tab === 'reports') return loadReports();
+      if (tab === 'topics') return loadTopics();
+      if (tab === 'comments') return loadComments();
+      return loadAudits();
+    }
+    root.addEventListener('click', (event) => {
+      const reportButton = event.target.closest('[data-handle-report]');
+      if (reportButton) {
+        reportButton.disabled = true;
+        api(`/reports/${Number(reportButton.dataset.handleReport)}/handle`, {
+          method: 'POST',
+          body: JSON.stringify({ status: reportButton.dataset.status, handle_note: '版主工作台处理' }),
+        }).then(() => { setMessage('举报已处理'); return Promise.all([loadReports(), loadDashboard()]); }).catch((err) => setMessage(err.message, true)).finally(() => { reportButton.disabled = false; });
+        return;
+      }
+      const topicButton = event.target.closest('[data-topic-action]');
+      if (topicButton) {
+        topicButton.disabled = true;
+        api(`/topics/${Number(topicButton.dataset.topicId)}/${topicButton.dataset.topicAction}`, { method: 'POST' })
+          .then(() => { setMessage('内容状态已更新'); return Promise.all([loadTopics(), loadDashboard()]); }).catch((err) => setMessage(err.message, true)).finally(() => { topicButton.disabled = false; });
+        return;
+      }
+      const commentButton = event.target.closest('[data-comment-action]');
+      if (commentButton) {
+        commentButton.disabled = true;
+        api(`/comments/${Number(commentButton.dataset.commentId)}/${commentButton.dataset.commentAction}`, { method: 'POST' })
+          .then(() => { setMessage('评论状态已更新'); return Promise.all([loadComments(), loadDashboard()]); }).catch((err) => setMessage(err.message, true)).finally(() => { commentButton.disabled = false; });
+      }
+    });
+    root.querySelector('[data-load-reports]')?.addEventListener('click', loadReports);
+    root.querySelector('[data-load-topics]')?.addEventListener('click', loadTopics);
+    root.querySelector('[data-load-comments]')?.addEventListener('click', loadComments);
+    root.querySelector('[data-load-audits]')?.addEventListener('click', loadAudits);
+    communitySelect?.addEventListener('change', refreshCurrent);
+    syncPanels();
+    loadCommunities().then((items) => {
+      if (items?.length) refreshCurrent();
+    });
+  })();
+</script>

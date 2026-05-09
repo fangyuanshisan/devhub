@@ -197,13 +197,14 @@ CREATE TABLE IF NOT EXISTS refresh_tokens (
   id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
   user_id BIGINT UNSIGNED NOT NULL,
   token_hash CHAR(64) NOT NULL,
+  token_type VARCHAR(32) NOT NULL DEFAULT 'user',
   expires_at DATETIME NOT NULL,
   revoked_at DATETIME NULL,
   created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
   PRIMARY KEY (id),
   UNIQUE KEY uk_refresh_tokens_hash (token_hash),
   KEY idx_refresh_tokens_user (user_id, revoked_at),
-  CONSTRAINT fk_refresh_tokens_user FOREIGN KEY (user_id) REFERENCES users (id) ON DELETE CASCADE
+  KEY idx_refresh_tokens_type_user (token_type, user_id, revoked_at)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 CREATE TABLE IF NOT EXISTS admin_roles (
@@ -261,6 +262,8 @@ CREATE TABLE IF NOT EXISTS admin_logs (
   site_key VARCHAR(64) NOT NULL DEFAULT 'portal',
   log_type VARCHAR(64) NOT NULL,
   actor VARCHAR(128) NOT NULL,
+  actor_type VARCHAR(32) NOT NULL DEFAULT 'admin_user',
+  actor_id BIGINT UNSIGNED NOT NULL DEFAULT 0,
   role_code VARCHAR(64) NOT NULL DEFAULT '',
   action VARCHAR(255) NOT NULL,
   target VARCHAR(255) NOT NULL,
@@ -270,6 +273,7 @@ CREATE TABLE IF NOT EXISTS admin_logs (
   KEY idx_admin_logs_site_created (site_key, created_at),
   KEY idx_admin_logs_type_created (log_type, created_at),
   KEY idx_admin_logs_actor_created (actor, created_at),
+  KEY idx_admin_logs_actor_type_created (actor_type, created_at),
   KEY idx_admin_logs_target (target)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
@@ -279,9 +283,22 @@ CREATE TABLE IF NOT EXISTS communities (
   name VARCHAR(64) NOT NULL COMMENT '子站名称，如 PHP、Go、Java',
   slug VARCHAR(64) NOT NULL COMMENT '子站标识，如 php、go、java',
   logo VARCHAR(255) NOT NULL DEFAULT '',
+  cover_image VARCHAR(500) NOT NULL DEFAULT '',
+  slogan VARCHAR(255) NOT NULL DEFAULT '',
   description TEXT NULL,
+  theme_color VARCHAR(32) NOT NULL DEFAULT '',
+  seo_title VARCHAR(255) NOT NULL DEFAULT '',
+  seo_description VARCHAR(500) NOT NULL DEFAULT '',
+  seo_keywords VARCHAR(500) NOT NULL DEFAULT '',
   sort_order INT NOT NULL DEFAULT 0,
-  status TINYINT NOT NULL DEFAULT 1 COMMENT '1启用 0禁用',
+  status TINYINT NOT NULL DEFAULT 1 COMMENT '1启用 0禁用 2归档',
+  follower_count INT UNSIGNED NOT NULL DEFAULT 0,
+  topic_count INT UNSIGNED NOT NULL DEFAULT 0,
+  comment_count INT UNSIGNED NOT NULL DEFAULT 0,
+  hot_score INT UNSIGNED NOT NULL DEFAULT 0,
+  announcement_title VARCHAR(255) NOT NULL DEFAULT '',
+  announcement_content TEXT NULL,
+  announcement_url VARCHAR(500) NOT NULL DEFAULT '',
   created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
   updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
   deleted_at DATETIME NULL,
@@ -300,6 +317,10 @@ CREATE TABLE IF NOT EXISTS categories (
   icon VARCHAR(100) NOT NULL DEFAULT '',
   sort_order INT NOT NULL DEFAULT 0,
   visible TINYINT NOT NULL DEFAULT 1,
+  nav_visible TINYINT NOT NULL DEFAULT 1,
+  postable TINYINT NOT NULL DEFAULT 1,
+  seo_title VARCHAR(255) NOT NULL DEFAULT '',
+  seo_description VARCHAR(500) NOT NULL DEFAULT '',
   status TINYINT NOT NULL DEFAULT 1,
   created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
   updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,

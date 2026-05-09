@@ -1,0 +1,17 @@
+---
+import SiteHeader from '../../components/SiteHeader.astro';
+import ModeratorWorkbench from '../../components/ModeratorWorkbench.astro';
+import SeoLayout from '../../layouts/SeoLayout.astro';
+import { devhubSites as sites } from '../../lib/sites';
+---
+<SeoLayout title="内容治理 - 版主工作台 - DevHub" description="DevHub 子站版主治理自己负责子站的主题内容。" canonical="/moderator/topics/">
+  <SiteHeader sites={sites} activeSite="portal" />
+  <main>
+    <section class="page-title">
+      <span>Moderator Workspace</span>
+      <h1>内容治理</h1>
+      <p>精华、置顶、隐藏、恢复和评论锁定只作用于负责子站。</p>
+    </section>
+    <ModeratorWorkbench />
+  </main>
+</SeoLayout>

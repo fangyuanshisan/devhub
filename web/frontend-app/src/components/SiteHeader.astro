@@ -80,10 +80,9 @@ const boardHref = (board: keyof typeof boardTypes) => `/search/?${searchScope}&c
           <a href="/me/favorites">我的收藏</a>
           <a href="/me/follows">我的关注</a>
           <a href="/notifications">通知中心</a>
-          <a href="/admin-next/content">内容管理</a>
-          <a href="/admin-next/comments">评论管理</a>
-          <a href="/search/?sort=featured">精华内容</a>
+          <a href="/moderator">版主工作台</a>
           <a href="/admin-next">管理后台</a>
+          <a href="/search/?sort=featured">精华内容</a>
           <button type="button" data-logout>退出登录</button>
         </div>
       </div>
@@ -133,11 +132,18 @@ const boardHref = (board: keyof typeof boardTypes) => `/search/?${searchScope}&c
     })();
 
     (() => {
-      const accessKey = 'devhub_access_token';
-      const refreshKey = 'devhub_refresh_token';
+      const accessKey = 'devhub_user_token';
+      const refreshKey = 'devhub_user_refresh_token';
+      const legacyAccessKey = 'devhub_access_token';
+      const legacyRefreshKey = 'devhub_refresh_token';
       const userKey = 'devhub_user';
-      const token = () => localStorage.getItem(accessKey) || '';
-      const refreshToken = () => localStorage.getItem(refreshKey) || '';
+      const readToken = (key, legacyKey) => {
+        const value = localStorage.getItem(key) || localStorage.getItem(legacyKey) || '';
+        if (value && !localStorage.getItem(key)) localStorage.setItem(key, value);
+        return value;
+      };
+      const token = () => readToken(accessKey, legacyAccessKey);
+      const refreshToken = () => readToken(refreshKey, legacyRefreshKey);
       const authOnly = document.querySelectorAll('[data-auth-only]');
       const guestOnly = document.querySelectorAll('[data-guest-only]');
       const userName = document.querySelector('[data-user-name]');
@@ -155,12 +161,16 @@ const boardHref = (board: keyof typeof boardTypes) => `/search/?${searchScope}&c
         const access = session?.access_token || session?.token || '';
         if (access) localStorage.setItem(accessKey, access);
         if (session?.refresh_token) localStorage.setItem(refreshKey, session.refresh_token);
+        localStorage.removeItem(legacyAccessKey);
+        localStorage.removeItem(legacyRefreshKey);
         if (session?.user) localStorage.setItem(userKey, JSON.stringify(session.user));
         return session?.user || getStoredUser();
       };
       const clearSession = () => {
         localStorage.removeItem(accessKey);
         localStorage.removeItem(refreshKey);
+        localStorage.removeItem(legacyAccessKey);
+        localStorage.removeItem(legacyRefreshKey);
         localStorage.removeItem(userKey);
         setGuest();
         window.dispatchEvent(new CustomEvent('devhub:session-change', { detail: { user: null, token: '' } }));

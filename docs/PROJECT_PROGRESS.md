@@ -6,6 +6,8 @@
 
 本文档记录当前仓库的真实实现状态。需求来源以根目录 `更新.md` 为准；旧规划文档仅作背景参考。
 
+后续 Codex / AI Agent 任务应先阅读 `docs/AGENT_RULES.md`，再以本文档判断当前进度和版本边界。本文档只记录真实状态；未来规划不得写成已完成能力。
+
 ## 当前结论
 
 DevHub 当前是 “Go API + Astro 前台 + Vue 后台” 的多子站社区 CMS。默认入口和端口保持不变：
@@ -17,7 +19,7 @@ DevHub 当前是 “Go API + Astro 前台 + Vue 后台” 的多子站社区 CMS
 
 首页、子站页、搜索页和用户中心使用 Astro 静态壳 + 运行时 API；Topic 详情页 `/topics/:id` 仍由 Go 动态输出 SEO HTML。第五轮互动闭环已完成基础实现：点赞、收藏、关注、我的收藏、我的关注、我的动态、通知列表和已读逻辑在 MemoryStore 与 MySQLStore 中均可用。第六轮已完成评论列表、发表评论、回复评论、问答采纳、未解决筛选、评论动态和评论通知的基础闭环。第七轮已完成举报、版主范围治理、精华、置顶、隐藏、评论锁定和后台最小治理入口。第八轮补丁后，admin-next 后台内容 CRUD、版主管理 CRUD、批量治理、批量举报处理和治理审计日志均有真实页面入口和 API 封装。
 
-当前归档版本为 `v1.0.0`。第九轮不扩展大型业务功能，目标是把第八轮补丁后的代码、CI、测试矩阵、部署、备份、回滚、SEO 和版本说明整理为第一个可运行大版本。
+当前版本为 `v1.1.3`，版本主题是“独立版主工作台 MVP”。本轮在 v1.1.1 身份边界基础上，新增 `/moderator` 前台版主工作台和 `/api/v1/moderator/*` 专用 API，让子站版主使用前台 `users` 登录态治理自己负责的子站。
 
 ## 近期迭代摘要
 
@@ -32,6 +34,73 @@ DevHub 当前是 “Go API + Astro 前台 + Vue 后台” 的多子站社区 CMS
 - 第七轮社区治理：补齐 topic/comment 举报、举报后台处理、版主子站权限、精华、置顶、隐藏、恢复、评论锁定、评论隐藏和 sitemap 隐藏过滤。
 - 第八轮后台治理：补齐 admin-next 内容 CRUD 写入 `topics`、版主管理 CRUD、topic/comment/report 批量治理、举报重复 pending 限制、`/admin-next/moderators` 和 `/admin-next/audit-logs`。
 - 第九轮 v1.0.0 归档：补齐 `VERSION`、`CHANGELOG.md`、`docs/releases/v1.0.0.md`、`docs/BACKUP_AND_ROLLBACK.md`、GitHub Actions CI、测试矩阵、部署归档和文档对账。
+- v1.1.0 子站模块增强：增强 `communities/categories` 模型，新增 `/c/:slug` Go 动态 SEO 子站页、子站统计、公开版主、子站后台配置、子站板块管理、子站公告、子站关注计数和 sitemap 子站收录。
+- v1.1.1 身份边界整理：前台登录发放 `token_type=user`，后台登录发放 `token_type=admin`；前台推荐 localStorage key 为 `devhub_user_token` / `devhub_user_refresh_token`，后台继续使用 sessionStorage `devhub_admin_token` / `devhub_admin_refresh_token`；`/api/v1/admin/*` 默认校验后台身份，子站版主 user token 只获得自己子站的治理类权限；`admin_logs` 增加并读写 `actor_type` / `actor_id`。
+- v1.1.3 独立版主工作台 MVP：新增 `/moderator`、`/moderator/reports`、`/moderator/topics`、`/moderator/comments`、`/moderator/audit-logs`；新增 `/api/v1/moderator/*` 专用 API，复用现有 reports/topics/comments 治理能力和 `admin_logs`，但强制使用前台 user token 与 `community_moderators` 子站 scope。
+
+## v1.1.3 独立版主工作台 MVP 范围
+
+已完成能力：
+
+- 前台页面：`/moderator` 工作台首页、举报处理、内容治理、评论治理和审计日志页面已生成静态壳，运行时调用 `/api/v1/moderator/*`。
+- 专用 API：`GET /api/v1/moderator/communities`、`GET /api/v1/moderator/dashboard`、`GET/POST reports`、`GET/POST topics`、`GET/POST comments`、`GET audit-logs` 已落地。
+- 权限边界：版主 API 只接受前台 `users` token；普通用户返回 403；后台 admin token 不作为版主工作台身份。
+- 子站 scope：所有列表和单项治理都会按 `community_moderators.user_id + community_id + status=1` 校验，跨子站访问返回 403。
+- 举报治理：版主可查看和处理自己子站举报，处理后沿用现有隐藏 topic/comment 联动规则。
+- Topic 治理：版主可对自己子站 topic 执行精华 / 取消精华、置顶 / 取消置顶、隐藏 / 恢复、锁定 / 解锁评论。
+- Comment 治理：版主可隐藏 / 恢复自己子站评论；最佳答案不能隐藏的既有保护仍保留。
+- 审计：版主工作台治理操作写入 `admin_logs`，`actor_type=moderator`、`actor_id=users.id`，并带子站 scope；版主审计页只读取负责子站日志。
+- 前端入口：前台用户菜单新增“版主工作台”入口；完整后台 `/admin-next` 仍保留给后台人员。
+
+已知限制：
+
+- v1.1.3 不做复杂 RBAC、权限点矩阵、版主任期、绩效统计或独立版主登录体系。
+- 版主工作台是轻量运行时页面，不替代 admin-next 的完整后台能力。
+- super_admin 仍建议使用 admin-next 和 admin API 进行全站治理。
+- 完整 Playwright 浏览器 Console 验收留到后续专门验收任务。
+
+## v1.1.1 前后台身份边界整理范围
+
+已完成能力：
+
+- 身份模型：`users` 负责社区行为，`admin_users` 负责后台管理，`community_moderators` 把部分 `users` 授权为指定子站版主。
+- Token 边界：JWT 增加 `token_type` 和 `aud`；前台 user token 使用 `token_type=user,aud=devhub_frontend`，后台 admin token 使用 `token_type=admin,aud=devhub_admin`。
+- 登录入口：`POST /api/v1/auth/login` 调用前台 `users` 登录；`POST /api/v1/admin/login` 调用后台 `admin_users` 登录。
+- Middleware：前台写操作使用 user auth；后台接口使用 admin auth，并允许已启用的子站版主 user token 进入有限治理接口。
+- 版主 scope：版主只能按 `community_moderators.user_id + community_id + status=1` 管理自己负责子站；不能管理后台人员、全局配置、版主分配或其他子站。
+- 审计 actor：`admin_logs` 记录并返回 `actor_type` / `actor_id`，用于区分后台人员、子站版主和系统操作。
+- 前端存储：前台推荐 `devhub_user_token` / `devhub_user_refresh_token`，兼容读取旧 `devhub_access_token` / `devhub_refresh_token`；后台继续独立使用 `devhub_admin_token` / `devhub_admin_refresh_token`。
+
+已知限制：
+
+- MemoryStore 的 demo 用户数据仍复用轻量内存结构，文档中按开发兜底处理，不作为生产身份规则。
+- MySQL 现有 `refresh_tokens.user_id` 仍复用于 user/admin refresh token，依靠 `token_type` 区分，v1.1.1 已移除单一 `users` 外键；后续生产化 migration 可进一步拆分字段名。
+- 后台人员如果需要参与前台社区互动，仍应拥有独立 `users` 身份；本轮未做 admin-user 绑定关系。
+- 子站版主仍可被管理员纳入 `/api/v1/admin/*` 的受限治理 scope；v1.1.3 已新增独立 `/moderator` 工作台作为版主优先入口。
+
+## v1.1.0 子站模块增强范围
+
+已完成能力：
+
+- 子站增强字段：logo、cover image、slogan、theme color、SEO 字段、sort_order、status、follower_count、topic_count、comment_count、hot_score 和公告字段。
+- 子站首页：`/c/:slug/` 展示子站名称、slogan、简介、统计、关注按钮、发帖入口、板块导航、置顶、精华、最新、热门、未解决问答、热门标签、版主和公告。
+- 兼容入口：`/site/:slug` 301 跳转到 `/c/:slug/`。
+- 子站 SEO：`/c/:slug/` 由 Go 动态输出 title、description、canonical、h1、内容链接、标签链接和板块链接。
+- 子站 API：`GET /api/v1/communities/:slug/stats`、`GET /api/v1/communities/:slug/moderators` 已可用。
+- 子站后台：`/admin-next/communities` 提供子站新增、编辑、启用 / 禁用、排序、SEO、公告、前台跳转和版主跳转。
+- 子站板块管理：后台抽屉支持子站板块查看、新增、编辑、启用 / 禁用、排序、导航展示、发帖开关和 SEO 字段。
+- 子站关注：复用 `POST /api/v1/follows/toggle`，`target_type=community` 更新 follower_count，写入 `activities.action=followed`，并在我的关注中展示。
+- sitemap：包含启用子站 `/c/php/`、`/c/go/`、`/c/java/`、`/c/ai/`、`/c/frontend/`，不包含禁用或归档子站。
+- MemoryStore / MySQLStore：均支持子站增强字段、统计、公开版主、后台子站 CRUD、后台板块 CRUD、子站关注计数和 sitemap 过滤。
+- 审计：新增 / 编辑 / 启用 / 禁用 / 排序子站，以及新增 / 编辑 / 启用 / 禁用 / 排序子站板块，均写入 `admin_logs`。
+
+已知限制：
+
+- v1.1.0 使用启用板块生成默认子站导航，深度自定义导航配置留到后续版本。
+- 标签合并、标签别名、标签趋势统计和标签后台管理留到 v1.2.0。
+- 完整关注流留到 v1.3.0；本版本完成关注状态、follower_count、动态和我的关注展示。
+- 评论点赞、取消已解决状态、推荐算法、声望积分和复杂运营分析不属于本版本。
+- sitemap 仍是单文件动态输出，内容规模扩大后需要分片。
 
 ## v1.0.0 归档范围
 
@@ -49,7 +118,7 @@ DevHub 当前是 “Go API + Astro 前台 + Vue 后台” 的多子站社区 CMS
 
 已知限制：
 
-- 标签系统仍是基础能力，标签详情页、标签 SEO 聚合页、标签后台管理、标签合并 / 别名和趋势统计待 v1.1.0。
+- 标签系统仍是基础能力，标签详情页、标签 SEO 聚合页、标签后台管理、标签合并 / 别名和趋势统计待 v1.2.0。
 - 评论点赞未实现到运行时评论区。
 - 问答支持采纳和更换最佳答案，暂不支持取消已解决状态。
 - 标签关注和用户关注后端已支持，前台入口仍可继续增强。
@@ -57,13 +126,13 @@ DevHub 当前是 “Go API + Astro 前台 + Vue 后台” 的多子站社区 CMS
 - migration 仍以基础 SQL 和少量迁移脚本为主，生产升级需要预发演练。
 - 生产部署仍需根据真实环境配置守护进程、反向代理、HTTPS、日志和定时备份。
 
-v1.1.0 建议规划：
+后续建议规划：
 
-- 标签专项增强、标签 SEO 聚合页、标签后台管理、标签合并 / 别名。
-- 推荐和相关内容。
-- sitemap 分片。
-- 运营分析和治理统计看板。
-- 评论点赞和问答取消已解决状态。
+- v1.2.0：标签专项增强、标签 SEO 聚合页、标签后台管理、标签合并 / 别名。
+- v1.3.0：推荐、关注流和内容发现。
+- v1.4.0：用户成长、声望和个人主页。
+- v1.5.0：后台运营、治理和数据统计增强。
+- v1.6.0：生产化、migration、性能和 CI/CD。
 
 ## 第五轮互动联动状态
 
@@ -179,6 +248,19 @@ v1.1.0 建议规划：
 - 批量治理验收：Topic 批量 `feature/unfeature`、Comment 批量 `hide/restore`、Report 批量 `rejected` 均返回 `updated=1, failed=0`。
 - SEO 回归：`/topics/1` 源码保留 `<title>`、`meta description`、`<h1>`、`<article>`、正文、标签链接、发布时间和 Article JSON-LD；隐藏 Topic 不进入 sitemap，恢复后重新进入。
 
+## v1.1.0 子站增强验收记录
+
+2026-05-09 已完成 v1.1.0 子站增强实现：
+
+- 版本文件：`VERSION` 更新为 `v1.1.0`，`CHANGELOG.md` 新增 v1.1.0，新增 `docs/releases/v1.1.0.md`。
+- 数据模型：`communities` 增强 logo、cover、slogan、theme、SEO、统计和公告字段；`categories` 增强导航展示、发帖开关、SEO 和状态字段。
+- 前台：`/c/:slug/` 由 Go 动态输出子站首页和 SEO HTML；`/site/:slug` 301 到 `/c/:slug/`。
+- API：新增 `GET /api/v1/communities/:slug/stats`、`GET /api/v1/communities/:slug/moderators` 和后台 communities/categories CRUD。
+- 后台：新增 `/admin-next/communities`，`/admin-next/sites` 保持兼容并指向同一页面；页面支持子站配置和板块管理。
+- sitemap：启用子站进入 `/sitemap.xml`；禁用 / 归档子站不进入 sitemap。
+- SEO 保护：`/topics/:id` Go 动态 SEO HTML 未重构，继续保留 title、description、h1、正文和标签链接。
+- 测试状态：`bash -n dev.sh`、`go test ./...`、`go build -o .devhub/devhub .`、前台 Docker Node 构建、后台 Docker Node 构建、`./dev.sh --restart`、二进制后台常驻启动和关键 URL / SEO / sitemap / 后台入口回归均已完成；实测结果记录在 `docs/TESTING.md`。
+
 ## 已完成
 
 ### 项目结构
@@ -285,9 +367,9 @@ v1.1.0 建议规划：
 
 ## 下一步
 
-1. 完成 v1.0.0 归档测试后，建议先打 `v1.0.0` tag。
-2. v1.1.0：标签专项增强、标签 SEO 聚合页、标签后台管理、标签合并 / 别名。
-3. 后续优化：评论点赞、取消已解决状态、通知跳转 comment anchor、推荐和运营分析。
+1. 完成 v1.1.3 版主工作台验收后，建议先检查 `git diff`，再按 release notes 归档。
+2. v1.2.0：标签专项增强、标签 SEO 聚合页、标签后台管理、标签合并 / 别名。
+3. 后续优化：评论点赞、取消已解决状态、通知跳转 comment anchor、推荐、关注流、admin-user 与 frontend-user 绑定关系和生产化 migration。
 
 ## 验收清单
 
@@ -330,8 +412,12 @@ v1.1.0 建议规划：
 - [x] Comment 隐藏、恢复可用，隐藏最佳答案会被拒绝。
 - [x] 隐藏 Topic 不进入普通列表、搜索和 sitemap。
 - [x] 隐藏 Topic 详情页返回 noindex 的“内容已隐藏”动态 HTML。
-- [x] `VERSION` 已记录 `v1.0.0`。
-- [x] `CHANGELOG.md` 已记录 v1.0.0 主要变化和限制。
-- [x] `docs/releases/v1.0.0.md` 已记录版本定位、启动、部署、测试、限制和 tag 建议。
+- [x] `VERSION` 已记录 `v1.1.3`。
+- [x] `CHANGELOG.md` 已记录 v1.1.0 主要变化和限制。
+- [x] `CHANGELOG.md` 已记录 v1.1.1 身份边界整理。
+- [x] `CHANGELOG.md` 已记录 v1.1.3 独立版主工作台 MVP。
+- [x] `docs/releases/v1.1.0.md` 已记录版本定位、数据结构、API、SEO、后台、测试、限制和 tag 建议。
+- [x] `docs/releases/v1.1.1.md` 已记录前后台身份边界整理。
+- [x] `docs/releases/v1.1.3.md` 已记录独立版主工作台 MVP。
 - [x] `docs/BACKUP_AND_ROLLBACK.md` 已记录备份、恢复和紧急回滚流程。
 - [x] `.github/workflows/ci.yml` 已补充 Go / 前台 / 后台基础 CI。
