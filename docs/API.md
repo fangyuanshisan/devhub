@@ -6,6 +6,10 @@
 
 本文档记录当前仓库真实实现。若需求描述与代码不一致，以本文档中的实际路径、字段和完成度为准。
 
+## v1.0.0 API 范围
+
+v1.0.0 API 按以下模块归档：Auth、Communities、Categories、Topics、Comments、Search、Tags 基础能力、Reactions、Favorites、Follows、Activities、Notifications、Reports、Governance、Moderators、Admin、Audit logs、SEO endpoints 和 Compatibility APIs。
+
 ## 通用规则
 
 - API 前缀：`/api/v1`。
@@ -13,6 +17,43 @@
 - 错误响应：`{"error":"错误信息"}`。
 - 分页参数：`page`、`page_size`，`page_size` 最大为 `50`。
 - `sites/posts` 兼容 API 继续保留，不作为本轮互动和评论闭环的主接口。
+- 后台接口需要后台登录 token，并按 `super_admin` 或站点范围版主权限校验；开发模式中的 demo user 兜底只用于前台互动演示，不应作为生产权限规则。
+
+## Communities / Categories / Tags / Topics
+
+社区与板块：
+
+```http
+GET /api/v1/communities
+GET /api/v1/communities/:slug
+GET /api/v1/communities/:slug/home
+GET /api/v1/communities/:slug/categories
+GET /api/v1/communities/:slug/tags
+```
+
+Topic：
+
+```http
+GET    /api/v1/topics
+GET    /api/v1/topics/:id
+POST   /api/v1/topics
+PUT    /api/v1/topics/:id
+DELETE /api/v1/topics/:id
+```
+
+基础标签能力：
+
+```http
+GET /api/v1/tags
+GET /api/v1/tags/hot
+GET /api/v1/communities/:slug/tags
+```
+
+说明：
+
+- 普通 Topic 列表和搜索默认过滤隐藏 / 删除内容。
+- `POST /api/v1/topics` 发布后，`/topics/:id` 可立即由 Go 动态 SEO 页面访问，不需要重新前端构建。
+- 标签详情 SEO 页、标签后台管理、标签合并和别名是 v1.1.0 规划，不写作 v1.0.0 已完成能力。
 
 ## 认证
 
@@ -25,6 +66,32 @@ GET  /api/v1/auth/me
 ```
 
 登录成功返回 `access_token`、`refresh_token` 和 `user`。MemoryStore 注册当前返回演示会话；MySQLStore 会创建普通用户。
+
+## Admin 基础接口
+
+```http
+POST /api/v1/admin/login
+POST /api/v1/admin/refresh
+POST /api/v1/admin/logout
+GET  /api/v1/admin/me
+GET  /api/v1/admin/overview
+GET  /api/v1/admin/sites
+POST /api/v1/admin/sites
+PUT  /api/v1/admin/sites/:site
+GET  /api/v1/admin/users
+PUT  /api/v1/admin/users/:id/status
+GET  /api/v1/admin/roles
+GET  /api/v1/admin/permissions
+GET  /api/v1/admin/tags
+POST /api/v1/admin/tags
+PUT  /api/v1/admin/tags/:id
+GET  /api/v1/admin/settings
+PUT  /api/v1/admin/settings
+GET  /api/v1/admin/logs
+POST /api/v1/admin/notifications
+```
+
+后台种子账号见 `README.md`。后台接口需要 `Authorization: Bearer <access_token>`，并按 RBAC permission 和站点 scope 校验。
 
 ## Topic 互动
 
@@ -172,6 +239,29 @@ GET  /api/v1/notifications/unread-count
 POST /api/v1/notifications/:id/read
 POST /api/v1/notifications/read-all
 ```
+
+## Compatibility APIs
+
+`sites/posts` 兼容 API 继续保留：
+
+```http
+GET    /api/v1/sites
+GET    /api/v1/sites/:site
+GET    /api/v1/sites/:site/overview
+GET    /api/v1/boards
+GET    /api/v1/posts
+GET    /api/v1/posts/:id
+POST   /api/v1/posts
+PUT    /api/v1/posts/:id
+DELETE /api/v1/posts/:id
+POST   /api/v1/posts/:id/like
+GET    /api/v1/posts/:id/comments
+POST   /api/v1/posts/:id/comments
+GET    /api/v1/search
+GET    /api/v1/hot
+```
+
+这些接口用于旧调用方兼容；新前台主线优先使用 `communities/topics/search`。
 
 ## 评论系统
 
@@ -326,6 +416,7 @@ Content-Type: application/json
 ## 搜索与未解决筛选
 
 ```http
+GET /api/v1/search/topics
 GET /api/v1/search/topics?sort=unsolved
 GET /api/v1/search/topics?sort=featured
 ```
@@ -597,6 +688,24 @@ Authorization: Bearer <access_token>
   "has_more": false
 }
 ```
+
+## SEO endpoints
+
+```http
+GET /topics/:id
+GET /topics/:id/
+GET /posts/:id
+GET /sitemap.xml
+GET /sitemap-index.xml
+GET /robots.txt
+```
+
+说明：
+
+- `/topics/:id` 和 `/topics/:id/` 由 Go 动态输出百度友好的 SEO HTML，不是纯 CSR 空壳。
+- `/posts/:id` 301 跳转到 `/topics/:id/`，保留旧入口兼容。
+- `/sitemap.xml` 只输出已发布且未隐藏的 Topic；隐藏 Topic 不进入 sitemap。
+- `/robots.txt` 动态输出 sitemap 地址。
 
 ## 通知类型与动态类型
 

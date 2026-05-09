@@ -6,11 +6,118 @@
 
 本文档用于当前真实实现的手工验收。完成代码变更后，优先执行自动检查，再按页面、接口、业务闭环、SEO 顺序回归。
 
+## v1.0.0 测试矩阵
+
+基础启动：
+
+- `./dev.sh --restart`
+- `CMS_STORE=memory ./dev.sh --restart`
+- `./dev.sh --mysql --restart`
+- `go build -o .devhub/devhub . && PORT=8090 CMS_STORE=memory ./.devhub/devhub`
+- `lsof -i :8090`
+- `/` 前台可访问
+- `/admin-next` 后台可访问
+
+前台页面：
+
+- `/`
+- `/c/php`
+- `/c/go`
+- `/c/java`
+- `/c/ai`
+- `/c/frontend`
+- `/search`
+- `/topics/new`
+- `/c/php/topics/new`
+- `/topics/:id`
+- `/me/favorites`
+- `/me/follows`
+- `/me/activities`
+- `/notifications`
+
+核心 API：
+
+- `GET /api/v1/communities`
+- `GET /api/v1/topics`
+- `GET /api/v1/topics/:id`
+- `GET /api/v1/search/topics`
+- `POST /api/v1/topics`
+- `GET /api/v1/topics/:id/comments`
+- `POST /api/v1/topics/:id/comments`
+- `POST /api/v1/topics/:id/comments/:commentId/replies`
+- `POST /api/v1/topics/:id/comments/:commentId/accept`
+- `POST /api/v1/topics/:id/like`
+- `POST /api/v1/topics/:id/favorite`
+- `POST /api/v1/follows/toggle`
+- `GET /api/v1/me/favorites`
+- `GET /api/v1/me/follows`
+- `GET /api/v1/me/activities`
+- `GET /api/v1/me/notifications`
+- `POST /api/v1/reports`
+
+后台 API：
+
+- `GET /api/v1/admin/reports`
+- `POST /api/v1/admin/reports/:id/handle`
+- `POST /api/v1/admin/reports/batch-handle`
+- `GET /api/v1/admin/moderators`
+- `POST /api/v1/admin/moderators`
+- `PUT /api/v1/admin/moderators/:id`
+- `DELETE /api/v1/admin/moderators/:id`
+- `POST /api/v1/admin/topics/:id/feature`
+- `POST /api/v1/admin/topics/:id/pin`
+- `POST /api/v1/admin/topics/:id/hide`
+- `POST /api/v1/admin/topics/:id/restore`
+- `POST /api/v1/admin/topics/:id/lock-comments`
+- `POST /api/v1/admin/topics/:id/unlock-comments`
+- `POST /api/v1/admin/topics/batch`
+- `POST /api/v1/admin/comments/batch`
+- `GET /api/v1/admin/audit-logs`
+
+SEO 回归：
+
+- `/topics/:id` HTML 源码有 `<title>`。
+- `/topics/:id` HTML 源码有 `meta name="description"`。
+- `/topics/:id` HTML 源码有 `<h1>`。
+- `/topics/:id` HTML 源码有正文摘要或正文。
+- `/topics/:id` HTML 源码有标签链接。
+- `/topics/:id` 不是纯 CSR 空壳。
+- `/sitemap.xml` 可访问。
+- `/robots.txt` 可访问。
+- 隐藏 Topic 不进入 sitemap。
+- 隐藏 Topic 返回 noindex 或隐藏状态页面。
+
+后台页面：
+
+- `/admin-next`
+- `/admin-next/content`
+- `/admin-next/comments`
+- `/admin-next/reports`
+- `/admin-next/moderators`
+- `/admin-next/audit-logs`
+- `/admin-next/sites`
+- `/admin-next/users`
+- `/admin-next/system`
+
+文档对账：
+
+- `README.md`
+- `docs/README.md`
+- `docs/API.md`
+- `docs/TESTING.md`
+- `docs/DEPLOYMENT.md`
+- `docs/SEO.md`
+- `docs/PROJECT_PROGRESS.md`
+- `docs/BACKUP_AND_ROLLBACK.md`
+- `CHANGELOG.md`
+- `docs/releases/v1.0.0.md`
+
 ## 启动检查
 
 ```bash
 bash -n dev.sh
 go test ./...
+go build -o .devhub/devhub .
 cd web/frontend-app && npm run build
 cd web/admin-app && npm run build
 ```
@@ -509,6 +616,19 @@ MySQL 模式应验证：
 - 评论点赞入口没有纳入第六轮，只保留旧 `POST /api/v1/comments/:id/like` 和字段。
 - 采纳支持更换最佳答案，暂不支持取消已解决状态。
 - 最佳答案当前通过详情页运行时评论区展示，不进入初始 SEO HTML。
+- 标签高级能力、标签后台和标签 SEO 聚合页不属于 v1.0.0 主线。
+
+## CI 回归
+
+GitHub Actions 配置位于 `.github/workflows/ci.yml`，执行：
+
+- `go test ./...`
+- `go build -o /tmp/devhub .`
+- `cd web/frontend-app && npm ci && FRONTEND_SITE_URL=http://127.0.0.1:8090 npm run build`
+- `cd web/admin-app && npm ci && npm run build`
+- 检查 `db/mysql/001_schema.sql` 和核心文档文件存在。
+
+CI 不依赖本地私有 token 或私有代理；前端和后台构建使用 package lock。
 
 ## 第六轮接口实测记录
 
@@ -551,3 +671,23 @@ MySQL 模式应验证：
 - SEO 回归：`/topics/1` 源码保留 `<title>`、`meta description`、`<h1>`、`<article>`、正文/摘要、标签链接和 Article JSON-LD；`/sitemap.xml`、`/robots.txt` 均返回 200。
 
 注意：MemoryStore 重启后运行时创建的临时 topic/report/comment/moderator 不持久化，这是当前 memory 模式预期行为。
+
+## 第九轮 v1.0.0 归档实测记录
+
+2026-05-09 已完成 v1.0.0 归档验收：
+
+- `bash -n dev.sh`：通过。
+- `go test ./...`：通过。
+- `go build -o .devhub/devhub .`：通过。
+- 前台 Docker Node 构建：通过，Astro 输出到 `web/frontend`。
+- 后台 Docker Node 构建：通过，Vite 仅提示 chunk size warning，产物包含 `AuditLogs-*.js`。
+- `./dev.sh --local-go restart --no-build`：已执行，健康检查通过；随后为避免 `go run` 临时进程链路，切换为 `.devhub/devhub` 二进制后台常驻。
+- 当前 8090：`lsof -i :8090` 显示 `./.devhub/devhub` 监听，`GET /api/v1/health` 返回 `store=memory`。
+- 基础 URL：`/`、`/admin-next`、`/api/v1/communities`、`/api/v1/topics`、`/api/v1/search/topics?keyword=go`、`/topics/1`、`/sitemap.xml`、`/robots.txt` 均返回 200。
+- 后台页面：`/admin-next/content`、`/admin-next/comments`、`/admin-next/reports`、`/admin-next/moderators`、`/admin-next/audit-logs`、`/admin-next/sites`、`/admin-next/users`、`/admin-next/system` 均返回 200。
+- 后台 API：`GET /api/v1/admin/reports`、`GET /api/v1/admin/moderators`、`GET /api/v1/admin/audit-logs` 均返回 200。
+- 批量治理：`POST /api/v1/admin/topics/batch` 的 `feature/unfeature` 返回 `updated=1, failed=0`；`POST /api/v1/admin/comments/batch` 的 `hide/restore` 返回 `updated=1, failed=0`。
+- 批量举报：创建测试举报后，`POST /api/v1/admin/reports/batch-handle` 的 `rejected` 返回 `updated=1, failed=0`。
+- SEO 回归：`/topics/1` 源码包含 `<title>`、`meta description`、`<h1>`、`<article>`、正文、标签链接、发布时间和 Article JSON-LD，且不是纯 CSR 空壳。
+- 隐藏内容 SEO：隐藏 Topic 1 时详情页返回“内容已隐藏”/`noindex`，严格匹配 sitemap 不含 `/topics/1/`；恢复后 `/topics/1` SEO 正常，sitemap 重新包含 `/topics/1/`。
+- 文档对账：`README.md`、`docs/README.md`、`docs/API.md`、`docs/TESTING.md`、`docs/DEPLOYMENT.md`、`docs/SEO.md`、`docs/PROJECT_PROGRESS.md`、`docs/BACKUP_AND_ROLLBACK.md`、`CHANGELOG.md`、`docs/releases/v1.0.0.md` 已同步 v1.0.0 状态。

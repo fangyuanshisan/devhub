@@ -17,6 +17,7 @@ DevHub 当前 SEO 重点面向百度。核心原则是：动态 Topic 详情页�
 - 第六轮评论区、回复表单、加载更多和最佳答案展示均由浏览器运行时加载；当前不要求评论内容或最佳答案进入初始 SEO HTML。
 - 第七轮举报入口、评论锁定提示、精华 / 置顶状态属于运行时或详情页增强，不能改变正常 Topic 的 SEO 主体输出。
 - 第八轮 admin-next 内容 CRUD、版主管理、批量治理和审计日志只改变后台 API / 页面；正常 Topic 详情 SEO 仍由 Go 动态输出。
+- v1.0.0 归档后，任何上线前回归都必须把 `/topics/:id` SEO 源码检查作为阻塞项。
 - 隐藏 Topic 详情页由 Go 输出“内容已隐藏”HTML，并带 `meta name="robots" content="noindex,follow"`；隐藏页不输出原正文。
 
 ## Topic 详情页源码要求
@@ -134,3 +135,11 @@ curl -s http://127.0.0.1:8090/sitemap.xml | rg "/topics/<新ID>/"
 - 不要把收藏、关注、通知、评论、最佳答案等运行时互动内容写成详情页 SEO 依赖项。
 - 不要让隐藏内容继续进入 sitemap。
 - 不要在隐藏页输出被隐藏 Topic 的原正文。
+
+## v1.1.0 SEO 规划
+
+- 标签 SEO 聚合页。
+- 标签 canonical 和标签别名 canonical。
+- 标签合并后的 301 重定向。
+- sitemap 分片和 sitemap index。
+- 更完整的列表页服务端摘要输出。

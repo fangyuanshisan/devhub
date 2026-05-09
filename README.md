@@ -2,6 +2,8 @@
 
 DevHub 是一个多子站技术社区 CMS。当前项目使用 Go + Gin 提供后端 API 与静态资源托管，前台使用 Astro + Vue Islands，后台使用 Vue 3 + Element Plus。
 
+当前版本：`v1.0.0`。
+
 当前只维护两个入口：
 
 ```text
@@ -21,7 +23,10 @@ DevHub 是一个多子站技术社区 CMS。当前项目使用 Go + Gin 提供�
 - [API 文档](docs/API.md)
 - [测试文档](docs/TESTING.md)
 - [部署启动文档](docs/DEPLOYMENT.md)
+- [备份与回滚](docs/BACKUP_AND_ROLLBACK.md)
 - [SEO 文档](docs/SEO.md)
+- [v1.0.0 Release Notes](docs/releases/v1.0.0.md)
+- [变更日志](CHANGELOG.md)
 - [需求原文](更新.md)
 
 ## 当前能力
@@ -37,6 +42,12 @@ DevHub 是一个多子站技术社区 CMS。当前项目使用 Go + Gin 提供�
 - 用户与权限：前台登录、注册、会话恢复、refresh token 刷新、退出登录、JWT 会话、后台 RBAC 与站点范围上下文。
 - 后台：控制台、内容管理、举报管理、评论审核、站点管理、用户权限、运营工具、数据统计、系统设置。
 - 存储：支持内存模式和 MySQL 模式。
+
+## v1.0.0 定位
+
+DevHub v1.0.0 是第一个可运行的大版本归档，覆盖多子站、Topic 发布、搜索、标签基础、互动、评论问答、举报治理、admin-next 后台、百度 SEO 动态详情页、MemoryStore / MySQLStore 和上线文档闭环。
+
+v1.0.0 不把标签专项增强、评论点赞、取消已解决状态、推荐系统和复杂运营分析作为主线；这些能力放入 v1.1.0 或后续版本规划。
 
 ## 目录结构
 
@@ -61,8 +72,12 @@ DevHub 是一个多子站技术社区 CMS。当前项目使用 Go + Gin 提供�
 │   ├── API.md                      # 当前真实 API 路径、参数、响应和限制
 │   ├── TESTING.md                  # 手工验收和回归测试清单
 │   ├── DEPLOYMENT.md               # 启动、部署和 8090 排障
+│   ├── BACKUP_AND_ROLLBACK.md      # 备份、恢复和紧急回滚
 │   ├── SEO.md                      # 百度 SEO 保护要求
+│   ├── releases/                   # 版本归档说明
 │   └── archive/                    # 历史规划归档说明
+├── VERSION                         # 当前归档版本
+├── CHANGELOG.md                    # 版本变化记录
 └── 更新.md                         # 本轮产品需求原文
 ```
 
@@ -240,6 +255,9 @@ POST /api/v1/auth/refresh
 POST /api/v1/auth/logout
 GET  /api/v1/auth/me
 POST /api/v1/admin/login
+POST /api/v1/admin/refresh
+POST /api/v1/admin/logout
+GET  /api/v1/admin/me
 GET  /api/v1/admin/overview
 GET  /api/v1/admin/posts
 POST /api/v1/admin/posts
@@ -265,7 +283,11 @@ POST /api/v1/admin/comments/:id/hide
 POST /api/v1/admin/comments/:id/restore
 POST /api/v1/admin/comments/batch
 GET  /api/v1/admin/audit-logs
+GET  /api/v1/admin/sites
 GET  /api/v1/admin/users
+GET  /api/v1/admin/roles
+GET  /api/v1/admin/permissions
+GET  /api/v1/admin/tags
 GET  /api/v1/admin/settings
 ```
 
@@ -305,6 +327,7 @@ npm run build
 ```bash
 bash -n dev.sh
 GOCACHE=/tmp/go-build go test ./...
+go build -o .devhub/devhub .
 cd web/frontend-app && npm run build
 cd web/admin-app && npm run build
 ```
@@ -332,9 +355,37 @@ git checkout -b feature/comments-qa
 
 ```bash
 go test ./...
+go build -o .devhub/devhub .
 cd web/frontend-app && npm run build
 cd web/admin-app && npm run build
 git status
 ```
 
 本地没有 `npm` 时，可使用 `dev.sh` 或 Docker Node 构建；构建产物由脚本生成，不需要提交。
+
+v1.0.0 归档建议命令：
+
+```bash
+git status
+git diff
+git add .
+git commit -m "chore: release DevHub v1.0.0"
+git tag v1.0.0
+git push origin main
+git push origin v1.0.0
+```
+
+打 tag 前必须先确认工作区没有未审阅差异，且测试矩阵通过。
+
+## 已知限制
+
+- 标签系统仍是基础能力，标签详情 SEO 页、标签后台管理、标签合并 / 别名和趋势统计留到 v1.1.0。
+- 评论点赞未纳入 v1.0.0 主线。
+- 问答支持采纳和更换最佳答案，暂不支持取消已解决状态。
+- 标签关注、用户关注已有后端基础，前台入口仍可继续增强。
+- `/sitemap.xml` 目前动态输出但未做大规模分片。
+- 生产部署仍需按实际环境配置进程守护、反向代理、HTTPS、日志轮转和定时备份。
+
+## Roadmap
+
+v1.1.0 建议聚焦标签专项增强、标签 SEO 聚合页、标签后台管理、标签合并 / 别名、推荐和相关内容、sitemap 分片、运营分析、评论点赞和问答取消已解决状态。

@@ -17,6 +17,8 @@ DevHub 当前是 “Go API + Astro 前台 + Vue 后台” 的多子站社区 CMS
 
 首页、子站页、搜索页和用户中心使用 Astro 静态壳 + 运行时 API；Topic 详情页 `/topics/:id` 仍由 Go 动态输出 SEO HTML。第五轮互动闭环已完成基础实现：点赞、收藏、关注、我的收藏、我的关注、我的动态、通知列表和已读逻辑在 MemoryStore 与 MySQLStore 中均可用。第六轮已完成评论列表、发表评论、回复评论、问答采纳、未解决筛选、评论动态和评论通知的基础闭环。第七轮已完成举报、版主范围治理、精华、置顶、隐藏、评论锁定和后台最小治理入口。第八轮补丁后，admin-next 后台内容 CRUD、版主管理 CRUD、批量治理、批量举报处理和治理审计日志均有真实页面入口和 API 封装。
 
+当前归档版本为 `v1.0.0`。第九轮不扩展大型业务功能，目标是把第八轮补丁后的代码、CI、测试矩阵、部署、备份、回滚、SEO 和版本说明整理为第一个可运行大版本。
+
 ## 近期迭代摘要
 
 - 第一轮：同步通用社区 schema，补齐 PHP、Go、Java、AI、Frontend 五个子站 seed 数据。
@@ -29,6 +31,39 @@ DevHub 当前是 “Go API + Astro 前台 + Vue 后台” 的多子站社区 CMS
 - 第六轮评论问答：补齐 `GET/POST /api/v1/topics/:id/comments`、回复、采纳最佳答案、`sort=unsolved` 未解决筛选、`commented/accepted_answer` 动态和 `topic_commented/comment_replied/answer_accepted` 通知。
 - 第七轮社区治理：补齐 topic/comment 举报、举报后台处理、版主子站权限、精华、置顶、隐藏、恢复、评论锁定、评论隐藏和 sitemap 隐藏过滤。
 - 第八轮后台治理：补齐 admin-next 内容 CRUD 写入 `topics`、版主管理 CRUD、topic/comment/report 批量治理、举报重复 pending 限制、`/admin-next/moderators` 和 `/admin-next/audit-logs`。
+- 第九轮 v1.0.0 归档：补齐 `VERSION`、`CHANGELOG.md`、`docs/releases/v1.0.0.md`、`docs/BACKUP_AND_ROLLBACK.md`、GitHub Actions CI、测试矩阵、部署归档和文档对账。
+
+## v1.0.0 归档范围
+
+已完成能力：
+
+- 多子站、板块、Topic 模型、发布、列表、详情、编辑、删除。
+- 搜索、筛选、标签基础能力、热门标签和子站标签合集。
+- 点赞、收藏、关注、动态、通知、用户中心页面。
+- 评论、回复、问答采纳、最佳答案展示、未解决筛选。
+- 举报、版主范围权限、精华、置顶、隐藏、恢复、评论锁定、评论隐藏。
+- admin-next 内容 CRUD、评论管理、举报管理、版主管理、批量治理、治理审计日志。
+- `/topics/:id` Go 动态百度 SEO HTML、动态 sitemap、robots。
+- MemoryStore / MySQLStore 双模式。
+- 测试矩阵、部署文档、备份回滚文档、CI 和 v1.0.0 release notes。
+
+已知限制：
+
+- 标签系统仍是基础能力，标签详情页、标签 SEO 聚合页、标签后台管理、标签合并 / 别名和趋势统计待 v1.1.0。
+- 评论点赞未实现到运行时评论区。
+- 问答支持采纳和更换最佳答案，暂不支持取消已解决状态。
+- 标签关注和用户关注后端已支持，前台入口仍可继续增强。
+- `/sitemap.xml` 当前未做大规模分片。
+- migration 仍以基础 SQL 和少量迁移脚本为主，生产升级需要预发演练。
+- 生产部署仍需根据真实环境配置守护进程、反向代理、HTTPS、日志和定时备份。
+
+v1.1.0 建议规划：
+
+- 标签专项增强、标签 SEO 聚合页、标签后台管理、标签合并 / 别名。
+- 推荐和相关内容。
+- sitemap 分片。
+- 运营分析和治理统计看板。
+- 评论点赞和问答取消已解决状态。
 
 ## 第五轮互动联动状态
 
@@ -125,6 +160,24 @@ DevHub 当前是 “Go API + Astro 前台 + Vue 后台” 的多子站社区 CMS
 - 动态和通知：`GET /api/v1/me/activities` 返回 `commented` 与 `accepted_answer`；`GET /api/v1/me/notifications` 返回正常。memory 模式当前认证统一为 demo/user 1，本次自操作未新增自通知，符合“不通知自己”规则；非本人通知路径已在 Store 实现中保留。
 - SEO 回归：`/topics/1` 源码保留 `<title>`、`meta description`、`<h1>`、`<article>`、正文和标签链接；`/sitemap.xml`、`/robots.txt` 均返回 200。
 - 页面回归：`/`、`/search?sort=unsolved`、`/topics/1`、`/me/activities`、`/notifications`、`/admin-next`、`/topics/new`、`/c/php` 均返回 200。
+
+## 第九轮 v1.0.0 归档验收记录
+
+2026-05-09 已完成 v1.0.0 归档验收：
+
+- 第八轮补丁收口：已确认 `main.go` 和 `dev.sh` 默认端口统一为 `8090`，`admin.js` 已包含版主管理、批量治理、批量举报和审计日志封装，`/admin-next/moderators` 与 `/admin-next/audit-logs` 已有真实路由和页面。
+- 版本文件：新增 `VERSION=v1.0.0`、`CHANGELOG.md` 和 `docs/releases/v1.0.0.md`。
+- CI：新增 `.github/workflows/ci.yml`，覆盖 Go test、Go build、前台构建、后台构建、schema 和核心文档存在性检查。
+- 文档：补齐 v1.0.0 测试矩阵、部署说明、备份回滚、SEO 归档、API 模块归档和项目进度归档。
+- Go 测试：`go test ./...` 通过。
+- Go 构建：`go build -o .devhub/devhub .` 通过。
+- 前台构建：Docker Node 执行 Astro build 通过。
+- 后台构建：Docker Node 执行 Vite build 通过，仅有 chunk size warning。
+- 启动方式：已执行 `./dev.sh --local-go restart --no-build`；最终使用 `PORT=8090 CMS_STORE=memory ./.devhub/devhub` 二进制后台常驻，避免 `go run` 临时进程链路。
+- URL 验收：`/`、`/admin-next`、`/api/v1/communities`、`/api/v1/topics`、`/api/v1/search/topics?keyword=go`、`/topics/1`、`/sitemap.xml`、`/robots.txt` 均返回 200。
+- 后台验收：`/admin-next/content`、`/admin-next/comments`、`/admin-next/reports`、`/admin-next/moderators`、`/admin-next/audit-logs`、`/admin-next/sites`、`/admin-next/users`、`/admin-next/system` 均返回 200；后台 reports、moderators、audit-logs API 均返回 200。
+- 批量治理验收：Topic 批量 `feature/unfeature`、Comment 批量 `hide/restore`、Report 批量 `rejected` 均返回 `updated=1, failed=0`。
+- SEO 回归：`/topics/1` 源码保留 `<title>`、`meta description`、`<h1>`、`<article>`、正文、标签链接、发布时间和 Article JSON-LD；隐藏 Topic 不进入 sitemap，恢复后重新进入。
 
 ## 已完成
 
@@ -232,9 +285,9 @@ DevHub 当前是 “Go API + Astro 前台 + Vue 后台” 的多子站社区 CMS
 
 ## 下一步
 
-1. 第九轮：测试、部署、备份、回滚文档。
-2. 后续优化：评论点赞、取消已解决状态、通知跳转 comment anchor。
-3. 后台增强：更细粒度角色授权、版主任期记录、治理统计看板。
+1. 完成 v1.0.0 归档测试后，建议先打 `v1.0.0` tag。
+2. v1.1.0：标签专项增强、标签 SEO 聚合页、标签后台管理、标签合并 / 别名。
+3. 后续优化：评论点赞、取消已解决状态、通知跳转 comment anchor、推荐和运营分析。
 
 ## 验收清单
 
@@ -277,3 +330,8 @@ DevHub 当前是 “Go API + Astro 前台 + Vue 后台” 的多子站社区 CMS
 - [x] Comment 隐藏、恢复可用，隐藏最佳答案会被拒绝。
 - [x] 隐藏 Topic 不进入普通列表、搜索和 sitemap。
 - [x] 隐藏 Topic 详情页返回 noindex 的“内容已隐藏”动态 HTML。
+- [x] `VERSION` 已记录 `v1.0.0`。
+- [x] `CHANGELOG.md` 已记录 v1.0.0 主要变化和限制。
+- [x] `docs/releases/v1.0.0.md` 已记录版本定位、启动、部署、测试、限制和 tag 建议。
+- [x] `docs/BACKUP_AND_ROLLBACK.md` 已记录备份、恢复和紧急回滚流程。
+- [x] `.github/workflows/ci.yml` 已补充 Go / 前台 / 后台基础 CI。

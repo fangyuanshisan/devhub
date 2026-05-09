@@ -26,6 +26,27 @@
 
 默认端口为 `8090`，默认数据仓库为 `CMS_STORE=memory`。`main.go` 直接运行也默认监听 `8090`，仍可通过 `PORT=8080 go run .` 覆盖。修改 Go 后端代码后需要重启服务；只改 Go 且前后台产物无需重建时，可以使用 `./dev.sh restart --no-build` 或 `./dev.sh --local-go restart --no-build`。
 
+### 开发模式
+
+内存模式：
+
+```bash
+CMS_STORE=memory ./dev.sh --restart
+```
+
+MySQL 模式：
+
+```bash
+./dev.sh --mysql --restart
+```
+
+停止和状态检查：
+
+```bash
+./dev.sh --stop
+./dev.sh --status
+```
+
 ## 构建行为
 
 - 前台 Astro 和后台 Vue 构建优先使用本机 `npm`。
@@ -44,6 +65,62 @@ DB_USER=devhub
 DB_PASSWORD=Devhub_123456
 DB_NAME=devhub
 ```
+
+## 前端构建
+
+前台源码位于 `web/frontend-app`，构建产物输出到 `web/frontend`：
+
+```bash
+cd web/frontend-app
+FRONTEND_SITE_URL=http://127.0.0.1:8090 npm run build
+```
+
+后台源码位于 `web/admin-app`，构建产物输出到 `web/admin-vue`：
+
+```bash
+cd web/admin-app
+npm run build
+```
+
+`dev.sh` 会在启动前按需构建前台和后台；本机没有 `npm` 时，脚本会尝试使用 Docker Node 构建。CI 使用 `npm ci`，依赖 `web/frontend-app/package-lock.json` 和 `web/admin-app/package-lock.json`。
+
+## Docker 和 MySQL 开发环境
+
+`docker-compose.dev.yml` 提供 MySQL 8 开发库：
+
+```text
+Host: 127.0.0.1
+Port: 3307
+User: devhub
+Password: Devhub_123456
+Database: devhub
+Volume: devhub_mysql_data
+```
+
+启动 MySQLStore：
+
+```bash
+./dev.sh --mysql --restart
+```
+
+脚本会启动 MySQL 容器，等待数据库可用，然后以 `CMS_STORE=mysql` 启动 Go 服务。手动初始化时使用：
+
+```bash
+mysql -h127.0.0.1 -P3307 -u devhub -p devhub < db/mysql/001_schema.sql
+```
+
+如果已经运行过旧版本，请先确认 `db/mysql/migrations/` 中的迁移是否已经在目标库执行。
+
+## 生产部署建议
+
+- 使用 `go build -o devhub .` 产出二进制，配合 systemd、supervisor 或容器编排守护进程。
+- 通过 `PORT=8090`、`CMS_STORE=mysql`、`DB_*` 环境变量传入配置，不要把生产密钥写入仓库。
+- 使用 Nginx、Caddy 或云负载均衡作为反向代理，开启 HTTPS。
+- 由 Go 托管 `web/frontend`、`web/admin-vue` 和 `/_astro` 等静态资源；反向代理不要屏蔽这些路径。
+- 日志输出到文件或标准输出，并配置日志轮转。
+- 定期备份 MySQL、配置、上传目录、二进制和静态构建产物。
+- 上线后检查 `/topics/:id`、`/sitemap.xml`、`/robots.txt`，确保百度 SEO 动态详情页未退化。
+- 回滚流程见 `docs/BACKUP_AND_ROLLBACK.md`。
 
 ## Go 模块网络检查
 
@@ -129,3 +206,19 @@ docker run --rm -e NPM_CONFIG_REGISTRY=https://registry.npmmirror.com -v "$PWD/w
 ```
 
 构建产物仍输出到 `web/admin-vue`，由 Go 在 `/admin-next` 挂载。修改 Go 后端后仍需执行 `./dev.sh --restart`，或先 `go build -o .devhub/devhub .` 再按二进制排障启动。
+
+## v1.0.0 上线前检查
+
+```bash
+go test ./...
+go build -o .devhub/devhub .
+./dev.sh --restart
+curl -I http://127.0.0.1:8090/
+curl http://127.0.0.1:8090/api/v1/health
+curl http://127.0.0.1:8090/admin-next
+curl http://127.0.0.1:8090/topics/1
+curl http://127.0.0.1:8090/sitemap.xml
+curl http://127.0.0.1:8090/robots.txt
+```
+
+本地 `go run` 若因模块解析或网络问题卡住，优先使用本文档的二进制排障启动，不要把临时代理、token 或私钥写进代码。
