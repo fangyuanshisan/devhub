@@ -255,6 +255,7 @@ Content-Type: application/json
 - 创建后 `topics.comment_count + 1`，更新 `last_active_at` / `updated_at`，并按统一公式刷新 `hot_score`。
 - 写入 `activities.action=commented`，`target_type=topic`。
 - 非作者评论 Topic 时创建 `topic_commented` 通知；自己评论自己不通知。
+- MySQLStore 中评论写入、统计更新、动态和通知尽量在同一事务中完成，避免计数与评论记录不一致。
 
 ### 回复评论
 
@@ -277,7 +278,7 @@ Content-Type: application/json
 - 被回复评论必须存在且属于当前 Topic。
 - `parent_id` 指向被回复评论，`reply_to_user_id` 指向被回复评论作者。
 - 创建后同样更新 `comment_count`、`last_active_at`、`hot_score`。
-- 写入 `activities.action=commented`，`target_type=comment`。
+- 写入 `activities.action=commented`，`target_type=comment`，`target_id` 为被回复评论 ID。
 - 非本人回复时创建 `comment_replied` 通知。
 
 ## 问答采纳
@@ -307,8 +308,9 @@ Content-Type: application/json
   - 当前评论 `is_best = true`
   - 同 Topic 其他评论 `is_best = false`
   - 更新 `last_active_at` / `updated_at`
-  - 写入 `activities.action=accepted_answer`
+  - 写入 `activities.action=accepted_answer`，actor 为实际采纳操作者
   - 非本人时创建 `answer_accepted` 通知
+- MySQLStore 中采纳会在事务内清理同 Topic 其他 `is_best`、设置新最佳答案、更新 Topic、写动态和通知。
 
 响应：
 

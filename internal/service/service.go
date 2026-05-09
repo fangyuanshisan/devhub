@@ -78,7 +78,7 @@ type Repository interface {
 	CommunityOverview(slug string) (domain.CommunityOverview, bool)
 	TopicComments(topicID int64, sort string, page, pageSize int) ([]*domain.Comment, int)
 	CreateCommentWithRequest(topicID int64, req domain.CreateCommentRequest) (*domain.Comment, error)
-	AcceptBestAnswer(topicID int64, commentID int64) bool
+	AcceptBestAnswer(topicID int64, commentID int64, actorUserID int64) bool
 }
 
 // Service 封装业务入口，向 HTTP 层提供稳定的调用接口。
@@ -410,8 +410,8 @@ func (s *Service) TopicComments(topicID int64, sort string, page, pageSize int) 
 }
 
 // AcceptBestAnswer 采纳最佳答案（问答类型）。
-func (s *Service) AcceptBestAnswer(topicID int64, commentID int64) bool {
-	return s.repo.AcceptBestAnswer(topicID, commentID)
+func (s *Service) AcceptBestAnswer(topicID int64, commentID int64, actorUserID int64) bool {
+	return s.repo.AcceptBestAnswer(topicID, commentID, actorUserID)
 }
 
 // CreateComment 创建评论（新的Topics API）。

@@ -186,11 +186,13 @@ type UpdatePostRequest struct {
 
 // CreateCommentRequest 是创建评论或回复的请求体。
 type CreateCommentRequest struct {
-	UserID   int64  `json:"user_id"`
-	Author   string `json:"author"`
-	Text     string `json:"text"`
-	Content  string `json:"content"`
-	ParentID int64  `json:"parent_id"`
+	UserID        int64  `json:"user_id"`
+	Author        string `json:"author"`
+	Text          string `json:"text"`
+	Content       string `json:"content"`
+	ParentID      int64  `json:"parent_id"`
+	ActorUserID   int64  `json:"-"`
+	ActorUserName string `json:"-"`
 }
 
 // AdminUser 表示后台用户管理列表中的用户信息。

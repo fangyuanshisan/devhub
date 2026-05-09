@@ -1569,12 +1569,16 @@ func (s *MemoryStore) topicFromPostLocked(id int64, increaseView bool) (domain.T
 		p.Views++
 	}
 	communityID := communityIDBySite(p.Site)
+	userID := p.UserID
+	if userID <= 0 {
+		userID = 1
+	}
 	favoriteCount := s.favoriteCountLocked("topic", p.ID)
 	return domain.Topic{
 		ID:            p.ID,
 		CommunityID:   communityID,
 		CategoryID:    categoryIDForBoard(communityID, p.Board),
-		UserID:        p.UserID,
+		UserID:        userID,
 		Title:         p.Title,
 		ContentType:   contentTypeForBoard(p.Board),
 		Summary:       p.Summary,
@@ -1912,7 +1916,7 @@ func (s *MemoryStore) TopicsByFilter(communityID, categoryID int64, contentType,
 			ID:            p.ID,
 			CommunityID:   communityIDBySite(p.Site),
 			CategoryID:    categoryIDForBoard(communityIDBySite(p.Site), p.Board),
-			UserID:        1,
+			UserID:        p.UserID,
 			Title:         p.Title,
 			ContentType:   contentTypeForBoard(p.Board),
 			Summary:       p.Summary,
@@ -1927,8 +1931,12 @@ func (s *MemoryStore) TopicsByFilter(communityID, categoryID int64, contentType,
 			LikeCount:     p.Likes,
 			FavoriteCount: favoriteCount,
 			HotScore:      memoryHotScoreWithFavorites(p, favoriteCount),
+			LastActiveAt:  p.UpdatedAt,
 			CreatedAt:     p.CreatedAt,
 			UpdatedAt:     p.UpdatedAt,
+		}
+		if topic.UserID <= 0 {
+			topic.UserID = 1
 		}
 		topic.Tags = p.Tags
 		topics = append(topics, topic)
@@ -1973,6 +1981,15 @@ func (s *MemoryStore) TopicsByFilter(communityID, categoryID int64, contentType,
 				return filtered[i].IsSolved
 			}
 			return filtered[i].ID > filtered[j].ID
+		})
+	case "active":
+		sort.Slice(filtered, func(i, j int) bool {
+			left := firstNonEmptyString(filtered[i].LastActiveAt, filtered[i].UpdatedAt, filtered[i].CreatedAt)
+			right := firstNonEmptyString(filtered[j].LastActiveAt, filtered[j].UpdatedAt, filtered[j].CreatedAt)
+			if left == right {
+				return filtered[i].ID > filtered[j].ID
+			}
+			return left > right
 		})
 	default: // latest, active
 		sort.Slice(filtered, func(i, j int) bool { return filtered[i].ID > filtered[j].ID })
@@ -2027,11 +2044,15 @@ func (s *MemoryStore) CreateTopic(req domain.CreateTopicRequest) (*domain.Topic,
 	if board == "" {
 		board = "community"
 	}
+	userID := req.UserID
+	if userID <= 0 {
+		userID = 1
+	}
 	s.nextPostID++
 	now := Now()
 	post := &domain.Post{
 		ID:          s.nextPostID,
-		UserID:      req.UserID,
+		UserID:      userID,
 		Site:        site,
 		Board:       board,
 		Title:       strings.TrimSpace(req.Title),
@@ -2049,14 +2070,14 @@ func (s *MemoryStore) CreateTopic(req domain.CreateTopicRequest) (*domain.Topic,
 		UpdatedAt:   now,
 	}
 	s.posts[post.ID] = post
-	s.appendActivityLocked(req.UserID, req.CommunityID, "created_topic", "topic", post.ID, post.ID, post.Title)
+	s.appendActivityLocked(userID, req.CommunityID, "created_topic", "topic", post.ID, post.ID, post.Title)
 	s.appendLogLocked("operation", "DevHub 用户", "创建主题", fmt.Sprintf("topics#%d", post.ID), "127.0.0.1")
 
 	return &domain.Topic{
 		ID:            post.ID,
 		CommunityID:   req.CommunityID,
 		CategoryID:    req.CategoryID,
-		UserID:        req.UserID,
+		UserID:        userID,
 		Title:         post.Title,
 		ContentType:   req.ContentType,
 		Summary:       post.Summary,
@@ -2097,7 +2118,7 @@ func (s *MemoryStore) SearchTopics(req domain.SearchRequest) ([]domain.Topic, in
 			ID:            p.ID,
 			CommunityID:   communityID,
 			CategoryID:    categoryIDForBoard(communityID, p.Board),
-			UserID:        1,
+			UserID:        p.UserID,
 			Title:         p.Title,
 			ContentType:   contentTypeForBoard(p.Board),
 			Summary:       p.Summary,
@@ -2677,7 +2698,7 @@ func (s *MemoryStore) CreateCommentWithRequest(topicID int64, req domain.CreateC
 	targetID := topicID
 	if req.ParentID > 0 {
 		targetType = "comment"
-		targetID = c.ID
+		targetID = req.ParentID
 	}
 	s.appendActivityLocked(userID, communityID, "commented", targetType, targetID, topicID, p.Title)
 	if req.ParentID > 0 {
@@ -2690,7 +2711,7 @@ func (s *MemoryStore) CreateCommentWithRequest(topicID int64, req domain.CreateC
 	return &cp, nil
 }
 
-func (s *MemoryStore) AcceptBestAnswer(topicID int64, commentID int64) bool {
+func (s *MemoryStore) AcceptBestAnswer(topicID int64, commentID int64, actorUserID int64) bool {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	p, ok := s.posts[topicID]
@@ -2701,9 +2722,11 @@ func (s *MemoryStore) AcceptBestAnswer(topicID int64, commentID int64) bool {
 	if !ok || c.PostID != topicID || c.Status == "deleted" || c.Status == "hidden" {
 		return false
 	}
-	actorUserID := p.UserID
 	if actorUserID <= 0 {
-		actorUserID = 1
+		actorUserID = p.UserID
+		if actorUserID <= 0 {
+			actorUserID = 1
+		}
 	}
 	for _, item := range s.comments {
 		if item.PostID == topicID {
@@ -2713,6 +2736,7 @@ func (s *MemoryStore) AcceptBestAnswer(topicID int64, commentID int64) bool {
 	c.IsBest = true
 	now := Now()
 	p.UpdatedAt = now
+	c.UpdatedAt = now
 	communityID := communityIDBySite(p.Site)
 	s.appendActivityLocked(actorUserID, communityID, "accepted_answer", "comment", commentID, topicID, p.Title)
 	receiverID := c.UserID

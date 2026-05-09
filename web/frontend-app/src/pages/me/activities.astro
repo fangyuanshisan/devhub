@@ -46,7 +46,7 @@ import { devhubSites as sites } from '../../lib/sites';
       const list = document.querySelector('[data-activity-list]');
       const count = document.querySelector('[data-activity-count]');
       const escapeHTML = (value) => String(value ?? '').replace(/[&<>"']/g, (char) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[char]));
-      const actionText = { created_topic: '你发布了主题', commented: '你评论了主题', liked: '你点赞了主题', favorited: '你收藏了主题', followed: '你关注了' };
+      const actionText = { created_topic: '你发布了主题', commented: '你评论了主题', liked: '你点赞了主题', favorited: '你收藏了主题', followed: '你关注了', accepted_answer: '你采纳了回答' };
       document.querySelectorAll('[data-action]').forEach((link) => link.classList.toggle('active', (link.dataset.action || '') === activeAction));
       const render = (item) => {
         const title = item.target_title || item.remark || `${item.target_type} #${item.target_id}`;

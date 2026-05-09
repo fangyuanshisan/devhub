@@ -1242,27 +1242,49 @@ func (s *MySQLStore) CreateComment(postID int64, req domain.CreateCommentRequest
 	if author == "" {
 		author = s.userDisplayName(userID)
 	}
-	res, err := s.db.Exec(`INSERT INTO comments (post_id,topic_id,parent_id,reply_to_user_id,user_id,author,to_author,text,status,likes,is_best,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?, 'normal',0,0,NOW(),NOW())`,
-		postID, postID, req.ParentID, nullableInt64(replyToUserID), userID, author, to, content)
+	tx, err := s.db.Begin()
 	if err != nil {
 		return nil, err
 	}
+	res, err := tx.Exec(`INSERT INTO comments (post_id,topic_id,parent_id,reply_to_user_id,user_id,author,to_author,text,status,likes,is_best,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?, 'normal',0,0,NOW(),NOW())`,
+		postID, postID, req.ParentID, nullableInt64(replyToUserID), userID, author, to, content)
+	if err != nil {
+		_ = tx.Rollback()
+		return nil, err
+	}
 	id, _ := res.LastInsertId()
-	_, _ = s.db.Exec(`UPDATE topics SET comment_count=comment_count+1,last_active_at=NOW(),updated_at=NOW(),`+recalcTopicHotScoreSQL()+` WHERE id=?`, postID)
-	_, _ = s.db.Exec(`UPDATE posts SET comments=comments+1,updated_at=NOW() WHERE id=?`, postID)
-	topic.CommentCount++
+	if _, err := tx.Exec(`UPDATE topics SET comment_count=comment_count+1,last_active_at=NOW(),updated_at=NOW(),`+recalcTopicHotScoreSQL()+` WHERE id=?`, postID); err != nil {
+		_ = tx.Rollback()
+		return nil, err
+	}
+	if _, err := tx.Exec(`UPDATE posts SET comments=comments+1,updated_at=NOW() WHERE id=?`, postID); err != nil {
+		_ = tx.Rollback()
+		return nil, err
+	}
 	targetType := "topic"
 	targetID := postID
 	if req.ParentID > 0 {
 		targetType = "comment"
-		targetID = id
+		targetID = req.ParentID
 	}
-	_, _ = s.db.Exec(`INSERT INTO activities (user_id,community_id,topic_id,action,target_type,target_id,remark,created_at) VALUES (?,?,?,?,?,?,?,NOW())`,
-		userID, topic.CommunityID, topic.ID, "commented", targetType, targetID, topic.Title)
+	if _, err := tx.Exec(`INSERT INTO activities (user_id,community_id,topic_id,action,target_type,target_id,remark,created_at) VALUES (?,?,?,?,?,?,?,NOW())`,
+		userID, topic.CommunityID, topic.ID, "commented", targetType, targetID, topic.Title); err != nil {
+		_ = tx.Rollback()
+		return nil, err
+	}
 	if req.ParentID > 0 {
-		s.createUserNotice(replyToUserID, userID, "comment_replied", "comment", id, topic.ID, id, "你的评论有新的回复", fmt.Sprintf("%s 回复了你的评论。", author))
+		if _, err := s.createUserNoticeTx(tx, replyToUserID, userID, "comment_replied", "comment", id, topic.ID, id, "你的评论有新的回复", fmt.Sprintf("%s 回复了你的评论。", author)); err != nil {
+			_ = tx.Rollback()
+			return nil, err
+		}
 	} else {
-		s.createUserNotice(topic.UserID, userID, "topic_commented", "topic", topic.ID, topic.ID, id, "你的主题有新的评论", fmt.Sprintf("%s 评论了《%s》。", author, topic.Title))
+		if _, err := s.createUserNoticeTx(tx, topic.UserID, userID, "topic_commented", "topic", topic.ID, topic.ID, id, "你的主题有新的评论", fmt.Sprintf("%s 评论了《%s》。", author, topic.Title)); err != nil {
+			_ = tx.Rollback()
+			return nil, err
+		}
+	}
+	if err := tx.Commit(); err != nil {
+		return nil, err
 	}
 	return s.commentByID(id)
 }
@@ -1775,6 +1797,19 @@ func (s *MySQLStore) createUserNotice(userID, actorUserID int64, noticeType, tar
 		}
 	}
 	return nil
+}
+
+func (s *MySQLStore) createUserNoticeTx(tx *sql.Tx, userID, actorUserID int64, noticeType, targetType string, targetID, topicID, commentID int64, title, content string) (int64, error) {
+	if userID <= 0 || actorUserID == userID {
+		return 0, nil
+	}
+	res, err := tx.Exec(`INSERT INTO notifications (site_key,actor_user_id,type,target_type,target_id,topic_id,comment_id,title,content,scope,user_id,is_read,created_at) VALUES ('portal',?,?,?,?,?,?,?,?,?,?,0,NOW())`,
+		actorUserID, noticeType, targetType, nullableInt64(targetID), nullableInt64(topicID), nullableInt64(commentID), strings.TrimSpace(title), strings.TrimSpace(content), "user", userID)
+	if err != nil {
+		return 0, err
+	}
+	id, _ := res.LastInsertId()
+	return id, nil
 }
 
 func nullableInt64(v int64) any {
@@ -2540,7 +2575,7 @@ func (s *MySQLStore) CreateCommentWithRequest(topicID int64, req domain.CreateCo
 	return s.CreateComment(topicID, req)
 }
 
-func (s *MySQLStore) AcceptBestAnswer(topicID int64, commentID int64) bool {
+func (s *MySQLStore) AcceptBestAnswer(topicID int64, commentID int64, actorUserID int64) bool {
 	topic, err := s.TopicByID(topicID, false)
 	if err != nil || topic == nil || topic.ContentType != "question" {
 		return false
@@ -2548,6 +2583,12 @@ func (s *MySQLStore) AcceptBestAnswer(topicID int64, commentID int64) bool {
 	comment, err := s.commentByID(commentID)
 	if err != nil || comment.TopicID != topicID || comment.Status == "deleted" || comment.Status == "hidden" {
 		return false
+	}
+	if actorUserID <= 0 {
+		actorUserID = topic.UserID
+		if actorUserID <= 0 {
+			actorUserID = 1
+		}
 	}
 	tx, err := s.db.Begin()
 	if err != nil {
@@ -2566,14 +2607,17 @@ func (s *MySQLStore) AcceptBestAnswer(topicID int64, commentID int64) bool {
 		return false
 	}
 	if _, err = tx.Exec(`INSERT INTO activities (user_id,community_id,topic_id,action,target_type,target_id,remark,created_at) VALUES (?,?,?,?,?,?,?,NOW())`,
-		topic.UserID, topic.CommunityID, topic.ID, "accepted_answer", "comment", commentID, topic.Title); err != nil {
+		actorUserID, topic.CommunityID, topic.ID, "accepted_answer", "comment", commentID, topic.Title); err != nil {
+		_ = tx.Rollback()
+		return false
+	}
+	if _, err := s.createUserNoticeTx(tx, comment.UserID, actorUserID, "answer_accepted", "comment", commentID, topic.ID, commentID, "你的回答被采纳", fmt.Sprintf("你在《%s》中的回答被采纳为最佳答案。", topic.Title)); err != nil {
 		_ = tx.Rollback()
 		return false
 	}
 	if err = tx.Commit(); err != nil {
 		return false
 	}
-	s.createUserNotice(comment.UserID, topic.UserID, "answer_accepted", "comment", commentID, topic.ID, commentID, "你的回答被采纳", fmt.Sprintf("你在《%s》中的回答被采纳为最佳答案。", topic.Title))
 	return true
 }
 

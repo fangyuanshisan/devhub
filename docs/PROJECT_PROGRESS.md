@@ -54,19 +54,19 @@ DevHub 当前是 “Go API + Astro 前台 + Vue 后台” 的多子站社区 CMS
 
 按 2026-05-09 当前代码，状态如下：
 
-- 评论列表：已完成。真实接口为 `GET /api/v1/topics/:id/comments`，支持 `page`、`page_size`、`sort=best/latest/oldest`。
+- 评论列表：已完成。真实接口为 `GET /api/v1/topics/:id/comments`，支持 `page`、`page_size`、`sort=best/latest/oldest`；详情页评论区支持加载更多。
 - 发表评论：已完成。真实接口为 `POST /api/v1/topics/:id/comments`，请求字段为 `content`，长度限制为 2 到 5000 个字符。
 - 回复评论：已完成。真实接口为 `POST /api/v1/topics/:id/comments/:commentId/replies`，会校验父评论必须属于当前 Topic。
 - 评论统计联动：已完成。评论和回复都会更新 `comment_count`、`last_active_at`、`updated_at`，并按统一公式刷新 `hot_score`。
-- 评论动态：已完成。评论 Topic 写入 `activities.action=commented,target_type=topic`；回复写入 `activities.action=commented,target_type=comment`。
+- 评论动态：已完成。评论 Topic 写入 `activities.action=commented,target_type=topic`；回复写入 `activities.action=commented,target_type=comment`，`target_id` 指向被回复评论。
 - 评论通知：已完成。非作者评论 Topic 生成 `topic_commented`；非本人回复评论生成 `comment_replied`；自己评论 / 回复自己不通知。
 - 问答状态：已完成。`topics.content_type=question` 使用 `is_solved` 和 `best_comment_id` 表示已解决状态。
 - 采纳最佳答案：已完成。真实接口为 `POST /api/v1/topics/:id/comments/:commentId/accept`，兼容 `POST /api/v1/topics/:id/solve`。
 - 更换最佳答案：已完成。新采纳评论 `is_best=true`，同 Topic 其他评论 `is_best=false`；暂不支持取消已解决状态。
-- 采纳动态和通知：已完成。采纳写入 `accepted_answer` 动态；非本人时生成 `answer_accepted` 通知。
+- 采纳动态和通知：已完成。采纳写入 `accepted_answer` 动态；使用实际操作者作为 actor；非本人时生成 `answer_accepted` 通知。
 - 未解决筛选：已完成。`GET /api/v1/search/topics?sort=unsolved` 和 `GET /api/v1/topics?sort=unsolved` 只返回 `content_type=question AND is_solved=0`。
 - MemoryStore 支持情况：已完成第六轮基础能力，当前进程内支持评论、回复、采纳、未解决筛选、动态和通知。
-- MySQLStore 支持情况：已完成第六轮基础能力，支持 `comments` 表读写、统计更新、动态、通知、采纳状态和未解决筛选。
+- MySQLStore 支持情况：已完成第六轮基础能力，支持 `comments` 表读写、统计更新、动态、通知、采纳状态和未解决筛选；评论创建、统计更新、活动和通知尽量在事务内完成，采纳最佳答案同样使用事务更新 Topic、评论、动态和通知。
 - SEO 是否保持不被破坏：已保持。`/topics/:id` 仍由 Go 动态输出 SEO HTML；评论区和最佳答案为运行时增强，当前不强制进入初始 SEO HTML。
 - 尚未完成事项：评论点赞未纳入本轮；取消已解决状态未实现；评论 anchor 跳转当前可后续优化。
 
@@ -135,7 +135,7 @@ DevHub 当前是 “Go API + Astro 前台 + Vue 后台” 的多子站社区 CMS
 - 导航用户菜单新增我的动态、我的收藏、我的关注、通知中心入口。
 - 子站页新增关注子站按钮。
 - 详情页点赞、收藏、关注主题按钮初始化状态正确，点击后更新状态和计数。
-- 详情页评论区支持运行时加载评论、发表评论、回复评论；question 类型支持采纳按钮并展示“最佳答案”。
+- 详情页评论区支持运行时加载评论、加载更多、发表评论、回复评论；question 类型支持采纳按钮并展示“最佳答案”，非作者默认不显示采纳入口。
 
 ### 后台
 

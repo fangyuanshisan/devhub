@@ -21,6 +21,8 @@ const typeName = {
   news: '周刊',
 }[post.content_type || 'article'] || '内容';
 const searchScope = post.site === 'portal' ? 'scope=all' : `scope=community&community_slug=${encodeURIComponent(post.site)}`;
+const isQuestion = post.content_type === 'question';
+const commentLabel = isQuestion ? '回答' : '评论';
 ---
 <article class="post-card">
   <div class="post-card-top">
@@ -29,7 +31,7 @@ const searchScope = post.site === 'portal' ? 'scope=all' : `scope=community&comm
     <span>{board?.name || post.board}</span>
     {post.pinned && <span class="state-pill">置顶</span>}
     {post.recommended && <span class="state-pill">精华</span>}
-    {post.solved && <span class="state-pill solved">已解决</span>}
+    {isQuestion && (post.solved ? <span class="state-pill solved">已解决</span> : <span class="state-pill unsolved">未解决</span>)}
   </div>
   <h2><a href={`/topics/${post.id}/`}>{post.title}</a></h2>
   <p>{post.summary || post.content.slice(0, 120)}</p>
@@ -45,6 +47,6 @@ const searchScope = post.site === 'portal' ? 'scope=all' : `scope=community&comm
     <span>{post.views} 浏览</span>
     <span>{post.likes} 赞</span>
     <span>{post.favorite_count || 0} 收藏</span>
-    <span>{post.comments} 评论</span>
+    <span>{post.comments} {commentLabel}</span>
   </footer>
 </article>

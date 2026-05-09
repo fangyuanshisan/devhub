@@ -371,21 +371,35 @@ func (s *Server) renderTopicHTML(c *gin.Context, topic *domain.Topic) string {
     </article>
   </main>
   <script>
-  (() => {
-    const id = %d;
-    const isQuestion = %t;
-    const comments = document.querySelector('[data-topic-comments]');
+	  (() => {
+	    const id = %d;
+	    const isQuestion = %t;
+	    const topicAuthorID = %d;
+	    const comments = document.querySelector('[data-topic-comments]');
     const commentForm = document.querySelector('[data-comment-form]');
     const commentTextarea = commentForm?.querySelector('textarea[name="content"]');
     const commentSubmit = document.querySelector('[data-comment-submit]');
     const commentStatus = document.querySelector('[data-comment-status]');
     const commentTotal = document.querySelector('[data-comment-total]');
-    const commentMessage = document.querySelector('[data-comment-message]');
-    const message = document.querySelector('[data-action-message]');
-    const likeButton = document.querySelector('[data-topic-action="like"]');
-    const favoriteButton = document.querySelector('[data-topic-action="favorite"]');
-    const followButton = document.querySelector('[data-topic-action="follow"]');
-    const accessToken = () => localStorage.getItem('devhub_access_token') || '';
+	    const commentMessage = document.querySelector('[data-comment-message]');
+	    const message = document.querySelector('[data-action-message]');
+	    const likeButton = document.querySelector('[data-topic-action="like"]');
+	    const favoriteButton = document.querySelector('[data-topic-action="favorite"]');
+	    const followButton = document.querySelector('[data-topic-action="follow"]');
+	    let commentPage = 1;
+	    let commentHasMore = false;
+	    let commentLoading = false;
+	    const accessToken = () => localStorage.getItem('devhub_access_token') || '';
+	    const currentUserID = () => {
+	      try {
+	        const raw = localStorage.getItem('devhub_user');
+	        if (!raw) return 1;
+	        const parsed = JSON.parse(raw);
+	        return Number(parsed.id || parsed.user_id || 1) || 1;
+	      } catch (_) {
+	        return 1;
+	      }
+	    };
     const headers = (extra = {}) => {
       const token = accessToken();
       return token ? {...extra, Authorization: 'Bearer ' + token} : extra;
@@ -418,9 +432,9 @@ func (s *Server) renderTopicHTML(c *gin.Context, topic *domain.Topic) string {
       }
     };
     fetch('/api/v1/topics/' + id + '/interaction', { headers: headers() }).then(r => r.ok ? r.json() : null).then(data => {
-      if (data) renderState(data);
-    }).catch(() => {});
-    loadComments();
+	      if (data) renderState(data);
+	    }).catch(() => {});
+	    loadComments();
     commentForm?.addEventListener('submit', event => {
       event.preventDefault();
       const content = String(commentTextarea?.value || '').trim();
@@ -434,7 +448,7 @@ func (s *Server) renderTopicHTML(c *gin.Context, topic *domain.Topic) string {
           commentTextarea.value = '';
           setCommentMessage('评论已发布');
           if (data.topic) updateTopicCounts(data.topic);
-          return loadComments();
+	          return reloadComments();
         })
         .catch(err => setCommentMessage(err?.message || '评论发布失败，请稍后再试', true))
         .finally(() => setCommentBusy(false));
@@ -454,7 +468,7 @@ func (s *Server) renderTopicHTML(c *gin.Context, topic *domain.Topic) string {
           .then(data => {
             setCommentMessage('已采纳最佳答案');
             if (data.topic) updateTopicCounts(data.topic);
-            return loadComments();
+	            return reloadComments();
           })
           .catch(err => setCommentMessage(err?.message || '采纳失败', true))
           .finally(() => { acceptButton.disabled = false; });
@@ -479,7 +493,7 @@ func (s *Server) renderTopicHTML(c *gin.Context, topic *domain.Topic) string {
           form.classList.remove('is-open');
           setCommentMessage('回复已发布');
           if (data.topic) updateTopicCounts(data.topic);
-          return loadComments();
+	          return reloadComments();
         })
         .catch(err => setCommentMessage(err?.message || '回复失败，请稍后再试', true))
         .finally(() => { button.disabled = false; });
@@ -490,7 +504,13 @@ func (s *Server) renderTopicHTML(c *gin.Context, topic *domain.Topic) string {
       renderState({liked: likeButton?.dataset.liked === 'true', favorited: favoriteButton?.dataset.favorited === 'true', followed: data.followed, like_count: Number(document.querySelector('[data-like-count]')?.textContent || 0), favorite_count: Number(document.querySelector('[data-favorite-count]')?.textContent || 0)});
       setMessage(data.followed ? '已关注主题' : '已取消关注主题');
     }).catch(errorMessage));
-    document.querySelector('[data-topic-action="report"]')?.addEventListener('click', () => setMessage('举报入口已预留，后续治理轮次接入。'));
+	    document.querySelector('[data-topic-action="report"]')?.addEventListener('click', () => setMessage('举报入口已预留，后续治理轮次接入。'));
+	    comments?.addEventListener('click', event => {
+	      const moreButton = event.target.closest('[data-load-more-comments]');
+	      if (!moreButton || commentLoading) return;
+	      moreButton.disabled = true;
+	      loadComments(commentPage + 1, true).finally(() => { moreButton.disabled = false; });
+	    });
     function postJSON(url, body) {
       return fetch(url, {
         method: 'POST',
@@ -502,26 +522,45 @@ func (s *Server) renderTopicHTML(c *gin.Context, topic *domain.Topic) string {
         return data;
       });
     }
-    function loadComments() {
-      if (!comments) return Promise.resolve();
-      if (commentStatus) commentStatus.textContent = '加载中';
-      return fetch('/api/v1/topics/' + id + '/comments?sort=best&page=1&page_size=20', { headers: headers() })
-        .then(r => r.ok ? r.json() : Promise.reject(new Error('评论加载失败')))
-        .then(data => {
-          const items = data.items || [];
-          if (commentTotal) commentTotal.textContent = Number(data.total || items.length);
-          if (commentStatus) commentStatus.textContent = data.has_more ? '显示前 20 条' : '已加载';
-          comments.innerHTML = items.length ? items.map(renderComment).join('') : '<div class="empty-state">还没有评论，来写下第一条回答。</div>';
-        })
-        .catch(() => {
-          if (commentStatus) commentStatus.textContent = '加载失败';
-          comments.innerHTML = '<div class="empty-state">评论暂时加载失败，请稍后刷新。</div>';
-        });
-    }
+	    function reloadComments() {
+	      commentPage = 1;
+	      return loadComments(1, false);
+	    }
+	    function loadComments(page = 1, append = false) {
+	      if (!comments) return Promise.resolve();
+	      commentLoading = true;
+	      if (commentStatus) commentStatus.textContent = '加载中';
+	      return fetch('/api/v1/topics/' + id + '/comments?sort=best&page=' + page + '&page_size=20', { headers: headers() })
+	        .then(r => r.ok ? r.json() : Promise.reject(new Error('评论加载失败')))
+	        .then(data => {
+	          const items = data.items || [];
+	          if (commentTotal) commentTotal.textContent = Number(data.total || items.length);
+	          commentPage = Number(data.page || page);
+	          commentHasMore = Boolean(data.has_more);
+	          if (commentStatus) commentStatus.textContent = commentHasMore ? '可继续加载' : '已加载';
+	          const html = items.map(renderComment).join('');
+	          if (append) {
+	            const oldMore = comments.querySelector('[data-load-more-comments]');
+	            oldMore?.remove();
+	            comments.insertAdjacentHTML('beforeend', html + renderMoreButton());
+	          } else {
+	            comments.innerHTML = items.length ? html + renderMoreButton() : '<div class="empty-state">还没有评论，来写下第一条回答。</div>';
+	          }
+	        })
+	        .catch(() => {
+	          if (commentStatus) commentStatus.textContent = '加载失败';
+	          comments.innerHTML = '<div class="empty-state">评论暂时加载失败，请稍后刷新。</div>';
+	        })
+	        .finally(() => { commentLoading = false; });
+	    }
+	    function renderMoreButton() {
+	      return commentHasMore ? '<div class="comment-more"><button type="button" data-load-more-comments>加载更多评论</button></div>' : '';
+	    }
     function renderComment(item) {
       const replies = Array.isArray(item.replies) && item.replies.length ? '<div class="comment-replies">' + item.replies.map(renderComment).join('') + '</div>' : '';
       const best = item.is_best ? '<span class="state-pill solved">最佳答案</span>' : '';
-      const accept = isQuestion && !item.is_best ? '<button type="button" data-accept="' + Number(item.id || 0) + '">采纳</button>' : '';
+	      const canAccept = isQuestion && !item.is_best && currentUserID() === Number(topicAuthorID || 1);
+	      const accept = canAccept ? '<button type="button" data-accept="' + Number(item.id || 0) + '">采纳</button>' : '';
       return '<article class="comment-item" id="comment-' + Number(item.id || 0) + '">' +
         '<div class="comment-meta"><strong>' + escapeHTML(item.user_name || item.author || 'DevHub 用户') + '</strong>' + best + '<span>' + escapeHTML(item.created_at || '') + '</span></div>' +
         '<p>' + escapeHTML(item.content || item.text || '') + '</p>' +
@@ -554,7 +593,7 @@ func (s *Server) renderTopicHTML(c *gin.Context, topic *domain.Topic) string {
 		pathEsc(communitySlug), esc(communityName), queryEsc(communitySlug), queryEsc(topic.ContentType), esc(categoryName),
 		esc(topic.Title), esc(description), pathEsc(communitySlug), esc(communityName), esc(categoryName), esc(topic.CreatedAt), esc(topic.CreatedAt),
 		topic.ViewCount, topic.CommentCount, topic.LikeCount, topic.FavoriteCount,
-		aiSummaryHTML(topic.AISummary), contentHTML, tagLinks, topic.LikeCount, topic.FavoriteCount, topic.CommentCount, topic.ID, topic.ContentType == "question")
+		aiSummaryHTML(topic.AISummary), contentHTML, tagLinks, topic.LikeCount, topic.FavoriteCount, topic.CommentCount, topic.ID, topic.ContentType == "question", topic.UserID)
 }
 
 func (s *Server) topicSEOContext(topic *domain.Topic) (domain.Community, domain.Category) {
@@ -1808,8 +1847,10 @@ func (s *Server) fillCommentUser(c *gin.Context, req *domain.CreateCommentReques
 		user.ID = 1
 	}
 	req.UserID = user.ID
+	req.ActorUserID = user.ID
+	req.ActorUserName = firstNonEmpty(user.Nickname, user.Username, "Demo 用户")
 	if strings.TrimSpace(req.Author) == "" {
-		req.Author = firstNonEmpty(user.Nickname, user.Username, "Demo 用户")
+		req.Author = req.ActorUserName
 	}
 }
 
@@ -1825,7 +1866,7 @@ func (s *Server) acceptTopicComment(c *gin.Context) {
 	if !s.canAcceptAnswer(c, topicID) {
 		return
 	}
-	if s.svc.AcceptBestAnswer(topicID, commentID) {
+	if s.svc.AcceptBestAnswer(topicID, commentID, currentUserID(c)) {
 		topic, _ := s.svc.TopicByID(topicID, false)
 		c.JSON(http.StatusOK, gin.H{"accepted": true, "solved": true, "best_comment_id": commentID, "topic": topic})
 		return
@@ -1975,7 +2016,7 @@ func (s *Server) solveTopic(c *gin.Context) {
 	if !s.canAcceptAnswer(c, id) {
 		return
 	}
-	if s.svc.AcceptBestAnswer(id, req.CommentID) {
+	if s.svc.AcceptBestAnswer(id, req.CommentID, currentUserID(c)) {
 		c.JSON(http.StatusOK, gin.H{"accepted": true, "solved": true, "best_comment_id": req.CommentID})
 		return
 	}

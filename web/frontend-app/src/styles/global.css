@@ -851,6 +851,10 @@ main {
   color: #16a34a;
 }
 
+.state-pill.unsolved {
+  color: #c2410c;
+}
+
 .post-card h2 {
   margin: 10px 0 8px;
   font-size: 20px;
@@ -1315,6 +1319,21 @@ main {
   margin-left: 18px;
   padding-left: 12px;
   border-left: 2px solid var(--line);
+}
+
+.comment-more {
+  display: flex;
+  justify-content: center;
+  margin-top: 14px;
+}
+
+.comment-more button {
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  padding: 8px 12px;
+  background: var(--panel);
+  color: var(--primary);
+  cursor: pointer;
 }
 
 .search-panel {

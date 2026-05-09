@@ -112,6 +112,7 @@ curl "http://127.0.0.1:8090/api/v1/topics/1/comments?page=1&page_size=20&sort=be
 
 - 返回 `items`、`total`、`page`、`page_size`、`has_more`。
 - `sort=latest`、`sort=oldest`、`sort=best` 可用。
+- 超过一页时详情页显示“加载更多评论”并可继续请求下一页。
 - 空评论时前台显示空状态，不白屏。
 
 发表评论：
@@ -146,7 +147,7 @@ curl -X POST "http://127.0.0.1:8090/api/v1/topics/1/comments/1/replies" \
 - 被回复评论不属于当前 Topic 时返回错误。
 - 成功后写入 `parent_id`、`reply_to_user_id`。
 - 成功后 `comment_count`、`last_active_at`、`hot_score` 更新。
-- 写入 `activities.commented`，`target_type=comment`。
+- 写入 `activities.commented`，`target_type=comment`，`target_id` 指向被回复评论。
 - 非本人回复生成 `comment_replied` 通知；自己回复自己不通知。
 
 ## 问答采纳
@@ -176,6 +177,7 @@ curl -X POST "http://127.0.0.1:8090/api/v1/topics/1/solve" \
 - 支持更换最佳答案；当前暂不支持取消已解决状态。
 - 采纳后详情页显示“最佳答案”。
 - 写入 `activities.accepted_answer`。
+- `accepted_answer` 动态 actor 为实际采纳操作者。
 - 非本人时生成 `answer_accepted` 通知。
 - 刷新详情页后最佳答案状态仍存在。
 
@@ -191,7 +193,7 @@ curl "http://127.0.0.1:8090/api/v1/topics?sort=unsolved"
 - 只返回 `content_type=question` 且 `is_solved=false` 的 Topic。
 - 已采纳的问题不再出现在未解决筛选中。
 - 搜索页 `/search?sort=unsolved` 显示未解决问答。
-- 列表展示回答数 / 评论数和最后活跃时间。
+- 搜索页、子站页、首页卡片对 question 显示“未解决 / 已解决”、回答数和最后活跃时间。
 
 ## 我的页面和通知
 
@@ -248,6 +250,7 @@ MySQL 模式应验证：
 - Toggle 操作不重复计数。
 - 评论创建和采纳写入数据库字段正确。
 - `comment_count`、`last_active_at`、`hot_score`、`is_solved`、`best_comment_id` 正确。
+- 评论创建和采纳事务失败时不应留下半更新状态。
 - 分页 total 不因 replies join 重复。
 - 兼容 MySQL 8。
 

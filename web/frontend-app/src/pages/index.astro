@@ -113,23 +113,27 @@ const jsonLd = {
       const typeName = { article: '帖子', question: '问答', project: '项目', ai_work: 'AI作品', job: '招聘', wiki: 'Wiki', doc: '文档', news: '周刊' };
       const escapeHTML = (value) => String(value ?? '').replace(/[&<>"']/g, (char) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[char]));
       const topicSite = (topic) => communityIDToSite[topic.community_id] || 'portal';
-      const renderTopic = (topic) => {
-        const site = topicSite(topic);
-        const tags = (topic.tags || []).slice(0, 5).map((tag) => `<a href="/search/?scope=${site === 'portal' ? 'all' : 'community'}${site === 'portal' ? '' : `&community_slug=${encodeURIComponent(site)}`}&tag=${encodeURIComponent(tag)}">${escapeHTML(tag)}</a>`).join('');
-        return `<article class="post-card">
-          <div class="post-card-top">
-            <span class="type-pill">${escapeHTML(typeName[topic.content_type] || '内容')}</span>
-            <a class="site-pill" href="/c/${encodeURIComponent(site)}/">${escapeHTML(communityNames[site] || site)}</a>
-            ${topic.is_pinned ? '<span class="state-pill">置顶</span>' : ''}
-            ${topic.is_featured ? '<span class="state-pill">精华</span>' : ''}
-            ${topic.is_solved ? '<span class="state-pill solved">已解决</span>' : ''}
-          </div>
-          <h2><a href="/topics/${Number(topic.id)}/">${escapeHTML(topic.title)}</a></h2>
-          <p>${escapeHTML(topic.summary || String(topic.content || '').slice(0, 120))}</p>
-          ${tags ? `<div class="post-tags">${tags}</div>` : ''}
-          <footer><span>DevHub 用户</span><span>${escapeHTML(topic.created_at || '刚刚')} 发布</span><span>${Number(topic.view_count || 0)} 浏览</span><span>${Number(topic.like_count || 0)} 赞</span><span>${Number(topic.comment_count || 0)} 评论</span></footer>
-        </article>`;
-      };
+	      const renderTopic = (topic) => {
+	        const site = topicSite(topic);
+	        const tags = (topic.tags || []).slice(0, 5).map((tag) => `<a href="/search/?scope=${site === 'portal' ? 'all' : 'community'}${site === 'portal' ? '' : `&community_slug=${encodeURIComponent(site)}`}&tag=${encodeURIComponent(tag)}">${escapeHTML(tag)}</a>`).join('');
+	        const qaState = topic.content_type === 'question'
+	          ? (topic.is_solved ? '<span class="state-pill solved">已解决</span>' : '<span class="state-pill unsolved">未解决</span>')
+	          : '';
+	        const commentLabel = topic.content_type === 'question' ? '回答' : '评论';
+	        return `<article class="post-card">
+	          <div class="post-card-top">
+	            <span class="type-pill">${escapeHTML(typeName[topic.content_type] || '内容')}</span>
+	            <a class="site-pill" href="/c/${encodeURIComponent(site)}/">${escapeHTML(communityNames[site] || site)}</a>
+	            ${topic.is_pinned ? '<span class="state-pill">置顶</span>' : ''}
+	            ${topic.is_featured ? '<span class="state-pill">精华</span>' : ''}
+	            ${qaState}
+	          </div>
+	          <h2><a href="/topics/${Number(topic.id)}/">${escapeHTML(topic.title)}</a></h2>
+	          <p>${escapeHTML(topic.summary || String(topic.content || '').slice(0, 120))}</p>
+	          ${tags ? `<div class="post-tags">${tags}</div>` : ''}
+	          <footer><span>DevHub 用户</span><span>${escapeHTML(topic.created_at || '刚刚')} 发布</span><span>${escapeHTML(topic.last_active_at || topic.updated_at || topic.created_at || '刚刚')} 活跃</span><span>${Number(topic.view_count || 0)} 浏览</span><span>${Number(topic.like_count || 0)} 赞</span><span>${Number(topic.comment_count || 0)} ${commentLabel}</span></footer>
+	        </article>`;
+	      };
       const renderFeature = (topic) => `<article class="featured-card"><span>${escapeHTML(typeName[topic.content_type] || '内容')}</span><h3><a href="/topics/${Number(topic.id)}/">${escapeHTML(topic.title)}</a></h3><p>${escapeHTML(topic.summary || String(topic.content || '').slice(0, 90))}</p></article>`;
       const getJSON = (url) => fetch(url).then((response) => response.ok ? response.json() : Promise.reject());
 
