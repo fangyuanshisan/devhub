@@ -15,6 +15,7 @@ DevHub 当前 SEO 重点面向百度。核心原则是：动态 Topic 详情页�
 - 互动按钮、评论运行时加载失败时，也不能影响 `/topics/:id` HTML 源码里的 SEO 内容。
 - 第六轮评论区、回复表单、加载更多和最佳答案展示均由浏览器运行时加载；当前不要求评论内容或最佳答案进入初始 SEO HTML。
 - 第七轮举报入口、评论锁定提示、精华 / 置顶状态属于运行时或详情页增强，不能改变正常 Topic 的 SEO 主体输出。
+- 第八轮 admin-next 内容 CRUD、版主管理、批量治理和审计日志只改变后台 API / 页面；正常 Topic 详情 SEO 仍由 Go 动态输出。
 - 隐藏 Topic 详情页由 Go 输出“内容已隐藏”HTML，并带 `meta name="robots" content="noindex,follow"`；隐藏页不输出原正文。
 
 ## Topic 详情页源码要求

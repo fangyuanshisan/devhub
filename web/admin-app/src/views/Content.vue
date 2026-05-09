@@ -27,11 +27,11 @@
     </el-tabs>
     <div class="batch-actions">
       <el-button type="primary" @click="openCreate">新增内容</el-button>
-      <el-button @click="batchDrawer = true">批量审核</el-button>
-      <el-button @click="batchDrawer = true">批量下架</el-button>
-      <el-button @click="batchDrawer = true">内容导出</el-button>
+      <el-button :disabled="!selected.length" @click="openBatch('feature')">批量精华</el-button>
+      <el-button :disabled="!selected.length" @click="openBatch('hide')">批量隐藏</el-button>
+      <el-button :disabled="!selected.length" @click="openBatch('lock-comments')">批量锁评</el-button>
     </div>
-    <el-table :data="rows" stripe @sort-change="sortChange">
+    <el-table :data="rows" stripe @sort-change="sortChange" @selection-change="selected = $event">
       <el-table-column type="expand" width="44"><template #default="{ row }"><div class="content-meta">摘要：{{ row.summary || '暂无摘要' }}</div></template></el-table-column>
       <el-table-column type="selection" width="46" />
       <el-table-column prop="id" label="内容ID | 类型" width="190" sortable="custom">
@@ -90,16 +90,35 @@
   </el-drawer>
 
   <el-drawer v-model="batchDrawer" title="批量操作" size="360px">
-    <el-alert title="这里可扩展批量审核、推荐、下架、迁移板块等动作。" type="info" :closable="false" />
+    <el-alert :title="`已选择 ${selected.length} 条内容`" type="info" :closable="false" />
+    <el-form label-width="88px" class="mt">
+      <el-form-item label="治理动作">
+        <el-select v-model="batchAction">
+          <el-option label="设为精华" value="feature" />
+          <el-option label="取消精华" value="unfeature" />
+          <el-option label="设为置顶" value="pin" />
+          <el-option label="取消置顶" value="unpin" />
+          <el-option label="隐藏内容" value="hide" />
+          <el-option label="恢复内容" value="restore" />
+          <el-option label="锁定评论" value="lock-comments" />
+          <el-option label="解锁评论" value="unlock-comments" />
+          <el-option label="删除内容" value="delete" />
+        </el-select>
+      </el-form-item>
+    </el-form>
+    <template #footer>
+      <el-button @click="batchDrawer = false">取消</el-button>
+      <el-button type="primary" :disabled="!selected.length" @click="submitBatch">执行</el-button>
+    </template>
   </el-drawer>
 </template>
 
 <script setup>
 import { reactive, ref } from 'vue';
-import { ElMessageBox } from 'element-plus';
+import { ElMessage, ElMessageBox } from 'element-plus';
 import { ArrowDown, UploadFilled } from '@element-plus/icons-vue';
 import MarkdownEditor from '@/components/MarkdownEditor.vue';
-import { boards, createPost, deletePost, featureTopic, hideTopic, lockTopicComments, pinTopic, posts, restoreTopic, sites, unlockTopicComments, updatePost } from '@/api/admin';
+import { batchTopics, boards, createPost, deletePost, featureTopic, hideTopic, lockTopicComments, pinTopic, posts, restoreTopic, sites, unlockTopicComments, updatePost } from '@/api/admin';
 
 const query = reactive({ site: 'portal', board: 'all', status: 'all', q: '', page: 1, page_size: 10 });
 const dateRange = ref([]);
@@ -110,6 +129,8 @@ const siteList = ref([]);
 const boardList = ref([]);
 const drawer = ref(false);
 const batchDrawer = ref(false);
+const batchAction = ref('feature');
+const selected = ref([]);
 const step = ref(0);
 const formRef = ref();
 const editing = ref({});
@@ -122,7 +143,7 @@ async function loadBase() {
   boardList.value = (await boards()).items || [];
 }
 async function load() {
-  const params = { ...query, status: ['pinned', 'recommended'].includes(query.status) ? 'all' : query.status };
+  const params = { ...query };
   const data = await posts(params);
   rows.value = data.items || [];
   total.value = data.total || rows.value.length;
@@ -152,6 +173,10 @@ function openCreate() {
   step.value = 0;
   drawer.value = true;
 }
+function openBatch(action) {
+  batchAction.value = action;
+  batchDrawer.value = true;
+}
 function openEdit(row) {
   Object.assign(form, row);
   editing.value = row;
@@ -179,5 +204,11 @@ async function toggleFeature(row) { await featureTopic(row.id); await load(); }
 async function togglePin(row) { await pinTopic(row.id); await load(); }
 async function toggleLock(row) { row.comment_locked ? await unlockTopicComments(row.id) : await lockTopicComments(row.id); await load(); }
 async function toggleVisible(row) { row.status === 'offline' ? await restoreTopic(row.id) : await hideTopic(row.id); await load(); }
+async function submitBatch() {
+  const data = await batchTopics({ ids: selected.value.map((row) => row.id), action: batchAction.value });
+  batchDrawer.value = false;
+  ElMessage.success(`已处理 ${data.updated || 0} 条，失败 ${data.failed || 0} 条`);
+  await load();
+}
 loadBase().then(load);
 </script>

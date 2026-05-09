@@ -48,6 +48,7 @@ type Repository interface {
 	AdminSettings() domain.AdminSettings
 	UpdateAdminSettings(req domain.AdminSettings) domain.AdminSettings
 	AdminLogs(site string) []domain.AdminLog
+	AdminLogsByFilter(filter domain.AdminLogFilter) ([]domain.AdminLog, int)
 	AppendAdminLog(log domain.AdminLog)
 	PushNotification(req domain.PushNotificationRequest) *domain.Notification
 	Notices(site string) []domain.Notification
@@ -86,6 +87,11 @@ type Repository interface {
 	ReportByID(id int64) (*domain.Report, error)
 	HandleReport(id int64, status, note string, handlerUserID int64) (*domain.Report, error)
 	IsCommunityModerator(userID, communityID int64) bool
+	CommunityModerators(filter domain.CommunityModeratorFilter) ([]domain.CommunityModerator, int)
+	CommunityModeratorByID(id int64) (*domain.CommunityModerator, error)
+	CreateCommunityModerator(req domain.CommunityModeratorRequest) (*domain.CommunityModerator, error)
+	UpdateCommunityModerator(id int64, req domain.CommunityModeratorRequest) (*domain.CommunityModerator, error)
+	DeleteCommunityModerator(id int64) bool
 	SetTopicFeatured(id int64, featured bool) (*domain.Topic, error)
 	SetTopicPinned(id int64, pinned bool) (*domain.Topic, error)
 	SetTopicStatus(id int64, status int) (*domain.Topic, error)
@@ -298,6 +304,11 @@ func (s *Service) UpdateAdminSettings(req domain.AdminSettings) domain.AdminSett
 // AdminLogs 返回后台操作日志。
 func (s *Service) AdminLogs(site string) []domain.AdminLog { return s.repo.AdminLogs(site) }
 
+// AdminLogsByFilter 返回可筛选和分页的后台治理审计日志。
+func (s *Service) AdminLogsByFilter(filter domain.AdminLogFilter) ([]domain.AdminLog, int) {
+	return s.repo.AdminLogsByFilter(filter)
+}
+
 // AppendAdminLog 写入带站点和操作者上下文的后台操作日志。
 func (s *Service) AppendAdminLog(log domain.AdminLog) { s.repo.AppendAdminLog(log) }
 
@@ -455,6 +466,31 @@ func (s *Service) HandleReport(id int64, status, note string, handlerUserID int6
 // IsCommunityModerator 判断用户是否为指定子站版主。
 func (s *Service) IsCommunityModerator(userID, communityID int64) bool {
 	return s.repo.IsCommunityModerator(userID, communityID)
+}
+
+// CommunityModerators 返回后台版主列表。
+func (s *Service) CommunityModerators(filter domain.CommunityModeratorFilter) ([]domain.CommunityModerator, int) {
+	return s.repo.CommunityModerators(filter)
+}
+
+// CommunityModeratorByID 返回版主详情。
+func (s *Service) CommunityModeratorByID(id int64) (*domain.CommunityModerator, error) {
+	return s.repo.CommunityModeratorByID(id)
+}
+
+// CreateCommunityModerator 新增子站版主。
+func (s *Service) CreateCommunityModerator(req domain.CommunityModeratorRequest) (*domain.CommunityModerator, error) {
+	return s.repo.CreateCommunityModerator(req)
+}
+
+// UpdateCommunityModerator 更新子站版主。
+func (s *Service) UpdateCommunityModerator(id int64, req domain.CommunityModeratorRequest) (*domain.CommunityModerator, error) {
+	return s.repo.UpdateCommunityModerator(id, req)
+}
+
+// DeleteCommunityModerator 停用子站版主。
+func (s *Service) DeleteCommunityModerator(id int64) bool {
+	return s.repo.DeleteCommunityModerator(id)
 }
 
 func (s *Service) SetTopicFeatured(id int64, featured bool) (*domain.Topic, error) {

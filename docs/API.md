@@ -372,7 +372,7 @@ Content-Type: application/json
 - `reason_text` 可选，最多 500 字。
 - 接口会优先使用当前登录用户；未登录时使用 demo `user_id=1`。
 - 创建成功后 `status=pending`。
-- 本轮允许重复举报同一对象，但不会导致异常。
+- 同一用户对同一对象已有 `pending` 举报时会返回 `同一对象已有待处理举报，请勿重复提交`；举报处理完成后可以再次提交。
 
 响应：
 
@@ -428,17 +428,23 @@ Authorization: Bearer <access_token>
 ### Topic 治理
 
 ```http
+GET /api/v1/admin/posts
+POST /api/v1/admin/posts
+PUT /api/v1/admin/posts/:id
+DELETE /api/v1/admin/posts/:id
 POST /api/v1/admin/topics/:id/feature
 POST /api/v1/admin/topics/:id/pin
 POST /api/v1/admin/topics/:id/hide
 POST /api/v1/admin/topics/:id/restore
 POST /api/v1/admin/topics/:id/lock-comments
 POST /api/v1/admin/topics/:id/unlock-comments
+POST /api/v1/admin/topics/batch
 Authorization: Bearer <access_token>
 ```
 
 规则：
 
+- `/api/v1/admin/posts` 路径保持后台兼容命名，但真实读写 `topics`；公开 `/api/v1/posts` 兼容 API 仍读写 legacy `posts`。
 - 管理员可操作所有 Topic。
 - 子站版主只能操作自己负责 `community_id` 下的 Topic。
 - `feature` 为 toggle 接口，切换 `is_featured`。
@@ -447,6 +453,17 @@ Authorization: Bearer <access_token>
 - `lock-comments` 设置 `comment_locked=true`，`unlock-comments` 设置 `false`。
 - 被隐藏 Topic 不进入普通列表、搜索和 sitemap；后台内容管理仍可看到。
 - 被锁定 Topic 后端会拒绝普通评论和回复创建，前端也显示“评论已锁定”并禁用提交入口。
+
+批量请求体：
+
+```json
+{
+  "ids": [1, 2, 3],
+  "action": "hide"
+}
+```
+
+`action` 支持 `feature`、`unfeature`、`pin`、`unpin`、`hide`、`restore`、`lock-comments`、`unlock-comments`、`delete`。接口逐条校验权限并返回每条成功或失败原因。
 
 响应：
 
@@ -462,6 +479,7 @@ Authorization: Bearer <access_token>
 ```http
 POST /api/v1/admin/comments/:id/hide
 POST /api/v1/admin/comments/:id/restore
+POST /api/v1/admin/comments/batch
 Authorization: Bearer <access_token>
 ```
 
@@ -472,6 +490,7 @@ Authorization: Bearer <access_token>
 - `hide` 设置评论 `status=hidden`，`restore` 设置 `status=normal`。
 - 普通评论列表过滤 `hidden`、`deleted` 状态。
 - 当前版本禁止隐藏最佳答案评论；需要先更换最佳答案或后续治理轮次补取消采纳。
+- 批量 `action` 支持 `hide`、`restore`、`delete`，逐条返回成功或失败原因。
 
 响应：
 
@@ -481,6 +500,68 @@ Authorization: Bearer <access_token>
   "changed": true
 }
 ```
+
+### 版主管理
+
+```http
+GET /api/v1/admin/moderators?community_slug=php&status=1&page=1&page_size=20
+POST /api/v1/admin/moderators
+PUT /api/v1/admin/moderators/:id
+DELETE /api/v1/admin/moderators/:id
+Authorization: Bearer <access_token>
+```
+
+新增 / 更新请求体：
+
+```json
+{
+  "community_slug": "php",
+  "user_id": 2,
+  "role": "moderator",
+  "status": 1
+}
+```
+
+规则：
+
+- `role` 支持 `moderator`、`owner`。
+- `status=1` 启用，`status=0` 停用。
+- 当前版本只有管理员可以新增、更新和停用版主。
+- `DELETE` 为软停用，不删除 `community_moderators` 行。
+- 版主列表会返回 `community_slug/community_name/user_name/user_nickname`，便于后台展示。
+
+### 批量举报处理
+
+```http
+POST /api/v1/admin/reports/batch-handle
+Authorization: Bearer <access_token>
+```
+
+请求体：
+
+```json
+{
+  "ids": [1, 2],
+  "status": "accepted",
+  "handle_note": "批量确认违规，已隐藏目标内容"
+}
+```
+
+`status` 只能是 `accepted` 或 `rejected`。接口逐条校验管理员 / 版主子站权限，`accepted` 沿用单条处理逻辑隐藏目标内容。
+
+### 治理审计日志
+
+```http
+GET /api/v1/admin/audit-logs?site=portal&type=audit&actor=admin&target=topics&page=1&page_size=20
+Authorization: Bearer <access_token>
+```
+
+规则：
+
+- `type` 支持 `all`、`audit`、`operation`、`system`、`login` 等当前日志类型。
+- 非全局后台仍按当前站点 scope 返回日志。
+- 新增/更新版主、内容 CRUD、举报处理、批量 topic/comment/report 治理都会写入 `admin_logs`。
+- 旧 `GET /api/v1/admin/logs` 仍保留，返回当前站点日志列表。
 
 ## 通知类型与动态类型
 
@@ -514,6 +595,7 @@ Authorization: Bearer <access_token>
 - `topics`：`content_type`、`status`、`is_pinned`、`is_featured`、`is_solved`、`comment_locked`、`best_comment_id`、`comment_count`、`last_active_at`、`hot_score`。
 - `reports`：`reporter_id`、`target_type`、`target_id`、`community_id`、`topic_id`、`reason_type`、`reason_text`、`status`、`handled_by`、`handled_at`、`handle_note`。
 - `community_moderators`：`community_id`、`user_id`、`role`、`status`。
+- `admin_logs`：`site_key`、`log_type`、`actor`、`role_code`、`action`、`target`、`ip`、`created_at`。
 - `activities`：`topic_id`、`action`、`target_type`、`target_id`、`metadata`。
 - `notifications`：`actor_user_id`、`type`、`target_type`、`target_id`、`topic_id`、`comment_id`、`is_read`、`read_at`。
 
@@ -532,6 +614,9 @@ Authorization: Bearer <access_token>
 - `400 {"error":"评论已锁定"}`。
 - `400 {"error":"主题已隐藏"}`。
 - `400 {"error":"最佳答案不能隐藏"}`。
+- `400 {"error":"同一对象已有待处理举报，请勿重复提交"}`。
+- `400 {"error":"版主角色不合法"}`。
+- `400 {"error":"不支持的批量主题操作"}`。
 - `403 {"error":"只有主题作者或管理员可以采纳答案"}`。
 - `403 {"error":"无权管理该子站内容"}`。
 - `403 {"error":"只有管理员可以管理全局举报"}`。
@@ -546,4 +631,3 @@ Authorization: Bearer <access_token>
 - 采纳支持更换最佳答案，暂不支持取消已解决状态。
 - 最佳答案当前通过前端运行时展示，不强制进入 `/topics/:id` 初始 SEO HTML。
 - 标签关注后端和我的关注页可展示，前台标签区域的关注按钮后续增强。
-- 版主管理 CRUD、批量治理、举报频率限制后续完善。

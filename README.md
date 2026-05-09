@@ -155,6 +155,7 @@ Database: devhub
 /me/notifications       通知中心别名
 /admin-next             当前后台
 /admin-next/reports     举报管理
+/admin-next/moderators  版主管理
 /admin-next/...         后台前端路由
 ```
 
@@ -238,17 +239,28 @@ GET  /api/v1/auth/me
 POST /api/v1/admin/login
 GET  /api/v1/admin/overview
 GET  /api/v1/admin/posts
+POST /api/v1/admin/posts
+PUT  /api/v1/admin/posts/:id
+DELETE /api/v1/admin/posts/:id
 GET  /api/v1/admin/comments
 GET  /api/v1/admin/reports
 POST /api/v1/admin/reports/:id/handle
+POST /api/v1/admin/reports/batch-handle
+GET  /api/v1/admin/moderators
+POST /api/v1/admin/moderators
+PUT  /api/v1/admin/moderators/:id
+DELETE /api/v1/admin/moderators/:id
 POST /api/v1/admin/topics/:id/feature
 POST /api/v1/admin/topics/:id/pin
 POST /api/v1/admin/topics/:id/hide
 POST /api/v1/admin/topics/:id/restore
 POST /api/v1/admin/topics/:id/lock-comments
 POST /api/v1/admin/topics/:id/unlock-comments
+POST /api/v1/admin/topics/batch
 POST /api/v1/admin/comments/:id/hide
 POST /api/v1/admin/comments/:id/restore
+POST /api/v1/admin/comments/batch
+GET  /api/v1/admin/audit-logs
 GET  /api/v1/admin/users
 GET  /api/v1/admin/settings
 ```

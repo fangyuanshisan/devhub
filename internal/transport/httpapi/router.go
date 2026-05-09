@@ -106,9 +106,10 @@ func NewRouter(svc *service.Service) *gin.Engine {
 			protected.GET("/me", srv.adminMe)
 			protected.GET("/overview", srv.requirePermission("dashboard.read"), srv.adminOverview)
 			protected.GET("/posts", srv.requirePermission("post.read"), srv.adminPosts)
-			protected.POST("/posts", srv.requirePermission("post.create"), srv.createPost)
-			protected.PUT("/posts/:id", srv.requirePermission("post.update"), srv.updatePost)
-			protected.DELETE("/posts/:id", srv.requirePermission("post.delete"), srv.deletePost)
+			protected.POST("/posts", srv.requirePermission("post.create"), srv.createAdminPost)
+			protected.PUT("/posts/:id", srv.requirePermission("post.update"), srv.updateAdminPost)
+			protected.DELETE("/posts/:id", srv.requirePermission("post.delete"), srv.deleteAdminPost)
+			protected.POST("/topics/batch", srv.requirePermission("topic.moderate"), srv.batchAdminTopics)
 			protected.POST("/sites", srv.requirePermission("site.write"), srv.createAdminSite)
 			protected.PUT("/sites/:site", srv.requirePermission("site.write"), srv.updateAdminSite)
 			protected.POST("/boards", srv.requirePermission("board.write"), srv.createAdminBoard)
@@ -125,9 +126,15 @@ func NewRouter(svc *service.Service) *gin.Engine {
 			protected.POST("/comments/:id/hide", srv.requirePermission("comment.moderate"), srv.hideAdminComment)
 			protected.POST("/comments/:id/restore", srv.requirePermission("comment.moderate"), srv.restoreAdminComment)
 			protected.DELETE("/comments/:id", srv.requirePermission("comment.moderate"), srv.deleteAdminComment)
+			protected.POST("/comments/batch", srv.requirePermission("comment.moderate"), srv.batchAdminComments)
 			protected.GET("/reports", srv.requirePermission("report.read"), srv.adminReports)
 			protected.GET("/reports/:id", srv.requirePermission("report.read"), srv.adminReport)
 			protected.POST("/reports/:id/handle", srv.requirePermission("report.handle"), srv.handleAdminReport)
+			protected.POST("/reports/batch-handle", srv.requirePermission("report.handle"), srv.batchAdminReports)
+			protected.GET("/moderators", srv.requirePermission("moderator.read"), srv.adminModerators)
+			protected.POST("/moderators", srv.requirePermission("moderator.write"), srv.createAdminModerator)
+			protected.PUT("/moderators/:id", srv.requirePermission("moderator.write"), srv.updateAdminModerator)
+			protected.DELETE("/moderators/:id", srv.requirePermission("moderator.write"), srv.deleteAdminModerator)
 			protected.POST("/topics/:id/feature", srv.requirePermission("topic.moderate"), srv.featureAdminTopic)
 			protected.POST("/topics/:id/pin", srv.requirePermission("topic.moderate"), srv.pinAdminTopic)
 			protected.POST("/topics/:id/hide", srv.requirePermission("topic.moderate"), srv.hideAdminTopic)
@@ -137,6 +144,7 @@ func NewRouter(svc *service.Service) *gin.Engine {
 			protected.GET("/settings", srv.requirePermission("setting.read"), srv.adminSettings)
 			protected.PUT("/settings", srv.requirePermission("setting.write"), srv.updateAdminSettings)
 			protected.GET("/logs", srv.requirePermission("log.read"), srv.adminLogs)
+			protected.GET("/audit-logs", srv.requirePermission("log.read"), srv.adminAuditLogs)
 			protected.POST("/notifications", srv.requirePermission("notification.write"), srv.pushAdminNotification)
 		}
 	}
@@ -1247,6 +1255,14 @@ func (s *Server) adminPosts(c *gin.Context) {
 	if status != "all" && status != "" {
 		filtered := make([]domain.Post, 0, len(posts))
 		for _, post := range posts {
+			if status == "pinned" && post.Pinned {
+				filtered = append(filtered, post)
+				continue
+			}
+			if status == "recommended" && post.Recommended {
+				filtered = append(filtered, post)
+				continue
+			}
 			if post.Status == status {
 				filtered = append(filtered, post)
 			}
@@ -1255,6 +1271,104 @@ func (s *Server) adminPosts(c *gin.Context) {
 	}
 	page, pageSize := pagination(c)
 	c.JSON(http.StatusOK, domain.PageResponse{Items: paginate(posts, page, pageSize), Total: len(posts), Page: page, PageSize: pageSize})
+}
+
+func (s *Server) createAdminPost(c *gin.Context) {
+	var req domain.CreatePostRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		fail(c, http.StatusBadRequest, err.Error())
+		return
+	}
+	topicReq, err := s.createPostToTopicRequest(req)
+	if err != nil {
+		fail(c, http.StatusBadRequest, err.Error())
+		return
+	}
+	topicReq.UserID = currentUserID(c)
+	if !ensureSiteAllowed(c, req.Site) {
+		return
+	}
+	topic, err := s.svc.CreateTopic(topicReq)
+	if err != nil {
+		fail(c, http.StatusBadRequest, err.Error())
+		return
+	}
+	if req.Pinned || req.Recommended {
+		updateReq := domain.UpdateTopicRequest{}
+		if req.Pinned {
+			pinned := true
+			updateReq.IsPinned = &pinned
+		}
+		if req.Recommended {
+			featured := true
+			updateReq.IsFeatured = &featured
+		}
+		if updated, err := s.svc.UpdateTopic(topic.ID, updateReq); err == nil {
+			topic = updated
+		}
+	}
+	if req.Status != "" && req.Status != "publish" {
+		status := postStatusToTopicStatus(req.Status)
+		topic, _ = s.svc.SetTopicStatus(topic.ID, status)
+	}
+	s.audit(c, "operation", "后台创建主题", fmt.Sprintf("topics#%d", topic.ID))
+	c.JSON(http.StatusCreated, topicToAdminPost(*topic))
+}
+
+func (s *Server) updateAdminPost(c *gin.Context) {
+	id, ok := idParam(c, "id")
+	if !ok {
+		return
+	}
+	topic, err := s.svc.TopicByID(id, false)
+	if err != nil {
+		fail(c, http.StatusNotFound, "主题不存在")
+		return
+	}
+	if !s.canModerateTopic(c, topic) {
+		return
+	}
+	var req domain.UpdatePostRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		fail(c, http.StatusBadRequest, err.Error())
+		return
+	}
+	if req.Site != nil && !ensureSiteAllowed(c, *req.Site) {
+		return
+	}
+	updateReq, err := s.updatePostToTopicRequest(req, topic)
+	if err != nil {
+		fail(c, http.StatusBadRequest, err.Error())
+		return
+	}
+	updated, err := s.svc.UpdateTopic(id, updateReq)
+	if err != nil {
+		fail(c, http.StatusBadRequest, err.Error())
+		return
+	}
+	s.audit(c, "operation", "后台更新主题", fmt.Sprintf("topics#%d", id))
+	c.JSON(http.StatusOK, topicToAdminPost(*updated))
+}
+
+func (s *Server) deleteAdminPost(c *gin.Context) {
+	id, ok := idParam(c, "id")
+	if !ok {
+		return
+	}
+	topic, err := s.svc.TopicByID(id, false)
+	if err != nil {
+		fail(c, http.StatusNotFound, "主题不存在")
+		return
+	}
+	if !s.canModerateTopic(c, topic) {
+		return
+	}
+	if !s.svc.DeleteTopic(id) {
+		fail(c, http.StatusNotFound, "主题不存在")
+		return
+	}
+	s.audit(c, "operation", "后台删除主题", fmt.Sprintf("topics#%d", id))
+	c.JSON(http.StatusOK, gin.H{"deleted": true})
 }
 
 func (s *Server) createAdminSite(c *gin.Context) {
@@ -1460,6 +1574,20 @@ func (s *Server) adminLogs(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"items": s.svc.AdminLogs(adminSiteScope(c))})
 }
 
+func (s *Server) adminAuditLogs(c *gin.Context) {
+	page, pageSize := pagination(c)
+	filter := domain.AdminLogFilter{
+		Site:     adminSiteScope(c),
+		Type:     strings.TrimSpace(c.DefaultQuery("type", "all")),
+		Actor:    strings.TrimSpace(c.Query("actor")),
+		Target:   strings.TrimSpace(c.Query("target")),
+		Page:     page,
+		PageSize: pageSize,
+	}
+	items, total := s.svc.AdminLogsByFilter(filter)
+	c.JSON(http.StatusOK, domain.PageResponse{Items: items, Total: total, Page: page, PageSize: pageSize, HasMore: page*pageSize < total})
+}
+
 func (s *Server) pushAdminNotification(c *gin.Context) {
 	var req domain.PushNotificationRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
@@ -1542,6 +1670,122 @@ func (s *Server) handleAdminReport(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"handled": true, "report": updated})
 }
 
+func (s *Server) batchAdminReports(c *gin.Context) {
+	var req domain.BatchModerationRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		fail(c, http.StatusBadRequest, err.Error())
+		return
+	}
+	status := strings.TrimSpace(req.Status)
+	if status == "" {
+		status = strings.TrimSpace(req.Action)
+	}
+	if status != "accepted" && status != "rejected" {
+		fail(c, http.StatusBadRequest, "批量处理状态不合法")
+		return
+	}
+	result := domain.BatchModerationResponse{Action: status, Items: []domain.BatchModerationItem{}}
+	for _, id := range uniqueInt64s(req.IDs) {
+		item := domain.BatchModerationItem{ID: id}
+		report, err := s.svc.ReportByID(id)
+		if err != nil {
+			item.Error = err.Error()
+		} else if !s.canModerateCommunityForBatch(c, report.CommunityID) {
+			item.Error = "无权管理该举报"
+		} else if _, err := s.svc.HandleReport(id, status, req.HandleNote, currentUserID(c)); err != nil {
+			item.Error = err.Error()
+		} else {
+			item.OK = true
+			result.Updated++
+		}
+		if !item.OK {
+			result.Failed++
+		}
+		result.Items = append(result.Items, item)
+	}
+	s.audit(c, "audit", "批量处理举报", fmt.Sprintf("reports:%d/%d", result.Updated, len(result.Items)))
+	c.JSON(http.StatusOK, result)
+}
+
+func (s *Server) adminModerators(c *gin.Context) {
+	filter := s.moderatorFilter(c)
+	items, total := s.svc.CommunityModerators(filter)
+	c.JSON(http.StatusOK, domain.PageResponse{Items: items, Total: total, Page: filter.Page, PageSize: filter.PageSize, HasMore: filter.Page*filter.PageSize < total})
+}
+
+func (s *Server) createAdminModerator(c *gin.Context) {
+	if !isAdminUser(c) {
+		fail(c, http.StatusForbidden, "只有管理员可以分配版主")
+		return
+	}
+	var req domain.CommunityModeratorRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		fail(c, http.StatusBadRequest, err.Error())
+		return
+	}
+	if !s.ensureModeratorRequestScope(c, req) {
+		return
+	}
+	moderator, err := s.svc.CreateCommunityModerator(req)
+	if err != nil {
+		fail(c, http.StatusBadRequest, err.Error())
+		return
+	}
+	s.audit(c, "system", "新增版主", fmt.Sprintf("community_moderators#%d", moderator.ID))
+	c.JSON(http.StatusCreated, moderator)
+}
+
+func (s *Server) updateAdminModerator(c *gin.Context) {
+	if !isAdminUser(c) {
+		fail(c, http.StatusForbidden, "只有管理员可以管理版主")
+		return
+	}
+	id, ok := idParam(c, "id")
+	if !ok {
+		return
+	}
+	var req domain.CommunityModeratorRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		fail(c, http.StatusBadRequest, err.Error())
+		return
+	}
+	if !s.ensureModeratorRequestScope(c, req) {
+		return
+	}
+	moderator, err := s.svc.UpdateCommunityModerator(id, req)
+	if err != nil {
+		fail(c, http.StatusBadRequest, err.Error())
+		return
+	}
+	s.audit(c, "system", "更新版主", fmt.Sprintf("community_moderators#%d", id))
+	c.JSON(http.StatusOK, moderator)
+}
+
+func (s *Server) deleteAdminModerator(c *gin.Context) {
+	if !isAdminUser(c) {
+		fail(c, http.StatusForbidden, "只有管理员可以停用版主")
+		return
+	}
+	id, ok := idParam(c, "id")
+	if !ok {
+		return
+	}
+	moderator, err := s.svc.CommunityModeratorByID(id)
+	if err != nil {
+		fail(c, http.StatusNotFound, err.Error())
+		return
+	}
+	if !s.canModerateCommunity(c, moderator.CommunityID) {
+		return
+	}
+	if !s.svc.DeleteCommunityModerator(id) {
+		fail(c, http.StatusNotFound, "版主不存在")
+		return
+	}
+	s.audit(c, "system", "停用版主", fmt.Sprintf("community_moderators#%d", id))
+	c.JSON(http.StatusOK, gin.H{"deleted": true, "disabled": true})
+}
+
 func (s *Server) featureAdminTopic(c *gin.Context) {
 	s.toggleAdminTopicBool(c, "feature")
 }
@@ -1572,6 +1816,71 @@ func (s *Server) hideAdminComment(c *gin.Context) {
 
 func (s *Server) restoreAdminComment(c *gin.Context) {
 	s.setAdminCommentStatus(c, "normal")
+}
+
+func (s *Server) batchAdminTopics(c *gin.Context) {
+	var req domain.BatchModerationRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		fail(c, http.StatusBadRequest, err.Error())
+		return
+	}
+	action := strings.TrimSpace(req.Action)
+	result := domain.BatchModerationResponse{Action: action, Items: []domain.BatchModerationItem{}}
+	for _, id := range uniqueInt64s(req.IDs) {
+		item := domain.BatchModerationItem{ID: id}
+		topic, err := s.svc.TopicByID(id, false)
+		if err != nil {
+			item.Error = "主题不存在"
+		} else if !s.canModerateTopicForBatch(c, topic) {
+			item.Error = "无权管理该主题"
+		} else if err := s.applyBatchTopicAction(id, topic, action); err != nil {
+			item.Error = err.Error()
+		} else {
+			item.OK = true
+			result.Updated++
+		}
+		if !item.OK {
+			result.Failed++
+		}
+		result.Items = append(result.Items, item)
+	}
+	s.audit(c, "audit", "批量治理主题", fmt.Sprintf("%s:%d/%d", action, result.Updated, len(result.Items)))
+	c.JSON(http.StatusOK, result)
+}
+
+func (s *Server) batchAdminComments(c *gin.Context) {
+	var req domain.BatchModerationRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		fail(c, http.StatusBadRequest, err.Error())
+		return
+	}
+	action := strings.TrimSpace(req.Action)
+	result := domain.BatchModerationResponse{Action: action, Items: []domain.BatchModerationItem{}}
+	for _, id := range uniqueInt64s(req.IDs) {
+		item := domain.BatchModerationItem{ID: id}
+		comment, err := s.svc.CommentByID(id)
+		if err != nil {
+			item.Error = "评论不存在"
+		} else {
+			topic, topicErr := s.svc.TopicByID(comment.TopicID, false)
+			if topicErr != nil {
+				item.Error = "主题不存在"
+			} else if !s.canModerateTopicForBatch(c, topic) {
+				item.Error = "无权管理该评论"
+			} else if err := s.applyBatchCommentAction(id, action); err != nil {
+				item.Error = err.Error()
+			} else {
+				item.OK = true
+				result.Updated++
+			}
+		}
+		if !item.OK {
+			result.Failed++
+		}
+		result.Items = append(result.Items, item)
+	}
+	s.audit(c, "audit", "批量治理评论", fmt.Sprintf("%s:%d/%d", action, result.Updated, len(result.Items)))
+	c.JSON(http.StatusOK, result)
 }
 
 // corsMiddleware 允许本地前端跨域访问后端接口。
@@ -1808,12 +2117,23 @@ func (s *Server) canModerateCommunity(c *gin.Context, communityID int64) bool {
 	return false
 }
 
+func (s *Server) canModerateCommunityForBatch(c *gin.Context, communityID int64) bool {
+	if isAdminUser(c) {
+		return true
+	}
+	return communityID > 0 && s.svc.IsCommunityModerator(currentUserID(c), communityID)
+}
+
 func (s *Server) canModerateTopic(c *gin.Context, topic *domain.Topic) bool {
 	if topic == nil {
 		fail(c, http.StatusNotFound, "主题不存在")
 		return false
 	}
 	return s.canModerateCommunity(c, topic.CommunityID)
+}
+
+func (s *Server) canModerateTopicForBatch(c *gin.Context, topic *domain.Topic) bool {
+	return topic != nil && s.canModerateCommunityForBatch(c, topic.CommunityID)
 }
 
 func (s *Server) reportFilter(c *gin.Context) domain.ReportFilter {
@@ -1835,6 +2155,40 @@ func (s *Server) reportFilter(c *gin.Context) domain.ReportFilter {
 		ActorUserID:   currentUserID(c),
 		ActorIsAdmin:  isAdminUser(c),
 	}
+}
+
+func (s *Server) moderatorFilter(c *gin.Context) domain.CommunityModeratorFilter {
+	page, pageSize := pagination(c)
+	communityID := int64(0)
+	communitySlug := strings.TrimSpace(firstQuery(c, "community_slug", "site"))
+	if communitySlug != "" && communitySlug != "all" && communitySlug != "portal" {
+		if comm, ok := s.svc.CommunityBySlug(communitySlug); ok {
+			communityID = comm.ID
+		}
+	}
+	return domain.CommunityModeratorFilter{
+		CommunitySlug: communitySlug,
+		CommunityID:   communityID,
+		UserID:        int64Query(c, "user_id", 0),
+		Status:        strings.TrimSpace(c.DefaultQuery("status", "all")),
+		Page:          page,
+		PageSize:      pageSize,
+		ActorUserID:   currentUserID(c),
+		ActorIsAdmin:  isAdminUser(c),
+	}
+}
+
+func (s *Server) ensureModeratorRequestScope(c *gin.Context, req domain.CommunityModeratorRequest) bool {
+	if isAdminUser(c) {
+		return true
+	}
+	communityID := req.CommunityID
+	if communityID == 0 && strings.TrimSpace(req.CommunitySlug) != "" {
+		if comm, ok := s.svc.CommunityBySlug(strings.TrimSpace(req.CommunitySlug)); ok {
+			communityID = comm.ID
+		}
+	}
+	return s.canModerateCommunity(c, communityID)
 }
 
 func (s *Server) toggleAdminTopicBool(c *gin.Context, action string) {
@@ -1865,6 +2219,60 @@ func (s *Server) toggleAdminTopicBool(c *gin.Context, action string) {
 	}
 	s.audit(c, "audit", map[string]string{"feature": "切换精华", "pin": "切换置顶"}[action], fmt.Sprintf("topics#%d", id))
 	c.JSON(http.StatusOK, gin.H{"topic": updated, "changed": true})
+}
+
+func (s *Server) applyBatchTopicAction(id int64, topic *domain.Topic, action string) error {
+	switch action {
+	case "feature":
+		_, err := s.svc.SetTopicFeatured(id, true)
+		return err
+	case "unfeature":
+		_, err := s.svc.SetTopicFeatured(id, false)
+		return err
+	case "pin":
+		_, err := s.svc.SetTopicPinned(id, true)
+		return err
+	case "unpin":
+		_, err := s.svc.SetTopicPinned(id, false)
+		return err
+	case "hide":
+		_, err := s.svc.SetTopicStatus(id, 0)
+		return err
+	case "restore":
+		_, err := s.svc.SetTopicStatus(id, 1)
+		return err
+	case "lock-comments":
+		_, err := s.svc.SetTopicCommentLocked(id, true)
+		return err
+	case "unlock-comments":
+		_, err := s.svc.SetTopicCommentLocked(id, false)
+		return err
+	case "delete":
+		if !s.svc.DeleteTopic(id) {
+			return fmt.Errorf("主题不存在")
+		}
+		return nil
+	default:
+		return fmt.Errorf("不支持的批量主题操作")
+	}
+}
+
+func (s *Server) applyBatchCommentAction(id int64, action string) error {
+	switch action {
+	case "hide":
+		_, err := s.svc.SetCommentStatus(id, "hidden")
+		return err
+	case "restore":
+		_, err := s.svc.SetCommentStatus(id, "normal")
+		return err
+	case "delete":
+		if !s.svc.DeleteComment(id) {
+			return fmt.Errorf("评论不存在")
+		}
+		return nil
+	default:
+		return fmt.Errorf("不支持的批量评论操作")
+	}
 }
 
 func (s *Server) setAdminTopicStatus(c *gin.Context, status int, action string) {
@@ -1963,6 +2371,14 @@ func idParam(c *gin.Context, name string) (int64, bool) {
 func intQuery(c *gin.Context, name string, def int) int {
 	v, err := strconv.Atoi(c.Query(name))
 	if err != nil || v <= 0 {
+		return def
+	}
+	return v
+}
+
+func int64Query(c *gin.Context, name string, def int64) int64 {
+	v, err := strconv.ParseInt(c.Query(name), 10, 64)
+	if err != nil || v < 0 {
 		return def
 	}
 	return v
@@ -2640,6 +3056,237 @@ func firstQuery(c *gin.Context, keys ...string) string {
 		}
 	}
 	return ""
+}
+
+func (s *Server) createPostToTopicRequest(req domain.CreatePostRequest) (domain.CreateTopicRequest, error) {
+	req.Site = strings.TrimSpace(req.Site)
+	req.Board = strings.TrimSpace(req.Board)
+	if req.Site == "" || req.Site == "portal" {
+		return domain.CreateTopicRequest{}, fmt.Errorf("请选择具体子站")
+	}
+	communityID := communityIDBySlug(req.Site)
+	if communityID <= 0 {
+		return domain.CreateTopicRequest{}, fmt.Errorf("子站不存在")
+	}
+	if req.Board == "" || req.Board == "all" {
+		req.Board = "community"
+	}
+	categoryID := categoryIDByBoard(communityID, req.Board)
+	contentType := adminContentTypeByBoard(req.Board)
+	return domain.CreateTopicRequest{
+		UserID:        currentDemoUserID(),
+		CommunityID:   communityID,
+		CommunitySlug: req.Site,
+		CategoryID:    categoryID,
+		Title:         req.Title,
+		ContentType:   contentType,
+		Summary:       req.Summary,
+		Content:       req.Content,
+		Tags:          req.Tags,
+	}, nil
+}
+
+func (s *Server) updatePostToTopicRequest(req domain.UpdatePostRequest, topic *domain.Topic) (domain.UpdateTopicRequest, error) {
+	out := domain.UpdateTopicRequest{}
+	if req.Site != nil {
+		communityID := communityIDBySlug(strings.TrimSpace(*req.Site))
+		if communityID <= 0 {
+			return out, fmt.Errorf("子站不存在")
+		}
+		out.CommunityID = &communityID
+	}
+	if req.Board != nil {
+		board := strings.TrimSpace(*req.Board)
+		if board == "" || board == "all" {
+			return out, fmt.Errorf("请选择具体板块")
+		}
+		communityID := topic.CommunityID
+		if out.CommunityID != nil {
+			communityID = *out.CommunityID
+		}
+		categoryID := categoryIDByBoard(communityID, board)
+		contentType := adminContentTypeByBoard(board)
+		out.CategoryID = &categoryID
+		out.ContentType = &contentType
+	}
+	if req.Title != nil {
+		title := strings.TrimSpace(*req.Title)
+		out.Title = &title
+	}
+	if req.Summary != nil {
+		summary := strings.TrimSpace(*req.Summary)
+		out.Summary = &summary
+	}
+	if req.Content != nil {
+		content := strings.TrimSpace(*req.Content)
+		out.Content = &content
+	}
+	if req.Status != nil {
+		status := postStatusToTopicStatus(*req.Status)
+		out.Status = &status
+	}
+	if req.Pinned != nil {
+		out.IsPinned = req.Pinned
+	}
+	if req.Recommended != nil {
+		out.IsFeatured = req.Recommended
+	}
+	if req.Tags != nil {
+		tags := uniqueStrings(*req.Tags)
+		out.Tags = &tags
+	}
+	return out, nil
+}
+
+func topicToAdminPost(topic domain.Topic) domain.Post {
+	site := slugByCommunityID(topic.CommunityID)
+	board := boardByContentTypeHTTP(topic.ContentType)
+	status := "publish"
+	if topic.Status == 0 {
+		status = "offline"
+	} else if topic.Status == 3 {
+		status = "deleted"
+	}
+	return domain.Post{
+		ID:            topic.ID,
+		UserID:        topic.UserID,
+		Site:          site,
+		Board:         board,
+		Title:         topic.Title,
+		Summary:       topic.Summary,
+		Content:       topic.Content,
+		Author:        "DevHub 用户",
+		Status:        status,
+		Pinned:        topic.IsPinned,
+		Recommended:   topic.IsFeatured,
+		CommentLocked: topic.CommentLocked,
+		Views:         topic.ViewCount,
+		Likes:         topic.LikeCount,
+		Comments:      topic.CommentCount,
+		Tags:          append([]string{}, topic.Tags...),
+		CreatedAt:     topic.CreatedAt,
+		UpdatedAt:     topic.UpdatedAt,
+	}
+}
+
+func currentDemoUserID() int64 { return 1 }
+
+func communityIDBySlug(slug string) int64 {
+	switch strings.TrimSpace(slug) {
+	case "php":
+		return 1
+	case "go":
+		return 2
+	case "java":
+		return 3
+	case "ai":
+		return 4
+	case "frontend":
+		return 5
+	default:
+		return 0
+	}
+}
+
+func slugByCommunityID(id int64) string {
+	switch id {
+	case 1:
+		return "php"
+	case 2:
+		return "go"
+	case 3:
+		return "java"
+	case 4:
+		return "ai"
+	case 5:
+		return "frontend"
+	default:
+		return "portal"
+	}
+}
+
+func categoryIDByBoard(communityID int64, board string) int64 {
+	order := map[string]int64{"community": 1, "qa": 2, "opensource": 3, "ai": 4, "jobs": 5, "wiki": 6, "docs": 7}
+	if order[board] == 0 {
+		board = "community"
+	}
+	return communityID*100 + order[board]
+}
+
+func adminContentTypeByBoard(board string) string {
+	switch board {
+	case "qa":
+		return "question"
+	case "opensource":
+		return "project"
+	case "ai":
+		return "ai_work"
+	case "jobs":
+		return "job"
+	case "wiki":
+		return "wiki"
+	case "docs":
+		return "doc"
+	default:
+		return "article"
+	}
+}
+
+func boardByContentTypeHTTP(contentType string) string {
+	switch contentType {
+	case "question":
+		return "qa"
+	case "project":
+		return "opensource"
+	case "ai_work":
+		return "ai"
+	case "job":
+		return "jobs"
+	case "wiki":
+		return "wiki"
+	case "doc":
+		return "docs"
+	default:
+		return "community"
+	}
+}
+
+func postStatusToTopicStatus(status string) int {
+	switch strings.TrimSpace(status) {
+	case "offline", "hidden":
+		return 0
+	case "deleted":
+		return 3
+	default:
+		return 1
+	}
+}
+
+func uniqueStrings(items []string) []string {
+	seen := map[string]bool{}
+	out := []string{}
+	for _, item := range items {
+		item = strings.TrimSpace(item)
+		if item == "" || seen[item] {
+			continue
+		}
+		seen[item] = true
+		out = append(out, item)
+	}
+	return out
+}
+
+func uniqueInt64s(items []int64) []int64 {
+	seen := map[int64]bool{}
+	out := []int64{}
+	for _, item := range items {
+		if item <= 0 || seen[item] {
+			continue
+		}
+		seen[item] = true
+		out = append(out, item)
+	}
+	return out
 }
 
 func (s *Server) normalizeCreateTopicRequest(req *domain.CreateTopicRequest) error {

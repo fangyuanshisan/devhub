@@ -138,7 +138,7 @@ func (s *MemoryStore) seed() {
 	}
 
 	s.roles[1] = domain.AdminRole{ID: 1, Name: "超级管理员", Builtin: true, Description: "拥有所有模块操作权限", Permissions: []string{"*"}, UserCount: 1}
-	s.roles[2] = domain.AdminRole{ID: 2, Name: "站点管理员", Builtin: true, Description: "负责授权子站的内容和举报治理", Permissions: []string{"dashboard.read", "post.read", "post.create", "post.update", "post.delete", "topic.moderate", "comment.read", "comment.moderate", "report.read", "report.handle", "notification.write", "log.read"}, UserCount: 1}
+	s.roles[2] = domain.AdminRole{ID: 2, Name: "站点管理员", Builtin: true, Description: "负责授权子站的内容和举报治理", Permissions: []string{"dashboard.read", "post.read", "post.create", "post.update", "post.delete", "topic.moderate", "comment.read", "comment.moderate", "report.read", "report.handle", "moderator.read", "notification.write", "log.read"}, UserCount: 1}
 	s.roles[3] = domain.AdminRole{ID: 3, Name: "内容审核员", Builtin: true, Description: "负责授权子站的内容审核和评论治理", Permissions: []string{"dashboard.read", "post.read", "post.update", "topic.moderate", "comment.read", "comment.moderate", "report.read", "report.handle"}, UserCount: 1}
 	s.users[1] = &domain.AdminUser{ID: 1, Username: "admin", Nickname: "超级管理员", Avatar: "", Phone: "13800000001", Email: "admin@devhub.local", Status: "normal", RoleID: 1, RoleName: "超级管理员", CreatedAt: "2026-04-01 09:00:00", LastLoginAt: "2026-05-06 09:30:00"}
 	s.users[2] = &domain.AdminUser{ID: 2, Username: "operator", Nickname: "运营管理员", Avatar: "", Phone: "13800000002", Email: "operator@devhub.local", Status: "normal", RoleID: 2, RoleName: "运营管理员", CreatedAt: "2026-04-08 09:00:00", LastLoginAt: "2026-05-05 18:20:00"}
@@ -1262,6 +1262,7 @@ func (s *MemoryStore) AdminPermissions() []domain.AdminPermission {
 		{Code: "site", Module: "站点配置", Name: "子站 / 板块 / 搜索范围", Ops: []string{"查", "增", "删", "改"}},
 		{Code: "user", Module: "用户管理", Name: "用户信息 / 行为 / 违规处理", Ops: []string{"查", "改", "审核"}},
 		{Code: "operation", Module: "运营管理", Name: "推荐 / 通知 / 热门 / 草稿箱", Ops: []string{"查", "增", "删", "改"}},
+		{Code: "moderator", Module: "版主管理", Name: "子站版主分配 / 停用", Ops: []string{"查", "增", "删", "改"}},
 		{Code: "statistics", Module: "数据统计", Name: "内容 / 用户 / 搜索统计", Ops: []string{"查", "导出"}},
 		{Code: "system", Module: "系统设置", Name: "参数 / 日志 / 备份恢复", Ops: []string{"查", "改", "删"}},
 	}
@@ -1360,6 +1361,22 @@ func (s *MemoryStore) AdminLogs(site string) []domain.AdminLog {
 	return out
 }
 
+func (s *MemoryStore) AdminLogsByFilter(filter domain.AdminLogFilter) ([]domain.AdminLog, int) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	items := []domain.AdminLog{}
+	for _, log := range s.logs {
+		if !adminLogMatches(log, filter) {
+			continue
+		}
+		items = append(items, log)
+	}
+	sort.Slice(items, func(i, j int) bool { return items[i].ID > items[j].ID })
+	total := len(items)
+	page, pageSize := normalizeMemoryPage(filter.Page, filter.PageSize)
+	return paginateSlice(items, page, pageSize), total
+}
+
 // PushNotification 创建后台推送通知并记录操作日志。
 func (s *MemoryStore) PushNotification(req domain.PushNotificationRequest) *domain.Notification {
 	s.mu.Lock()
@@ -1392,6 +1409,22 @@ func postContains(p *domain.Post, q string) bool {
 	q = strings.ToLower(strings.TrimSpace(q))
 	haystack := strings.ToLower(strings.Join([]string{p.Title, p.Summary, p.Author, p.Content, strings.Join(p.Tags, " ")}, " "))
 	return strings.Contains(haystack, q)
+}
+
+func adminLogMatches(log domain.AdminLog, filter domain.AdminLogFilter) bool {
+	if !logInSite(log, filter.Site) {
+		return false
+	}
+	if filter.Type != "" && filter.Type != "all" && log.Type != filter.Type {
+		return false
+	}
+	if filter.Actor != "" && !strings.Contains(strings.ToLower(log.Actor), strings.ToLower(filter.Actor)) {
+		return false
+	}
+	if filter.Target != "" && !strings.Contains(strings.ToLower(log.Target), strings.ToLower(filter.Target)) {
+		return false
+	}
+	return true
 }
 
 // hasTag 判断标签列表是否包含指定标签，大小写不敏感。
@@ -2287,7 +2320,67 @@ func (s *MemoryStore) CreateTopic(req domain.CreateTopicRequest) (*domain.Topic,
 }
 
 func (s *MemoryStore) UpdateTopic(id int64, req domain.UpdateTopicRequest) (*domain.Topic, error) {
-	return nil, errors.New("暂未实现")
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	p, ok := s.posts[id]
+	if !ok {
+		return nil, errors.New("主题不存在")
+	}
+	if req.CommunitySlug != nil || req.CommunityID != nil {
+		communityID := int64(0)
+		if req.CommunityID != nil {
+			communityID = *req.CommunityID
+		}
+		if communityID == 0 && req.CommunitySlug != nil {
+			communityID = communityIDBySite(strings.TrimSpace(*req.CommunitySlug))
+		}
+		site := siteByCommunityID(communityID)
+		if site == "" {
+			return nil, errors.New("子站不存在")
+		}
+		p.Site = site
+	}
+	if req.CategoryID != nil && *req.CategoryID > 0 {
+		p.Board = boardByCategoryID(*req.CategoryID)
+	}
+	if req.ContentType != nil && strings.TrimSpace(*req.ContentType) != "" {
+		p.Board = boardByContentType(strings.TrimSpace(*req.ContentType))
+	}
+	if req.Title != nil {
+		title := strings.TrimSpace(*req.Title)
+		if title == "" {
+			return nil, errors.New("标题不能为空")
+		}
+		p.Title = title
+	}
+	if req.Summary != nil {
+		p.Summary = strings.TrimSpace(*req.Summary)
+	}
+	if req.Content != nil {
+		content := strings.TrimSpace(*req.Content)
+		if content == "" {
+			return nil, errors.New("正文不能为空")
+		}
+		p.Content = content
+	}
+	if req.Status != nil {
+		memorySetPostStatus(p, *req.Status)
+	}
+	if req.IsPinned != nil {
+		p.Pinned = *req.IsPinned
+	}
+	if req.IsFeatured != nil {
+		p.Recommended = *req.IsFeatured
+	}
+	if req.CommentLocked != nil {
+		s.commentLocks[id] = *req.CommentLocked
+	}
+	if req.Tags != nil {
+		p.Tags = uniqueTags(*req.Tags)
+	}
+	p.UpdatedAt = Now()
+	topic, _ := s.topicFromPostLocked(id, false)
+	return &topic, nil
 }
 
 func (s *MemoryStore) DeleteTopic(id int64) bool {
@@ -2983,6 +3076,11 @@ func (s *MemoryStore) CreateReport(req domain.CreateReportRequest) (*domain.Repo
 	if err != nil {
 		return nil, err
 	}
+	for _, existing := range s.reports {
+		if existing.ReporterUserID == reporterID && existing.TargetType == targetType && existing.TargetID == req.TargetID && existing.Status == "pending" {
+			return nil, errors.New("同一对象已有待处理举报，请勿重复提交")
+		}
+	}
 	now := Now()
 	report := &domain.Report{
 		ID:             s.nextReportID,
@@ -3089,6 +3187,115 @@ func (s *MemoryStore) IsCommunityModerator(userID, communityID int64) bool {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	return s.isCommunityModeratorLocked(userID, communityID)
+}
+
+func (s *MemoryStore) CommunityModerators(filter domain.CommunityModeratorFilter) ([]domain.CommunityModerator, int) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	communityID := filter.CommunityID
+	if communityID == 0 && filter.CommunitySlug != "" && filter.CommunitySlug != "all" && filter.CommunitySlug != "portal" {
+		communityID = communityIDBySite(filter.CommunitySlug)
+	}
+	items := []domain.CommunityModerator{}
+	for _, moderator := range s.moderators {
+		if communityID > 0 && moderator.CommunityID != communityID {
+			continue
+		}
+		if filter.UserID > 0 && moderator.UserID != filter.UserID {
+			continue
+		}
+		if filter.Status != "" && filter.Status != "all" {
+			want := 1
+			if filter.Status == "0" || strings.EqualFold(filter.Status, "disabled") {
+				want = 0
+			}
+			if moderator.Status != want {
+				continue
+			}
+		}
+		if !filter.ActorIsAdmin && !s.isCommunityModeratorLocked(filter.ActorUserID, moderator.CommunityID) {
+			continue
+		}
+		items = append(items, s.enrichModeratorLocked(*moderator))
+	}
+	sort.Slice(items, func(i, j int) bool {
+		if items[i].CommunityID == items[j].CommunityID {
+			return items[i].ID > items[j].ID
+		}
+		return items[i].CommunityID < items[j].CommunityID
+	})
+	total := len(items)
+	page, pageSize := normalizeMemoryPage(filter.Page, filter.PageSize)
+	return paginateSlice(items, page, pageSize), total
+}
+
+func (s *MemoryStore) CommunityModeratorByID(id int64) (*domain.CommunityModerator, error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	moderator, ok := s.moderators[id]
+	if !ok {
+		return nil, errors.New("版主不存在")
+	}
+	cp := s.enrichModeratorLocked(*moderator)
+	return &cp, nil
+}
+
+func (s *MemoryStore) CreateCommunityModerator(req domain.CommunityModeratorRequest) (*domain.CommunityModerator, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	moderator, err := s.normalizeModeratorRequestLocked(req, nil)
+	if err != nil {
+		return nil, err
+	}
+	for _, existing := range s.moderators {
+		if existing.CommunityID == moderator.CommunityID && existing.UserID == moderator.UserID {
+			return nil, errors.New("该用户已经是当前子站版主")
+		}
+	}
+	moderator.ID = s.nextModeratorID
+	s.nextModeratorID++
+	now := Now()
+	moderator.CreatedAt = now
+	moderator.UpdatedAt = now
+	s.moderators[moderator.ID] = moderator
+	cp := s.enrichModeratorLocked(*moderator)
+	return &cp, nil
+}
+
+func (s *MemoryStore) UpdateCommunityModerator(id int64, req domain.CommunityModeratorRequest) (*domain.CommunityModerator, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	current, ok := s.moderators[id]
+	if !ok {
+		return nil, errors.New("版主不存在")
+	}
+	updated, err := s.normalizeModeratorRequestLocked(req, current)
+	if err != nil {
+		return nil, err
+	}
+	for _, existing := range s.moderators {
+		if existing.ID != id && existing.CommunityID == updated.CommunityID && existing.UserID == updated.UserID {
+			return nil, errors.New("该用户已经是当前子站版主")
+		}
+	}
+	updated.ID = current.ID
+	updated.CreatedAt = current.CreatedAt
+	updated.UpdatedAt = Now()
+	s.moderators[id] = updated
+	cp := s.enrichModeratorLocked(*updated)
+	return &cp, nil
+}
+
+func (s *MemoryStore) DeleteCommunityModerator(id int64) bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	moderator, ok := s.moderators[id]
+	if !ok {
+		return false
+	}
+	moderator.Status = 0
+	moderator.UpdatedAt = Now()
+	return true
 }
 
 func (s *MemoryStore) SetTopicFeatured(id int64, featured bool) (*domain.Topic, error) {
@@ -3248,6 +3455,64 @@ func (s *MemoryStore) isCommunityModeratorLocked(userID, communityID int64) bool
 		}
 	}
 	return false
+}
+
+func (s *MemoryStore) normalizeModeratorRequestLocked(req domain.CommunityModeratorRequest, current *domain.CommunityModerator) (*domain.CommunityModerator, error) {
+	moderator := &domain.CommunityModerator{Role: "moderator", Status: 1}
+	if current != nil {
+		cp := *current
+		moderator = &cp
+	}
+	communityID := req.CommunityID
+	if communityID == 0 && strings.TrimSpace(req.CommunitySlug) != "" {
+		communityID = communityIDBySite(strings.TrimSpace(req.CommunitySlug))
+	}
+	if communityID > 0 {
+		if siteByCommunityID(communityID) == "" {
+			return nil, errors.New("子站不存在")
+		}
+		moderator.CommunityID = communityID
+	}
+	if moderator.CommunityID <= 0 {
+		return nil, errors.New("请选择子站")
+	}
+	if req.UserID > 0 {
+		moderator.UserID = req.UserID
+	}
+	if moderator.UserID <= 0 {
+		return nil, errors.New("请选择用户")
+	}
+	if _, ok := s.users[moderator.UserID]; !ok {
+		return nil, errors.New("用户不存在")
+	}
+	if strings.TrimSpace(req.Role) != "" {
+		moderator.Role = strings.TrimSpace(req.Role)
+	}
+	if moderator.Role == "" {
+		moderator.Role = "moderator"
+	}
+	if moderator.Role != "moderator" && moderator.Role != "owner" {
+		return nil, errors.New("版主角色不合法")
+	}
+	if req.Status != nil {
+		moderator.Status = *req.Status
+	}
+	if moderator.Status != 0 && moderator.Status != 1 {
+		return nil, errors.New("版主状态不合法")
+	}
+	return moderator, nil
+}
+
+func (s *MemoryStore) enrichModeratorLocked(m domain.CommunityModerator) domain.CommunityModerator {
+	if comm := s.communityByIDLocked(m.CommunityID); comm.ID > 0 {
+		m.CommunitySlug = comm.Slug
+		m.CommunityName = comm.Name
+	}
+	if user, ok := s.users[m.UserID]; ok {
+		m.UserName = user.Username
+		m.UserNickname = user.Nickname
+	}
+	return m
 }
 
 func validReportTargetType(targetType string) bool {

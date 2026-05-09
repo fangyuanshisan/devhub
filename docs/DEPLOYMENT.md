@@ -118,3 +118,13 @@ kill <pid>
 ## 第六轮收尾启动结论
 
 2026-05-09 收尾验收中，`./dev.sh --local-go --restart` 已完成前台和后台构建，但最终本地 Go 服务启动阶段没有稳定留下 8090 进程；随后 `go run` 链路出现 Gitee `git-upload-pack` 残留子进程。清理残留进程后，使用 `go build -o .devhub/devhub .` 产出二进制，并通过 `setsid` 后台启动，8090 已稳定响应。
+
+## 第八轮构建补充
+
+第八轮修改了 Go 后端和 `web/admin-app`。本机无 `npm` 时，后台构建可直接使用 Docker Node：
+
+```bash
+docker run --rm -v "$PWD/web/admin-app:/app" -w /app node:20-alpine sh -lc 'if [ ! -d node_modules ]; then npm install --registry=https://registry.npmmirror.com; fi; npm run build'
+```
+
+构建产物仍输出到 `web/admin-vue`，由 Go 在 `/admin-next` 挂载。修改 Go 后端后仍需执行 `./dev.sh --restart`，或先 `go build -o .devhub/devhub .` 再按二进制排障启动。

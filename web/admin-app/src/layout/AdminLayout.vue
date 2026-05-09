@@ -66,17 +66,18 @@
 import { computed, ref, watch } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import { ElMessage } from 'element-plus';
-import { ArrowDown, Bell, ChatDotRound, DataBoard, Document, Fold, FullScreen, Grid, Promotion, Refresh, Search, SetUp, Setting, TrendCharts, User, Warning } from '@element-plus/icons-vue';
+import { ArrowDown, Bell, ChatDotRound, DataBoard, Document, Fold, FullScreen, Grid, Promotion, Refresh, Search, SetUp, Setting, TrendCharts, User, UserFilled, Warning } from '@element-plus/icons-vue';
 import { menuRoutes } from '@/router';
 import { useAuthStore } from '@/stores/auth';
 import { useTabsStore } from '@/stores/tabs';
 
-const icons = { ChatDotRound, DataBoard, Document, Promotion, SetUp, Setting, TrendCharts, User, Warning };
+const icons = { ChatDotRound, DataBoard, Document, Promotion, SetUp, Setting, TrendCharts, User, UserFilled, Warning };
 const subMenus = {
   dashboard: [{ key: 'overview', label: '运营概览' }, { key: 'todo', label: '待办事项' }],
   content: [{ key: 'posts', label: '内容管理' }, { key: 'docs', label: '文档管理' }, { key: 'tags', label: '标签管理' }],
   comments: [{ key: 'all', label: '评论列表' }, { key: 'audit', label: '审核队列' }],
   reports: [{ key: 'pending', label: '待处理' }, { key: 'handled', label: '处理记录' }],
+  moderators: [{ key: 'list', label: '版主列表' }, { key: 'scope', label: '子站授权' }],
   sites: [{ key: 'site', label: '子网站配置' }, { key: 'board', label: '板块配置' }],
   users: [{ key: 'list', label: '用户管理' }, { key: 'roles', label: '角色权限' }],
   operation: [{ key: 'notice', label: '通知推送' }, { key: 'recommend', label: '推荐位' }],

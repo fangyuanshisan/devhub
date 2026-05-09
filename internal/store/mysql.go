@@ -142,6 +142,7 @@ func (s *MySQLStore) migrateSiteScopedAudit() error {
 	_, _ = s.db.Exec(`ALTER TABLE reports ADD COLUMN topic_id BIGINT UNSIGNED NOT NULL DEFAULT 0 AFTER community_id`)
 	_, _ = s.db.Exec(`ALTER TABLE reports ADD COLUMN handle_note VARCHAR(1000) NULL AFTER handled_at`)
 	_, _ = s.db.Exec(`ALTER TABLE reports ADD KEY idx_reports_community_status (community_id, status)`)
+	_, _ = s.db.Exec(`ALTER TABLE reports ADD KEY idx_reports_reporter_target_status (reporter_id, target_type, target_id, status)`)
 	_, _ = s.db.Exec(`ALTER TABLE reactions ADD COLUMN updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP AFTER created_at`)
 	_, _ = s.db.Exec(`ALTER TABLE favorites ADD COLUMN updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP AFTER created_at`)
 	_, _ = s.db.Exec(`ALTER TABLE follows ADD COLUMN updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP AFTER created_at`)
@@ -470,6 +471,8 @@ func (s *MySQLStore) seedAuthData() error {
 		{"report.read", "report", "read", "查看举报"},
 		{"report.handle", "report", "handle", "处理举报"},
 		{"topic.moderate", "topic", "moderate", "治理主题"},
+		{"moderator.read", "moderator", "read", "查看版主"},
+		{"moderator.write", "moderator", "write", "管理版主"},
 		{"user.read", "user", "read", "查看用户"},
 		{"user.write", "user", "write", "管理用户"},
 		{"role.read", "role", "read", "查看角色"},
@@ -491,7 +494,7 @@ func (s *MySQLStore) seedAuthData() error {
 		Permissions []string
 	}{
 		{1, "super_admin", "超级管理员", "拥有全部站点和全部权限", []string{"*"}},
-		{2, "site_admin", "站点管理员", "管理被授权站点", []string{"dashboard.read", "site.read", "board.read", "board.write", "post.read", "post.create", "post.update", "post.delete", "topic.moderate", "comment.read", "comment.moderate", "report.read", "report.handle", "user.read", "setting.read", "notification.write", "log.read"}},
+		{2, "site_admin", "站点管理员", "管理被授权站点", []string{"dashboard.read", "site.read", "board.read", "board.write", "post.read", "post.create", "post.update", "post.delete", "topic.moderate", "comment.read", "comment.moderate", "report.read", "report.handle", "moderator.read", "user.read", "setting.read", "notification.write", "log.read"}},
 		{3, "editor", "编辑", "创建和编辑内容", []string{"dashboard.read", "post.read", "post.create", "post.update", "comment.read"}},
 		{4, "moderator", "审核员", "审核内容和评论", []string{"dashboard.read", "post.read", "post.update", "topic.moderate", "comment.read", "comment.moderate", "report.read", "report.handle"}},
 		{5, "user", "普通用户", "前台登录用户", []string{"post.create", "comment.read"}},
@@ -1502,7 +1505,12 @@ func (s *MySQLStore) AdminOverview(site string) domain.AdminOverview {
 }
 
 func (s *MySQLStore) AdminUsers() []domain.AdminUser {
-	rows, err := s.db.Query(`SELECT id,username,nickname,avatar,phone,email,status,role_id,role_name,DATE_FORMAT(created_at,'%Y-%m-%d %H:%i:%s'),COALESCE(DATE_FORMAT(last_login_at,'%Y-%m-%d %H:%i:%s'),''),COALESCE(violation_note,'') FROM admin_users ORDER BY id`)
+	rows, err := s.db.Query(`SELECT u.id,u.username,u.nickname,'' AS avatar,u.phone,u.email,u.status,COALESCE(MIN(r.id),5),COALESCE(MIN(r.name),'普通用户'),DATE_FORMAT(u.created_at,'%Y-%m-%d %H:%i:%s'),COALESCE(DATE_FORMAT(u.last_login_at,'%Y-%m-%d %H:%i:%s'),''),''
+		FROM users u
+		LEFT JOIN user_roles ur ON ur.user_id=u.id AND ur.status='normal'
+		LEFT JOIN roles r ON r.id=ur.role_id
+		GROUP BY u.id,u.username,u.nickname,u.phone,u.email,u.status,u.created_at,u.last_login_at
+		ORDER BY u.id`)
 	if err != nil {
 		return []domain.AdminUser{}
 	}
@@ -1511,7 +1519,7 @@ func (s *MySQLStore) AdminUsers() []domain.AdminUser {
 	for rows.Next() {
 		var u domain.AdminUser
 		if err := rows.Scan(&u.ID, &u.Username, &u.Nickname, &u.Avatar, &u.Phone, &u.Email, &u.Status, &u.RoleID, &u.RoleName, &u.CreatedAt, &u.LastLoginAt, &u.ViolationNote); err == nil {
-			_ = s.db.QueryRow(`SELECT COUNT(*) FROM posts WHERE author=? OR author=?`, u.Username, u.Nickname).Scan(&u.Posts)
+			_ = s.db.QueryRow(`SELECT COUNT(*) FROM topics WHERE user_id=? AND deleted_at IS NULL`, u.ID).Scan(&u.Posts)
 			_ = s.db.QueryRow(`SELECT COUNT(*) FROM comments WHERE author=? OR author=?`, u.Username, u.Nickname).Scan(&u.Comments)
 			out = append(out, u)
 		}
@@ -1520,7 +1528,7 @@ func (s *MySQLStore) AdminUsers() []domain.AdminUser {
 }
 
 func (s *MySQLStore) UpdateUserStatus(id int64, status, note string) bool {
-	res, err := s.db.Exec(`UPDATE admin_users SET status=?,violation_note=? WHERE id=?`, strings.TrimSpace(status), strings.TrimSpace(note), id)
+	res, err := s.db.Exec(`UPDATE users SET status=? WHERE id=?`, strings.TrimSpace(status), id)
 	if err != nil {
 		return false
 	}
@@ -1528,6 +1536,7 @@ func (s *MySQLStore) UpdateUserStatus(id int64, status, note string) bool {
 	if n == 0 {
 		return false
 	}
+	_, _ = s.db.Exec(`UPDATE admin_users SET status=?,violation_note=? WHERE id=?`, strings.TrimSpace(status), strings.TrimSpace(note), id)
 	s.appendLog("operation", "admin", "更新用户状态", fmt.Sprintf("users#%d", id), "127.0.0.1")
 	return true
 }
@@ -1556,6 +1565,7 @@ func (s *MySQLStore) AdminPermissions() []domain.AdminPermission {
 		{Code: "site", Module: "站点配置", Name: "子站 / 板块 / 搜索范围", Ops: []string{"查", "增", "删", "改"}},
 		{Code: "user", Module: "用户管理", Name: "用户信息 / 行为 / 违规处理", Ops: []string{"查", "改", "审核"}},
 		{Code: "operation", Module: "运营管理", Name: "推荐 / 通知 / 热门 / 草稿箱", Ops: []string{"查", "增", "删", "改"}},
+		{Code: "moderator", Module: "版主管理", Name: "子站版主分配 / 停用", Ops: []string{"查", "增", "删", "改"}},
 		{Code: "statistics", Module: "数据统计", Name: "内容 / 用户 / 搜索统计", Ops: []string{"查", "导出"}},
 		{Code: "system", Module: "系统设置", Name: "参数 / 日志 / 备份恢复", Ops: []string{"查", "改", "删"}},
 	}
@@ -1676,6 +1686,45 @@ func (s *MySQLStore) AdminLogs(site string) []domain.AdminLog {
 		}
 	}
 	return out
+}
+
+func (s *MySQLStore) AdminLogsByFilter(filter domain.AdminLogFilter) ([]domain.AdminLog, int) {
+	site := normalizeSiteScope(filter.Site)
+	where := ` WHERE 1=1`
+	args := []any{}
+	if site != "" && site != "portal" {
+		where += ` AND site_key=?`
+		args = append(args, site)
+	}
+	if filter.Type != "" && filter.Type != "all" {
+		where += ` AND log_type=?`
+		args = append(args, filter.Type)
+	}
+	if strings.TrimSpace(filter.Actor) != "" {
+		where += ` AND actor LIKE ?`
+		args = append(args, "%"+strings.TrimSpace(filter.Actor)+"%")
+	}
+	if strings.TrimSpace(filter.Target) != "" {
+		where += ` AND target LIKE ?`
+		args = append(args, "%"+strings.TrimSpace(filter.Target)+"%")
+	}
+	var total int
+	_ = s.db.QueryRow(`SELECT COUNT(*) FROM admin_logs`+where, args...).Scan(&total)
+	page, pageSize := normalizePage(filter.Page, filter.PageSize)
+	offset := (page - 1) * pageSize
+	rows, err := s.db.Query(`SELECT id,site_key,log_type,actor,role_code,action,target,ip,DATE_FORMAT(created_at,'%Y-%m-%d %H:%i:%s') FROM admin_logs`+where+` ORDER BY id DESC LIMIT ? OFFSET ?`, append(append([]any{}, args...), pageSize, offset)...)
+	if err != nil {
+		return []domain.AdminLog{}, 0
+	}
+	defer rows.Close()
+	out := []domain.AdminLog{}
+	for rows.Next() {
+		var l domain.AdminLog
+		if err := rows.Scan(&l.ID, &l.Site, &l.Type, &l.Actor, &l.Role, &l.Action, &l.Target, &l.IP, &l.CreatedAt); err == nil {
+			out = append(out, l)
+		}
+	}
+	return out, total
 }
 
 func (s *MySQLStore) PushNotification(req domain.PushNotificationRequest) *domain.Notification {
@@ -2116,21 +2165,46 @@ func (s *MySQLStore) UpdateTopic(id int64, req domain.UpdateTopicRequest) (*doma
 	updates := []string{}
 	args := []any{}
 
+	if req.CommunitySlug != nil && strings.TrimSpace(*req.CommunitySlug) != "" {
+		if comm, ok := s.CommunityBySlug(strings.TrimSpace(*req.CommunitySlug)); ok {
+			req.CommunityID = &comm.ID
+		} else {
+			return nil, errors.New("子站不存在")
+		}
+	}
+	if req.CommunityID != nil {
+		if !s.existsByQuery(`SELECT 1 FROM communities WHERE id=? AND deleted_at IS NULL LIMIT 1`, *req.CommunityID) {
+			return nil, errors.New("子站不存在")
+		}
+		updates = append(updates, "community_id=?")
+		args = append(args, *req.CommunityID)
+	}
+	if req.CategoryID != nil {
+		if !s.existsByQuery(`SELECT 1 FROM categories WHERE id=? AND deleted_at IS NULL LIMIT 1`, *req.CategoryID) {
+			return nil, errors.New("板块不存在")
+		}
+		updates = append(updates, "category_id=?")
+		args = append(args, *req.CategoryID)
+	}
 	if req.Title != nil {
 		updates = append(updates, "title=?")
-		args = append(args, *req.Title)
+		args = append(args, strings.TrimSpace(*req.Title))
 	}
 	if req.ContentType != nil {
 		updates = append(updates, "content_type=?")
-		args = append(args, *req.ContentType)
+		args = append(args, strings.TrimSpace(*req.ContentType))
 	}
 	if req.Summary != nil {
 		updates = append(updates, "summary=?")
-		args = append(args, *req.Summary)
+		args = append(args, strings.TrimSpace(*req.Summary))
 	}
 	if req.Content != nil {
 		updates = append(updates, "content=?")
-		args = append(args, *req.Content)
+		args = append(args, strings.TrimSpace(*req.Content))
+	}
+	if req.Status != nil {
+		updates = append(updates, "status=?")
+		args = append(args, *req.Status)
 	}
 	if req.IsPinned != nil {
 		updates = append(updates, "is_pinned=?")
@@ -2144,16 +2218,25 @@ func (s *MySQLStore) UpdateTopic(id int64, req domain.UpdateTopicRequest) (*doma
 		updates = append(updates, "is_solved=?")
 		args = append(args, boolToInt(*req.IsSolved))
 	}
+	if req.CommentLocked != nil {
+		updates = append(updates, "comment_locked=?")
+		args = append(args, boolToInt(*req.CommentLocked))
+	}
 
-	if len(updates) == 0 {
+	if len(updates) == 0 && req.Tags == nil {
 		return s.TopicByID(id, false)
 	}
 
-	args = append(args, id)
-	query := `UPDATE topics SET ` + strings.Join(updates, ",") + `,updated_at=NOW() WHERE id=?`
-	_, err := s.db.Exec(query, args...)
-	if err != nil {
-		return nil, err
+	if len(updates) > 0 {
+		args = append(args, id)
+		query := `UPDATE topics SET ` + strings.Join(updates, ",") + `,updated_at=NOW() WHERE id=? AND deleted_at IS NULL`
+		res, err := s.db.Exec(query, args...)
+		if err != nil {
+			return nil, err
+		}
+		if n, _ := res.RowsAffected(); n == 0 {
+			return nil, errors.New("主题不存在")
+		}
 	}
 
 	// 更新标签
@@ -2168,6 +2251,8 @@ func (s *MySQLStore) UpdateTopic(id int64, req domain.UpdateTopicRequest) (*doma
 				}
 			}
 		}
+	} else if req.CommunityID != nil {
+		_, _ = s.db.Exec(`DELETE FROM topic_tags WHERE topic_id=?`, id)
 	}
 
 	return s.TopicByID(id, false)
@@ -2719,6 +2804,11 @@ func (s *MySQLStore) CreateReport(req domain.CreateReportRequest) (*domain.Repor
 	if err != nil {
 		return nil, err
 	}
+	var existingID int64
+	_ = s.db.QueryRow(`SELECT id FROM reports WHERE reporter_id=? AND target_type=? AND target_id=? AND status='pending' LIMIT 1`, reporterID, targetType, req.TargetID).Scan(&existingID)
+	if existingID > 0 {
+		return nil, errors.New("同一对象已有待处理举报，请勿重复提交")
+	}
 	res, err := s.db.Exec(`INSERT INTO reports (reporter_id,target_type,target_id,community_id,topic_id,reason_type,reason_text,status,created_at,updated_at) VALUES (?,?,?,?,?,?,?,'pending',NOW(),NOW())`,
 		reporterID, targetType, req.TargetID, communityID, topicID, reasonType, reasonText)
 	if err != nil {
@@ -2833,6 +2923,167 @@ func (s *MySQLStore) IsCommunityModerator(userID, communityID int64) bool {
 		return false
 	}
 	return s.existsByQuery(`SELECT 1 FROM community_moderators WHERE user_id=? AND community_id=? AND status=1 LIMIT 1`, userID, communityID)
+}
+
+func (s *MySQLStore) CommunityModerators(filter domain.CommunityModeratorFilter) ([]domain.CommunityModerator, int) {
+	where := ` WHERE 1=1`
+	args := []any{}
+	communityID := filter.CommunityID
+	if communityID == 0 && filter.CommunitySlug != "" && filter.CommunitySlug != "all" && filter.CommunitySlug != "portal" {
+		if comm, ok := s.CommunityBySlug(filter.CommunitySlug); ok {
+			communityID = comm.ID
+		}
+	}
+	if communityID > 0 {
+		where += ` AND cm.community_id=?`
+		args = append(args, communityID)
+	}
+	if filter.UserID > 0 {
+		where += ` AND cm.user_id=?`
+		args = append(args, filter.UserID)
+	}
+	if filter.Status != "" && filter.Status != "all" {
+		status := 1
+		if filter.Status == "0" || strings.EqualFold(filter.Status, "disabled") {
+			status = 0
+		}
+		where += ` AND cm.status=?`
+		args = append(args, status)
+	}
+	if !filter.ActorIsAdmin {
+		where += ` AND cm.community_id IN (SELECT community_id FROM community_moderators WHERE user_id=? AND status=1)`
+		args = append(args, filter.ActorUserID)
+	}
+	var total int
+	_ = s.db.QueryRow(`SELECT COUNT(*) FROM community_moderators cm`+where, args...).Scan(&total)
+	page, pageSize := normalizePage(filter.Page, filter.PageSize)
+	offset := (page - 1) * pageSize
+	query := `SELECT cm.id,cm.community_id,COALESCE(c.slug,''),COALESCE(c.name,''),cm.user_id,COALESCE(u.username,''),COALESCE(u.nickname,''),cm.role,cm.status,DATE_FORMAT(cm.created_at,'%Y-%m-%d %H:%i:%s'),COALESCE(DATE_FORMAT(cm.updated_at,'%Y-%m-%d %H:%i:%s'),'')
+		FROM community_moderators cm
+		LEFT JOIN communities c ON c.id=cm.community_id
+		LEFT JOIN users u ON u.id=cm.user_id` + where + ` ORDER BY cm.community_id ASC, cm.id DESC LIMIT ? OFFSET ?`
+	rows, err := s.db.Query(query, append(append([]any{}, args...), pageSize, offset)...)
+	if err != nil {
+		return []domain.CommunityModerator{}, 0
+	}
+	defer rows.Close()
+	items := []domain.CommunityModerator{}
+	for rows.Next() {
+		var moderator domain.CommunityModerator
+		if err := rows.Scan(&moderator.ID, &moderator.CommunityID, &moderator.CommunitySlug, &moderator.CommunityName, &moderator.UserID, &moderator.UserName, &moderator.UserNickname, &moderator.Role, &moderator.Status, &moderator.CreatedAt, &moderator.UpdatedAt); err == nil {
+			items = append(items, moderator)
+		}
+	}
+	return items, total
+}
+
+func (s *MySQLStore) CommunityModeratorByID(id int64) (*domain.CommunityModerator, error) {
+	var moderator domain.CommunityModerator
+	err := s.db.QueryRow(`SELECT cm.id,cm.community_id,COALESCE(c.slug,''),COALESCE(c.name,''),cm.user_id,COALESCE(u.username,''),COALESCE(u.nickname,''),cm.role,cm.status,DATE_FORMAT(cm.created_at,'%Y-%m-%d %H:%i:%s'),COALESCE(DATE_FORMAT(cm.updated_at,'%Y-%m-%d %H:%i:%s'),'')
+		FROM community_moderators cm
+		LEFT JOIN communities c ON c.id=cm.community_id
+		LEFT JOIN users u ON u.id=cm.user_id
+		WHERE cm.id=?`, id).
+		Scan(&moderator.ID, &moderator.CommunityID, &moderator.CommunitySlug, &moderator.CommunityName, &moderator.UserID, &moderator.UserName, &moderator.UserNickname, &moderator.Role, &moderator.Status, &moderator.CreatedAt, &moderator.UpdatedAt)
+	if err != nil {
+		return nil, errors.New("版主不存在")
+	}
+	return &moderator, nil
+}
+
+func (s *MySQLStore) CreateCommunityModerator(req domain.CommunityModeratorRequest) (*domain.CommunityModerator, error) {
+	communityID, userID, role, status, err := s.normalizeModeratorRequest(req, nil)
+	if err != nil {
+		return nil, err
+	}
+	res, err := s.db.Exec(`INSERT INTO community_moderators (community_id,user_id,role,status,created_at,updated_at) VALUES (?,?,?,?,NOW(),NOW())`, communityID, userID, role, status)
+	if err != nil {
+		if strings.Contains(err.Error(), "Duplicate") {
+			return nil, errors.New("该用户已经是当前子站版主")
+		}
+		return nil, err
+	}
+	id, _ := res.LastInsertId()
+	return s.CommunityModeratorByID(id)
+}
+
+func (s *MySQLStore) UpdateCommunityModerator(id int64, req domain.CommunityModeratorRequest) (*domain.CommunityModerator, error) {
+	current, err := s.CommunityModeratorByID(id)
+	if err != nil {
+		return nil, err
+	}
+	communityID, userID, role, status, err := s.normalizeModeratorRequest(req, current)
+	if err != nil {
+		return nil, err
+	}
+	res, err := s.db.Exec(`UPDATE community_moderators SET community_id=?,user_id=?,role=?,status=?,updated_at=NOW() WHERE id=?`, communityID, userID, role, status, id)
+	if err != nil {
+		if strings.Contains(err.Error(), "Duplicate") {
+			return nil, errors.New("该用户已经是当前子站版主")
+		}
+		return nil, err
+	}
+	if n, _ := res.RowsAffected(); n == 0 {
+		return nil, errors.New("版主不存在")
+	}
+	return s.CommunityModeratorByID(id)
+}
+
+func (s *MySQLStore) DeleteCommunityModerator(id int64) bool {
+	res, err := s.db.Exec(`UPDATE community_moderators SET status=0,updated_at=NOW() WHERE id=?`, id)
+	if err != nil {
+		return false
+	}
+	n, _ := res.RowsAffected()
+	return n > 0
+}
+
+func (s *MySQLStore) normalizeModeratorRequest(req domain.CommunityModeratorRequest, current *domain.CommunityModerator) (int64, int64, string, int, error) {
+	communityID := int64(0)
+	userID := int64(0)
+	role := "moderator"
+	status := 1
+	if current != nil {
+		communityID = current.CommunityID
+		userID = current.UserID
+		role = current.Role
+		status = current.Status
+	}
+	if req.CommunityID > 0 {
+		communityID = req.CommunityID
+	}
+	if req.CommunityID == 0 && strings.TrimSpace(req.CommunitySlug) != "" {
+		comm, ok := s.CommunityBySlug(strings.TrimSpace(req.CommunitySlug))
+		if !ok {
+			return 0, 0, "", 0, errors.New("子站不存在")
+		}
+		communityID = comm.ID
+	}
+	if communityID <= 0 || !s.existsByQuery(`SELECT 1 FROM communities WHERE id=? AND deleted_at IS NULL LIMIT 1`, communityID) {
+		return 0, 0, "", 0, errors.New("请选择子站")
+	}
+	if req.UserID > 0 {
+		userID = req.UserID
+	}
+	if userID <= 0 {
+		return 0, 0, "", 0, errors.New("请选择用户")
+	}
+	if !s.existsByQuery(`SELECT 1 FROM users WHERE id=? LIMIT 1`, userID) {
+		return 0, 0, "", 0, errors.New("用户不存在")
+	}
+	if strings.TrimSpace(req.Role) != "" {
+		role = strings.TrimSpace(req.Role)
+	}
+	if role != "moderator" && role != "owner" {
+		return 0, 0, "", 0, errors.New("版主角色不合法")
+	}
+	if req.Status != nil {
+		status = *req.Status
+	}
+	if status != 0 && status != 1 {
+		return 0, 0, "", 0, errors.New("版主状态不合法")
+	}
+	return communityID, userID, role, status, nil
 }
 
 func (s *MySQLStore) SetTopicFeatured(id int64, featured bool) (*domain.Topic, error) {

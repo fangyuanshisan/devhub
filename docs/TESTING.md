@@ -316,6 +316,85 @@ curl -X POST "http://127.0.0.1:8090/api/v1/admin/comments/1/restore" -H "Authori
 - 内容管理的更多菜单包含精华、置顶、隐藏 / 恢复、锁定 / 解锁评论。
 - 评论管理包含隐藏 / 恢复评论入口。
 
+## 第八轮 admin-next CRUD、版主、批量治理和审计
+
+后台内容 CRUD：
+
+```bash
+curl "http://127.0.0.1:8090/api/v1/admin/posts" -H "Authorization: Bearer <token>"
+curl -X POST "http://127.0.0.1:8090/api/v1/admin/posts" \
+  -H "Authorization: Bearer <token>" \
+  -H "Content-Type: application/json" \
+  -d '{"site":"php","board":"community","title":"第八轮后台新增内容","summary":"后台 CRUD 验收","content":"这是一条通过 admin-next 后台 API 写入 topics 的内容。","status":"publish","tags":["Laravel"]}'
+curl -X PUT "http://127.0.0.1:8090/api/v1/admin/posts/<id>" \
+  -H "Authorization: Bearer <token>" \
+  -H "Content-Type: application/json" \
+  -d '{"title":"第八轮后台编辑内容","pinned":true,"recommended":true}'
+curl -X DELETE "http://127.0.0.1:8090/api/v1/admin/posts/<id>" -H "Authorization: Bearer <token>"
+```
+
+应验证：后台 `/admin/posts` 新增、编辑、删除真实作用于 `topics`；公开 `/api/v1/posts` 兼容 API 仍可用且未删除。
+
+版主管理：
+
+```bash
+curl "http://127.0.0.1:8090/api/v1/admin/moderators" -H "Authorization: Bearer <token>"
+curl -X POST "http://127.0.0.1:8090/api/v1/admin/moderators" \
+  -H "Authorization: Bearer <token>" \
+  -H "Content-Type: application/json" \
+  -d '{"community_slug":"java","user_id":2,"role":"moderator","status":1}'
+curl -X PUT "http://127.0.0.1:8090/api/v1/admin/moderators/<id>" \
+  -H "Authorization: Bearer <token>" \
+  -H "Content-Type: application/json" \
+  -d '{"role":"owner","status":1}'
+curl -X DELETE "http://127.0.0.1:8090/api/v1/admin/moderators/<id>" -H "Authorization: Bearer <token>"
+```
+
+应验证：新增和更新仅管理员可操作；删除为停用，`status=0`；停用后不再拥有对应子站治理权限。
+
+批量治理：
+
+```bash
+curl -X POST "http://127.0.0.1:8090/api/v1/admin/topics/batch" \
+  -H "Authorization: Bearer <token>" \
+  -H "Content-Type: application/json" \
+  -d '{"ids":[1,2],"action":"feature"}'
+
+curl -X POST "http://127.0.0.1:8090/api/v1/admin/comments/batch" \
+  -H "Authorization: Bearer <token>" \
+  -H "Content-Type: application/json" \
+  -d '{"ids":[1,2],"action":"hide"}'
+
+curl -X POST "http://127.0.0.1:8090/api/v1/admin/reports/batch-handle" \
+  -H "Authorization: Bearer <token>" \
+  -H "Content-Type: application/json" \
+  -d '{"ids":[1,2],"status":"rejected","handle_note":"批量驳回"}'
+```
+
+应验证：返回 `updated/failed/items`；每条失败原因清晰；版主只能批量处理自己子站内对象。
+
+举报频率限制：
+
+```bash
+curl -X POST "http://127.0.0.1:8090/api/v1/reports" \
+  -H "Content-Type: application/json" \
+  -d '{"target_type":"topic","target_id":1,"reason_type":"spam","reason_text":"第一次举报"}'
+curl -X POST "http://127.0.0.1:8090/api/v1/reports" \
+  -H "Content-Type: application/json" \
+  -d '{"target_type":"topic","target_id":1,"reason_type":"spam","reason_text":"重复举报"}'
+```
+
+应验证：第二次返回 `同一对象已有待处理举报，请勿重复提交`；处理该举报后允许再次提交。
+
+治理审计：
+
+```bash
+curl "http://127.0.0.1:8090/api/v1/admin/audit-logs?type=audit&page=1&page_size=20" \
+  -H "Authorization: Bearer <token>"
+```
+
+应验证：内容 CRUD、版主管理、举报处理、批量治理均写入 `admin_logs`；后台 `/admin-next/system` 可以筛选审计日志。
+
 ## 我的页面和通知
 
 接口：
@@ -386,6 +465,7 @@ MySQL 模式应验证：
 - 评论创建和采纳事务失败时不应留下半更新状态。
 - 分页 total 不因 replies join 重复。
 - `reports` 和 `community_moderators` 读写、举报分页、举报处理、版主权限判断可用。
+- 版主管理 CRUD、后台内容 CRUD、批量 topic/comment/report 治理、举报 pending 去重和审计日志筛选可用。
 - Topic 精华、置顶、隐藏、恢复、评论锁定字段更新正确。
 - Comment 隐藏、恢复字段更新正确。
 - 普通列表、搜索、评论列表过滤隐藏内容。
@@ -422,7 +502,6 @@ MySQL 模式应验证：
 - 评论点赞入口没有纳入第六轮，只保留旧 `POST /api/v1/comments/:id/like` 和字段。
 - 采纳支持更换最佳答案，暂不支持取消已解决状态。
 - 最佳答案当前通过详情页运行时评论区展示，不进入初始 SEO HTML。
-- 版主管理 CRUD、批量治理、举报频率限制后续轮次实现。
 
 ## 第六轮接口实测记录
 
@@ -442,3 +521,25 @@ MySQL 模式应验证：
 - `/topics/1` 源码：包含 `<title>`、`meta description`、`<h1>`、`<article>`、正文内容和标签链接。
 - `/sitemap.xml`、`/robots.txt`：200。
 - 页面 URL：`/`、`/search?sort=unsolved`、`/topics/1`、`/me/activities`、`/notifications`、`/admin-next`、`/topics/new`、`/c/php` 均返回 200。
+
+## 第八轮接口实测记录
+
+2026-05-09 已完成第八轮本地验收：
+
+- `go test -count=1 ./...`：通过。
+- `npm run build`：本机无 `npm`，预期失败；已使用 Docker Node 构建 admin-next 并通过。
+- `docker run --rm -v "$PWD/web/admin-app:/app" -w /app node:20-alpine sh -lc 'npm run build'`：通过，仅有 Vite chunk size warning。
+- `./dev.sh --restart`：已执行，完成 Astro 前台和 Vue 后台构建，并启动 Docker Go 服务。
+- 稳定服务：为避免 `dev.sh` 前台进程悬挂，最终停止 Docker Go 容器，执行 `go build -o .devhub/devhub .`，并以 `PORT=8090 CMS_STORE=memory ./.devhub/devhub` 后台启动；`lsof -i :8090` 显示 `devhub` 正在监听。
+- `GET /api/v1/health`：200，`store=memory`。
+- 后台内容 CRUD：`POST /api/v1/admin/posts` 成功创建 topic，`PUT /api/v1/admin/posts/:id` 成功更新标题、置顶和精华；后台路径真实写入 `topics`。
+- 批量 Topic 治理：`POST /api/v1/admin/topics/batch` 的 `lock-comments` / `unlock-comments` 成功；锁定后普通评论返回 `评论已锁定`。
+- 批量 Comment 治理：使用真实 comment ID 验证 `POST /api/v1/admin/comments/batch` 的 `hide` / `restore`，均返回 `updated=1, failed=0`。
+- 举报频率限制：首次 `POST /api/v1/reports` 返回 `pending`，同一用户同一对象重复 pending 举报返回 `同一对象已有待处理举报，请勿重复提交`。
+- 批量举报处理：`POST /api/v1/admin/reports/batch-handle` 的 `rejected` 返回 `updated=1, failed=0`。
+- 版主管理 CRUD：`POST /api/v1/admin/moderators` 新增 Java 版主，`PUT /api/v1/admin/moderators/:id` 更新为 `owner`，`DELETE /api/v1/admin/moderators/:id` 返回 `disabled=true`；稳定服务重启后 seed 版主列表正常返回 PHP/Go 两条。
+- 治理审计：`GET /api/v1/admin/audit-logs` 返回登录、批量治理、举报处理、版主管理等日志；稳定服务重启后 seed 和新登录日志正常返回。
+- 页面 URL：`/`、`/search?sort=unsolved`、`/topics/1`、`/admin-next`、`/admin-next/content`、`/admin-next/reports`、`/admin-next/moderators`、`/admin-next/system` 均返回 200。
+- SEO 回归：`/topics/1` 源码保留 `<title>`、`meta description`、`<h1>`、`<article>`、正文/摘要、标签链接和 Article JSON-LD；`/sitemap.xml`、`/robots.txt` 均返回 200。
+
+注意：MemoryStore 重启后运行时创建的临时 topic/report/comment/moderator 不持久化，这是当前 memory 模式预期行为。

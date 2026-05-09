@@ -233,6 +233,12 @@ body,
   justify-content: space-between;
 }
 
+.card-head-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
 .filter-panel {
   margin-bottom: 12px;
   padding: 16px 18px 8px;

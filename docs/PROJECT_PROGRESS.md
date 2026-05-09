@@ -15,7 +15,7 @@ DevHub 当前是 “Go API + Astro 前台 + Vue 后台” 的多子站社区 CMS
 后台：http://127.0.0.1:8090/admin-next
 ```
 
-首页、子站页、搜索页和用户中心使用 Astro 静态壳 + 运行时 API；Topic 详情页 `/topics/:id` 仍由 Go 动态输出 SEO HTML。第五轮互动闭环已完成基础实现：点赞、收藏、关注、我的收藏、我的关注、我的动态、通知列表和已读逻辑在 MemoryStore 与 MySQLStore 中均可用。第六轮已完成评论列表、发表评论、回复评论、问答采纳、未解决筛选、评论动态和评论通知的基础闭环。第七轮已完成举报、版主范围治理、精华、置顶、隐藏、评论锁定和后台最小治理入口。
+首页、子站页、搜索页和用户中心使用 Astro 静态壳 + 运行时 API；Topic 详情页 `/topics/:id` 仍由 Go 动态输出 SEO HTML。第五轮互动闭环已完成基础实现：点赞、收藏、关注、我的收藏、我的关注、我的动态、通知列表和已读逻辑在 MemoryStore 与 MySQLStore 中均可用。第六轮已完成评论列表、发表评论、回复评论、问答采纳、未解决筛选、评论动态和评论通知的基础闭环。第七轮已完成举报、版主范围治理、精华、置顶、隐藏、评论锁定和后台最小治理入口。第八轮已完成 admin-next 后台内容 CRUD、版主管理 CRUD、批量治理、举报重复 pending 频控和治理审计日志。
 
 ## 近期迭代摘要
 
@@ -28,6 +28,7 @@ DevHub 当前是 “Go API + Astro 前台 + Vue 后台” 的多子站社区 CMS
 - 第五轮互动联动：补齐点赞、收藏、关注、我的收藏、我的关注、我的动态、通知中心和详情页互动状态；新增用户中心页面入口。
 - 第六轮评论问答：补齐 `GET/POST /api/v1/topics/:id/comments`、回复、采纳最佳答案、`sort=unsolved` 未解决筛选、`commented/accepted_answer` 动态和 `topic_commented/comment_replied/answer_accepted` 通知。
 - 第七轮社区治理：补齐 topic/comment 举报、举报后台处理、版主子站权限、精华、置顶、隐藏、恢复、评论锁定、评论隐藏和 sitemap 隐藏过滤。
+- 第八轮后台治理：补齐 admin-next 内容 CRUD 写入 `topics`、版主管理 CRUD、topic/comment/report 批量治理、举报重复 pending 限制、`/admin-next/moderators` 和治理审计筛选。
 
 ## 第五轮互动联动状态
 
@@ -49,7 +50,7 @@ DevHub 当前是 “Go API + Astro 前台 + Vue 后台” 的多子站社区 CMS
 - 是否写入 `notifications`：已完成基础规则。点赞、收藏会给 Topic 作者生成通知；关注用户会给被关注用户生成通知；评论 Topic 生成 `topic_commented`，回复评论生成 `comment_replied`，回答被采纳生成 `answer_accepted`；自己操作自己的内容不通知自己。
 - 是否保持 `/topics/:id` 百度 SEO HTML 不被破坏：已保持。详情页仍由 Go 动态输出 title、meta description、h1、正文、标签链接、发布时间和 Article JSON-LD；点赞、收藏、关注、评论作为运行时增强。
 - 第七轮已补齐：举报、版主范围治理、精华、置顶、隐藏和评论锁定。
-- 尚未完成的问题：评论点赞本轮未实现；采纳支持更换最佳答案但暂不支持取消已解决状态；复杂权限、版主管理 CRUD 不在本轮范围。
+- 尚未完成的问题：评论点赞本轮未实现；采纳支持更换最佳答案但暂不支持取消已解决状态；复杂权限继续沿用当前轻量 RBAC 和 demo user 方案。
 
 ## 第六轮评论系统和问答采纳状态
 
@@ -88,7 +89,25 @@ DevHub 当前是 “Go API + Astro 前台 + Vue 后台” 的多子站社区 CMS
 - MemoryStore 支持情况：已完成创建举报、查询举报、处理举报、版主判断、精华、置顶、隐藏 / 恢复 topic、锁定 / 解锁评论、隐藏 / 恢复 comment、普通列表过滤隐藏内容和评论。
 - MySQLStore 支持情况：已完成 `reports`、`community_moderators`、`topics.comment_locked` 等 schema 和迁移补齐；支持举报分页、处理、权限判断、topic/comment 治理字段更新、普通列表和搜索过滤隐藏内容，兼容 MySQL 8。
 - SEO 保护：已保持。正常 `/topics/:id` 仍由 Go 动态输出 title、description、h1、正文、标签和发布时间；隐藏 topic 返回带 `noindex,follow` 的“内容已隐藏”动态 HTML，不输出原正文；`/sitemap.xml` 不包含隐藏 topic。
-- 尚未完成事项：本轮不做版主管理 CRUD；不做复杂登录 / 权限系统；不做举报重复频率限制；不做批量治理；隐藏最佳答案采用禁止策略。
+- 尚未完成事项：第七轮隐藏最佳答案采用禁止策略；复杂登录 / 权限系统留到后续。
+
+## 第八轮 admin-next 后台 CRUD、版主管理、批量治理和治理审计状态
+
+按 2026-05-09 当前代码，状态如下：
+
+- 后台内容 CRUD：已完成。`GET/POST/PUT/DELETE /api/v1/admin/posts` 路径保持兼容命名，但后台真实读写 `topics`；公开 `sites/posts` 兼容 API 未删除。
+- 版主管理 CRUD：已完成。真实接口为 `GET/POST/PUT/DELETE /api/v1/admin/moderators`；删除采用停用策略，将 `community_moderators.status` 置为 `0`。
+- 版主权限：已保持轻量实现。`super_admin` 可管理全部；启用版主可按 `community_id` 范围查看和处理自己子站的举报与内容。版主分配目前要求管理员操作。
+- 批量 Topic 治理：已完成。`POST /api/v1/admin/topics/batch` 支持 `feature/unfeature/pin/unpin/hide/restore/lock-comments/unlock-comments/delete`。
+- 批量 Comment 治理：已完成。`POST /api/v1/admin/comments/batch` 支持 `hide/restore/delete`；隐藏最佳答案仍然禁止。
+- 批量举报处理：已完成。`POST /api/v1/admin/reports/batch-handle` 支持批量 `accepted/rejected`，逐条返回成功和失败原因。
+- 举报频率限制：已完成最小限制。同一用户对同一对象已有 `pending` 举报时，新举报返回 `同一对象已有待处理举报，请勿重复提交`；已处理后可再次举报。
+- 治理审计日志：已完成。新增 `GET /api/v1/admin/audit-logs`，支持 `site/type/actor/target/page/page_size`；新增/更新版主、批量治理、举报处理、内容 CRUD 都会写入 `admin_logs`。
+- admin-next 页面：已完成。内容管理支持新增、编辑、删除和批量治理；评论管理支持勾选批量处理；举报管理支持批量接受 / 驳回；新增 `/admin-next/moderators` 版主管理；系统设置页的日志区升级为治理审计筛选。
+- MemoryStore 支持情况：已完成第八轮能力。支持版主 CRUD、后台内容 CRUD、批量治理、举报 pending 去重、审计日志筛选分页。
+- MySQLStore 支持情况：已完成第八轮能力。支持 `community_moderators` CRUD、`topics` 后台 CRUD、`reports` pending 去重索引、批量治理依赖的单项更新和 `admin_logs` 筛选分页，兼容 MySQL 8。
+- SEO 保护：已保持。第八轮未改变 `/topics/:id` Go 动态 SEO HTML；隐藏内容仍不进入普通列表、搜索和 sitemap。
+- 尚未完成事项：复杂登录系统、细粒度版主分配审批、评论点赞、取消已解决状态不在本轮主线。
 
 ## 第六轮收尾验收记录
 
@@ -199,8 +218,6 @@ DevHub 当前是 “Go API + Astro 前台 + Vue 后台” 的多子站社区 CMS
 
 - 评论点赞：部分完成。数据字段和旧评论点赞接口保留，本轮未把评论点赞接入详情页运行时评论区。
 - 取消已解决状态：已预留。当前支持采纳和更换最佳答案，暂不支持取消已解决。
-- 版主管理 CRUD：已预留。本轮完成 `community_moderators` 表、seed 和权限判断，暂未做后台版主分配页面。
-- 举报重复频率限制：已预留。本轮允许重复举报但不会导致异常。
 - 标签关注：后端 `follows` 支持 `target_type=tag`，我的关注页可展示；前台标签区域尚未提供批量关注按钮，后续可在标签聚合页增强。
 - 用户关注：后端支持 `target_type=user` 并触发 `user_followed` 通知；前台作者信息区域的关注入口后续完善。
 
@@ -212,9 +229,9 @@ DevHub 当前是 “Go API + Astro 前台 + Vue 后台” 的多子站社区 CMS
 
 ## 下一步
 
-1. 第八轮：admin-next 后台 CRUD、版主管理、批量治理和更完整审计。
-2. 第九轮：测试、部署、备份、回滚文档。
-3. 后续优化：评论点赞、取消已解决状态、通知跳转 comment anchor、举报频率限制。
+1. 第九轮：测试、部署、备份、回滚文档。
+2. 后续优化：评论点赞、取消已解决状态、通知跳转 comment anchor。
+3. 后台增强：更细粒度角色授权、版主任期记录、治理统计看板。
 
 ## 验收清单
 

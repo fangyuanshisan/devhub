@@ -429,7 +429,8 @@ CREATE TABLE IF NOT EXISTS reports (
   PRIMARY KEY (id),
   KEY idx_reports_status (status),
   KEY idx_reports_target (target_type, target_id),
-  KEY idx_reports_community_status (community_id, status)
+  KEY idx_reports_community_status (community_id, status),
+  KEY idx_reports_reporter_target_status (reporter_id, target_type, target_id, status)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 CREATE TABLE IF NOT EXISTS community_moderators (

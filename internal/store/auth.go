@@ -121,6 +121,23 @@ func roleID(code string) int64 {
 	}
 }
 
+func roleCodeByID(id int64) string {
+	switch id {
+	case 1:
+		return "super_admin"
+	case 2:
+		return "site_admin"
+	case 3:
+		return "editor"
+	case 4:
+		return "moderator"
+	case 5:
+		return "user"
+	default:
+		return ""
+	}
+}
+
 func userIDString(id int64) string {
 	return strconv.FormatInt(id, 10)
 }

@@ -161,13 +161,16 @@ type PageResponse struct {
 
 // CreatePostRequest 是创建帖子的请求体。
 type CreatePostRequest struct {
-	Site    string   `json:"site" binding:"required"`
-	Board   string   `json:"board" binding:"required"`
-	Title   string   `json:"title" binding:"required"`
-	Summary string   `json:"summary"`
-	Content string   `json:"content" binding:"required"`
-	Author  string   `json:"author"`
-	Tags    []string `json:"tags"`
+	Site        string   `json:"site" binding:"required"`
+	Board       string   `json:"board" binding:"required"`
+	Title       string   `json:"title" binding:"required"`
+	Summary     string   `json:"summary"`
+	Content     string   `json:"content" binding:"required"`
+	Author      string   `json:"author"`
+	Status      string   `json:"status"`
+	Pinned      bool     `json:"pinned"`
+	Recommended bool     `json:"recommended"`
+	Tags        []string `json:"tags"`
 }
 
 // UpdatePostRequest 是更新帖子的请求体，指针字段用于区分未传值和传入零值。
@@ -589,13 +592,17 @@ type Report struct {
 
 // CommunityModerator 表示子站版主。
 type CommunityModerator struct {
-	ID          int64  `json:"id"`
-	CommunityID int64  `json:"community_id"`
-	UserID      int64  `json:"user_id"`
-	Role        string `json:"role"`
-	Status      int    `json:"status"`
-	CreatedAt   string `json:"created_at"`
-	UpdatedAt   string `json:"updated_at,omitempty"`
+	ID            int64  `json:"id"`
+	CommunityID   int64  `json:"community_id"`
+	CommunitySlug string `json:"community_slug,omitempty"`
+	CommunityName string `json:"community_name,omitempty"`
+	UserID        int64  `json:"user_id"`
+	UserName      string `json:"user_name,omitempty"`
+	UserNickname  string `json:"user_nickname,omitempty"`
+	Role          string `json:"role"`
+	Status        int    `json:"status"`
+	CreatedAt     string `json:"created_at"`
+	UpdatedAt     string `json:"updated_at,omitempty"`
 }
 
 // CreateReportRequest 是前台创建举报的请求体。
@@ -623,6 +630,60 @@ type ReportFilter struct {
 type HandleReportRequest struct {
 	Status     string `json:"status" binding:"required"`
 	HandleNote string `json:"handle_note"`
+}
+
+// CommunityModeratorFilter 是后台版主列表筛选条件。
+type CommunityModeratorFilter struct {
+	CommunitySlug string `json:"community_slug"`
+	CommunityID   int64  `json:"community_id"`
+	UserID        int64  `json:"user_id"`
+	Status        string `json:"status"`
+	Page          int    `json:"page"`
+	PageSize      int    `json:"page_size"`
+	ActorUserID   int64  `json:"-"`
+	ActorIsAdmin  bool   `json:"-"`
+}
+
+// CommunityModeratorRequest 是新增或更新版主的请求体。
+type CommunityModeratorRequest struct {
+	CommunityID   int64  `json:"community_id"`
+	CommunitySlug string `json:"community_slug"`
+	UserID        int64  `json:"user_id"`
+	Role          string `json:"role"`
+	Status        *int   `json:"status"`
+}
+
+// BatchModerationRequest 是后台批量治理请求体。
+type BatchModerationRequest struct {
+	IDs        []int64 `json:"ids" binding:"required"`
+	Action     string  `json:"action"`
+	Status     string  `json:"status"`
+	HandleNote string  `json:"handle_note"`
+}
+
+// BatchModerationItem 表示批量治理中单个对象的处理结果。
+type BatchModerationItem struct {
+	ID    int64  `json:"id"`
+	OK    bool   `json:"ok"`
+	Error string `json:"error,omitempty"`
+}
+
+// BatchModerationResponse 表示批量治理汇总结果。
+type BatchModerationResponse struct {
+	Action  string                `json:"action"`
+	Updated int                   `json:"updated"`
+	Failed  int                   `json:"failed"`
+	Items   []BatchModerationItem `json:"items"`
+}
+
+// AdminLogFilter 是后台治理审计日志筛选条件。
+type AdminLogFilter struct {
+	Site     string `json:"site"`
+	Type     string `json:"type"`
+	Actor    string `json:"actor"`
+	Target   string `json:"target"`
+	Page     int    `json:"page"`
+	PageSize int    `json:"page_size"`
 }
 
 // ModerationResult 表示治理动作后的目标状态。
@@ -681,14 +742,19 @@ type CreateTopicRequest struct {
 
 // UpdateTopicRequest 是更新主题的请求体。
 type UpdateTopicRequest struct {
-	Title       *string   `json:"title"`
-	ContentType *string   `json:"content_type"`
-	Summary     *string   `json:"summary"`
-	Content     *string   `json:"content"`
-	IsPinned    *bool     `json:"is_pinned"`
-	IsFeatured  *bool     `json:"is_featured"`
-	IsSolved    *bool     `json:"is_solved"`
-	Tags        *[]string `json:"tags"`
+	CommunityID   *int64    `json:"community_id"`
+	CommunitySlug *string   `json:"community_slug"`
+	CategoryID    *int64    `json:"category_id"`
+	Title         *string   `json:"title"`
+	ContentType   *string   `json:"content_type"`
+	Summary       *string   `json:"summary"`
+	Content       *string   `json:"content"`
+	Status        *int      `json:"status"`
+	IsPinned      *bool     `json:"is_pinned"`
+	IsFeatured    *bool     `json:"is_featured"`
+	IsSolved      *bool     `json:"is_solved"`
+	CommentLocked *bool     `json:"comment_locked"`
+	Tags          *[]string `json:"tags"`
 }
 
 // ToggleReactionRequest 是切换点赞/收藏/关注的请求体。
