@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 
@@ -178,6 +179,13 @@ func (s *MySQLStore) migrateSiteScopedAudit() error {
 	_, _ = s.db.Exec(`ALTER TABLE categories ADD COLUMN seo_title VARCHAR(255) NOT NULL DEFAULT '' AFTER postable`)
 	_, _ = s.db.Exec(`ALTER TABLE categories ADD COLUMN seo_description VARCHAR(500) NOT NULL DEFAULT '' AFTER seo_title`)
 	_, _ = s.db.Exec(`UPDATE categories SET nav_visible=visible WHERE nav_visible=1`)
+	_, _ = s.db.Exec(`ALTER TABLE tags MODIFY status VARCHAR(32) NOT NULL DEFAULT 'enable'`)
+	_, _ = s.db.Exec(`UPDATE tags SET status='enable' WHERE status IN ('1','enabled','')`)
+	_, _ = s.db.Exec(`UPDATE tags SET status='disable' WHERE status IN ('0','disabled')`)
+	_, _ = s.db.Exec(`ALTER TABLE tags ADD COLUMN follower_count INT UNSIGNED NOT NULL DEFAULT 0 AFTER use_count`)
+	_, _ = s.db.Exec(`ALTER TABLE tags ADD COLUMN seo_title VARCHAR(255) NOT NULL DEFAULT '' AFTER follower_count`)
+	_, _ = s.db.Exec(`ALTER TABLE tags ADD COLUMN seo_description VARCHAR(500) NOT NULL DEFAULT '' AFTER seo_title`)
+	_, _ = s.db.Exec(`ALTER TABLE tags ADD COLUMN seo_keywords VARCHAR(500) NOT NULL DEFAULT '' AFTER seo_description`)
 	return nil
 }
 
@@ -283,9 +291,16 @@ func (s *MySQLStore) seedIfEmpty() error {
 	}
 	for commID, tags := range communityTags {
 		for _, tagName := range tags {
-			slug := strings.ToLower(strings.Join(strings.Fields(tagName), "-"))
-			if _, err := s.db.Exec(`INSERT IGNORE INTO tags (site_key,name,slug,status,use_count) VALUES (?,?,?,?,0)`,
-				commID, tagName, slug, 1); err != nil {
+			slug := normalizeSlug(tagName)
+			if slug == "" {
+				slug = strings.ToLower(strings.Join(strings.Fields(tagName), "-"))
+			}
+			siteKey := fmt.Sprintf("%d", commID)
+			if comm, ok := s.communityByID(commID); ok && comm.Slug != "" {
+				siteKey = comm.Slug
+			}
+			if _, err := s.db.Exec(`INSERT IGNORE INTO tags (site_key,name,slug,status,use_count,seo_title,seo_description,seo_keywords) VALUES (?,?,?,?,0,?,?,?)`,
+				siteKey, tagName, slug, "enable", tagName+" 相关内容", "DevHub "+tagName+" 标签聚合，汇总相关文章、问答、项目和文档。", tagName); err != nil {
 				return err
 			}
 		}
@@ -352,10 +367,17 @@ func (s *MySQLStore) seedIfEmpty() error {
 			tagNames = tagNames[:3]
 		}
 		for _, tagName := range tagNames {
-			slug := strings.ToLower(strings.Join(strings.Fields(tagName), "-"))
+			slug := normalizeSlug(tagName)
+			if slug == "" {
+				slug = strings.ToLower(strings.Join(strings.Fields(tagName), "-"))
+			}
+			siteKey := fmt.Sprintf("%d", t.CommunityID)
+			if comm, ok := s.communityByID(t.CommunityID); ok && comm.Slug != "" {
+				siteKey = comm.Slug
+			}
 			// 添加关联
 			if _, err := s.db.Exec(`INSERT IGNORE INTO topic_tags (topic_id,tag_id) SELECT ?,id FROM tags WHERE site_key=? AND slug=?`,
-				t.ID, t.CommunityID, slug); err != nil {
+				t.ID, siteKey, slug); err != nil {
 				continue
 			}
 		}
@@ -1203,8 +1225,23 @@ func (s *MySQLStore) TagStats(site string) []domain.TagStat {
 	tags := s.AdminTags(site, "", "enable")
 	out := make([]domain.TagStat, 0, len(tags))
 	for _, tag := range tags {
-		if tag.UseCount > 0 {
-			out = append(out, domain.TagStat{Name: tag.Name, Count: tag.UseCount})
+		if tag.TopicCount > 0 || tag.UseCount > 0 {
+			out = append(out, domain.TagStat{
+				ID:             tag.ID,
+				Name:           tag.Name,
+				Slug:           tag.Slug,
+				Site:           tag.Site,
+				CommunityID:    tag.CommunityID,
+				CommunitySlug:  tag.CommunitySlug,
+				Description:    tag.Description,
+				TopicCount:     tag.TopicCount,
+				Count:          firstNonZero(tag.TopicCount, tag.UseCount),
+				FollowerCount:  tag.FollowerCount,
+				Status:         tag.Status,
+				SEOTitle:       tag.SEOTitle,
+				SEODescription: tag.SEODescription,
+				SEOKeywords:    tag.SEOKeywords,
+			})
 		}
 	}
 	return out
@@ -1214,7 +1251,7 @@ func (s *MySQLStore) AdminTags(site, q, status string) []domain.Tag {
 	site = strings.TrimSpace(site)
 	q = strings.ToLower(strings.TrimSpace(q))
 	status = strings.TrimSpace(status)
-	rows, err := s.db.Query(`SELECT id,site_key,name,slug,COALESCE(description,''),status,sort_order,use_count,DATE_FORMAT(created_at,'%Y-%m-%d %H:%i:%s'),DATE_FORMAT(updated_at,'%Y-%m-%d %H:%i:%s') FROM tags ORDER BY site_key,sort_order,use_count DESC,id`)
+	rows, err := s.db.Query(`SELECT id,site_key,name,slug,COALESCE(description,''),status,sort_order,use_count,COALESCE(follower_count,0),COALESCE(seo_title,''),COALESCE(seo_description,''),COALESCE(seo_keywords,''),DATE_FORMAT(created_at,'%Y-%m-%d %H:%i:%s'),DATE_FORMAT(updated_at,'%Y-%m-%d %H:%i:%s') FROM tags ORDER BY site_key,sort_order,use_count DESC,id`)
 	if err != nil {
 		return []domain.Tag{}
 	}
@@ -1222,9 +1259,10 @@ func (s *MySQLStore) AdminTags(site, q, status string) []domain.Tag {
 	out := []domain.Tag{}
 	for rows.Next() {
 		var tag domain.Tag
-		if err := rows.Scan(&tag.ID, &tag.Site, &tag.Name, &tag.Slug, &tag.Description, &tag.Status, &tag.Sort, &tag.UseCount, &tag.CreatedAt, &tag.UpdatedAt); err != nil {
+		if err := rows.Scan(&tag.ID, &tag.Site, &tag.Name, &tag.Slug, &tag.Description, &tag.Status, &tag.Sort, &tag.UseCount, &tag.FollowerCount, &tag.SEOTitle, &tag.SEODescription, &tag.SEOKeywords, &tag.CreatedAt, &tag.UpdatedAt); err != nil {
 			continue
 		}
+		tag = s.enrichSQLTag(tag)
 		if site != "" && site != "portal" && tag.Site != site {
 			continue
 		}
@@ -1250,8 +1288,8 @@ func (s *MySQLStore) CreateTag(req domain.Tag) (domain.Tag, error) {
 	if tag.Site != "portal" && !s.ValidateSite(tag.Site) {
 		return domain.Tag{}, errors.New("无效子网站")
 	}
-	res, err := s.db.Exec(`INSERT INTO tags (site_key,name,slug,description,status,sort_order,use_count) VALUES (?,?,?,?,?,?,0)`,
-		tag.Site, tag.Name, tag.Slug, tag.Description, tag.Status, tag.Sort)
+	res, err := s.db.Exec(`INSERT INTO tags (site_key,name,slug,description,status,sort_order,use_count,follower_count,seo_title,seo_description,seo_keywords) VALUES (?,?,?,?,?,?,0,0,?,?,?)`,
+		tag.Site, tag.Name, tag.Slug, tag.Description, tag.Status, tag.Sort, tag.SEOTitle, tag.SEODescription, tag.SEOKeywords)
 	if err != nil {
 		return domain.Tag{}, err
 	}
@@ -1268,8 +1306,8 @@ func (s *MySQLStore) UpdateTag(id int64, req domain.Tag) (domain.Tag, bool) {
 	if tag.Site == "" {
 		tag.Site = "portal"
 	}
-	res, err := s.db.Exec(`UPDATE tags SET site_key=?,name=?,slug=?,description=?,status=?,sort_order=? WHERE id=?`,
-		tag.Site, tag.Name, tag.Slug, tag.Description, tag.Status, tag.Sort, id)
+	res, err := s.db.Exec(`UPDATE tags SET site_key=?,name=?,slug=?,description=?,status=?,sort_order=?,seo_title=?,seo_description=?,seo_keywords=? WHERE id=?`,
+		tag.Site, tag.Name, tag.Slug, tag.Description, tag.Status, tag.Sort, tag.SEOTitle, tag.SEODescription, tag.SEOKeywords, id)
 	if err != nil {
 		return domain.Tag{}, false
 	}
@@ -1280,6 +1318,87 @@ func (s *MySQLStore) UpdateTag(id int64, req domain.Tag) (domain.Tag, bool) {
 	s.appendLog("operation", "admin", "更新标签", fmt.Sprintf("tags#%d", id), "127.0.0.1")
 	tag, err = s.tagByID(id)
 	return tag, err == nil
+}
+
+func (s *MySQLStore) SetTagStatus(id int64, status string) (domain.Tag, bool) {
+	status = normalizeTagStatus(status)
+	if status == "" {
+		return domain.Tag{}, false
+	}
+	res, err := s.db.Exec(`UPDATE tags SET status=?,updated_at=NOW() WHERE id=?`, status, id)
+	if err != nil {
+		return domain.Tag{}, false
+	}
+	if n, _ := res.RowsAffected(); n == 0 {
+		return domain.Tag{}, false
+	}
+	s.appendLog("operation", "admin", "更新标签状态", fmt.Sprintf("tags#%d:%s", id, status), "127.0.0.1")
+	tag, err := s.tagByID(id)
+	return tag, err == nil
+}
+
+func (s *MySQLStore) TagBySlug(site, slugOrName string) (domain.Tag, bool) {
+	site = strings.TrimSpace(site)
+	slugOrName = strings.TrimSpace(slugOrName)
+	if slugOrName == "" {
+		return domain.Tag{}, false
+	}
+	if id, err := strconv.ParseInt(slugOrName, 10, 64); err == nil && id > 0 {
+		tag, err := s.tagByID(id)
+		if err == nil && tag.Status == "enable" && (site == "" || site == "portal" || tag.Site == site) {
+			return tag, true
+		}
+	}
+	slug := normalizeSlug(slugOrName)
+	if slug == "" {
+		slug = strings.ToLower(strings.Join(strings.Fields(slugOrName), "-"))
+	}
+	query := `SELECT id FROM tags WHERE status='enable' AND (slug=? OR name=?)`
+	args := []any{slug, slugOrName}
+	if site != "" && site != "portal" {
+		query += ` AND site_key=?`
+		args = append(args, site)
+	}
+	query += ` ORDER BY use_count DESC,id LIMIT 1`
+	var id int64
+	if err := s.db.QueryRow(query, args...).Scan(&id); err != nil {
+		return domain.Tag{}, false
+	}
+	tag, err := s.tagByID(id)
+	return tag, err == nil
+}
+
+func (s *MySQLStore) TagSuggestions(site, q string, limit int) []domain.TagStat {
+	if limit <= 0 {
+		limit = 20
+	}
+	if limit > 50 {
+		limit = 50
+	}
+	tags := s.AdminTags(site, q, "enable")
+	out := make([]domain.TagStat, 0, len(tags))
+	for _, tag := range tags {
+		out = append(out, domain.TagStat{
+			ID:             tag.ID,
+			Name:           tag.Name,
+			Slug:           tag.Slug,
+			Site:           tag.Site,
+			CommunityID:    tag.CommunityID,
+			CommunitySlug:  tag.CommunitySlug,
+			Description:    tag.Description,
+			TopicCount:     tag.TopicCount,
+			Count:          firstNonZero(tag.TopicCount, tag.UseCount),
+			FollowerCount:  tag.FollowerCount,
+			Status:         tag.Status,
+			SEOTitle:       tag.SEOTitle,
+			SEODescription: tag.SEODescription,
+			SEOKeywords:    tag.SEOKeywords,
+		})
+		if len(out) >= limit {
+			break
+		}
+	}
+	return out
 }
 
 func (s *MySQLStore) BoardCounts(site, q string) map[string]int {
@@ -1915,9 +2034,12 @@ func (s *MySQLStore) postByID(id int64) (*domain.Post, error) {
 
 func (s *MySQLStore) tagByID(id int64) (domain.Tag, error) {
 	var tag domain.Tag
-	err := s.db.QueryRow(`SELECT id,site_key,name,slug,COALESCE(description,''),status,sort_order,use_count,DATE_FORMAT(created_at,'%Y-%m-%d %H:%i:%s'),DATE_FORMAT(updated_at,'%Y-%m-%d %H:%i:%s') FROM tags WHERE id=?`, id).
-		Scan(&tag.ID, &tag.Site, &tag.Name, &tag.Slug, &tag.Description, &tag.Status, &tag.Sort, &tag.UseCount, &tag.CreatedAt, &tag.UpdatedAt)
-	return tag, err
+	err := s.db.QueryRow(`SELECT id,site_key,name,slug,COALESCE(description,''),status,sort_order,use_count,COALESCE(follower_count,0),COALESCE(seo_title,''),COALESCE(seo_description,''),COALESCE(seo_keywords,''),DATE_FORMAT(created_at,'%Y-%m-%d %H:%i:%s'),DATE_FORMAT(updated_at,'%Y-%m-%d %H:%i:%s') FROM tags WHERE id=?`, id).
+		Scan(&tag.ID, &tag.Site, &tag.Name, &tag.Slug, &tag.Description, &tag.Status, &tag.Sort, &tag.UseCount, &tag.FollowerCount, &tag.SEOTitle, &tag.SEODescription, &tag.SEOKeywords, &tag.CreatedAt, &tag.UpdatedAt)
+	if err != nil {
+		return tag, err
+	}
+	return s.enrichSQLTag(tag), nil
 }
 
 func (s *MySQLStore) commentByID(id int64) (*domain.Comment, error) {
@@ -2005,7 +2127,7 @@ func normalizeSQLComment(c *domain.Comment) {
 func (s *MySQLStore) upsertTags(site string, tags []string) error {
 	for _, name := range uniqueTags(tags) {
 		tag := normalizeTag(domain.Tag{Site: site, Name: name, Status: "enable"})
-		if _, err := s.db.Exec(`INSERT INTO tags (site_key,name,slug,status,use_count) VALUES (?,?,?,?,1) ON DUPLICATE KEY UPDATE name=VALUES(name),use_count=use_count+1,updated_at=NOW()`,
+		if _, err := s.db.Exec(`INSERT INTO tags (site_key,name,slug,status,use_count) VALUES (?,?,?,?,1) ON DUPLICATE KEY UPDATE name=VALUES(name),status=IF(status='',VALUES(status),status),use_count=use_count+1,updated_at=NOW()`,
 			tag.Site, tag.Name, tag.Slug, tag.Status); err != nil {
 			return err
 		}
@@ -2420,8 +2542,12 @@ func (s *MySQLStore) TopicsByFilter(communityID, categoryID int64, contentType, 
 		args = append(args, boolToInt(*isSolved))
 	}
 	if tag != "" {
-		query += ` AND id IN (SELECT topic_id FROM topic_tags WHERE tag_id IN (SELECT id FROM tags WHERE name=? LIMIT 1))`
-		args = append(args, tag)
+		slug := normalizeSlug(tag)
+		if slug == "" {
+			slug = strings.ToLower(strings.Join(strings.Fields(tag), "-"))
+		}
+		query += ` AND id IN (SELECT topic_id FROM topic_tags WHERE tag_id IN (SELECT id FROM tags WHERE name=? OR slug=?))`
+		args = append(args, tag, slug)
 	}
 	if sort == "featured" {
 		query += ` AND is_featured=1`
@@ -2476,6 +2602,60 @@ func (s *MySQLStore) TopicsByFilter(communityID, categoryID int64, contentType, 
 	}
 
 	return topics, total
+}
+
+func (s *MySQLStore) TagTopics(tagID int64, communityID int64, sort string, page, pageSize int) ([]domain.Topic, int) {
+	tag, err := s.tagByID(tagID)
+	if err != nil || tag.Status != "enable" {
+		return []domain.Topic{}, 0
+	}
+	selectClause := `SELECT t.id,t.community_id,t.category_id,t.user_id,t.title,COALESCE(t.slug,''),t.content_type,COALESCE(t.summary,''),t.content,COALESCE(t.ai_summary,''),COALESCE(t.cover_image,''),t.status,t.is_pinned,t.is_featured,t.is_solved,t.comment_locked,t.view_count,t.comment_count,t.like_count,t.favorite_count,t.hot_score,DATE_FORMAT(t.last_active_at,'%Y-%m-%d %H:%i:%s'),DATE_FORMAT(t.created_at,'%Y-%m-%d %H:%i:%s'),DATE_FORMAT(t.updated_at,'%Y-%m-%d %H:%i:%s') FROM topics t JOIN topic_tags tt ON tt.topic_id=t.id`
+	where := ` WHERE tt.tag_id=? AND t.deleted_at IS NULL AND t.status=1`
+	args := []any{tagID}
+	if communityID > 0 {
+		where += ` AND t.community_id=?`
+		args = append(args, communityID)
+	}
+	orderBy := ` ORDER BY t.created_at DESC`
+	switch strings.TrimSpace(sort) {
+	case "hot":
+		orderBy = ` ORDER BY t.hot_score DESC,t.created_at DESC`
+	case "active":
+		orderBy = ` ORDER BY COALESCE(t.last_active_at,t.updated_at,t.created_at) DESC,t.created_at DESC`
+	case "featured":
+		where += ` AND t.is_featured=1`
+		orderBy = ` ORDER BY t.updated_at DESC,t.created_at DESC`
+	}
+	var total int
+	_ = s.db.QueryRow(`SELECT COUNT(*) FROM topics t JOIN topic_tags tt ON tt.topic_id=t.id`+where, args...).Scan(&total)
+	page, pageSize = normalizePage(page, pageSize)
+	offset := (page - 1) * pageSize
+	rows, err := s.db.Query(selectClause+where+orderBy+` LIMIT ? OFFSET ?`, append(args, pageSize, offset)...)
+	if err != nil {
+		return []domain.Topic{}, 0
+	}
+	defer rows.Close()
+	topics := []domain.Topic{}
+	for rows.Next() {
+		t, _ := scanTopic(rows)
+		if t != nil {
+			t.Tags = s.getTopicTags(t.ID)
+			topics = append(topics, *t)
+		}
+	}
+	return topics, total
+}
+
+func (s *MySQLStore) AdminTagTopics(id int64, page, pageSize int) ([]domain.Topic, int) {
+	tag, err := s.tagByID(id)
+	if err != nil {
+		return []domain.Topic{}, 0
+	}
+	communityID := int64(0)
+	if tag.CommunityID > 0 {
+		communityID = tag.CommunityID
+	}
+	return s.TagTopics(id, communityID, "latest", page, pageSize)
 }
 
 func (s *MySQLStore) TopicByID(id int64, increaseView bool) (*domain.Topic, error) {
@@ -2644,7 +2824,11 @@ func (s *MySQLStore) SearchTopics(req domain.SearchRequest) ([]domain.Topic, int
 	} else if strings.TrimSpace(req.Tag) != "" {
 		where += ` AND EXISTS (SELECT 1 FROM topic_tags tt JOIN tags tg ON tg.id=tt.tag_id WHERE tt.topic_id=topics.id AND (tg.name=? OR tg.slug=?))`
 		tag := strings.TrimSpace(req.Tag)
-		args = append(args, tag, strings.ToLower(strings.Join(strings.Fields(tag), "-")))
+		slug := normalizeSlug(tag)
+		if slug == "" {
+			slug = strings.ToLower(strings.Join(strings.Fields(tag), "-"))
+		}
+		args = append(args, tag, slug)
 	}
 	if req.Sort == "featured" {
 		where += ` AND is_featured=1`
@@ -2815,6 +2999,9 @@ func (s *MySQLStore) ToggleFollow(userID int64, targetID int64, targetType strin
 		if err == nil && targetType == "community" {
 			_, _ = s.db.Exec(`UPDATE communities SET follower_count=GREATEST(follower_count-1,0),updated_at=NOW() WHERE id=?`, targetID)
 		}
+		if err == nil && targetType == "tag" {
+			_, _ = s.db.Exec(`UPDATE tags SET follower_count=GREATEST(follower_count-1,0),updated_at=NOW() WHERE id=?`, targetID)
+		}
 		return false, err
 	}
 
@@ -2824,6 +3011,9 @@ func (s *MySQLStore) ToggleFollow(userID int64, targetID int64, targetType strin
 	}
 	if targetType == "community" {
 		_, _ = s.db.Exec(`UPDATE communities SET follower_count=follower_count+1,updated_at=NOW() WHERE id=?`, targetID)
+	}
+	if targetType == "tag" {
+		_, _ = s.db.Exec(`UPDATE tags SET follower_count=follower_count+1,updated_at=NOW() WHERE id=?`, targetID)
 	}
 	communityID, topicID, remark := s.followActivityContext(targetType, targetID)
 	_, _ = s.db.Exec(`INSERT INTO activities (user_id,community_id,topic_id,action,target_type,target_id,remark,created_at) VALUES (?,?,?,?,?,?,?,NOW())`,
@@ -3547,6 +3737,32 @@ func (s *MySQLStore) getTopicTags(topicID int64) []string {
 	return tags
 }
 
+func (s *MySQLStore) enrichSQLTag(tag domain.Tag) domain.Tag {
+	if tag.SortOrder == 0 {
+		tag.SortOrder = tag.Sort
+	}
+	tag.Site = strings.TrimSpace(tag.Site)
+	if tag.Site != "" && tag.Site != "portal" {
+		if id, err := strconv.ParseInt(tag.Site, 10, 64); err == nil {
+			if comm, ok := s.communityByID(id); ok && comm.Slug != "" {
+				tag.Site = comm.Slug
+			}
+		}
+	}
+	tag.CommunitySlug = tag.Site
+	if tag.Site != "" && tag.Site != "portal" {
+		if comm, ok := s.CommunityBySlug(tag.Site); ok {
+			tag.CommunityID = comm.ID
+			tag.CommunityName = comm.Name
+		}
+	}
+	_ = s.db.QueryRow(`SELECT COUNT(*) FROM topic_tags tt JOIN topics tp ON tp.id=tt.topic_id AND tp.deleted_at IS NULL AND tp.status=1 WHERE tt.tag_id=?`, tag.ID).Scan(&tag.TopicCount)
+	tag.UseCount = firstNonZero(tag.TopicCount, tag.UseCount)
+	_ = s.db.QueryRow(`SELECT COUNT(*) FROM follows WHERE target_type='tag' AND target_id=?`, tag.ID).Scan(&tag.FollowerCount)
+	_, _ = s.db.Exec(`UPDATE tags SET follower_count=?,use_count=? WHERE id=?`, tag.FollowerCount, tag.UseCount, tag.ID)
+	return tag
+}
+
 func (s *MySQLStore) getOrCreateTag(communityID int64, name string) (domain.Tag, error) {
 	name = strings.TrimSpace(name)
 	slug := normalizeSlug(name)
@@ -3560,14 +3776,14 @@ func (s *MySQLStore) getOrCreateTag(communityID int64, name string) (domain.Tag,
 
 	// 查找已有标签
 	var tag domain.Tag
-	err := s.db.QueryRow(`SELECT id,site_key,name,slug,description,status,sort_order,use_count FROM tags WHERE site_key=? AND slug=?`, siteKey, slug).
-		Scan(&tag.ID, &tag.Site, &tag.Name, &tag.Slug, &tag.Description, &tag.Status, &tag.Sort, &tag.UseCount)
+	err := s.db.QueryRow(`SELECT id,site_key,name,slug,description,status,sort_order,use_count,COALESCE(follower_count,0),COALESCE(seo_title,''),COALESCE(seo_description,''),COALESCE(seo_keywords,'') FROM tags WHERE site_key=? AND slug=?`, siteKey, slug).
+		Scan(&tag.ID, &tag.Site, &tag.Name, &tag.Slug, &tag.Description, &tag.Status, &tag.Sort, &tag.UseCount, &tag.FollowerCount, &tag.SEOTitle, &tag.SEODescription, &tag.SEOKeywords)
 	if err == nil {
-		return tag, nil
+		return s.enrichSQLTag(tag), nil
 	}
 
 	// 创建新标签
-	_, err = s.db.Exec(`INSERT INTO tags (site_key,name,slug,status,use_count) VALUES (?,?,?,?,1)`, siteKey, name, slug, "enable")
+	_, err = s.db.Exec(`INSERT INTO tags (site_key,name,slug,status,use_count,seo_title,seo_description,seo_keywords) VALUES (?,?,?,?,1,?,?,?)`, siteKey, name, slug, "enable", name+" 相关内容", "DevHub "+name+" 标签聚合，汇总相关文章、问答、项目和文档。", name)
 	if err != nil {
 		return domain.Tag{}, err
 	}
@@ -3707,10 +3923,10 @@ func (s *MySQLStore) validateFollowTarget(targetType string, targetID int64) err
 		}
 		return errors.New("子站不存在")
 	case "tag":
-		if s.existsByQuery(`SELECT 1 FROM tags WHERE id=? LIMIT 1`, targetID) {
+		if s.existsByQuery(`SELECT 1 FROM tags WHERE id=? AND status='enable' LIMIT 1`, targetID) {
 			return nil
 		}
-		return errors.New("标签不存在")
+		return errors.New("标签不存在或已禁用")
 	case "topic":
 		if s.existsByQuery(`SELECT 1 FROM topics WHERE id=? AND deleted_at IS NULL LIMIT 1`, targetID) {
 			return nil
@@ -3733,9 +3949,13 @@ func (s *MySQLStore) followActivityContext(targetType string, targetID int64) (i
 		_ = s.db.QueryRow(`SELECT community_id,title FROM topics WHERE id=?`, targetID).Scan(&communityID, &title)
 		return communityID, targetID, title
 	case "tag":
-		var name string
-		_ = s.db.QueryRow(`SELECT name FROM tags WHERE id=?`, targetID).Scan(&name)
-		return 0, 0, name
+		var name, site string
+		_ = s.db.QueryRow(`SELECT name,site_key FROM tags WHERE id=?`, targetID).Scan(&name, &site)
+		communityID := int64(0)
+		if comm, ok := s.CommunityBySlug(site); ok {
+			communityID = comm.ID
+		}
+		return communityID, 0, name
 	case "user":
 		var name string
 		_ = s.db.QueryRow(`SELECT COALESCE(NULLIF(nickname,''),username) FROM users WHERE id=?`, targetID).Scan(&name)
@@ -3788,7 +4008,12 @@ func (s *MySQLStore) followItem(f domain.Follow) domain.FollowItem {
 			item.TargetName = tag.Name
 			item.TargetSlug = tag.Slug
 			item.Description = tag.Description
-			item.TargetURL = "/search/?tag=" + tag.Slug
+			item.TargetURL = "/tags/" + tag.Slug + "/"
+			if tag.CommunityID > 0 {
+				if comm, ok := s.communityByID(tag.CommunityID); ok {
+					item.Community = comm
+				}
+			}
 		}
 	case "user":
 		var name string
@@ -3858,6 +4083,18 @@ func (s *MySQLStore) enrichActivity(a *domain.Activity) {
 	_, _, remark := s.followActivityContext(a.TargetType, a.TargetID)
 	a.TargetTitle = remark
 	a.TargetURL = targetURLFor(a.TargetType, a.TargetID, a.TopicID)
+	if a.TargetType == "tag" {
+		if tag, err := s.tagByID(a.TargetID); err == nil {
+			a.TargetTitle = tag.Name
+			a.TargetURL = "/tags/" + tag.Slug + "/"
+			if tag.CommunityID > 0 {
+				if comm, ok := s.communityByID(tag.CommunityID); ok {
+					a.CommunityID = comm.ID
+					a.Community = comm.Name
+				}
+			}
+		}
+	}
 	if a.Remark == "" {
 		a.Remark = remark
 	}
@@ -3866,6 +4103,15 @@ func (s *MySQLStore) enrichActivity(a *domain.Activity) {
 func boolToInt(b bool) int {
 	if b {
 		return 1
+	}
+	return 0
+}
+
+func firstNonZero(values ...int) int {
+	for _, value := range values {
+		if value != 0 {
+			return value
+		}
 	}
 	return 0
 }

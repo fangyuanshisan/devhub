@@ -43,7 +43,7 @@ import { devhubSites as sites } from '../../lib/sites';
         const topic = item.topic || {};
         const community = item.community || {};
         const site = community.slug || communityIDToSite[topic.community_id] || 'portal';
-        const tags = (topic.tags || []).map((tag) => `<a href="/search/?scope=community&community_slug=${encodeURIComponent(site)}&tag=${encodeURIComponent(tag)}">${escapeHTML(tag)}</a>`).join('');
+        const tags = (topic.tags || []).map((tag) => `<a href="/tags/${encodeURIComponent(String(tag).trim().toLowerCase().replace(/\s+/g, '-'))}/?community_slug=${encodeURIComponent(site)}">${escapeHTML(tag)}</a>`).join('');
         return `<article class="post-card" data-favorite-item="${Number(item.target_id)}">
           <div class="post-card-top"><a class="site-pill" href="/c/${encodeURIComponent(site)}/">${escapeHTML(community.name || site)}</a><span>${escapeHTML(item.category?.name || topic.content_type || '内容')}</span><span>${escapeHTML(item.created_at || '')} 收藏</span></div>
           <h2><a href="/topics/${Number(topic.id || item.target_id)}/">${escapeHTML(topic.title || `主题 #${item.target_id}`)}</a></h2>

@@ -94,6 +94,7 @@ const sortTabs = [
       const escapeHTML = (value) => String(value ?? '').replace(/[&<>"']/g, (char) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[char]));
       const getJSON = (url) => fetch(url).then((response) => response.ok ? response.json() : Promise.reject());
       const postJSON = (url, body) => fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) }).then((response) => response.ok ? response.json() : response.json().then((data) => Promise.reject(data)));
+      const tagURL = (tag) => `/tags/${encodeURIComponent(String(tag).trim().toLowerCase().replace(/\s+/g, '-'))}/?community_slug=${encodeURIComponent(community)}`;
       const buildURL = (next = {}) => {
         const search = new URLSearchParams();
         const type = next.content_type ?? activeType;
@@ -102,9 +103,9 @@ const sortTabs = [
         if (sort && sort !== 'latest') search.set('sort', sort);
         const qs = search.toString();
         return `/c/${encodeURIComponent(community)}/${qs ? `?${qs}` : ''}`;
-      };
+	      };
 	      const renderTopic = (topic) => {
-	        const tags = (topic.tags || []).slice(0, 5).map((tag) => `<a href="/search/?scope=community&community_slug=${encodeURIComponent(community)}&tag=${encodeURIComponent(tag)}">${escapeHTML(tag)}</a>`).join('');
+	        const tags = (topic.tags || []).slice(0, 5).map((tag) => `<a href="${tagURL(tag)}">${escapeHTML(tag)}</a>`).join('');
 	        const qaState = topic.content_type === 'question'
 	          ? (topic.is_solved ? '<span class="state-pill solved">已解决</span>' : '<span class="state-pill unsolved">未解决</span>')
 	          : '';
@@ -168,7 +169,7 @@ const sortTabs = [
       getJSON(`/api/v1/communities/${encodeURIComponent(community)}/tags`).then((data) => {
         const cloud = document.querySelector('[data-community-tags]');
         const tags = data.items || [];
-        if (cloud) cloud.innerHTML = tags.length ? tags.map((tag) => `<a href="/search/?scope=community&community_slug=${encodeURIComponent(community)}&tag=${encodeURIComponent(tag.name)}">${escapeHTML(tag.name)}<span>${Number(tag.count || tag.topic_count || 0)}</span></a>`).join('') : '<span>暂无标签</span>';
+        if (cloud) cloud.innerHTML = tags.length ? tags.map((tag) => `<a href="/tags/${encodeURIComponent(tag.slug || String(tag.name).trim().toLowerCase().replace(/\s+/g, '-'))}/?community_slug=${encodeURIComponent(community)}">${escapeHTML(tag.name)}<span>${Number(tag.count || tag.topic_count || 0)}</span></a>`).join('') : '<span>暂无标签</span>';
       }).catch(() => {});
     })();
   </script>

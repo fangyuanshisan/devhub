@@ -1688,6 +1688,11 @@ main {
   border-radius: 999px;
 }
 
+.tag-picker small {
+  color: var(--muted);
+  font-size: 12px;
+}
+
 .publish-actions {
   display: flex;
   gap: 10px;

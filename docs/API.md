@@ -8,9 +8,9 @@
 
 后续 Codex / AI Agent 更新 API 前，应先阅读 `docs/AGENT_RULES.md`，再核对 `internal/transport/httpapi/router.go`。接口存在但字段尚未展开时，可以标注“待补充字段细节”；不要把计划中的接口写成已完成。
 
-## v1.1.3 API 范围
+## v1.2.0 API 范围
 
-v1.1.3 API 按以下模块归档：Auth、Communities、Community stats、Community categories、Community moderators、Topics、Comments、Search、Tags 基础能力、Reactions、Favorites、Follows、Activities、Notifications、Reports、Governance、Moderator Workspace、Moderators、Admin communities、Admin categories、Audit logs、SEO endpoints 和 Compatibility APIs。本版本在 v1.1.1 身份边界基础上新增独立 `/api/v1/moderator/*` 版主工作台 API。
+v1.2.0 API 按以下模块归档：Auth、Communities、Community stats、Community categories、Community moderators、Topics、Comments、Search、Tags、Reactions、Favorites、Follows、Activities、Notifications、Reports、Governance、Moderator Workspace、Moderators、Admin communities、Admin categories、Admin tags、Audit logs、SEO endpoints 和 Compatibility APIs。本版本新增标签详情、标签内容聚合、标签建议、后台标签 CRUD、标签启用 / 禁用和标签关联内容接口。
 
 ## 模块索引
 
@@ -20,7 +20,7 @@ v1.1.3 API 按以下模块归档：Auth、Communities、Community stats、Commun
 - Topics：Topic 列表、详情、发布、编辑、删除。
 - Comments：评论列表、评论、回复、问答采纳。
 - Search：Topic 搜索、筛选、未解决、精华。
-- Tags：基础标签、热门标签、子站标签。
+- Tags：标签列表、热门标签、子站标签、标签详情、标签内容聚合、标签建议、标签关注。
 - Reactions：点赞和兼容 reaction toggle。
 - Favorites：收藏和我的收藏。
 - Follows：关注 user/community/tag/topic。
@@ -152,11 +152,14 @@ PUT    /api/v1/topics/:id
 DELETE /api/v1/topics/:id
 ```
 
-基础标签能力：
+标签能力：
 
 ```http
 GET /api/v1/tags
 GET /api/v1/tags/hot
+GET /api/v1/tags/suggestions
+GET /api/v1/tags/:tag
+GET /api/v1/tags/:tag/topics
 GET /api/v1/communities/:slug/tags
 ```
 
@@ -164,7 +167,45 @@ GET /api/v1/communities/:slug/tags
 
 - 普通 Topic 列表和搜索默认过滤隐藏 / 删除内容。
 - `POST /api/v1/topics` 发布后，`/topics/:id` 可立即由 Go 动态 SEO 页面访问，不需要重新前端构建。
-- v1.1.0 已完成子站 SEO 动态页；标签详情 SEO 页、标签后台管理、标签合并和别名是 v1.2.0 规划，不写作当前已完成能力。
+- v1.2.0 已完成标签详情 SEO 页和后台标签管理；标签合并、标签别名和标签趋势统计仍是后续规划。
+
+标签详情响应包含：
+
+```json
+{
+  "id": 1,
+  "site": "php",
+  "community_id": 1,
+  "community_slug": "php",
+  "community_name": "PHP",
+  "name": "Laravel",
+  "slug": "laravel",
+  "description": "Laravel 相关内容",
+  "status": "enable",
+  "sort_order": 1,
+  "topic_count": 12,
+  "follower_count": 3,
+  "seo_title": "Laravel 相关内容",
+  "seo_description": "DevHub Laravel 标签聚合",
+  "seo_keywords": "Laravel,PHP"
+}
+```
+
+标签建议：
+
+```http
+GET /api/v1/tags/suggestions?community_slug=php&q=lar&limit=20
+```
+
+返回当前子站启用标签，用于发布页选择。发布 Topic 最多 5 个标签，后端会校验标签属于当前子站。
+
+标签内容聚合：
+
+```http
+GET /api/v1/tags/laravel/topics?community_slug=php&sort=latest&page=1&page_size=12
+```
+
+`sort` 支持 `latest`、`hot`、`active`、`featured`。
 
 ## v1.1.0 已完成子站接口
 
@@ -224,8 +265,12 @@ PUT  /api/v1/admin/users/:id/status
 GET  /api/v1/admin/roles
 GET  /api/v1/admin/permissions
 GET  /api/v1/admin/tags
+GET  /api/v1/admin/tags/:id
+GET  /api/v1/admin/tags/:id/topics
 POST /api/v1/admin/tags
 PUT  /api/v1/admin/tags/:id
+POST /api/v1/admin/tags/:id/enable
+POST /api/v1/admin/tags/:id/disable
 GET  /api/v1/admin/settings
 PUT  /api/v1/admin/settings
 GET  /api/v1/admin/logs
@@ -242,6 +287,42 @@ POST /api/v1/admin/notifications
 - 版主不能管理后台人员、系统设置、版主分配、全局子站新增 / 排序等管理员能力。
 
 后台种子账号见 `README.md`。后台接口需要 `Authorization: Bearer <access_token>`，并按 RBAC permission 和站点 scope 校验。
+
+### Admin Tags
+
+```http
+GET  /api/v1/admin/tags?site=php&status=all&q=lar
+POST /api/v1/admin/tags
+GET  /api/v1/admin/tags/:id
+PUT  /api/v1/admin/tags/:id
+GET  /api/v1/admin/tags/:id/topics
+POST /api/v1/admin/tags/:id/enable
+POST /api/v1/admin/tags/:id/disable
+```
+
+新增 / 更新请求体：
+
+```json
+{
+  "site": "php",
+  "name": "Laravel",
+  "slug": "laravel",
+  "description": "Laravel 生态、实践和线上问题复盘。",
+  "status": "enable",
+  "sort_order": 1,
+  "seo_title": "Laravel 相关内容",
+  "seo_description": "DevHub Laravel 标签聚合，汇总相关文章、问答、项目和文档。",
+  "seo_keywords": "Laravel,PHP,框架"
+}
+```
+
+规则：
+
+- `site` 使用子站 slug；`portal` 表示总站标签。
+- `status=enable` 启用，`status=disable` 禁用。
+- 禁用标签不能被公开详情 API 读取，不进入 sitemap。
+- `GET /api/v1/admin/tags/:id/topics` 返回该标签关联的 Topic，用于后台查看标签关联内容。
+- 新增、更新、启用和禁用标签写入 `admin_logs`。
 
 ### Admin Communities
 
@@ -984,6 +1065,8 @@ GET /c/:slug
 GET /c/:slug/
 GET /site/:slug
 GET /site/:slug/
+GET /tags/:tag
+GET /tags/:tag/
 GET /topics/:id
 GET /topics/:id/
 GET /posts/:id
@@ -997,9 +1080,11 @@ GET /robots.txt
 - `/c/:slug` 和 `/c/:slug/` 由 Go 动态输出百度友好的子站 SEO HTML，包含 title、description、canonical、h1、子站简介、板块链接、Topic 链接、标签链接、版主和公告。
 - `/site/:slug` 和 `/site/:slug/` 301 跳转到 canonical `/c/:slug/`。
 - 禁用或归档子站返回带 `noindex,follow` 的不可用 HTML，不进入 sitemap。
+- `/tags/:tag` 和 `/tags/:tag/` 由 Go 动态输出百度友好的标签聚合 SEO HTML，包含 title、description、canonical、h1、标签说明、内容链接和相关标签链接。
+- 禁用标签返回不可用页面，不进入 sitemap。
 - `/topics/:id` 和 `/topics/:id/` 由 Go 动态输出百度友好的 SEO HTML，不是纯 CSR 空壳。
 - `/posts/:id` 301 跳转到 `/topics/:id/`，保留旧入口兼容。
-- `/sitemap.xml` 输出启用子站和已发布且未隐藏的 Topic；隐藏 Topic 与禁用 / 归档子站不进入 sitemap。
+- `/sitemap.xml` 输出启用子站、启用标签和已发布且未隐藏的 Topic；隐藏 Topic、禁用 / 归档子站、禁用标签不进入 sitemap。
 - `/robots.txt` 动态输出 sitemap 地址。
 
 ## 通知类型与动态类型
@@ -1031,6 +1116,7 @@ GET /robots.txt
 当前真实表和字段：
 
 - `comments`：`id`、`post_id`、`topic_id`、`parent_id`、`reply_to_user_id`、`user_id`、`author`、`to_author`、`text`、`content_html`、`status`、`likes`、`is_best`、`created_at`、`updated_at`、`deleted_at`。
+- `tags`：`id`、`site_key`、`name`、`slug`、`description`、`status`、`sort_order`、`use_count`、`follower_count`、`seo_title`、`seo_description`、`seo_keywords`、`created_at`、`updated_at`。
 - `communities`：`logo`、`cover_image`、`slogan`、`theme_color`、`seo_title`、`seo_description`、`seo_keywords`、`sort_order`、`status`、`follower_count`、`topic_count`、`comment_count`、`hot_score`、`announcement_title`、`announcement_content`、`announcement_url`。
 - `categories`：`community_id`、`slug`、`type`、`visible`、`nav_visible`、`postable`、`seo_title`、`seo_description`、`status`。
 - `topics`：`content_type`、`status`、`is_pinned`、`is_featured`、`is_solved`、`comment_locked`、`best_comment_id`、`comment_count`、`last_active_at`、`hot_score`。
@@ -1075,5 +1161,6 @@ GET /robots.txt
 - 评论点赞本轮未实现，仅保留 `comments.likes` / `like_count` 字段和旧 `POST /api/v1/comments/:id/like`。
 - 采纳支持更换最佳答案，暂不支持取消已解决状态。
 - 最佳答案当前通过前端运行时展示，不强制进入 `/topics/:id` 初始 SEO HTML。
-- 标签关注后端和我的关注页可展示，前台标签区域的关注按钮后续增强。
+- 标签关注已在 v1.2.0 标签页接入，使用 `target_type=tag`。
 - 版主工作台是 v1.1.3 MVP，不包含复杂 RBAC、权限点矩阵、版主任期或绩效统计。
+- 标签合并、标签别名和标签趋势统计仍是后续增强，v1.2.0 未实现。

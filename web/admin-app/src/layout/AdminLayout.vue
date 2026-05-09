@@ -66,12 +66,12 @@
 import { computed, ref, watch } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import { ElMessage } from 'element-plus';
-import { ArrowDown, Bell, ChatDotRound, DataBoard, Document, Fold, FullScreen, Grid, Promotion, Refresh, Search, SetUp, Setting, Tickets, TrendCharts, User, UserFilled, Warning } from '@element-plus/icons-vue';
+import { ArrowDown, Bell, ChatDotRound, DataBoard, Document, Fold, FullScreen, Grid, PriceTag, Promotion, Refresh, Search, SetUp, Setting, Tickets, TrendCharts, User, UserFilled, Warning } from '@element-plus/icons-vue';
 import { menuRoutes } from '@/router';
 import { useAuthStore } from '@/stores/auth';
 import { useTabsStore } from '@/stores/tabs';
 
-const icons = { ChatDotRound, DataBoard, Document, Promotion, SetUp, Setting, Tickets, TrendCharts, User, UserFilled, Warning };
+const icons = { ChatDotRound, DataBoard, Document, PriceTag, Promotion, SetUp, Setting, Tickets, TrendCharts, User, UserFilled, Warning };
 const subMenus = {
   dashboard: [{ key: 'overview', label: '运营概览' }, { key: 'todo', label: '待办事项' }],
   content: [{ key: 'posts', label: '内容管理' }, { key: 'docs', label: '文档管理' }, { key: 'tags', label: '标签管理' }],
@@ -79,6 +79,7 @@ const subMenus = {
   reports: [{ key: 'pending', label: '待处理' }, { key: 'handled', label: '处理记录' }],
   moderators: [{ key: 'list', label: '版主列表' }, { key: 'scope', label: '子站授权' }],
   auditLogs: [{ key: 'list', label: '审计列表' }, { key: 'filter', label: '治理筛选' }],
+  tags: [{ key: 'list', label: '标签列表' }, { key: 'seo', label: 'SEO 配置' }, { key: 'topics', label: '关联内容' }],
   communities: [{ key: 'site', label: '子站配置' }, { key: 'board', label: '板块管理' }],
   sites: [{ key: 'site', label: '子站配置' }, { key: 'board', label: '板块管理' }],
   users: [{ key: 'list', label: '用户管理' }, { key: 'roles', label: '角色权限' }],

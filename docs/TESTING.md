@@ -222,6 +222,60 @@ curl "http://127.0.0.1:8090/api/v1/moderator/audit-logs?community_id=1" -H "Auth
 - audit logs `actor_type=moderator`。
 - audit logs `community_id` 正确。
 
+## v1.2.0 标签系统测试清单
+
+页面：
+
+- `/tags/laravel/` 可访问，不是纯 CSR 空壳。
+- `/tags/gin/` 可访问，不是纯 CSR 空壳。
+- 标签页显示名称、说明、内容数、关注数、所属子站、最新内容、热门内容、精华内容和相关标签。
+- 标签页关注按钮可点击；未登录时按当前前台登录规则返回提示或 401。
+- `/admin-next/tags` 可打开，不白屏。
+- 发布页 `/topics/new/` 选择子站后能加载标签建议。
+
+公开 API：
+
+```bash
+curl "http://127.0.0.1:8090/api/v1/tags"
+curl "http://127.0.0.1:8090/api/v1/tags/hot"
+curl "http://127.0.0.1:8090/api/v1/tags/suggestions?community_slug=php&q=lar&limit=20"
+curl "http://127.0.0.1:8090/api/v1/tags/laravel?community_slug=php"
+curl "http://127.0.0.1:8090/api/v1/tags/laravel/topics?community_slug=php&sort=latest"
+```
+
+后台 API：
+
+```bash
+curl "http://127.0.0.1:8090/api/v1/admin/tags" -H "Authorization: Bearer <admin_token>"
+curl "http://127.0.0.1:8090/api/v1/admin/tags/1" -H "Authorization: Bearer <admin_token>"
+curl "http://127.0.0.1:8090/api/v1/admin/tags/1/topics" -H "Authorization: Bearer <admin_token>"
+curl -X POST "http://127.0.0.1:8090/api/v1/admin/tags/1/disable" -H "Authorization: Bearer <admin_token>"
+curl -X POST "http://127.0.0.1:8090/api/v1/admin/tags/1/enable" -H "Authorization: Bearer <admin_token>"
+```
+
+SEO：
+
+- `/tags/:tag/` 源码包含 `<title>`。
+- `/tags/:tag/` 源码包含 `meta name="description"`。
+- `/tags/:tag/` 源码包含 canonical。
+- `/tags/:tag/` 源码包含 `<h1>`。
+- `/tags/:tag/` 源码包含标签说明、Topic 链接和相关标签链接。
+- 禁用标签不进入 `/sitemap.xml`。
+- `/topics/:id` SEO 不受影响。
+- `/c/:slug` SEO 不受影响。
+
+sitemap：
+
+```bash
+curl -s "http://127.0.0.1:8090/sitemap.xml" | rg "/tags/"
+```
+
+不做项确认：
+
+- v1.2.0 不测试标签合并。
+- v1.2.0 不测试标签别名。
+- v1.2.0 不测试标签趋势统计。
+
 ## 启动检查
 
 ```bash

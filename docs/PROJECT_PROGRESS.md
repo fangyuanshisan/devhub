@@ -19,7 +19,7 @@ DevHub 当前是 “Go API + Astro 前台 + Vue 后台” 的多子站社区 CMS
 
 首页、子站页、搜索页和用户中心使用 Astro 静态壳 + 运行时 API；Topic 详情页 `/topics/:id` 仍由 Go 动态输出 SEO HTML。第五轮互动闭环已完成基础实现：点赞、收藏、关注、我的收藏、我的关注、我的动态、通知列表和已读逻辑在 MemoryStore 与 MySQLStore 中均可用。第六轮已完成评论列表、发表评论、回复评论、问答采纳、未解决筛选、评论动态和评论通知的基础闭环。第七轮已完成举报、版主范围治理、精华、置顶、隐藏、评论锁定和后台最小治理入口。第八轮补丁后，admin-next 后台内容 CRUD、版主管理 CRUD、批量治理、批量举报处理和治理审计日志均有真实页面入口和 API 封装。
 
-当前版本为 `v1.1.3`，版本主题是“独立版主工作台 MVP”。本轮在 v1.1.1 身份边界基础上，新增 `/moderator` 前台版主工作台和 `/api/v1/moderator/*` 专用 API，让子站版主使用前台 `users` 登录态治理自己负责的子站。
+当前版本为 `v1.2.0`，版本主题是“标签系统增强版”。本轮新增 Go 动态标签 SEO 页、标签详情 API、标签内容聚合、标签关注、发布页标签建议、后台标签 CRUD、标签启用 / 禁用、标签 SEO 字段、标签关联内容查看和 sitemap 标签收录。
 
 ## 近期迭代摘要
 
@@ -37,6 +37,28 @@ DevHub 当前是 “Go API + Astro 前台 + Vue 后台” 的多子站社区 CMS
 - v1.1.0 子站模块增强：增强 `communities/categories` 模型，新增 `/c/:slug` Go 动态 SEO 子站页、子站统计、公开版主、子站后台配置、子站板块管理、子站公告、子站关注计数和 sitemap 子站收录。
 - v1.1.1 身份边界整理：前台登录发放 `token_type=user`，后台登录发放 `token_type=admin`；前台推荐 localStorage key 为 `devhub_user_token` / `devhub_user_refresh_token`，后台继续使用 sessionStorage `devhub_admin_token` / `devhub_admin_refresh_token`；`/api/v1/admin/*` 默认校验后台身份，子站版主 user token 只获得自己子站的治理类权限；`admin_logs` 增加并读写 `actor_type` / `actor_id`。
 - v1.1.3 独立版主工作台 MVP：新增 `/moderator`、`/moderator/reports`、`/moderator/topics`、`/moderator/comments`、`/moderator/audit-logs`；新增 `/api/v1/moderator/*` 专用 API，复用现有 reports/topics/comments 治理能力和 `admin_logs`，但强制使用前台 user token 与 `community_moderators` 子站 scope。
+- v1.2.0 标签系统增强：新增 `/tags/:tag/` Go 动态 SEO 标签页，公开标签详情 / 聚合 / 建议 API，发布页标签建议，标签关注，`/admin-next/tags` 后台标签 CRUD、启用 / 禁用、SEO 字段和关联内容查看，以及 sitemap 启用标签收录。
+
+## v1.2.0 标签系统增强范围
+
+已完成能力：
+
+- 标签页：`/tags/:tag/` 由 Go 动态输出 SEO HTML，包含 title、description、canonical、h1、说明、内容链接、相关标签和关注按钮。
+- 标签详情 API：`GET /api/v1/tags/:tag` 按 slug、名称或 ID 获取启用标签。
+- 标签内容聚合：`GET /api/v1/tags/:tag/topics` 支持 `community_slug`、`sort`、分页，返回真实 Topic 列表。
+- 标签关注：复用 `POST /api/v1/follows/toggle`，`target_type=tag`，MemoryStore / MySQLStore 都会维护 `follower_count`。
+- 发布页标签建议：`GET /api/v1/tags/suggestions` 按当前子站返回启用标签，发布页最多选择 5 个标签。
+- 后台标签管理：`/admin-next/tags` 支持列表、筛选、新增、编辑、启用 / 禁用、SEO 字段、前台跳转和关联内容查看。
+- 标签 SEO 字段：`seo_title`、`seo_description`、`seo_keywords` 已进入 domain、MemoryStore、MySQLStore 和 schema。
+- sitemap：`/sitemap.xml` 追加启用标签 canonical `/tags/:slug/`，禁用标签不收录。
+- 链接调整：Topic、子站、首页、搜索和收藏列表中的标签链接指向 `/tags/:tag/`。
+- SEO 保护：`/topics/:id` 和 `/c/:slug` 仍由 Go 动态输出 SEO HTML，未改成 CSR。
+
+已知限制：
+
+- v1.2.0 不做标签合并、标签别名和标签趋势统计。
+- 标签合并后的 301 重定向、别名 canonical 和趋势图留到后续版本。
+- sitemap 仍是单文件动态输出，内容规模扩大后需要分片。
 
 ## v1.1.3 独立版主工作台 MVP 范围
 
@@ -97,7 +119,7 @@ DevHub 当前是 “Go API + Astro 前台 + Vue 后台” 的多子站社区 CMS
 已知限制：
 
 - v1.1.0 使用启用板块生成默认子站导航，深度自定义导航配置留到后续版本。
-- 标签合并、标签别名、标签趋势统计和标签后台管理留到 v1.2.0。
+- 标签合并、标签别名和标签趋势统计仍留到后续版本；标签后台管理已在 v1.2.0 完成。
 - 完整关注流留到 v1.3.0；本版本完成关注状态、follower_count、动态和我的关注展示。
 - 评论点赞、取消已解决状态、推荐算法、声望积分和复杂运营分析不属于本版本。
 - sitemap 仍是单文件动态输出，内容规模扩大后需要分片。
@@ -118,17 +140,17 @@ DevHub 当前是 “Go API + Astro 前台 + Vue 后台” 的多子站社区 CMS
 
 已知限制：
 
-- 标签系统仍是基础能力，标签详情页、标签 SEO 聚合页、标签后台管理、标签合并 / 别名和趋势统计待 v1.2.0。
+- 标签详情页、标签 SEO 聚合页和标签后台管理已在 v1.2.0 完成；标签合并 / 别名和趋势统计仍待后续。
 - 评论点赞未实现到运行时评论区。
 - 问答支持采纳和更换最佳答案，暂不支持取消已解决状态。
-- 标签关注和用户关注后端已支持，前台入口仍可继续增强。
+- 标签关注已在 v1.2.0 接入标签页；用户关注前台作者入口仍可继续增强。
 - `/sitemap.xml` 当前未做大规模分片。
 - migration 仍以基础 SQL 和少量迁移脚本为主，生产升级需要预发演练。
 - 生产部署仍需根据真实环境配置守护进程、反向代理、HTTPS、日志和定时备份。
 
 后续建议规划：
 
-- v1.2.0：标签专项增强、标签 SEO 聚合页、标签后台管理、标签合并 / 别名。
+- v1.2.0：标签专项增强、标签 SEO 聚合页和标签后台管理已完成；标签合并 / 别名留待后续。
 - v1.3.0：推荐、关注流和内容发现。
 - v1.4.0：用户成长、声望和个人主页。
 - v1.5.0：后台运营、治理和数据统计增强。
@@ -212,7 +234,7 @@ DevHub 当前是 “Go API + Astro 前台 + Vue 后台” 的多子站社区 CMS
 - MySQLStore 支持情况：已完成第八轮能力。支持 `community_moderators` CRUD、`topics` 后台 CRUD、`reports` pending 去重索引、批量治理依赖的单项更新和 `admin_logs` 筛选分页，兼容 MySQL 8。
 - SEO 保护：已保持。第八轮未改变 `/topics/:id` Go 动态 SEO HTML；隐藏内容仍不进入普通列表、搜索和 sitemap。
 - 第八轮补丁收口：已完成 `admin.js` 版主管理 / 批量治理 / 审计日志封装对账；`Content.vue`、`Comments.vue`、`Reports.vue` 已接入真实批量接口并支持备注；后台 Vite dev proxy、`main.go` 默认端口和文档口径均统一为 `8090`。
-- 尚未完成事项：复杂登录系统、细粒度版主分配审批、评论点赞、取消已解决状态不在本轮主线。标签关注和用户关注后端已支持，但前台入口仍作为后续增强。
+- 尚未完成事项：复杂登录系统、细粒度版主分配审批、评论点赞、取消已解决状态不在本轮主线。标签关注已在 v1.2.0 标签页接入；用户关注前台入口仍作为后续增强。
 
 ## 第六轮收尾验收记录
 
@@ -356,7 +378,7 @@ DevHub 当前是 “Go API + Astro 前台 + Vue 后台” 的多子站社区 CMS
 
 - 评论点赞：部分完成。数据字段和旧评论点赞接口保留，本轮未把评论点赞接入详情页运行时评论区。
 - 取消已解决状态：已预留。当前支持采纳和更换最佳答案，暂不支持取消已解决。
-- 标签关注：后端 `follows` 支持 `target_type=tag`，我的关注页可展示；前台标签区域尚未提供批量关注按钮，后续可在标签聚合页增强。
+- 标签关注：已在 v1.2.0 标签页接入 `target_type=tag` 关注 / 取消关注；我的关注页可展示。
 - 用户关注：后端支持 `target_type=user` 并触发 `user_followed` 通知；前台作者信息区域的关注入口后续完善。
 
 ## 已知风险
@@ -367,8 +389,8 @@ DevHub 当前是 “Go API + Astro 前台 + Vue 后台” 的多子站社区 CMS
 
 ## 下一步
 
-1. 完成 v1.1.3 版主工作台验收后，建议先检查 `git diff`，再按 release notes 归档。
-2. v1.2.0：标签专项增强、标签 SEO 聚合页、标签后台管理、标签合并 / 别名。
+1. 完成 v1.2.0 标签系统验收后，建议先检查 `git diff`，再按 release notes 归档。
+2. 后续标签增强：标签合并、标签别名、标签趋势统计和合并后的重定向。
 3. 后续优化：评论点赞、取消已解决状态、通知跳转 comment anchor、推荐、关注流、admin-user 与 frontend-user 绑定关系和生产化 migration。
 
 ## 验收清单
@@ -412,12 +434,14 @@ DevHub 当前是 “Go API + Astro 前台 + Vue 后台” 的多子站社区 CMS
 - [x] Comment 隐藏、恢复可用，隐藏最佳答案会被拒绝。
 - [x] 隐藏 Topic 不进入普通列表、搜索和 sitemap。
 - [x] 隐藏 Topic 详情页返回 noindex 的“内容已隐藏”动态 HTML。
-- [x] `VERSION` 已记录 `v1.1.3`。
+- [x] `VERSION` 已记录 `v1.2.0`。
 - [x] `CHANGELOG.md` 已记录 v1.1.0 主要变化和限制。
 - [x] `CHANGELOG.md` 已记录 v1.1.1 身份边界整理。
 - [x] `CHANGELOG.md` 已记录 v1.1.3 独立版主工作台 MVP。
+- [x] `CHANGELOG.md` 已记录 v1.2.0 标签系统增强。
 - [x] `docs/releases/v1.1.0.md` 已记录版本定位、数据结构、API、SEO、后台、测试、限制和 tag 建议。
 - [x] `docs/releases/v1.1.1.md` 已记录前后台身份边界整理。
 - [x] `docs/releases/v1.1.3.md` 已记录独立版主工作台 MVP。
+- [x] `docs/releases/v1.2.0.md` 已记录标签系统增强。
 - [x] `docs/BACKUP_AND_ROLLBACK.md` 已记录备份、恢复和紧急回滚流程。
 - [x] `.github/workflows/ci.yml` 已补充 Go / 前台 / 后台基础 CI。

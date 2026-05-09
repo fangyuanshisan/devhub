@@ -25,22 +25,43 @@ type Board struct {
 
 // TagStat 表示标签及其关联内容数量。
 type TagStat struct {
-	Name  string `json:"name"`
-	Count int    `json:"count"`
+	ID             int64  `json:"id,omitempty"`
+	Name           string `json:"name"`
+	Slug           string `json:"slug,omitempty"`
+	Site           string `json:"site,omitempty"`
+	CommunityID    int64  `json:"community_id,omitempty"`
+	CommunitySlug  string `json:"community_slug,omitempty"`
+	Description    string `json:"description,omitempty"`
+	TopicCount     int    `json:"topic_count,omitempty"`
+	Count          int    `json:"count"`
+	FollowerCount  int    `json:"follower_count,omitempty"`
+	Status         string `json:"status,omitempty"`
+	SEOTitle       string `json:"seo_title,omitempty"`
+	SEODescription string `json:"seo_description,omitempty"`
+	SEOKeywords    string `json:"seo_keywords,omitempty"`
 }
 
 // Tag 表示可被后台管理的内容标签。
 type Tag struct {
-	ID          int64  `json:"id"`
-	Site        string `json:"site"`
-	Name        string `json:"name" binding:"required"`
-	Slug        string `json:"slug"`
-	Description string `json:"description"`
-	Status      string `json:"status"`
-	Sort        int    `json:"sort"`
-	UseCount    int    `json:"use_count"`
-	CreatedAt   string `json:"created_at,omitempty"`
-	UpdatedAt   string `json:"updated_at,omitempty"`
+	ID             int64  `json:"id"`
+	Site           string `json:"site"`
+	CommunityID    int64  `json:"community_id,omitempty"`
+	CommunitySlug  string `json:"community_slug,omitempty"`
+	CommunityName  string `json:"community_name,omitempty"`
+	Name           string `json:"name" binding:"required"`
+	Slug           string `json:"slug"`
+	Description    string `json:"description"`
+	Status         string `json:"status"`
+	Sort           int    `json:"sort"`
+	SortOrder      int    `json:"sort_order,omitempty"`
+	UseCount       int    `json:"use_count"`
+	TopicCount     int    `json:"topic_count,omitempty"`
+	FollowerCount  int    `json:"follower_count,omitempty"`
+	SEOTitle       string `json:"seo_title,omitempty"`
+	SEODescription string `json:"seo_description,omitempty"`
+	SEOKeywords    string `json:"seo_keywords,omitempty"`
+	CreatedAt      string `json:"created_at,omitempty"`
+	UpdatedAt      string `json:"updated_at,omitempty"`
 }
 
 // Post 表示社区帖子、文档、Wiki 等内容实体。
@@ -207,6 +228,7 @@ type AdminUser struct {
 	Avatar        string `json:"avatar"`
 	Phone         string `json:"phone"`
 	Email         string `json:"email"`
+	PasswordHash  string `json:"-"`
 	Status        string `json:"status"`
 	RoleID        int64  `json:"role_id"`
 	RoleName      string `json:"role_name"`

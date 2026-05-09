@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"html"
 	"net/http"
+	"net/url"
 	"os"
 	"path/filepath"
 	"sort"
@@ -46,6 +47,9 @@ func NewRouter(svc *service.Service) *gin.Engine {
 		api.GET("/stats", srv.stats)
 		api.GET("/tags", srv.tags)
 		api.GET("/tags/hot", srv.hotTags)
+		api.GET("/tags/suggestions", srv.tagSuggestions)
+		api.GET("/tags/:tag", srv.getTag)
+		api.GET("/tags/:tag/topics", srv.tagTopics)
 		api.GET("/posts", srv.listPosts)
 		api.POST("/posts", srv.authRequired(), srv.createPost)
 		api.GET("/posts/:id", srv.getPost)
@@ -157,8 +161,12 @@ func NewRouter(svc *service.Service) *gin.Engine {
 			protected.GET("/roles", srv.requirePermission("role.read"), srv.adminRoles)
 			protected.GET("/permissions", srv.requirePermission("role.read"), srv.adminPermissions)
 			protected.GET("/tags", srv.requirePermission("post.read"), srv.adminTags)
+			protected.GET("/tags/:id", srv.requirePermission("post.read"), srv.adminTag)
+			protected.GET("/tags/:id/topics", srv.requirePermission("post.read"), srv.adminTagTopics)
 			protected.POST("/tags", srv.requirePermission("post.update"), srv.createAdminTag)
 			protected.PUT("/tags/:id", srv.requirePermission("post.update"), srv.updateAdminTag)
+			protected.POST("/tags/:id/enable", srv.requirePermission("post.update"), srv.enableAdminTag)
+			protected.POST("/tags/:id/disable", srv.requirePermission("post.update"), srv.disableAdminTag)
 			protected.GET("/comments", srv.requirePermission("comment.read"), srv.adminComments)
 			protected.PUT("/comments/:id/status", srv.requirePermission("comment.moderate"), srv.updateAdminCommentStatus)
 			protected.POST("/comments/:id/hide", srv.requirePermission("comment.moderate"), srv.hideAdminComment)
@@ -270,12 +278,8 @@ func NewRouter(svc *service.Service) *gin.Engine {
 	r.GET("/posts/:id/", srv.redirectPostToTopic)
 	r.GET("/topics/:id", srv.topicSEOPage)
 	r.GET("/topics/:id/", srv.topicSEOPage)
-	r.GET("/tags/:tag", func(c *gin.Context) {
-		serveFrontendFile(c, fmt.Sprintf("./web/frontend/tags/%s/index.html", c.Param("tag")))
-	})
-	r.GET("/tags/:tag/", func(c *gin.Context) {
-		serveFrontendFile(c, fmt.Sprintf("./web/frontend/tags/%s/index.html", c.Param("tag")))
-	})
+	r.GET("/tags/:tag", srv.tagSEOPage)
+	r.GET("/tags/:tag/", srv.tagSEOPage)
 	r.GET("/robots.txt", srv.robots)
 	r.GET("/sitemap.xml", srv.sitemap)
 	r.GET("/sitemap-index.xml", srv.sitemap)
@@ -499,6 +503,142 @@ func (s *Server) topicSEOPage(c *gin.Context) {
 
 func (s *Server) topicNotFoundHTML() string {
 	return fmt.Sprintf(`<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>内容不存在 - DevHub</title><meta name="description" content="该内容不存在或已被删除。"><link rel="canonical" href="/"><link rel="stylesheet" href="%s"></head><body><main class="article-shell"><article class="article-main"><h1>内容不存在</h1><p>该内容不存在或已被删除。</p><p><a href="/">返回 DevHub 首页</a></p></article></main></body></html>`, esc(frontendStylesheetHref()))
+}
+
+func (s *Server) tagSEOPage(c *gin.Context) {
+	raw := strings.Trim(strings.TrimSpace(c.Param("tag")), "/")
+	if raw == "" {
+		c.Data(http.StatusNotFound, "text/html; charset=utf-8", []byte(s.tagNotFoundHTML()))
+		return
+	}
+	site := strings.TrimSpace(c.Query("community_slug"))
+	tag, ok := s.svc.TagBySlug(site, raw)
+	if !ok || tag.ID == 0 || tag.Status != "enable" {
+		c.Data(http.StatusNotFound, "text/html; charset=utf-8", []byte(s.tagNotFoundHTML()))
+		return
+	}
+	c.Data(http.StatusOK, "text/html; charset=utf-8", []byte(s.renderTagHTML(c, tag)))
+}
+
+func (s *Server) tagNotFoundHTML() string {
+	return fmt.Sprintf(`<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>标签不存在 - DevHub</title><meta name="description" content="该标签不存在或已被禁用。"><meta name="robots" content="noindex,follow"><link rel="canonical" href="/"><link rel="stylesheet" href="%s"></head><body><main class="article-shell"><article class="article-main"><h1>标签不存在</h1><p>该标签不存在或已被禁用。</p><p><a href="/">返回 DevHub 首页</a></p></article></main></body></html>`, esc(frontendStylesheetHref()))
+}
+
+func (s *Server) renderTagHTML(c *gin.Context, tag domain.Tag) string {
+	communityName := tag.CommunityName
+	if communityName == "" && tag.CommunityID > 0 {
+		if comm, ok := s.communityByID(tag.CommunityID); ok {
+			communityName = comm.Name
+			tag.CommunitySlug = comm.Slug
+		}
+	}
+	title := firstNonEmpty(tag.SEOTitle, tag.Name+" 相关内容") + " - DevHub"
+	description := firstNonEmpty(tag.SEODescription, tag.Description, "DevHub "+tag.Name+" 标签聚合，汇总相关文章、问答、项目和文档。")
+	canonicalPath := fmt.Sprintf("/tags/%s/", tagPathSegment(firstNonEmpty(tag.Slug, tag.Name)))
+	canonicalURL := absoluteURL(c, canonicalPath)
+	topics, total := s.svc.TagTopics(tag.ID, tag.CommunityID, "latest", 1, 12)
+	hotTopics, _ := s.svc.TagTopics(tag.ID, tag.CommunityID, "hot", 1, 8)
+	featuredTopics, _ := s.svc.TagTopics(tag.ID, tag.CommunityID, "featured", 1, 8)
+	related := s.svc.TagSuggestions(tag.Site, "", 18)
+	jsonLD := fmt.Sprintf(`{"@context":"https://schema.org","@type":"CollectionPage","name":%q,"description":%q,"url":%q,"publisher":{"@type":"Organization","name":"DevHub"}}`, tag.Name+" - DevHub", description, canonicalURL)
+	communityLink := ""
+	if tag.CommunitySlug != "" {
+		communityLink = fmt.Sprintf(`<a href="/c/%s/">%s</a>`, pathEsc(tag.CommunitySlug), esc(firstNonEmpty(communityName, tag.CommunitySlug)))
+	}
+	return fmt.Sprintf(`<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>%s</title>
+  <meta name="description" content="%s">
+  <meta name="keywords" content="%s">
+  <link rel="canonical" href="%s">
+  <meta property="og:site_name" content="DevHub">
+  <meta property="og:type" content="website">
+  <meta property="og:title" content="%s">
+  <meta property="og:description" content="%s">
+  <meta property="og:url" content="%s">
+  <meta name="theme-color" content="#2563eb">
+  <link rel="stylesheet" href="%s">
+  <script type="application/ld+json">%s</script>
+</head>
+<body>
+  <header class="site-header">
+    <div class="top-accent"></div>
+    <div class="header-inner">
+      <a class="brand" href="/"><span>DH</span><strong>DevHub</strong></a>
+      <nav class="site-nav" aria-label="主导航">
+        <a href="/">首页</a>
+        %s
+        <a href="/search/?tag=%s">搜索标签</a>
+        <a href="/topics/new/">发布内容</a>
+      </nav>
+    </div>
+  </header>
+  <main>
+    <section class="page-title tag-hero" data-tag-id="%d" data-tag-slug="%s">
+      <span>标签</span>
+      <h1>%s</h1>
+      <p>%s</p>
+      <div class="hero-actions">
+        <button class="secondary-action" type="button" data-tag-follow>关注标签</button>
+        <a class="primary-link" href="/topics/new/">发布相关内容</a>
+        <span class="action-message" data-tag-message></span>
+      </div>
+      <div class="community-stats"><span><strong>%d</strong>内容</span><span><strong>%d</strong>关注</span>%s</div>
+    </section>
+    <section class="content-layout">
+      <div>
+        %s
+        %s
+        %s
+      </div>
+      <aside class="sidebar">
+        <section><h2>相关标签</h2><div class="tag-cloud">%s</div></section>
+        <section class="community-rules"><h2>标签说明</h2><p>%s</p></section>
+      </aside>
+    </section>
+  </main>
+  <script>
+    (() => {
+      const hero = document.querySelector('[data-tag-id]');
+      const button = document.querySelector('[data-tag-follow]');
+      const message = document.querySelector('[data-tag-message]');
+      const id = Number(hero?.dataset.tagId || 0);
+      const token = () => localStorage.getItem('devhub_user_token') || localStorage.getItem('devhub_access_token') || '';
+      const setMessage = (text, danger = false) => {
+        if (!message) return;
+        message.textContent = text || '';
+        message.style.color = danger ? '#dc2626' : '';
+      };
+      button?.addEventListener('click', () => {
+        if (!id) return;
+        button.disabled = true;
+        const headers = {'Content-Type': 'application/json'};
+        const accessToken = token();
+        if (accessToken) headers.Authorization = 'Bearer ' + accessToken;
+        fetch('/api/v1/follows/toggle', {method: 'POST', headers, body: JSON.stringify({target_type: 'tag', target_id: id})})
+          .then(async (response) => {
+            const data = await response.json().catch(() => ({}));
+            if (!response.ok) throw new Error(data.error || '操作失败');
+            button.textContent = data.followed ? '已关注标签' : '关注标签';
+            setMessage(data.followed ? '已关注标签' : '已取消关注');
+          })
+          .catch((err) => setMessage(err?.message || '操作失败', true))
+          .finally(() => { button.disabled = false; });
+      });
+    })();
+  </script>
+</body>
+</html>`,
+		esc(title), esc(description), esc(firstNonEmpty(tag.SEOKeywords, tag.Name)), esc(canonicalURL), esc(title), esc(description), esc(canonicalURL), esc(frontendStylesheetHref()), jsonLD,
+		communityLink, queryEsc(tag.Name), tag.ID, esc(tag.Slug), esc(tag.Name), esc(description),
+		total, tag.FollowerCount, tagCommunityStatHTML(tag),
+		tagTopicSectionHTML("最新内容", topics, "暂无相关内容。"),
+		tagTopicSectionHTML("热门内容", hotTopics, "暂无热门内容。"),
+		tagTopicSectionHTML("精华内容", featuredTopics, "暂无精华内容。"),
+		relatedTagsHTML(related, tag.Slug), esc(firstNonEmpty(tag.Description, description)))
 }
 
 func (s *Server) topicHiddenHTML(topic *domain.Topic) string {
@@ -934,7 +1074,7 @@ func (s *Server) topicTagLinks(topic *domain.Topic, communitySlug string) string
 		if tag == "" {
 			continue
 		}
-		links = append(links, fmt.Sprintf(`<a href="/search/?tag=%s&amp;scope=community&amp;community_slug=%s">%s</a>`, queryEsc(tag), queryEsc(communitySlug), esc(tag)))
+		links = append(links, fmt.Sprintf(`<a href="/tags/%s/?community_slug=%s">%s</a>`, pathEsc(tagPathSegment(tag)), queryEsc(communitySlug), esc(tag)))
 	}
 	return strings.Join(links, "")
 }
@@ -955,6 +1095,18 @@ func (s *Server) sitemap(c *gin.Context) {
 		if topic.Status == 1 {
 			urls = append(urls, fmt.Sprintf("/topics/%d/", topic.ID))
 		}
+	}
+	seenTags := map[string]bool{}
+	for _, tag := range s.svc.AdminTags("", "", "enable") {
+		if tag.Status != "enable" {
+			continue
+		}
+		segment := tagPathSegment(firstNonEmpty(tag.Slug, tag.Name))
+		if segment == "" || seenTags[segment] {
+			continue
+		}
+		seenTags[segment] = true
+		urls = append(urls, "/tags/"+segment+"/")
 	}
 	var b strings.Builder
 	b.WriteString(`<?xml version="1.0" encoding="UTF-8"?>` + "\n")
@@ -1017,12 +1169,87 @@ func (s *Server) stats(c *gin.Context) {
 }
 
 func (s *Server) tags(c *gin.Context) {
-	site := c.DefaultQuery("site", "portal")
-	if !s.svc.ValidateSite(site) {
+	site := firstQuery(c, "community_slug", "site")
+	if site == "" {
+		site = "portal"
+	}
+	if site != "portal" && !s.svc.ValidateSite(site) {
 		fail(c, http.StatusBadRequest, "无效子网站")
 		return
 	}
-	c.JSON(http.StatusOK, gin.H{"items": s.svc.TagStats(site)})
+	status := strings.TrimSpace(c.Query("status"))
+	if status != "" && status != "enable" && status != "all" {
+		fail(c, http.StatusBadRequest, "标签状态不合法")
+		return
+	}
+	items := s.svc.TagStats(site)
+	if q := strings.ToLower(strings.TrimSpace(c.Query("q"))); q != "" || status == "all" {
+		adminStatus := "enable"
+		if status == "all" {
+			adminStatus = "all"
+		}
+		tags := s.svc.AdminTags(site, q, adminStatus)
+		items = make([]domain.TagStat, 0, len(tags))
+		for _, tag := range tags {
+			items = append(items, tagToStat(tag))
+		}
+	}
+	limit := intQuery(c, "limit", 0)
+	if limit > 0 && len(items) > limit {
+		items = items[:limit]
+	}
+	c.JSON(http.StatusOK, gin.H{"items": items})
+}
+
+func (s *Server) tagSuggestions(c *gin.Context) {
+	site := firstQuery(c, "community_slug", "site")
+	if site != "" && site != "portal" && !s.svc.ValidateSite(site) {
+		fail(c, http.StatusBadRequest, "无效子网站")
+		return
+	}
+	limit := intQuery(c, "limit", 20)
+	if limit > 50 {
+		limit = 50
+	}
+	c.JSON(http.StatusOK, gin.H{"items": s.svc.TagSuggestions(site, c.Query("q"), limit)})
+}
+
+func (s *Server) getTag(c *gin.Context) {
+	site := firstQuery(c, "community_slug", "site")
+	if site != "" && site != "portal" && !s.svc.ValidateSite(site) {
+		fail(c, http.StatusBadRequest, "无效子网站")
+		return
+	}
+	tag, ok := s.svc.TagBySlug(site, c.Param("tag"))
+	if !ok || tag.Status != "enable" {
+		fail(c, http.StatusNotFound, "标签不存在")
+		return
+	}
+	c.JSON(http.StatusOK, tag)
+}
+
+func (s *Server) tagTopics(c *gin.Context) {
+	site := firstQuery(c, "community_slug", "site")
+	if site != "" && site != "portal" && !s.svc.ValidateSite(site) {
+		fail(c, http.StatusBadRequest, "无效子网站")
+		return
+	}
+	tag, ok := s.svc.TagBySlug(site, c.Param("tag"))
+	if !ok || tag.Status != "enable" {
+		fail(c, http.StatusNotFound, "标签不存在")
+		return
+	}
+	page, pageSize := pagination(c)
+	sortBy := c.DefaultQuery("sort", "latest")
+	topics, total := s.svc.TagTopics(tag.ID, tag.CommunityID, sortBy, page, pageSize)
+	c.JSON(http.StatusOK, domain.PageResponse{
+		Items:    topics,
+		Total:    total,
+		Page:     page,
+		PageSize: pageSize,
+		HasMore:  page*pageSize < total,
+		Filters:  gin.H{"tag": tag.Slug, "community_slug": tag.CommunitySlug, "sort": sortBy},
+	})
 }
 
 func (s *Server) hotTags(c *gin.Context) {
@@ -1947,6 +2174,55 @@ func (s *Server) adminTags(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"items": s.svc.AdminTags(site, c.Query("q"), c.DefaultQuery("status", "all"))})
 }
 
+func (s *Server) adminTag(c *gin.Context) {
+	id, ok := idParam(c, "id")
+	if !ok {
+		return
+	}
+	for _, tag := range s.svc.AdminTags("", "", "all") {
+		if tag.ID != id {
+			continue
+		}
+		if tag.Site != "" && tag.Site != "portal" && !ensureSiteAllowed(c, tag.Site) {
+			return
+		}
+		c.JSON(http.StatusOK, gin.H{"item": tag, "tag": tag})
+		return
+	}
+	fail(c, http.StatusNotFound, "标签不存在")
+}
+
+func (s *Server) adminTagTopics(c *gin.Context) {
+	id, ok := idParam(c, "id")
+	if !ok {
+		return
+	}
+	var found domain.Tag
+	for _, tag := range s.svc.AdminTags("", "", "all") {
+		if tag.ID == id {
+			found = tag
+			break
+		}
+	}
+	if found.ID == 0 {
+		fail(c, http.StatusNotFound, "标签不存在")
+		return
+	}
+	if found.Site != "" && found.Site != "portal" && !ensureSiteAllowed(c, found.Site) {
+		return
+	}
+	page, pageSize := pagination(c)
+	topics, total := s.svc.AdminTagTopics(id, page, pageSize)
+	c.JSON(http.StatusOK, domain.PageResponse{
+		Items:    topics,
+		Total:    total,
+		Page:     page,
+		PageSize: pageSize,
+		HasMore:  page*pageSize < total,
+		Filters:  gin.H{"tag_id": id, "site": found.Site},
+	})
+}
+
 func (s *Server) createAdminTag(c *gin.Context) {
 	var req domain.Tag
 	if err := c.ShouldBindJSON(&req); err != nil {
@@ -1981,6 +2257,46 @@ func (s *Server) updateAdminTag(c *gin.Context) {
 		return
 	}
 	s.audit(c, "operation", "更新标签", fmt.Sprintf("tags#%d", id))
+	c.JSON(http.StatusOK, tag)
+}
+
+func (s *Server) enableAdminTag(c *gin.Context) {
+	s.setAdminTagStatus(c, "enable")
+}
+
+func (s *Server) disableAdminTag(c *gin.Context) {
+	s.setAdminTagStatus(c, "disable")
+}
+
+func (s *Server) setAdminTagStatus(c *gin.Context, status string) {
+	id, ok := idParam(c, "id")
+	if !ok {
+		return
+	}
+	var found domain.Tag
+	for _, tag := range s.svc.AdminTags("", "", "all") {
+		if tag.ID == id {
+			found = tag
+			break
+		}
+	}
+	if found.ID == 0 {
+		fail(c, http.StatusNotFound, "标签不存在")
+		return
+	}
+	if found.Site != "" && found.Site != "portal" && !ensureSiteAllowed(c, found.Site) {
+		return
+	}
+	tag, ok := s.svc.SetTagStatus(id, status)
+	if !ok {
+		fail(c, http.StatusBadRequest, "标签状态更新失败")
+		return
+	}
+	action := "启用标签"
+	if status != "enable" {
+		action = "禁用标签"
+	}
+	s.audit(c, "operation", action, fmt.Sprintf("tags#%d", id))
 	c.JSON(http.StatusOK, tag)
 }
 
@@ -4770,10 +5086,56 @@ func communityTopicCardHTML(topic domain.Topic, slug string) string {
 		if strings.TrimSpace(tag) == "" {
 			continue
 		}
-		tagLinks = append(tagLinks, fmt.Sprintf(`<a href="/search/?scope=community&amp;community_slug=%s&amp;tag=%s">%s</a>`, queryEsc(slug), queryEsc(tag), esc(tag)))
+		tagLinks = append(tagLinks, fmt.Sprintf(`<a href="/tags/%s/?community_slug=%s">%s</a>`, pathEsc(tagPathSegment(tag)), queryEsc(slug), esc(tag)))
 	}
 	return fmt.Sprintf(`<article class="post-card"><div class="post-card-top">%s<a class="site-pill" href="/c/%s/">%s</a></div><h2><a href="/topics/%d/">%s</a></h2><p>%s</p><div class="post-tags">%s</div><footer><span>%s 发布</span><span>%d 浏览</span><span>%d 评论</span><span>%d 赞</span></footer></article>`,
 		strings.Join(pills, ""), pathEsc(slug), esc(slug), topic.ID, esc(topic.Title), esc(summary), strings.Join(tagLinks, ""), esc(topic.CreatedAt), topic.ViewCount, topic.CommentCount, topic.LikeCount)
+}
+
+func tagCommunityStatHTML(tag domain.Tag) string {
+	if tag.CommunitySlug == "" {
+		return ""
+	}
+	label := firstNonEmpty(tag.CommunityName, tag.CommunitySlug)
+	return fmt.Sprintf(`<span><a href="/c/%s/">%s</a></span>`, pathEsc(tag.CommunitySlug), esc(label))
+}
+
+func tagTopicSectionHTML(title string, topics []domain.Topic, emptyText string) string {
+	var b strings.Builder
+	b.WriteString(`<section><div class="section-head"><h2>`)
+	b.WriteString(esc(title))
+	b.WriteString(`</h2></div>`)
+	if len(topics) == 0 {
+		b.WriteString(`<div class="empty-state">`)
+		b.WriteString(esc(emptyText))
+		b.WriteString(`</div></section>`)
+		return b.String()
+	}
+	b.WriteString(`<div class="post-list">`)
+	for _, topic := range topics {
+		b.WriteString(communityTopicCardHTML(topic, slugByCommunityID(topic.CommunityID)))
+	}
+	b.WriteString(`</div></section>`)
+	return b.String()
+}
+
+func relatedTagsHTML(tags []domain.TagStat, currentSlug string) string {
+	links := make([]string, 0, len(tags))
+	for _, tag := range tags {
+		segment := firstNonEmpty(tag.Slug, tagPathSegment(tag.Name))
+		if segment == "" || segment == currentSlug || strings.TrimSpace(tag.Name) == "" {
+			continue
+		}
+		communityQuery := ""
+		if tag.CommunitySlug != "" {
+			communityQuery = "?community_slug=" + queryEsc(tag.CommunitySlug)
+		}
+		links = append(links, fmt.Sprintf(`<a href="/tags/%s/%s">%s<span>%d</span></a>`, pathEsc(segment), communityQuery, esc(tag.Name), firstNonZeroHTTP(tag.TopicCount, tag.Count)))
+	}
+	if len(links) == 0 {
+		return `<span>暂无相关标签</span>`
+	}
+	return strings.Join(links, "")
 }
 
 func communityAnnouncementHTML(comm domain.Community) string {
@@ -4796,7 +5158,8 @@ func communityTagsHTML(tags []domain.TagStat, slug string) string {
 		if strings.TrimSpace(tag.Name) == "" {
 			continue
 		}
-		links = append(links, fmt.Sprintf(`<a href="/search/?scope=community&amp;community_slug=%s&amp;tag=%s">%s<span>%d</span></a>`, queryEsc(slug), queryEsc(tag.Name), esc(tag.Name), tag.Count))
+		segment := firstNonEmpty(tag.Slug, tagPathSegment(tag.Name))
+		links = append(links, fmt.Sprintf(`<a href="/tags/%s/?community_slug=%s">%s<span>%d</span></a>`, pathEsc(segment), queryEsc(slug), esc(tag.Name), firstNonZeroHTTP(tag.TopicCount, tag.Count)))
 	}
 	return strings.Join(links, "")
 }
@@ -4822,7 +5185,7 @@ func esc(value string) string {
 }
 
 func pathEsc(value string) string {
-	return strings.ReplaceAll(urlQueryEsc(value), "+", "%20")
+	return url.PathEscape(value)
 }
 
 func queryEsc(value string) string {
@@ -4845,6 +5208,77 @@ func batchAuditTarget(targetType, action string, updated, total int, note string
 func urlQueryEsc(value string) string {
 	replacer := strings.NewReplacer("%", "%25", " ", "+", "&", "%26", "?", "%3F", "#", "%23", "=", "%3D", "/", "%2F")
 	return replacer.Replace(value)
+}
+
+func tagPathSegment(name string) string {
+	name = strings.TrimSpace(name)
+	if name == "" {
+		return ""
+	}
+	slug := normalizeSlug(name)
+	if slug != "" {
+		return slug
+	}
+	return name
+}
+
+func firstNonZeroHTTP(values ...int) int {
+	for _, value := range values {
+		if value != 0 {
+			return value
+		}
+	}
+	return 0
+}
+
+func normalizeSlug(value string) string {
+	value = strings.ToLower(strings.TrimSpace(value))
+	if value == "" {
+		return ""
+	}
+	replacer := strings.NewReplacer(" ", "-", "_", "-", "/", "-", "\\", "-", ".", "-", ",", "-")
+	value = strings.Trim(replacer.Replace(value), "-")
+	if value == "" {
+		return ""
+	}
+	var b strings.Builder
+	lastDash := false
+	for _, r := range value {
+		ok := (r >= 'a' && r <= 'z') || (r >= '0' && r <= '9') || r == '-'
+		if !ok {
+			continue
+		}
+		if r == '-' {
+			if lastDash {
+				continue
+			}
+			lastDash = true
+			b.WriteRune(r)
+			continue
+		}
+		lastDash = false
+		b.WriteRune(r)
+	}
+	return strings.Trim(b.String(), "-")
+}
+
+func tagToStat(tag domain.Tag) domain.TagStat {
+	return domain.TagStat{
+		ID:             tag.ID,
+		Name:           tag.Name,
+		Slug:           tag.Slug,
+		Site:           tag.Site,
+		CommunityID:    tag.CommunityID,
+		CommunitySlug:  tag.CommunitySlug,
+		Description:    tag.Description,
+		TopicCount:     tag.TopicCount,
+		Count:          firstNonZeroHTTP(tag.TopicCount, tag.UseCount),
+		FollowerCount:  tag.FollowerCount,
+		Status:         tag.Status,
+		SEOTitle:       tag.SEOTitle,
+		SEODescription: tag.SEODescription,
+		SEOKeywords:    tag.SEOKeywords,
+	}
 }
 
 func frontendStylesheetHref() string {

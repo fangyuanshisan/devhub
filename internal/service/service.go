@@ -31,9 +31,14 @@ type Repository interface {
 	HotPosts(site string, limit int) []domain.Post
 	Feed(site string, limit int) []domain.Post
 	TagStats(site string) []domain.TagStat
+	TagBySlug(site, slugOrName string) (domain.Tag, bool)
+	TagTopics(tagID int64, communityID int64, sort string, page, pageSize int) ([]domain.Topic, int)
+	TagSuggestions(site, q string, limit int) []domain.TagStat
 	AdminTags(site, q, status string) []domain.Tag
+	AdminTagTopics(id int64, page, pageSize int) ([]domain.Topic, int)
 	CreateTag(req domain.Tag) (domain.Tag, error)
 	UpdateTag(id int64, req domain.Tag) (domain.Tag, bool)
+	SetTagStatus(id int64, status string) (domain.Tag, bool)
 	BoardCounts(site, q string) map[string]int
 	PostStats(site string) domain.PostStats
 	CommentsTree(postID int64) []*domain.Comment
@@ -232,9 +237,29 @@ func (s *Service) Feed(site string, limit int) []domain.Post { return s.repo.Fee
 // TagStats 返回站点下的标签统计。
 func (s *Service) TagStats(site string) []domain.TagStat { return s.repo.TagStats(site) }
 
+// TagBySlug 按 slug 或名称获取启用标签。
+func (s *Service) TagBySlug(site, slugOrName string) (domain.Tag, bool) {
+	return s.repo.TagBySlug(site, slugOrName)
+}
+
+// TagTopics 返回标签关联内容。
+func (s *Service) TagTopics(tagID int64, communityID int64, sort string, page, pageSize int) ([]domain.Topic, int) {
+	return s.repo.TagTopics(tagID, communityID, sort, page, pageSize)
+}
+
+// TagSuggestions 返回发布页标签建议。
+func (s *Service) TagSuggestions(site, q string, limit int) []domain.TagStat {
+	return s.repo.TagSuggestions(site, q, limit)
+}
+
 // AdminTags 返回后台标签管理列表。
 func (s *Service) AdminTags(site, q, status string) []domain.Tag {
 	return s.repo.AdminTags(site, q, status)
+}
+
+// AdminTagTopics 返回后台标签关联内容。
+func (s *Service) AdminTagTopics(id int64, page, pageSize int) ([]domain.Topic, int) {
+	return s.repo.AdminTagTopics(id, page, pageSize)
 }
 
 // CreateTag 创建标签配置。
@@ -243,6 +268,11 @@ func (s *Service) CreateTag(req domain.Tag) (domain.Tag, error) { return s.repo.
 // UpdateTag 更新标签配置。
 func (s *Service) UpdateTag(id int64, req domain.Tag) (domain.Tag, bool) {
 	return s.repo.UpdateTag(id, req)
+}
+
+// SetTagStatus 启用或禁用标签。
+func (s *Service) SetTagStatus(id int64, status string) (domain.Tag, bool) {
+	return s.repo.SetTagStatus(id, status)
 }
 
 // BoardCounts 返回站点内各板块的帖子数量。

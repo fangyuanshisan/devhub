@@ -58,8 +58,20 @@ export type Post = {
 };
 
 export type TagStat = {
+  id?: number;
   name: string;
+  slug?: string;
+  site?: string;
+  community_id?: number;
+  community_slug?: string;
+  description?: string;
+  topic_count?: number;
   count: number;
+  follower_count?: number;
+  status?: string;
+  seo_title?: string;
+  seo_description?: string;
+  seo_keywords?: string;
 };
 
 export type CommunityStats = {

@@ -20,9 +20,9 @@ const typeName = {
   doc: '文档',
   news: '周刊',
 }[post.content_type || 'article'] || '内容';
-const searchScope = post.site === 'portal' ? 'scope=all' : `scope=community&community_slug=${encodeURIComponent(post.site)}`;
 const isQuestion = post.content_type === 'question';
 const commentLabel = isQuestion ? '回答' : '评论';
+const tagHref = (tag: string) => `/tags/${encodeURIComponent(tag.trim().toLowerCase().replace(/\s+/g, '-'))}/${post.site === 'portal' ? '' : `?community_slug=${encodeURIComponent(post.site)}`}`;
 ---
 <article class="post-card">
   <div class="post-card-top">
@@ -37,7 +37,7 @@ const commentLabel = isQuestion ? '回答' : '评论';
   <p>{post.summary || post.content.slice(0, 120)}</p>
   {post.tags?.length > 0 && (
     <div class="post-tags">
-      {post.tags.slice(0, 5).map((tag) => <a href={`/search/?${searchScope}&tag=${encodeURIComponent(tag)}`}>{tag}</a>)}
+      {post.tags.slice(0, 5).map((tag) => <a href={tagHref(tag)}>{tag}</a>)}
     </div>
   )}
   <footer>

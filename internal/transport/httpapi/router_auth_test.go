@@ -75,6 +75,45 @@ func TestUserAndAdminTokensAreSeparated(t *testing.T) {
 	}
 }
 
+func TestRegisteredMemoryUserCanLoginWithOwnPassword(t *testing.T) {
+	router := NewRouter(service.New(store.NewMemoryStore()))
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/auth/register", bytes.NewBufferString(`{"username":"newuser","nickname":"新用户","email":"newuser@example.com","password":"secret123"}`))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	router.ServeHTTP(w, req)
+	if w.Code != http.StatusCreated {
+		t.Fatalf("expected register success, got %d: %s", w.Code, w.Body.String())
+	}
+	var registered struct {
+		AccessToken string `json:"access_token"`
+		User        struct {
+			Username string `json:"username"`
+		} `json:"user"`
+	}
+	if err := json.Unmarshal(w.Body.Bytes(), &registered); err != nil {
+		t.Fatal(err)
+	}
+	if registered.AccessToken == "" || registered.User.Username != "newuser" {
+		t.Fatalf("unexpected register response: %s", w.Body.String())
+	}
+
+	req = httptest.NewRequest(http.MethodPost, "/api/v1/auth/login", bytes.NewBufferString(`{"account":"newuser","password":"secret123"}`))
+	req.Header.Set("Content-Type", "application/json")
+	w = httptest.NewRecorder()
+	router.ServeHTTP(w, req)
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected registered user to login with own password, got %d: %s", w.Code, w.Body.String())
+	}
+
+	req = httptest.NewRequest(http.MethodPost, "/api/v1/auth/login", bytes.NewBufferString(`{"account":"newuser","password":"admin123"}`))
+	req.Header.Set("Content-Type", "application/json")
+	w = httptest.NewRecorder()
+	router.ServeHTTP(w, req)
+	if w.Code != http.StatusUnauthorized {
+		t.Fatalf("expected wrong password to fail, got %d: %s", w.Code, w.Body.String())
+	}
+}
+
 func TestCommunityModeratorScopeUsesFrontendUserToken(t *testing.T) {
 	router := NewRouter(service.New(store.NewMemoryStore()))
 	moderatorToken := userToken(t, router, "operator")

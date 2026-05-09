@@ -30,10 +30,13 @@ type MemoryStore struct {
 	nextModeratorID int64
 	nextCommunityID int64
 	nextCategoryID  int64
+	nextTagID       int64
+	nextUserID      int64
 	sites           map[string]domain.Site
 	boards          map[string]domain.Board
 	communities     map[int64]*domain.Community
 	categories      map[int64]*domain.Category
+	tags            map[int64]*domain.Tag
 	boardOrder      []string
 	siteOrder       []string
 	posts           map[int64]*domain.Post
@@ -67,10 +70,13 @@ func NewMemoryStore() *MemoryStore {
 		nextModeratorID: 1,
 		nextCommunityID: 1,
 		nextCategoryID:  1,
+		nextTagID:       1,
+		nextUserID:      1,
 		sites:           map[string]domain.Site{},
 		boards:          map[string]domain.Board{},
 		communities:     map[int64]*domain.Community{},
 		categories:      map[int64]*domain.Category{},
+		tags:            map[int64]*domain.Tag{},
 		boardOrder:      []string{"all", "community", "qa", "opensource", "ai", "jobs", "wiki", "docs"},
 		siteOrder:       []string{"php", "go", "java", "ai", "frontend"},
 		posts:           map[int64]*domain.Post{},
@@ -129,6 +135,7 @@ func (s *MemoryStore) Health() domain.HealthStatus {
 			"users":         len(s.users),
 			"communities":   len(s.communities),
 			"categories":    len(s.categories),
+			"tags":          len(s.tags),
 		},
 	}
 }
@@ -205,9 +212,15 @@ func (s *MemoryStore) seed() {
 	s.roles[1] = domain.AdminRole{ID: 1, Name: "超级管理员", Builtin: true, Description: "拥有所有模块操作权限", Permissions: []string{"*"}, UserCount: 1}
 	s.roles[2] = domain.AdminRole{ID: 2, Name: "站点管理员", Builtin: true, Description: "负责授权子站的内容和举报治理", Permissions: []string{"dashboard.read", "site.read", "site.write", "board.read", "board.write", "post.read", "post.create", "post.update", "post.delete", "topic.moderate", "comment.read", "comment.moderate", "report.read", "report.handle", "moderator.read", "notification.write", "log.read"}, UserCount: 1}
 	s.roles[3] = domain.AdminRole{ID: 3, Name: "内容审核员", Builtin: true, Description: "负责授权子站的内容审核和评论治理", Permissions: []string{"dashboard.read", "post.read", "post.update", "topic.moderate", "comment.read", "comment.moderate", "report.read", "report.handle"}, UserCount: 1}
-	s.users[1] = &domain.AdminUser{ID: 1, Username: "admin", Nickname: "超级管理员", Avatar: "", Phone: "13800000001", Email: "admin@devhub.local", Status: "normal", RoleID: 1, RoleName: "超级管理员", CreatedAt: "2026-04-01 09:00:00", LastLoginAt: "2026-05-06 09:30:00"}
-	s.users[2] = &domain.AdminUser{ID: 2, Username: "operator", Nickname: "运营管理员", Avatar: "", Phone: "13800000002", Email: "operator@devhub.local", Status: "normal", RoleID: 2, RoleName: "运营管理员", CreatedAt: "2026-04-08 09:00:00", LastLoginAt: "2026-05-05 18:20:00"}
-	s.users[3] = &domain.AdminUser{ID: 3, Username: "auditor", Nickname: "内容审核员", Avatar: "", Phone: "13800000003", Email: "auditor@devhub.local", Status: "normal", RoleID: 3, RoleName: "内容审核员", CreatedAt: "2026-04-12 09:00:00", LastLoginAt: "2026-05-06 10:12:00"}
+	defaultPassword, _ := hashPassword("admin123")
+	s.users[1] = &domain.AdminUser{ID: 1, Username: "admin", Nickname: "超级管理员", Avatar: "", Phone: "13800000001", Email: "admin@devhub.local", PasswordHash: defaultPassword, Status: "normal", RoleID: 1, RoleName: "超级管理员", CreatedAt: "2026-04-01 09:00:00", LastLoginAt: "2026-05-06 09:30:00"}
+	s.users[2] = &domain.AdminUser{ID: 2, Username: "operator", Nickname: "运营管理员", Avatar: "", Phone: "13800000002", Email: "operator@devhub.local", PasswordHash: defaultPassword, Status: "normal", RoleID: 2, RoleName: "运营管理员", CreatedAt: "2026-04-08 09:00:00", LastLoginAt: "2026-05-05 18:20:00"}
+	s.users[3] = &domain.AdminUser{ID: 3, Username: "auditor", Nickname: "内容审核员", Avatar: "", Phone: "13800000003", Email: "auditor@devhub.local", PasswordHash: defaultPassword, Status: "normal", RoleID: 3, RoleName: "内容审核员", CreatedAt: "2026-04-12 09:00:00", LastLoginAt: "2026-05-06 10:12:00"}
+	for _, u := range s.users {
+		if u.ID >= s.nextUserID {
+			s.nextUserID = u.ID + 1
+		}
+	}
 	for _, moderator := range []domain.CommunityModerator{
 		{CommunityID: 1, UserID: 2, Role: "moderator", Status: 1},
 		{CommunityID: 2, UserID: 3, Role: "moderator", Status: 1},
@@ -257,6 +270,7 @@ func (s *MemoryStore) seed() {
 		p.UpdatedAt = p.CreatedAt
 		s.createPostLocked(&p)
 	}
+	s.rebuildTagsFromPostsLocked()
 
 	s.createCommentLocked(1, 0, "Corwien", "", "不错，图文并茂！", "2026-05-03 10:12:00", 12)
 	s.createCommentLocked(1, 1, "LaravelChen", "Corwien", "thank you", "2026-05-03 10:30:00", 5)
@@ -297,6 +311,70 @@ func (s *MemoryStore) createPostLocked(p *domain.Post) *domain.Post {
 	cp.Tags = uniqueTags(cp.Tags)
 	s.posts[cp.ID] = &cp
 	return &cp
+}
+
+func (s *MemoryStore) rebuildTagsFromPostsLocked() {
+	existing := map[string]domain.Tag{}
+	for _, tag := range s.tags {
+		if tag == nil {
+			continue
+		}
+		key := tagKey(tag.Site, tag.Slug)
+		if key != ":" {
+			cp := *tag
+			cp.UseCount = 0
+			cp.TopicCount = 0
+			existing[key] = cp
+		}
+	}
+	s.tags = map[int64]*domain.Tag{}
+	s.nextTagID = 1
+	for _, tag := range existing {
+		if tag.ID <= 0 {
+			tag.ID = s.nextTagID
+		}
+		if tag.ID >= s.nextTagID {
+			s.nextTagID = tag.ID + 1
+		}
+		cp := tag
+		s.tags[cp.ID] = &cp
+	}
+	for _, post := range s.posts {
+		if post == nil {
+			continue
+		}
+		for _, name := range uniqueTags(post.Tags) {
+			tag := normalizeTag(domain.Tag{Site: post.Site, Name: name, Status: "enable"})
+			if tag.Slug == "" {
+				continue
+			}
+			key := tagKey(tag.Site, tag.Slug)
+			if current, ok := s.findTagBySiteSlugLocked(tag.Site, tag.Slug); ok {
+				if current.Name == "" {
+					current.Name = tag.Name
+				}
+				current.UseCount++
+				current.TopicCount = current.UseCount
+				current.UpdatedAt = Now()
+				continue
+			}
+			if old, ok := existing[key]; ok {
+				tag = old
+				tag.UseCount = 0
+				tag.TopicCount = 0
+			}
+			if tag.CreatedAt == "" {
+				tag.CreatedAt = Now()
+			}
+			tag.UpdatedAt = Now()
+			tag.UseCount = 1
+			tag.TopicCount = 1
+			tag.ID = s.nextTagID
+			s.nextTagID++
+			cp := tag
+			s.tags[cp.ID] = &cp
+		}
+	}
 }
 
 func memoryHotScore(p *domain.Post) int {
@@ -473,12 +551,16 @@ func (s *MemoryStore) AdminLogin(account, password string) (*domain.AdminSession
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	account = strings.TrimSpace(account)
-	if password != "admin123" && password != "123456" {
-		return nil, errors.New("账号或密码错误")
-	}
+	password = strings.TrimSpace(password)
 	for _, u := range s.users {
 		if u.Username != account && u.Email != account && u.Phone != account {
 			continue
+		}
+		if u.RoleID <= 0 {
+			return nil, errors.New("账号或密码错误")
+		}
+		if !memoryPasswordMatches(u.PasswordHash, password) {
+			return nil, errors.New("账号或密码错误")
 		}
 		if u.Status == "forbidden" {
 			return nil, errors.New("账号已被禁用")
@@ -511,19 +593,21 @@ func (s *MemoryStore) AdminLogin(account, password string) (*domain.AdminSession
 }
 
 func (s *MemoryStore) UserLogin(account, password string) (*domain.AdminSession, error) {
-	s.mu.RLock()
-	defer s.mu.RUnlock()
+	s.mu.Lock()
+	defer s.mu.Unlock()
 	account = strings.TrimSpace(account)
-	if password != "admin123" && password != "123456" {
-		return nil, errors.New("账号或密码错误")
-	}
+	password = strings.TrimSpace(password)
 	for _, u := range s.users {
 		if u.Username != account && u.Email != account && u.Phone != account {
 			continue
 		}
+		if !memoryPasswordMatches(u.PasswordHash, password) {
+			return nil, errors.New("账号或密码错误")
+		}
 		if u.Status == "forbidden" {
 			return nil, errors.New("账号已被禁用")
 		}
+		u.LastLoginAt = Now()
 		auth := s.memoryAuthUserLocked(u.ID, "user")
 		return s.memoryUserSessionLocked(auth), nil
 	}
@@ -559,13 +643,60 @@ func (s *MemoryStore) RefreshAdminSession(refreshToken string) (*domain.AdminSes
 }
 
 func (s *MemoryStore) Register(req domain.RegisterRequest) (*domain.AdminSession, error) {
-	s.mu.RLock()
-	defer s.mu.RUnlock()
-	auth := s.memoryAuthUserLocked(1, "user")
-	if auth.ID == 0 {
-		return nil, errors.New("开发用户不存在")
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	username := strings.TrimSpace(req.Username)
+	password := strings.TrimSpace(req.Password)
+	if username == "" {
+		return nil, errors.New("用户名不能为空")
 	}
+	if len(password) < 6 {
+		return nil, errors.New("密码至少 6 位")
+	}
+	email := strings.TrimSpace(req.Email)
+	phone := strings.TrimSpace(req.Phone)
+	for _, u := range s.users {
+		if u.Username == username {
+			return nil, errors.New("用户名已存在")
+		}
+		if email != "" && u.Email == email {
+			return nil, errors.New("邮箱已存在")
+		}
+		if phone != "" && u.Phone == phone {
+			return nil, errors.New("手机号已存在")
+		}
+	}
+	hash, err := hashPassword(password)
+	if err != nil {
+		return nil, err
+	}
+	nickname := strings.TrimSpace(req.Nickname)
+	if nickname == "" {
+		nickname = username
+	}
+	id := s.nextUserID
+	s.nextUserID++
+	s.users[id] = &domain.AdminUser{
+		ID:           id,
+		Username:     username,
+		Nickname:     nickname,
+		Email:        email,
+		Phone:        phone,
+		PasswordHash: hash,
+		Status:       "normal",
+		RoleName:     "普通用户",
+		CreatedAt:    Now(),
+	}
+	auth := s.memoryAuthUserLocked(id, "user")
 	return s.memoryUserSessionLocked(auth), nil
+}
+
+func memoryPasswordMatches(hash, password string) bool {
+	if hash != "" {
+		return checkPassword(hash, password)
+	}
+	// Backward compatibility for in-memory data created before password hashes existed.
+	return password == "admin123" || password == "123456"
 }
 
 func (s *MemoryStore) Logout(refreshToken string) error { return nil }
@@ -923,6 +1054,7 @@ func (s *MemoryStore) CreatePost(req domain.CreatePostRequest) (*domain.Post, er
 		p.Summary = firstRunes(p.Content, 80)
 	}
 	created := s.createPostLocked(p)
+	s.rebuildTagsFromPostsLocked()
 	s.createNoticeLocked("你发布了新的内容", created.Title)
 	cp := *created
 	cp.Tags = append([]string(nil), created.Tags...)
@@ -983,6 +1115,7 @@ func (s *MemoryStore) UpdatePost(id int64, req domain.UpdatePostRequest) (*domai
 		p.Tags = uniqueTags(*req.Tags)
 	}
 	p.UpdatedAt = Now()
+	s.rebuildTagsFromPostsLocked()
 	s.appendLogLocked("operation", "admin", "更新帖子", fmt.Sprintf("posts#%d", id), "127.0.0.1")
 	cp := *p
 	cp.Tags = append([]string(nil), p.Tags...)
@@ -1002,6 +1135,7 @@ func (s *MemoryStore) DeletePost(id int64) bool {
 			delete(s.comments, cid)
 		}
 	}
+	s.rebuildTagsFromPostsLocked()
 	s.appendLogLocked("operation", "admin", "删除帖子", fmt.Sprintf("posts#%d", id), "127.0.0.1")
 	return true
 }
@@ -1042,40 +1176,34 @@ func (s *MemoryStore) Feed(site string, limit int) []domain.Post {
 
 // TagStats 统计站点内标签使用次数。
 func (s *MemoryStore) TagStats(site string) []domain.TagStat {
-	posts := s.ListPosts(site, "all", "", "")
-	counts := map[string]int{}
-	for _, p := range posts {
-		for _, t := range p.Tags {
-			counts[t]++
-		}
-	}
-	out := make([]domain.TagStat, 0, len(counts))
-	for name, count := range counts {
-		out = append(out, domain.TagStat{Name: name, Count: count})
-	}
-	sort.Slice(out, func(i, j int) bool {
-		if out[i].Count == out[j].Count {
-			return out[i].Name < out[j].Name
-		}
-		return out[i].Count > out[j].Count
-	})
-	return out
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.tagStatsLocked(site, "", "enable", 0)
 }
 
 func (s *MemoryStore) AdminTags(site, q, status string) []domain.Tag {
-	stats := s.TagStats(site)
+	s.mu.RLock()
+	defer s.mu.RUnlock()
 	q = strings.ToLower(strings.TrimSpace(q))
-	out := make([]domain.Tag, 0, len(stats))
-	for i, stat := range stats {
-		tag := normalizeTag(domain.Tag{ID: int64(i + 1), Site: site, Name: stat.Name, Status: "enable", UseCount: stat.Count})
+	status = strings.TrimSpace(status)
+	out := make([]domain.Tag, 0, len(s.tags))
+	for _, tag := range s.tags {
+		if tag == nil {
+			continue
+		}
+		cp := s.enrichTagLocked(*tag)
+		if site != "" && site != "portal" && cp.Site != site && cp.CommunitySlug != site {
+			continue
+		}
 		if q != "" && !strings.Contains(strings.ToLower(tag.Name+" "+tag.Slug), q) {
 			continue
 		}
-		if status != "" && status != "all" && tag.Status != status {
+		if status != "" && status != "all" && cp.Status != status {
 			continue
 		}
-		out = append(out, tag)
+		out = append(out, cp)
 	}
+	sortTags(out)
 	return out
 }
 
@@ -1083,21 +1211,133 @@ func (s *MemoryStore) CreateTag(req domain.Tag) (domain.Tag, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	tag := normalizeTag(req)
+	if tag.SortOrder != 0 && tag.Sort == 0 {
+		tag.Sort = tag.SortOrder
+	}
 	if tag.Name == "" {
 		return domain.Tag{}, errors.New("标签名称不能为空")
 	}
-	tag.ID = time.Now().UnixNano()
+	if _, ok := s.findTagBySiteSlugLocked(tag.Site, tag.Slug); ok {
+		return domain.Tag{}, errors.New("标签已存在")
+	}
+	now := Now()
+	tag.ID = s.nextTagID
+	s.nextTagID++
+	tag.CreatedAt = now
+	tag.UpdatedAt = now
+	cp := tag
+	s.tags[cp.ID] = &cp
 	s.appendLogLocked("operation", "admin", "新增标签", tag.Name, "127.0.0.1")
-	return tag, nil
+	return s.enrichTagLocked(cp), nil
 }
 
 func (s *MemoryStore) UpdateTag(id int64, req domain.Tag) (domain.Tag, bool) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	current, ok := s.tags[id]
+	if !ok || current == nil {
+		return domain.Tag{}, false
+	}
 	tag := normalizeTag(req)
+	if tag.Name == "" {
+		return domain.Tag{}, false
+	}
+	if tag.SortOrder != 0 && tag.Sort == 0 {
+		tag.Sort = tag.SortOrder
+	}
+	for _, item := range s.tags {
+		if item == nil || item.ID == id {
+			continue
+		}
+		if item.Site == tag.Site && item.Slug == tag.Slug {
+			return domain.Tag{}, false
+		}
+	}
 	tag.ID = id
+	tag.CreatedAt = current.CreatedAt
+	tag.UpdatedAt = Now()
+	tag.UseCount = current.UseCount
+	tag.TopicCount = current.TopicCount
+	tag.FollowerCount = current.FollowerCount
+	*current = tag
 	s.appendLogLocked("operation", "admin", "更新标签", fmt.Sprintf("tags#%d", id), "127.0.0.1")
-	return tag, true
+	return s.enrichTagLocked(*current), true
+}
+
+func (s *MemoryStore) SetTagStatus(id int64, status string) (domain.Tag, bool) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	tag, ok := s.tags[id]
+	if !ok || tag == nil {
+		return domain.Tag{}, false
+	}
+	status = normalizeTagStatus(status)
+	if status == "" {
+		return domain.Tag{}, false
+	}
+	tag.Status = status
+	tag.UpdatedAt = Now()
+	s.appendLogLocked("operation", "admin", "更新标签状态", fmt.Sprintf("tags#%d:%s", id, status), "127.0.0.1")
+	return s.enrichTagLocked(*tag), true
+}
+
+func (s *MemoryStore) TagBySlug(site, slugOrName string) (domain.Tag, bool) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.tagBySlugLocked(site, slugOrName, true)
+}
+
+func (s *MemoryStore) TagSuggestions(site, q string, limit int) []domain.TagStat {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.tagStatsLocked(site, q, "enable", limit)
+}
+
+func (s *MemoryStore) TagTopics(tagID int64, communityID int64, sortBy string, page, pageSize int) ([]domain.Topic, int) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	tag, ok := s.tags[tagID]
+	if !ok || tag == nil || tag.Status != "enable" {
+		return []domain.Topic{}, 0
+	}
+	topics := make([]domain.Topic, 0)
+	for _, post := range s.posts {
+		if !memoryPostVisible(post) {
+			continue
+		}
+		topic, ok := s.topicFromPostLocked(post.ID, false)
+		if !ok {
+			continue
+		}
+		if communityID > 0 && topic.CommunityID != communityID {
+			continue
+		}
+		if tag.Site != "" && tag.Site != "portal" && post.Site != tag.Site {
+			continue
+		}
+		if !memoryTopicHasTag(topic, tag.Name) && !memoryTopicHasTag(topic, tag.Slug) {
+			continue
+		}
+		topics = append(topics, topic)
+	}
+	sortTopicsForSearch(topics, sortBy)
+	return paginateTopics(topics, page, pageSize)
+}
+
+func (s *MemoryStore) AdminTagTopics(id int64, page, pageSize int) ([]domain.Topic, int) {
+	s.mu.RLock()
+	tag, ok := s.tags[id]
+	if !ok || tag == nil {
+		s.mu.RUnlock()
+		return []domain.Topic{}, 0
+	}
+	communityID := int64(0)
+	if tag.Site != "" && tag.Site != "portal" {
+		communityID = s.communityIDBySlugLocked(tag.Site)
+	}
+	tagID := tag.ID
+	s.mu.RUnlock()
+	return s.TagTopics(tagID, communityID, "latest", page, pageSize)
 }
 
 // BoardCounts 统计站点内各板块帖子数量，可叠加关键词过滤。
@@ -1665,7 +1905,28 @@ func adminLogMatches(log domain.AdminLog, filter domain.AdminLogFilter) bool {
 func hasTag(tags []string, want string) bool {
 	want = strings.ToLower(strings.TrimSpace(want))
 	for _, t := range tags {
-		if strings.ToLower(strings.TrimSpace(t)) == want {
+		name := strings.TrimSpace(t)
+		if strings.ToLower(name) == want || normalizeSlug(name) == want {
+			return true
+		}
+	}
+	return false
+}
+
+func hasTagOrSlug(tags []string, wantName, wantSlug string) bool {
+	wantName = strings.ToLower(strings.TrimSpace(wantName))
+	wantSlug = strings.ToLower(strings.TrimSpace(wantSlug))
+	for _, name := range tags {
+		name = strings.TrimSpace(name)
+		if name == "" {
+			continue
+		}
+		nameLower := strings.ToLower(name)
+		slug := normalizeSlug(name)
+		if slug == "" {
+			slug = strings.ToLower(strings.Join(strings.Fields(name), "-"))
+		}
+		if (wantName != "" && nameLower == wantName) || (wantSlug != "" && slug == wantSlug) {
 			return true
 		}
 	}
@@ -1979,7 +2240,7 @@ func targetURLFor(targetType string, targetID int64, topicID int64) string {
 			return "/c/" + slug + "/"
 		}
 	case "tag":
-		return fmt.Sprintf("/search/?tag_id=%d", targetID)
+		return fmt.Sprintf("/tags/%d/", targetID)
 	case "user":
 		return "/me/activities"
 	}
@@ -1999,6 +2260,16 @@ func (s *MemoryStore) favoriteCountLocked(targetType string, targetID int64) int
 	return count
 }
 
+func (s *MemoryStore) followCountLocked(targetType string, targetID int64) int {
+	count := 0
+	for _, follow := range s.follows {
+		if follow.TargetType == targetType && follow.TargetID == targetID {
+			count++
+		}
+	}
+	return count
+}
+
 func (s *MemoryStore) reactionExistsLocked(userID int64, targetType string, targetID int64, reactionType string) bool {
 	_, ok := s.reactions[reactionKey(userID, targetType, targetID, reactionType)]
 	return ok
@@ -2007,6 +2278,154 @@ func (s *MemoryStore) reactionExistsLocked(userID int64, targetType string, targ
 func (s *MemoryStore) favoriteExistsLocked(userID int64, targetType string, targetID int64) bool {
 	_, ok := s.favorites[favoriteKey(userID, targetType, targetID)]
 	return ok
+}
+
+func tagKey(site, slug string) string {
+	return strings.TrimSpace(site) + ":" + strings.TrimSpace(slug)
+}
+
+func (s *MemoryStore) findTagBySiteSlugLocked(site, slug string) (*domain.Tag, bool) {
+	site = strings.TrimSpace(site)
+	slug = strings.TrimSpace(slug)
+	for _, tag := range s.tags {
+		if tag != nil && tag.Site == site && tag.Slug == slug {
+			return tag, true
+		}
+	}
+	return nil, false
+}
+
+func (s *MemoryStore) tagBySlugLocked(site, slugOrName string, enabledOnly bool) (domain.Tag, bool) {
+	site = strings.TrimSpace(site)
+	slugOrName = strings.TrimSpace(slugOrName)
+	if slugOrName == "" {
+		return domain.Tag{}, false
+	}
+	if id, err := strconv.ParseInt(slugOrName, 10, 64); err == nil && id > 0 {
+		if tag, ok := s.tags[id]; ok && tag != nil {
+			if enabledOnly && tag.Status != "enable" {
+				return domain.Tag{}, false
+			}
+			if site == "" || site == "portal" || tag.Site == site {
+				return s.enrichTagLocked(*tag), true
+			}
+		}
+	}
+	needle := strings.ToLower(slugOrName)
+	normalizedSlug := normalizeSlug(slugOrName)
+	if normalizedSlug == "" {
+		normalizedSlug = strings.ToLower(strings.Join(strings.Fields(slugOrName), "-"))
+	}
+	var fallback *domain.Tag
+	for _, tag := range s.tags {
+		if tag == nil {
+			continue
+		}
+		if enabledOnly && tag.Status != "enable" {
+			continue
+		}
+		matched := strings.EqualFold(tag.Slug, slugOrName) || strings.EqualFold(tag.Name, slugOrName) || (normalizedSlug != "" && strings.EqualFold(tag.Slug, normalizedSlug)) || strings.EqualFold(tag.Name, needle)
+		if !matched {
+			continue
+		}
+		if site != "" && site != "portal" && tag.Site != site {
+			continue
+		}
+		if tag.Site == site {
+			return s.enrichTagLocked(*tag), true
+		}
+		if fallback == nil {
+			fallback = tag
+		}
+	}
+	if fallback != nil {
+		return s.enrichTagLocked(*fallback), true
+	}
+	return domain.Tag{}, false
+}
+
+func (s *MemoryStore) enrichTagLocked(tag domain.Tag) domain.Tag {
+	if tag.SortOrder == 0 {
+		tag.SortOrder = tag.Sort
+	}
+	tag.CommunitySlug = tag.Site
+	tag.CommunityID = s.communityIDBySlugLocked(tag.Site)
+	if comm := s.communityByIDLocked(tag.CommunityID); comm.ID > 0 {
+		tag.CommunityName = comm.Name
+	}
+	tag.TopicCount = s.tagTopicCountLocked(tag)
+	tag.UseCount = tag.TopicCount
+	tag.FollowerCount = s.followCountLocked("tag", tag.ID)
+	return tag
+}
+
+func (s *MemoryStore) tagTopicCountLocked(tag domain.Tag) int {
+	count := 0
+	for _, post := range s.posts {
+		if !memoryPostVisible(post) {
+			continue
+		}
+		if tag.Site != "" && tag.Site != "portal" && post.Site != tag.Site {
+			continue
+		}
+		if hasTagOrSlug(post.Tags, tag.Name, tag.Slug) {
+			count++
+		}
+	}
+	return count
+}
+
+func (s *MemoryStore) tagStatsLocked(site, q, status string, limit int) []domain.TagStat {
+	q = strings.ToLower(strings.TrimSpace(q))
+	status = strings.TrimSpace(status)
+	items := make([]domain.TagStat, 0, len(s.tags))
+	for _, tag := range s.tags {
+		if tag == nil {
+			continue
+		}
+		cp := s.enrichTagLocked(*tag)
+		if site != "" && site != "portal" && cp.Site != site && cp.CommunitySlug != site {
+			continue
+		}
+		if status != "" && status != "all" && cp.Status != status {
+			continue
+		}
+		if q != "" && !strings.Contains(strings.ToLower(cp.Name+" "+cp.Slug+" "+cp.Description), q) {
+			continue
+		}
+		if limit == 0 && cp.TopicCount <= 0 && cp.UseCount <= 0 {
+			continue
+		}
+		items = append(items, domain.TagStat{
+			ID:             cp.ID,
+			Name:           cp.Name,
+			Slug:           cp.Slug,
+			Site:           cp.Site,
+			CommunityID:    cp.CommunityID,
+			CommunitySlug:  cp.CommunitySlug,
+			Description:    cp.Description,
+			TopicCount:     cp.TopicCount,
+			Count:          cp.TopicCount,
+			FollowerCount:  cp.FollowerCount,
+			Status:         cp.Status,
+			SEOTitle:       cp.SEOTitle,
+			SEODescription: cp.SEODescription,
+			SEOKeywords:    cp.SEOKeywords,
+		})
+	}
+	sort.Slice(items, func(i, j int) bool {
+		if items[i].TopicCount == items[j].TopicCount {
+			if items[i].CommunitySlug == items[j].CommunitySlug {
+				return items[i].Name < items[j].Name
+			}
+			return items[i].CommunitySlug < items[j].CommunitySlug
+		}
+		return items[i].TopicCount > items[j].TopicCount
+	})
+	if limit > 0 && len(items) > limit {
+		items = items[:limit]
+	}
+	return items
 }
 
 func (s *MemoryStore) followExistsLocked(userID int64, targetType string, targetID int64) bool {
@@ -2154,7 +2573,10 @@ func (s *MemoryStore) validateFollowTargetLocked(targetType string, targetID int
 		}
 		return errors.New("子站不存在")
 	case "tag":
-		return nil
+		if tag, ok := s.tags[targetID]; ok && tag != nil && tag.Status == "enable" {
+			return nil
+		}
+		return errors.New("标签不存在或已禁用")
 	case "topic":
 		if _, ok := s.posts[targetID]; ok {
 			return nil
@@ -2179,6 +2601,9 @@ func (s *MemoryStore) followTargetNameLocked(targetType string, targetID int64) 
 			return comm.Name
 		}
 	case "tag":
+		if tag, ok := s.tags[targetID]; ok && tag != nil {
+			return tag.Name
+		}
 		return fmt.Sprintf("标签 #%d", targetID)
 	case "topic":
 		if p, ok := s.posts[targetID]; ok {
@@ -2212,8 +2637,17 @@ func (s *MemoryStore) followItemLocked(follow *domain.Follow) domain.FollowItem 
 			item.Community = s.communityByIDLocked(topic.CommunityID)
 		}
 	case "tag":
-		item.TargetSlug = fmt.Sprintf("%d", follow.TargetID)
-		item.TargetURL = fmt.Sprintf("/search/?tag_id=%d", follow.TargetID)
+		if tag, ok := s.tags[follow.TargetID]; ok && tag != nil {
+			cp := s.enrichTagLocked(*tag)
+			item.TargetName = cp.Name
+			item.TargetSlug = cp.Slug
+			item.Description = cp.Description
+			item.TargetURL = "/tags/" + cp.Slug + "/"
+			item.Community = s.communityByIDLocked(cp.CommunityID)
+		} else {
+			item.TargetSlug = fmt.Sprintf("%d", follow.TargetID)
+			item.TargetURL = fmt.Sprintf("/tags/%d/", follow.TargetID)
+		}
 	case "user":
 		if user, ok := s.users[follow.TargetID]; ok {
 			item.TargetName = firstNonEmptyString(user.Nickname, user.Username)
@@ -2249,6 +2683,17 @@ func (s *MemoryStore) enrichActivityLocked(a *domain.Activity) {
 			a.Community = comm.Name
 		}
 	}
+	if a.TargetType == "tag" {
+		if tag, ok := s.tags[a.TargetID]; ok && tag != nil {
+			cp := s.enrichTagLocked(*tag)
+			a.TargetTitle = cp.Name
+			a.TargetURL = "/tags/" + cp.Slug + "/"
+			if comm := s.communityByIDLocked(cp.CommunityID); comm.Name != "" {
+				a.Community = comm.Name
+				a.CommunityID = comm.ID
+			}
+		}
+	}
 	if a.Remark == "" {
 		a.Remark = a.TargetTitle
 	}
@@ -2269,16 +2714,68 @@ func normalizeTag(tag domain.Tag) domain.Tag {
 	tag.Slug = strings.TrimSpace(tag.Slug)
 	tag.Description = strings.TrimSpace(tag.Description)
 	tag.Status = strings.TrimSpace(tag.Status)
+	tag.SEOTitle = strings.TrimSpace(tag.SEOTitle)
+	tag.SEODescription = strings.TrimSpace(tag.SEODescription)
+	tag.SEOKeywords = strings.TrimSpace(tag.SEOKeywords)
 	if tag.Status == "" {
 		tag.Status = "enable"
 	}
+	if tag.Status == "1" || tag.Status == "enabled" {
+		tag.Status = "enable"
+	}
+	if tag.Status == "0" || tag.Status == "disabled" {
+		tag.Status = "disable"
+	}
 	if tag.Slug == "" {
-		tag.Slug = strings.ToLower(strings.Join(strings.Fields(tag.Name), "-"))
+		tag.Slug = normalizeSlug(tag.Name)
+		if tag.Slug == "" {
+			tag.Slug = strings.ToLower(strings.Join(strings.Fields(tag.Name), "-"))
+		}
 	}
 	if tag.Site == "" {
 		tag.Site = "portal"
 	}
+	if tag.SortOrder != 0 && tag.Sort == 0 {
+		tag.Sort = tag.SortOrder
+	}
+	if tag.SortOrder == 0 {
+		tag.SortOrder = tag.Sort
+	}
 	return tag
+}
+
+func normalizeTagStatus(status string) string {
+	switch strings.TrimSpace(status) {
+	case "enable", "enabled", "1", "true":
+		return "enable"
+	case "disable", "disabled", "0", "false":
+		return "disable"
+	default:
+		return ""
+	}
+}
+
+func sortTags(tags []domain.Tag) {
+	sort.Slice(tags, func(i, j int) bool {
+		leftSort := tags[i].Sort
+		if leftSort == 0 {
+			leftSort = tags[i].SortOrder
+		}
+		rightSort := tags[j].Sort
+		if rightSort == 0 {
+			rightSort = tags[j].SortOrder
+		}
+		if leftSort == rightSort {
+			if tags[i].UseCount == tags[j].UseCount {
+				if tags[i].Site == tags[j].Site {
+					return tags[i].Name < tags[j].Name
+				}
+				return tags[i].Site < tags[j].Site
+			}
+			return tags[i].UseCount > tags[j].UseCount
+		}
+		return leftSort < rightSort
+	})
 }
 
 // firstRunes 按 rune 截取摘要，避免中文被截断成非法字符。
@@ -2979,6 +3476,7 @@ func (s *MemoryStore) CreateTopic(req domain.CreateTopicRequest) (*domain.Topic,
 		UpdatedAt:   now,
 	}
 	s.posts[post.ID] = post
+	s.rebuildTagsFromPostsLocked()
 	s.appendActivityLocked(userID, req.CommunityID, "created_topic", "topic", post.ID, post.ID, post.Title)
 	s.appendLogLocked("operation", "DevHub 用户", "创建主题", fmt.Sprintf("topics#%d", post.ID), "127.0.0.1")
 
@@ -3067,6 +3565,7 @@ func (s *MemoryStore) UpdateTopic(id int64, req domain.UpdateTopicRequest) (*dom
 		p.Tags = uniqueTags(*req.Tags)
 	}
 	p.UpdatedAt = Now()
+	s.rebuildTagsFromPostsLocked()
 	topic, _ := s.topicFromPostLocked(id, false)
 	return &topic, nil
 }
@@ -3301,6 +3800,11 @@ func (s *MemoryStore) ToggleFollow(userID int64, targetID int64, targetType stri
 	topicID := int64(0)
 	if targetType == "community" {
 		communityID = targetID
+	}
+	if targetType == "tag" {
+		if tag, ok := s.tags[targetID]; ok && tag != nil {
+			communityID = s.communityIDBySlugLocked(tag.Site)
+		}
 	}
 	if targetType == "topic" {
 		if p, ok := s.posts[targetID]; ok {

@@ -2,6 +2,7 @@ import { ofetch } from 'ofetch';
 import { z } from 'zod';
 import { fallbackBoards, fallbackPosts, fallbackSites, fallbackTags } from './fallback';
 import type { Board, CommentNode, CommunityStats, Post, Site, TagStat } from './types';
+import { authRequest } from './session';
 
 const API_BASE = process.env.FRONTEND_API_BASE || '';
 const API_PREFIX = '/api/v1';
@@ -76,6 +77,33 @@ const communityStatsSchema = z.object({
   today_comment_count: z.number().default(0),
   moderator_count: z.number().default(0),
   hot_score: z.number().default(0),
+});
+
+const tagStatSchema = z.object({
+  id: z.number().optional(),
+  name: z.string(),
+  slug: z.string().default(''),
+  site: z.string().default(''),
+  community_id: z.number().default(0),
+  community_slug: z.string().default(''),
+  description: z.string().default(''),
+  topic_count: z.number().default(0),
+  count: z.number().default(0),
+  follower_count: z.number().default(0),
+  status: z.string().default('enable'),
+  seo_title: z.string().default(''),
+  seo_description: z.string().default(''),
+  seo_keywords: z.string().default(''),
+});
+
+const tagSchema = tagStatSchema.extend({
+  id: z.number(),
+  sort: z.number().default(0),
+  sort_order: z.number().default(0),
+  use_count: z.number().default(0),
+  community_name: z.string().default(''),
+  created_at: z.string().default(''),
+  updated_at: z.string().default(''),
 });
 
 const postSchema = z.object({
@@ -245,7 +273,7 @@ export async function getHotPosts(site = 'portal', limit = 8): Promise<Post[]> {
 
 export async function getTags(site = 'portal'): Promise<TagStat[]> {
   if (site !== 'portal') {
-    const data = await request(`/communities/${encodeURIComponent(site)}/tags`, { items: [] }, z.object({ items: z.array(z.object({ name: z.string(), count: z.number() })) }));
+    const data = await request(`/communities/${encodeURIComponent(site)}/tags`, { items: [] }, z.object({ items: z.array(tagStatSchema) }));
     if (data.items.length > 0) return data.items;
   } else {
     const communities = (await getSites()).filter((item) => item.key !== 'portal');
@@ -255,9 +283,41 @@ export async function getTags(site = 'portal'): Promise<TagStat[]> {
     const aggregated = [...counts.entries()].map(([name, count]) => ({ name, count })).sort((a, b) => b.count - a.count || a.name.localeCompare(b.name));
     if (aggregated.length > 0) return aggregated.slice(0, 30);
   }
-  const schema = z.object({ items: z.array(z.object({ name: z.string(), count: z.number() })) });
+  const schema = z.object({ items: z.array(tagStatSchema) });
   const data = await request(`/tags?site=${encodeURIComponent(site)}`, { items: fallbackTags }, schema);
   return data.items;
+}
+
+export async function getTag(slug: string, communitySlug = '') {
+  const query = new URLSearchParams();
+  if (communitySlug) query.set('community_slug', communitySlug);
+  return request(`/tags/${encodeURIComponent(slug)}${query.toString() ? `?${query}` : ''}`, undefined, tagSchema.optional());
+}
+
+export async function getTagTopics(slug: string, params: { community_slug?: string; sort?: string; page?: number; page_size?: number } = {}) {
+  const query = new URLSearchParams();
+  if (params.community_slug) query.set('community_slug', params.community_slug);
+  if (params.sort) query.set('sort', params.sort);
+  query.set('page', String(params.page || 1));
+  query.set('page_size', String(params.page_size || 12));
+  const data = await request(`/tags/${encodeURIComponent(slug)}/topics?${query}`, { items: [], total: 0, page: 1, page_size: 12 }, z.object({ items: z.array(topicSchema), total: z.number().default(0), page: z.number().default(1), page_size: z.number().default(12) }));
+  return { ...data, items: data.items.map(topicToPost) };
+}
+
+export async function getTagSuggestions(params: { community_slug?: string; q?: string; limit?: number } = {}): Promise<TagStat[]> {
+  const query = new URLSearchParams();
+  if (params.community_slug) query.set('community_slug', params.community_slug);
+  if (params.q) query.set('q', params.q);
+  query.set('limit', String(params.limit || 20));
+  const data = await request(`/tags/suggestions?${query}`, { items: [] }, z.object({ items: z.array(tagStatSchema) }));
+  return data.items;
+}
+
+export async function followTag(id: number): Promise<{ followed: boolean }> {
+  return authRequest('/api/v1/follows/toggle', {
+    method: 'POST',
+    body: { target_type: 'tag', target_id: id },
+  });
 }
 
 export async function getPost(id: number): Promise<Post | undefined> {

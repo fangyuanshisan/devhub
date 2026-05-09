@@ -1,5 +1,31 @@
 # Changelog
 
+## v1.2.0
+
+DevHub v1.2.0 is the tag system enhancement release.
+
+### Added
+
+- Go-rendered Baidu-friendly tag aggregation SEO pages at `/tags/:tag/`.
+- Public tag detail, tag-topic aggregation, and tag suggestion APIs.
+- Tag follow UX on the tag SEO page using existing `POST /api/v1/follows/toggle`.
+- Publish-page tag suggestions scoped to the selected community.
+- admin-next tag management at `/admin-next/tags`, including CRUD, enable/disable, SEO fields, and related-topic viewing.
+- MySQL schema and startup migration support for tag `follower_count`, SEO fields, and `enable/disable` status.
+- Dynamic sitemap entries for enabled tags.
+
+### Changed
+
+- Topic and community tag links now point to canonical tag pages instead of only search filters.
+- Tags are first-class manageable records in MemoryStore and MySQLStore, while still preserving existing topic tag behavior.
+- `/topics/:id` and `/c/:slug` SEO output remains Go-rendered and unchanged in responsibility.
+
+### Known Limitations
+
+- Tag merge, tag aliasing, and tag trend statistics are still not part of v1.2.0.
+- Tag custom redirect/canonical migration after future merges remains planned.
+- Sitemap is still a single dynamic file and is not yet sharded.
+
 ## v1.1.3
 
 DevHub v1.1.3 is the independent moderator workspace MVP release.
@@ -16,6 +42,7 @@ DevHub v1.1.3 is the independent moderator workspace MVP release.
 
 - The frontend user menu now links to the independent moderator workspace.
 - Moderator governance no longer needs to enter the full admin-next UI for the MVP workflow.
+- MemoryStore frontend registration now creates a real user with a bcrypt password hash, so newly registered accounts can log in with their own password.
 
 ### Known Limitations
 

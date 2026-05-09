@@ -171,6 +171,40 @@ web/frontend/moderator/audit-logs/index.html
 后端仍使用 `community_moderators` 判断版主范围，使用 `admin_logs` 写入 `actor_type=moderator` 的审计记录。生产升级后建议验证普通用户访问 `/api/v1/moderator/*` 返回 403，PHP 版主只能访问 PHP 子站数据。
 4. 再切换生产服务。
 
+## v1.2.0 标签系统升级说明
+
+v1.2.0 增强了 `tags` 表和标签相关页面 / API。新库可直接使用 `db/mysql/001_schema.sql` 初始化；旧库启动时由内置迁移辅助尽量补齐缺失字段。
+
+新增或确认的 `tags` 字段：
+
+```text
+status VARCHAR(32) DEFAULT 'enable'
+follower_count INT UNSIGNED DEFAULT 0
+seo_title VARCHAR(255) DEFAULT ''
+seo_description VARCHAR(500) DEFAULT ''
+seo_keywords VARCHAR(500) DEFAULT ''
+```
+
+旧状态值会尽量转换：
+
+- `1` / `enabled` / 空值 -> `enable`
+- `0` / `disabled` -> `disable`
+
+升级后需要重新构建前台和后台：
+
+- 前台构建会移除旧 Astro 预生成标签详情页，`/tags/:tag/` 由 Go 动态输出。
+- 后台构建会生成 `/admin-next/tags` 标签管理页面。
+
+生产升级后建议验证：
+
+```bash
+curl -s http://127.0.0.1:8090/api/v1/tags
+curl -s http://127.0.0.1:8090/api/v1/tags/suggestions?community_slug=php
+curl -s http://127.0.0.1:8090/tags/laravel/
+curl -s http://127.0.0.1:8090/sitemap.xml | rg '/tags/'
+curl -s http://127.0.0.1:8090/topics/1/ | rg '<title>|description|<h1'
+```
+
 ## 生产部署建议
 
 - 使用 `go build -o devhub .` 产出二进制，配合 systemd、supervisor 或容器编排守护进程。

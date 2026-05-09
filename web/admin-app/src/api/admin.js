@@ -51,8 +51,12 @@ export const updateUserStatus = (id, payload) => http.put(`/admin/users/${id}/st
 export const roles = () => http.get('/admin/roles');
 export const permissions = () => http.get('/admin/permissions');
 export const tags = (params) => http.get('/admin/tags', { params });
+export const tag = (id) => http.get(`/admin/tags/${id}`);
+export const tagTopics = (id, params) => http.get(`/admin/tags/${id}/topics`, { params });
 export const createTag = (payload) => http.post('/admin/tags', payload);
 export const updateTag = (id, payload) => http.put(`/admin/tags/${id}`, payload);
+export const enableTag = (id) => http.post(`/admin/tags/${id}/enable`);
+export const disableTag = (id) => http.post(`/admin/tags/${id}/disable`);
 export const logs = (site) => http.get('/admin/logs', { params: { site } });
 export const auditLogs = (params) => http.get('/admin/audit-logs', { params });
 export const settings = () => http.get('/admin/settings');

@@ -2,7 +2,7 @@
 
 DevHub 是一个多子站技术社区 CMS。当前项目使用 Go + Gin 提供后端 API 与静态资源托管，前台使用 Astro + Vue Islands，后台使用 Vue 3 + Element Plus。
 
-当前版本：`v1.1.3`，版本主题为“独立版主工作台 MVP”。
+当前版本：`v1.2.0`，版本主题为“标签系统增强版”。
 
 当前只维护两个入口：
 
@@ -26,6 +26,7 @@ DevHub 是一个多子站技术社区 CMS。当前项目使用 Go + Gin 提供�
 - [部署启动文档](docs/DEPLOYMENT.md)
 - [备份与回滚](docs/BACKUP_AND_ROLLBACK.md)
 - [SEO 文档](docs/SEO.md)
+- [v1.2.0 Release Notes](docs/releases/v1.2.0.md)
 - [v1.1.3 Release Notes](docs/releases/v1.1.3.md)
 - [v1.1.1 Release Notes](docs/releases/v1.1.1.md)
 - [v1.1.0 Release Notes](docs/releases/v1.1.0.md)
@@ -38,6 +39,7 @@ DevHub 是一个多子站技术社区 CMS。当前项目使用 Go + Gin 提供�
 - 多子站：总站、PHP、Go、Java、AI、Frontend；v1.1.0 起子站具备独立首页、SEO、配置、板块、版主、统计、关注和公告。
 - 多板块：社区、问答中心、开源项目、AI 作品、招聘内推、Wiki、文档；后台支持按子站管理板块、启用 / 禁用、排序和导航展示。
 - 内容：列表、详情、发布、编辑、删除、浏览数、点赞、收藏、关注、标签、热门排序。
+- 标签：v1.2.0 起支持标签详情 SEO 页、标签下内容聚合、标签关注、发布页标签建议、后台标签 CRUD、启用 / 禁用、SEO 字段、关联内容查看和 sitemap 收录。
 - 通用 Topic：已支持 `article`、`question`、`project`、`ai_work`、`job`、`wiki`、`doc`、`news` 等内容类型。
 - 搜索：支持全站、子站、板块、关键词、标签筛选，并支持 `sort=unsolved` 未解决问答筛选。
 - 评论：支持 Topic 评论列表、加载更多、发表评论、回复评论、问答采纳和最佳答案展示；评论点赞仍仅保留旧兼容接口。
@@ -47,6 +49,12 @@ DevHub 是一个多子站技术社区 CMS。当前项目使用 Go + Gin 提供�
 - 版主工作台：`/moderator` 提供独立轻量工作台，版主可处理自己子站的举报、主题、评论和审计日志。
 - 后台：控制台、内容管理、举报管理、评论审核、子站管理、子站板块管理、版主管理、用户权限、运营工具、数据统计、系统设置。
 - 存储：支持内存模式和 MySQL 模式。
+
+## v1.2.0 定位
+
+DevHub v1.2.0 是“标签系统增强版”。本版本新增 `/tags/:tag/` Go 动态标签 SEO 页、标签详情 API、标签内容聚合、标签关注、发布页标签建议、后台标签 CRUD、标签启用 / 禁用、标签 SEO 字段、标签关联内容查看和 sitemap 标签收录。
+
+本版本不做标签合并、标签别名和标签趋势统计；这些能力留到后续版本。
 
 ## v1.1.3 定位
 
@@ -179,7 +187,7 @@ Database: devhub
 /c/:site/topics/new/    子站发布 Topic
 /topics/:id/            Topic 详情，Go 动态输出 SEO HTML
 /posts/:id/             兼容入口，301 跳转到 /topics/:id/
-/tags/:tag/             标签聚合页
+/tags/:tag/             标签聚合页，Go 动态输出 SEO HTML
 /me/favorites           我的收藏
 /me/follows             我的关注
 /me/activities          我的动态
@@ -195,6 +203,7 @@ Database: devhub
 /admin-next/comments    评论管理
 /admin-next/reports     举报管理
 /admin-next/communities 子站管理
+/admin-next/tags        标签管理
 /admin-next/moderators  版主管理
 /admin-next/audit-logs  治理审计日志
 /admin-next/...         后台前端路由
@@ -267,6 +276,11 @@ POST   /api/v1/me/notifications/read-all
 GET    /api/v1/notifications
 POST   /api/v1/notifications/:id/read
 POST   /api/v1/notifications/read-all
+GET    /api/v1/tags
+GET    /api/v1/tags/hot
+GET    /api/v1/tags/suggestions
+GET    /api/v1/tags/:tag
+GET    /api/v1/tags/:tag/topics
 ```
 
 说明：第五轮互动、第六轮评论 / 采纳、第七轮举报 / 治理接口的真实路径、响应字段和部分完成项以 [docs/API.md](docs/API.md) 为准。`GET /api/v1/search/topics?sort=unsolved` 当前只返回未解决问答，`sort=featured` 当前只返回精华内容。
@@ -326,6 +340,12 @@ GET  /api/v1/admin/users
 GET  /api/v1/admin/roles
 GET  /api/v1/admin/permissions
 GET  /api/v1/admin/tags
+POST /api/v1/admin/tags
+GET  /api/v1/admin/tags/:id
+PUT  /api/v1/admin/tags/:id
+GET  /api/v1/admin/tags/:id/topics
+POST /api/v1/admin/tags/:id/enable
+POST /api/v1/admin/tags/:id/disable
 GET  /api/v1/admin/settings
 ```
 
@@ -425,16 +445,16 @@ git status
 
 本地没有 `npm` 时，可使用 `dev.sh` 或 Docker Node 构建；构建产物由脚本生成，不需要提交。
 
-v1.1.3 归档建议命令：
+v1.2.0 归档建议命令：
 
 ```bash
 git status
 git diff
 git add .
-git commit -m "chore: release DevHub v1.1.3"
-git tag v1.1.3
+git commit -m "chore: release DevHub v1.2.0"
+git tag v1.2.0
 git push origin main
-git push origin v1.1.3
+git push origin v1.2.0
 ```
 
 打 tag 前必须先确认工作区没有未审阅差异，且测试矩阵通过。
@@ -445,16 +465,15 @@ git push origin v1.1.3
 - 版主工作台是 MVP，不包含复杂 RBAC、权限点矩阵、版主任期或绩效统计。
 - MySQL refresh token 仍通过 `token_type` 区分前台用户和后台人员，并已移除单一 `users` 外键；后续生产化 migration 可进一步拆分字段命名。
 - 后台人员参与前台社区互动时仍应拥有独立 `users` 身份，admin-user 绑定关系留到后续。
-- 标签系统仍是基础能力，标签详情 SEO 页、标签后台管理、标签合并 / 别名和趋势统计留到 v1.2.0。
+- 标签详情 SEO 页和标签后台管理已在 v1.2.0 完成；标签合并 / 别名和趋势统计仍留到后续版本。
 - 评论点赞未纳入 v1.1.0 主线。
 - 问答支持采纳和更换最佳答案，暂不支持取消已解决状态。
-- 标签关注、用户关注已有后端基础，前台入口仍可继续增强；完整关注流留到 v1.3.0。
+- 标签关注已在 v1.2.0 接入标签页；用户关注前台入口仍可继续增强，完整关注流留到 v1.3.0。
 - `/sitemap.xml` 目前动态输出但未做大规模分片。
 - 生产部署仍需按实际环境配置进程守护、反向代理、HTTPS、日志轮转和定时备份。
 
 ## Roadmap
 
-- v1.2.0：标签系统增强、标签 SEO 聚合页、标签后台管理、标签合并 / 别名。
 - v1.3.0：推荐、关注流和内容发现。
 - v1.4.0：用户成长、声望和个人主页。
 - v1.5.0：后台运营、治理和数据统计增强。

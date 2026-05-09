@@ -43,13 +43,16 @@
 
       <fieldset class="tag-picker">
         <legend>标签</legend>
-        <p>最多选择 5 个标签</p>
+        <p>最多选择 5 个标签，标签来自当前子站已启用标签。</p>
+        <input v-model.trim="tagKeyword" type="search" placeholder="搜索标签建议" @input="loadTagSuggestions" />
         <div>
           <label v-for="tag in tags" :key="tag.name">
             <input type="checkbox" :value="tag.name" :checked="form.tags.includes(tag.name)" @change="toggleTag(tag.name)" />
             <span>{{ tag.name }}</span>
+            <small>{{ tag.topic_count || tag.count || 0 }}</small>
           </label>
         </div>
+        <p v-if="!tags.length">当前子站暂无可选标签，请先联系管理员在后台启用标签。</p>
       </fieldset>
 
       <div class="publish-actions">
@@ -78,7 +81,7 @@ const props = defineProps<{ defaultCommunity?: string }>();
 
 type Community = { id: number; name: string; slug: string; description: string };
 type Category = { id: number; name: string; slug: string; type: string };
-type Tag = { name: string; count: number };
+type Tag = { id?: number; name: string; slug?: string; count: number; topic_count?: number; description?: string };
 
 const contentTypes = [
   { value: 'article', label: '社区', desc: '适合分享经验、讨论方案和复盘实践。' },
@@ -93,6 +96,9 @@ const contentTypes = [
 const communities = ref<Community[]>([]);
 const categories = ref<Category[]>([]);
 const tags = ref<Tag[]>([]);
+const allowedTagNames = ref<Set<string>>(new Set());
+const tagKeyword = ref('');
+let tagRequestID = 0;
 const submitting = ref(false);
 const message = ref('');
 const messageType = ref<'error' | 'success'>('error');
@@ -129,16 +135,18 @@ async function loadCommunities() {
 async function loadCommunityData() {
   form.category_id = 0;
   form.tags = [];
+  tagKeyword.value = '';
   categories.value = [];
   tags.value = [];
+  allowedTagNames.value = new Set();
   if (!form.community_slug) return;
   try {
     const [categoryData, tagData] = await Promise.all([
       ofetch(`/api/v1/communities/${encodeURIComponent(form.community_slug)}/categories`),
-      ofetch(`/api/v1/communities/${encodeURIComponent(form.community_slug)}/tags`),
+      ofetch(`/api/v1/tags/suggestions?community_slug=${encodeURIComponent(form.community_slug)}&limit=30`),
     ]);
     categories.value = categoryData.items || [];
-    tags.value = tagData.items || [];
+    setTags(tagData.items || []);
     if (categories.value[0]) {
       form.category_id = categories.value[0].id;
       syncCategoryType();
@@ -146,6 +154,31 @@ async function loadCommunityData() {
   } catch {
     setMessage('板块或标签加载失败，请切换子站后重试');
   }
+}
+
+async function loadTagSuggestions() {
+  if (!form.community_slug) return;
+  const requestID = ++tagRequestID;
+  try {
+    const query = new URLSearchParams({
+      community_slug: form.community_slug,
+      q: tagKeyword.value,
+      limit: '30',
+    });
+    const data = await ofetch(`/api/v1/tags/suggestions?${query}`);
+    if (requestID === tagRequestID) setTags(data.items || []);
+  } catch {
+    if (requestID === tagRequestID) tags.value = [];
+  }
+}
+
+function setTags(items: Tag[]) {
+  tags.value = items;
+  const next = new Set(allowedTagNames.value);
+  for (const tag of items) {
+    if (tag.name) next.add(tag.name);
+  }
+  allowedTagNames.value = next;
 }
 
 function syncCategoryType() {
@@ -172,6 +205,8 @@ function validate() {
   if (form.summary.length > 300) return '摘要最多 300 个字符';
   if (form.content.length < 10) return '正文至少 10 个字符';
   if (form.tags.length > 5) return '最多选择 5 个标签';
+  const allowed = allowedTagNames.value;
+  if (form.tags.some((tag) => !allowed.has(tag))) return '请选择当前子站已启用标签';
   return '';
 }
 
