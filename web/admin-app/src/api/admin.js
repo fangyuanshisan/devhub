@@ -1,0 +1,27 @@
+import { http } from './http';
+
+export const login = (payload) => http.post('/admin/login', payload);
+export const logout = (refreshToken) => http.post('/admin/logout', { refresh_token: refreshToken });
+export const me = () => http.get('/admin/me');
+export const sites = () => http.get('/sites');
+export const boards = () => http.get('/boards');
+export const overview = (site) => http.get('/admin/overview', { params: { site } });
+export const posts = (params) => http.get('/admin/posts', { params });
+export const createPost = (payload) => http.post('/admin/posts', payload);
+export const updatePost = (id, payload) => http.put(`/admin/posts/${id}`, payload);
+export const deletePost = (id) => http.delete(`/admin/posts/${id}`);
+export const comments = (site) => http.get('/admin/comments', { params: { site } });
+export const updateComment = (id, payload) => http.put(`/admin/comments/${id}/status`, payload);
+export const deleteComment = (id) => http.delete(`/admin/comments/${id}`);
+export const users = () => http.get('/admin/users');
+export const updateUserStatus = (id, payload) => http.put(`/admin/users/${id}/status`, payload);
+export const roles = () => http.get('/admin/roles');
+export const permissions = () => http.get('/admin/permissions');
+export const tags = (params) => http.get('/admin/tags', { params });
+export const createTag = (payload) => http.post('/admin/tags', payload);
+export const updateTag = (id, payload) => http.put(`/admin/tags/${id}`, payload);
+export const logs = (site) => http.get('/admin/logs', { params: { site } });
+export const settings = () => http.get('/admin/settings');
+export const updateSettings = (payload) => http.put('/admin/settings', payload);
+export const notices = (site) => http.get('/notifications', { params: { site } });
+export const pushNotice = (payload) => http.post('/admin/notifications', payload);

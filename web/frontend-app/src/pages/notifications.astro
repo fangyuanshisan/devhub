@@ -1,0 +1,79 @@
+---
+import SiteHeader from '../components/SiteHeader.astro';
+import SeoLayout from '../layouts/SeoLayout.astro';
+import { devhubSites as sites } from '../lib/sites';
+---
+<SeoLayout title="通知中心 - DevHub" description="查看 DevHub 当前用户收到的互动通知并标记已读。" canonical="/notifications/">
+  <SiteHeader sites={sites} activeSite="portal" />
+  <main>
+    <section class="page-title">
+      <h1>通知中心</h1>
+      <p>点赞、收藏、关注等互动通知会出现在这里。</p>
+    </section>
+    <section class="content-layout narrow">
+      <div>
+        <div class="section-head">
+          <h2>通知</h2>
+          <span data-unread-count>正在加载</span>
+          <button class="secondary-action" type="button" data-read-all>全部已读</button>
+        </div>
+        <div class="notification-list" data-notification-list>
+          <div class="empty-state">正在加载通知...</div>
+        </div>
+      </div>
+      <aside class="sidebar">
+        <section>
+          <h2>筛选</h2>
+          <div class="quick-links">
+            <a href="/notifications">全部通知</a>
+            <a href="/notifications?is_read=0">未读通知</a>
+            <a href="/me/activities">我的动态</a>
+          </div>
+        </section>
+      </aside>
+    </section>
+  </main>
+  <script is:inline>
+    (() => {
+      const params = new URLSearchParams(window.location.search);
+      const isRead = params.get('is_read');
+      const list = document.querySelector('[data-notification-list]');
+      const unread = document.querySelector('[data-unread-count]');
+      const readAll = document.querySelector('[data-read-all]');
+      const escapeHTML = (value) => String(value ?? '').replace(/[&<>"']/g, (char) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[char]));
+      const request = (url, options = {}) => fetch(url, options).then((response) => response.ok ? response.json() : response.json().then((data) => Promise.reject(data)));
+      const render = (item) => {
+        const href = item.target_url || (item.topic_id ? `/topics/${Number(item.topic_id)}/` : '#');
+        const read = Boolean(item.is_read || item.read);
+        return `<article class="notification-item ${read ? 'is-read' : ''}" data-notification="${Number(item.id)}">
+          <div><span>${read ? '已读' : '未读'}</span><time>${escapeHTML(item.created_at || '')}</time></div>
+          <h2><a href="${escapeHTML(href)}">${escapeHTML(item.title || '通知')}</a></h2>
+          <p>${escapeHTML(item.content || '')}</p>
+          <footer><span>${escapeHTML(item.type || 'system')}</span>${read ? '' : `<button type="button" data-read-one="${Number(item.id)}">标记已读</button>`}</footer>
+        </article>`;
+      };
+      function load() {
+        const query = new URLSearchParams({ page_size: '20' });
+        if (isRead !== null) query.set('is_read', isRead);
+        request(`/api/v1/me/notifications?${query.toString()}`).then((data) => {
+          const items = data.items || [];
+          if (unread) unread.textContent = `${Number(data.unread_count || 0)} 条未读`;
+          if (list) list.innerHTML = items.length ? items.map(render).join('') : '<div class="empty-state">暂时没有通知。<a href="/">返回首页</a></div>';
+        }).catch(() => {
+          if (list) list.innerHTML = '<div class="empty-state">通知暂时不可用。<a href="/">返回首页</a></div>';
+        });
+      }
+      list?.addEventListener('click', (event) => {
+        const button = event.target.closest('[data-read-one]');
+        if (!button) return;
+        button.disabled = true;
+        request(`/api/v1/me/notifications/${Number(button.dataset.readOne)}/read`, { method: 'POST' }).then(load).catch(() => { button.disabled = false; });
+      });
+      readAll?.addEventListener('click', () => {
+        readAll.disabled = true;
+        request('/api/v1/me/notifications/read-all', { method: 'POST' }).then(load).finally(() => { readAll.disabled = false; });
+      });
+      load();
+    })();
+  </script>
+</SeoLayout>

@@ -1,0 +1,356 @@
+html,
+body,
+#app {
+  min-width: 1280px;
+  min-height: 100vh;
+  margin: 0;
+  background: #eef1f5;
+  color: #303133;
+  font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", "Microsoft YaHei", sans-serif;
+}
+
+.admin-layout {
+  min-height: 100vh;
+}
+
+.primary-nav {
+  width: 70px;
+  min-height: 100vh;
+  background: #242b36;
+  color: #fff;
+}
+
+.mini-logo {
+  display: grid;
+  height: 52px;
+  place-items: center;
+  color: #37a2ff;
+  font-size: 20px;
+  font-weight: 900;
+  letter-spacing: 0;
+}
+
+.primary-item {
+  display: grid;
+  width: 70px;
+  height: 50px;
+  place-items: center;
+  border: 0;
+  color: #fff;
+  background: transparent;
+  cursor: pointer;
+}
+
+.primary-item .el-icon {
+  font-size: 16px;
+}
+
+.primary-item span {
+  margin-top: 2px;
+  font-size: 12px;
+}
+
+.primary-item.active {
+  background: #0d6bff;
+}
+
+.sub-nav {
+  width: 180px;
+  min-height: 100vh;
+  border-right: 1px solid #e9edf3;
+  background: #fff;
+}
+
+.edition {
+  height: 52px;
+  padding: 0 22px;
+  border-bottom: 1px solid #edf0f5;
+  color: #111827;
+  font-size: 16px;
+  line-height: 52px;
+  white-space: nowrap;
+}
+
+.sub-title {
+  padding: 18px 24px 10px;
+  color: #303133;
+  font-weight: 600;
+}
+
+.sub-item {
+  display: block;
+  width: 100%;
+  height: 50px;
+  padding: 0 24px;
+  border: 0;
+  color: #303133;
+  background: transparent;
+  text-align: left;
+  cursor: pointer;
+}
+
+.sub-item.active {
+  color: #0d6bff;
+  background: #eaf2ff;
+}
+
+.workbench {
+  min-width: 0;
+  background: #eef1f5;
+}
+
+.header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  height: 52px;
+  padding: 0 18px;
+  border-bottom: 1px solid #edf0f5;
+  background: #fff;
+}
+
+.header-left,
+.header-actions,
+.user-entry {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+}
+
+.fold-icon,
+.header-actions .el-icon {
+  color: #606b80;
+  font-size: 17px;
+  cursor: pointer;
+}
+
+.route-title {
+  color: #8a94a6;
+}
+
+.slash {
+  color: #c0c4cc;
+}
+
+.quick-search {
+  width: 180px;
+}
+
+.tabbar {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  height: 36px;
+  padding: 0 16px;
+  border-bottom: 1px solid #dfe5ee;
+  background: #fff;
+}
+
+.tabbar .el-tabs {
+  min-width: 0;
+  flex: 1;
+}
+
+.tabbar .el-tabs__header {
+  margin: 0;
+  border-bottom: 0;
+}
+
+.tabbar .el-tabs__nav {
+  border: 0 !important;
+}
+
+.tabbar .el-tabs__item {
+  height: 30px;
+  margin-right: 4px;
+  border: 0 !important;
+  border-radius: 8px 8px 0 0;
+  background: transparent;
+  color: #606b80;
+  line-height: 30px;
+}
+
+.tabbar .el-tabs__item.is-active {
+  color: #0d6bff;
+  background: #eaf2ff;
+}
+
+.grid-icon {
+  margin-bottom: 8px;
+  color: #0d6bff;
+}
+
+.main {
+  height: calc(100vh - 88px);
+  padding: 12px 14px;
+  overflow: auto;
+  background: #eef1f5;
+}
+
+.el-card {
+  border: 0;
+  border-radius: 4px;
+}
+
+.el-card__header {
+  padding: 13px 18px;
+  border-bottom: 1px solid #edf0f5;
+}
+
+.el-card__body {
+  padding: 14px 18px;
+}
+
+.mt {
+  margin-top: 16px;
+}
+
+.mb {
+  margin-bottom: 18px;
+}
+
+.stat-card {
+  min-height: 112px;
+}
+
+.stat-card span {
+  color: #8a94a6;
+}
+
+.stat-card strong {
+  display: block;
+  margin-top: 12px;
+  font-size: 30px;
+}
+
+.stat-card p {
+  color: #9aa6b8;
+}
+
+.card-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.filter-panel {
+  margin-bottom: 12px;
+  padding: 16px 18px 8px;
+  border-radius: 4px;
+  background: #fff;
+}
+
+.filter-form {
+  margin: 0;
+}
+
+.status-tabs {
+  margin-bottom: 14px;
+  border-bottom: 1px solid #edf0f5;
+}
+
+.status-tabs .el-tabs__header {
+  margin: 0;
+}
+
+.batch-actions {
+  display: flex;
+  gap: 10px;
+  margin-bottom: 12px;
+}
+
+.pager {
+  justify-content: flex-end;
+  margin-top: 14px;
+}
+
+.table-search {
+  width: 280px;
+  margin-bottom: 12px;
+}
+
+.el-table th.el-table__cell {
+  color: #606b80;
+  background: #eaf2ff !important;
+  font-weight: 600;
+}
+
+.el-table .cell {
+  line-height: 1.45;
+}
+
+.login-page {
+  display: grid;
+  min-height: 100vh;
+  place-items: center;
+  background: linear-gradient(135deg, rgba(13, 107, 255, 0.14), rgba(55, 162, 255, 0.08)), #eef1f5;
+}
+
+.login-card {
+  width: 430px;
+}
+
+.login-brand {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  margin-bottom: 24px;
+}
+
+.login-brand span {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 46px;
+  height: 46px;
+  border-radius: 10px;
+  color: #fff;
+  background: #0d6bff;
+  font-weight: 900;
+}
+
+.login-brand h1,
+.login-brand p {
+  margin: 0;
+}
+
+.login-brand p {
+  margin-top: 4px;
+  color: #7b8794;
+}
+
+.full {
+  width: 100%;
+}
+
+.markdown-editor {
+  width: 100%;
+}
+
+.content-cell {
+  display: grid;
+  grid-template-columns: 42px minmax(0, 1fr);
+  gap: 10px;
+  align-items: center;
+}
+
+.content-thumb {
+  width: 38px;
+  height: 38px;
+  border-radius: 3px;
+  background: linear-gradient(135deg, #dfe8f7, #f8fafc);
+  object-fit: cover;
+}
+
+.content-title {
+  overflow: hidden;
+  color: #303133;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.content-meta {
+  margin-top: 3px;
+  color: #909399;
+  font-size: 12px;
+}

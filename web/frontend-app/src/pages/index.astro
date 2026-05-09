@@ -1,0 +1,172 @@
+---
+import SiteHeader from '../components/SiteHeader.astro';
+import AuthPanel from '../components/AuthPanel.vue';
+import SeoLayout from '../layouts/SeoLayout.astro';
+
+const sites = [
+  { key: 'portal', name: '总站', logo: 'DH', title: 'DevHub 开发者社区', sub: '多站点内容与社区 CMS', pub: '总站', description: '聚合 PHP、Go、Java、AI、Frontend 等技术子站的文章、问答、文档和开源项目。', color: '#2563eb', status: 'active', sort: 0 },
+  { key: 'php', name: 'PHP', logo: 'PHP', title: 'PHP 开发者站', sub: '工程实践、框架生态、线上问题复盘', pub: 'PHP 子站', description: 'PHP 技术社区', color: '#6478c8', status: 'active', sort: 1 },
+  { key: 'go', name: 'Go', logo: 'GO', title: 'Go 开发者站', sub: '并发、服务端、云原生实践', pub: 'Go 子站', description: 'Go 技术社区', color: '#0891b2', status: 'active', sort: 2 },
+  { key: 'java', name: 'Java', logo: 'JAVA', title: 'Java 开发者站', sub: '后端架构、中间件、企业工程实践', pub: 'Java 子站', description: 'Java 技术社区', color: '#ea580c', status: 'active', sort: 3 },
+  { key: 'ai', name: 'AI', logo: 'AI', title: 'AI 开发者站', sub: 'Agent、RAG、Prompt 与工作流实践', pub: 'AI 子站', description: 'AI 技术社区', color: '#7c3aed', status: 'active', sort: 4 },
+  { key: 'frontend', name: 'Frontend', logo: 'FE', title: '前端开发者站', sub: 'Vue、React、TypeScript、性能与工程化', pub: '前端子站', description: '前端技术社区', color: '#16a34a', status: 'active', sort: 5 },
+];
+const portal = sites[0];
+const channelCards = [
+  { title: '社区', desc: '讨论工程经验和线上问题', href: '/search/?scope=all&content_type=article' },
+  { title: '问答', desc: '沉淀具体问题的可复用答案', href: '/search/?scope=all&content_type=question' },
+  { title: '文档', desc: '教程、部署手册和实践指南', href: '/search/?scope=all&content_type=doc' },
+  { title: '开源', desc: '项目推荐和维护经验', href: '/search/?scope=all&content_type=project' },
+];
+const jsonLd = {
+  '@context': 'https://schema.org',
+  '@type': 'WebSite',
+  name: 'DevHub',
+  url: new URL('/', Astro.site || Astro.url).toString(),
+  potentialAction: {
+    '@type': 'SearchAction',
+    target: new URL('/search/?keyword={search_term_string}', Astro.site || Astro.url).toString(),
+    'query-input': 'required name=search_term_string',
+  },
+};
+---
+<SeoLayout title="DevHub 开发者社区" description={portal.description} site={portal} jsonLd={jsonLd}>
+  <SiteHeader sites={sites} activeSite="portal" />
+  <main>
+    <section class="home-shell">
+      <div class="home-main">
+        <section class="community-hero">
+          <div>
+            <span class="eyebrow">总站聚合</span>
+            <h1>汇总各技术子站推荐内容</h1>
+            <p>{portal.description}</p>
+          </div>
+          <div class="hero-actions">
+            <a class="primary-link" href="/topics/new/">发布内容</a>
+            <a href="/search/?scope=all&content_type=doc">浏览文档</a>
+          </div>
+        </section>
+
+        <section class="channel-grid" aria-label="内容频道">
+          {channelCards.map((channel) => (
+            <a class="channel-card" href={channel.href}>
+              <span>{channel.title}</span>
+              <strong>{channel.title}</strong>
+              <p>{channel.desc}</p>
+            </a>
+          ))}
+        </section>
+
+        <section class="featured-strip">
+          <div class="section-head">
+            <h2>全站精选</h2>
+            <a href="/search/?scope=all&sort=featured">更多精选</a>
+          </div>
+          <div class="featured-grid" data-home-featured>
+            <div class="empty-state">正在加载精选内容...</div>
+          </div>
+        </section>
+
+        <section class="site-recommendations">
+          <div class="section-head">
+            <h2>子站推荐</h2>
+            <span>来自 PHP、Go、Java、AI、Frontend 等子站</span>
+          </div>
+          <div class="recommend-grid" data-home-recommendations>
+            <div class="empty-state">正在加载子站推荐...</div>
+          </div>
+        </section>
+
+        <div class="section-head">
+          <h2>全站动态</h2>
+          <a href="/search/?scope=all">查看更多</a>
+        </div>
+        <div class="post-list" data-home-latest>
+          <div class="empty-state">正在加载最新内容...</div>
+        </div>
+      </div>
+      <aside class="home-sidebar">
+        <AuthPanel client:load />
+        <section>
+          <h2>技术子站</h2>
+          <div class="site-list" data-home-communities>
+            <div class="empty-state">正在加载子站...</div>
+          </div>
+        </section>
+        <section>
+          <h2>热门内容</h2>
+          <ol class="hot-list" data-home-hot></ol>
+        </section>
+        <section>
+          <h2>热门标签</h2>
+          <div class="tag-cloud" data-home-tags>
+            <span>正在加载标签...</span>
+          </div>
+        </section>
+      </aside>
+    </section>
+  </main>
+  <script is:inline>
+    (() => {
+      const communityIDToSite = { 1: 'php', 2: 'go', 3: 'java', 4: 'ai', 5: 'frontend' };
+      const communityNames = { php: 'PHP', go: 'Go', java: 'Java', ai: 'AI', frontend: 'Frontend', portal: '全站' };
+      const typeName = { article: '帖子', question: '问答', project: '项目', ai_work: 'AI作品', job: '招聘', wiki: 'Wiki', doc: '文档', news: '周刊' };
+      const escapeHTML = (value) => String(value ?? '').replace(/[&<>"']/g, (char) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[char]));
+      const topicSite = (topic) => communityIDToSite[topic.community_id] || 'portal';
+      const renderTopic = (topic) => {
+        const site = topicSite(topic);
+        const tags = (topic.tags || []).slice(0, 5).map((tag) => `<a href="/search/?scope=${site === 'portal' ? 'all' : 'community'}${site === 'portal' ? '' : `&community_slug=${encodeURIComponent(site)}`}&tag=${encodeURIComponent(tag)}">${escapeHTML(tag)}</a>`).join('');
+        return `<article class="post-card">
+          <div class="post-card-top">
+            <span class="type-pill">${escapeHTML(typeName[topic.content_type] || '内容')}</span>
+            <a class="site-pill" href="/c/${encodeURIComponent(site)}/">${escapeHTML(communityNames[site] || site)}</a>
+            ${topic.is_pinned ? '<span class="state-pill">置顶</span>' : ''}
+            ${topic.is_featured ? '<span class="state-pill">精华</span>' : ''}
+            ${topic.is_solved ? '<span class="state-pill solved">已解决</span>' : ''}
+          </div>
+          <h2><a href="/topics/${Number(topic.id)}/">${escapeHTML(topic.title)}</a></h2>
+          <p>${escapeHTML(topic.summary || String(topic.content || '').slice(0, 120))}</p>
+          ${tags ? `<div class="post-tags">${tags}</div>` : ''}
+          <footer><span>DevHub 用户</span><span>${escapeHTML(topic.created_at || '刚刚')} 发布</span><span>${Number(topic.view_count || 0)} 浏览</span><span>${Number(topic.like_count || 0)} 赞</span><span>${Number(topic.comment_count || 0)} 评论</span></footer>
+        </article>`;
+      };
+      const renderFeature = (topic) => `<article class="featured-card"><span>${escapeHTML(typeName[topic.content_type] || '内容')}</span><h3><a href="/topics/${Number(topic.id)}/">${escapeHTML(topic.title)}</a></h3><p>${escapeHTML(topic.summary || String(topic.content || '').slice(0, 90))}</p></article>`;
+      const getJSON = (url) => fetch(url).then((response) => response.ok ? response.json() : Promise.reject());
+
+      getJSON('/api/v1/communities').then((data) => {
+        const list = document.querySelector('[data-home-communities]');
+        const recommend = document.querySelector('[data-home-recommendations]');
+        const communities = data.items || [];
+        if (list && communities.length) {
+          list.innerHTML = communities.map((site) => `<a href="/c/${encodeURIComponent(site.slug)}/"><span>${escapeHTML(site.logo || site.name.slice(0, 2))}</span><div><strong>${escapeHTML(site.name)}</strong><p>${escapeHTML(site.description)}</p></div></a>`).join('');
+        }
+        if (recommend && communities.length) {
+          recommend.innerHTML = communities.map((site) => `<section class="recommend-card"><header><span>${escapeHTML(site.logo || site.name.slice(0, 2))}</span><div><strong>${escapeHTML(site.name)}</strong><a href="/c/${encodeURIComponent(site.slug)}/">进入子站</a></div></header><ul data-rec-list="${escapeHTML(site.slug)}"><li>正在加载...</li></ul></section>`).join('');
+          communities.forEach((site) => getJSON(`/api/v1/topics?community_slug=${encodeURIComponent(site.slug)}&sort=latest&page_size=3`).then((topicData) => {
+            const ul = document.querySelector(`[data-rec-list="${CSS.escape(site.slug)}"]`);
+            const items = topicData.items || [];
+            if (ul) ul.innerHTML = items.length ? items.map((topic) => `<li><a href="/topics/${Number(topic.id)}/">${escapeHTML(topic.title)}</a></li>`).join('') : '<li>暂无内容</li>';
+          }).catch(() => {}));
+        }
+      }).catch(() => {});
+
+      getJSON('/api/v1/topics?sort=latest&page_size=12').then((data) => {
+        const list = document.querySelector('[data-home-latest]');
+        if (list) list.innerHTML = (data.items || []).length ? data.items.map(renderTopic).join('') : '<div class="empty-state">暂无内容。<a href="/topics/new/">发布第一篇内容</a></div>';
+      }).catch(() => {});
+      getJSON('/api/v1/topics?sort=hot&page_size=6').then((data) => {
+        const list = document.querySelector('[data-home-hot]');
+        if (list) list.innerHTML = (data.items || []).map((topic) => `<li><a href="/topics/${Number(topic.id)}/">${escapeHTML(topic.title)}</a></li>`).join('');
+      }).catch(() => {});
+      getJSON('/api/v1/topics?sort=featured&page_size=4').then((data) => {
+        const list = document.querySelector('[data-home-featured]');
+        if (list) list.innerHTML = (data.items || []).length ? data.items.map(renderFeature).join('') : '<div class="empty-state">暂无精选内容。</div>';
+      }).catch(() => {});
+      getJSON('/api/v1/tags/hot').then((data) => {
+        const cloud = document.querySelector('[data-home-tags]');
+        const tags = data.items || [];
+        if (cloud) cloud.innerHTML = tags.length ? tags.map((tag) => `<a href="/search/?scope=${tag.community_slug ? 'community' : 'all'}${tag.community_slug ? `&community_slug=${encodeURIComponent(tag.community_slug)}` : ''}&tag=${encodeURIComponent(tag.name)}">${escapeHTML(tag.name)}<span>${Number(tag.topic_count || tag.count || 0)}</span></a>`).join('') : '<span>暂无标签</span>';
+      }).catch(() => {});
+    })();
+  </script>
+</SeoLayout>

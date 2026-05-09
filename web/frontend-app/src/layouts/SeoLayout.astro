@@ -1,0 +1,52 @@
+---
+import '../styles/global.css';
+import type { Site } from '../lib/types';
+
+type Props = {
+  title: string;
+  description: string;
+  canonical?: string;
+  site?: Site;
+  type?: 'website' | 'article';
+  image?: string;
+  jsonLd?: Record<string, unknown> | Record<string, unknown>[];
+};
+
+const {
+  title,
+  description,
+  canonical = Astro.url.pathname,
+  site,
+  type = 'website',
+  image = '/frontend-assets/og-default.svg',
+  jsonLd,
+} = Astro.props;
+
+const absoluteCanonical = new URL(canonical, Astro.site || Astro.url).toString();
+const absoluteImage = new URL(image, Astro.site || Astro.url).toString();
+const siteName = site?.name ? `DevHub ${site.name}` : 'DevHub';
+---
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>{title}</title>
+    <meta name="description" content={description} />
+    <link rel="canonical" href={absoluteCanonical} />
+    <meta property="og:site_name" content={siteName} />
+    <meta property="og:type" content={type} />
+    <meta property="og:title" content={title} />
+    <meta property="og:description" content={description} />
+    <meta property="og:url" content={absoluteCanonical} />
+    <meta property="og:image" content={absoluteImage} />
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="twitter:title" content={title} />
+    <meta name="twitter:description" content={description} />
+    <meta name="theme-color" content={site?.color || '#2563eb'} />
+    {jsonLd && <script type="application/ld+json" set:html={JSON.stringify(jsonLd)} />}
+  </head>
+  <body>
+    <slot />
+  </body>
+</html>

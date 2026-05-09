@@ -1,0 +1,64 @@
+export type Site = {
+  key: string;
+  name: string;
+  logo: string;
+  title: string;
+  sub: string;
+  pub: string;
+  description: string;
+  color: string;
+  status: string;
+  sort: number;
+};
+
+export type Board = {
+  key: string;
+  name: string;
+  site: string;
+  type?: string;
+  sort: number;
+  visible: boolean;
+};
+
+export type Post = {
+  id: number;
+  site: string;
+  board: string;
+  title: string;
+  summary: string;
+  content: string;
+  author: string;
+  status: string;
+  pinned: boolean;
+  recommended: boolean;
+  solved?: boolean;
+  content_type?: string;
+  favorite_count?: number;
+  hot_score?: number;
+  last_active_at?: string;
+  ai_summary?: string;
+  views: number;
+  likes: number;
+  comments: number;
+  tags: string[];
+  created_at: string;
+  updated_at: string;
+};
+
+export type TagStat = {
+  name: string;
+  count: number;
+};
+
+export type CommentNode = {
+  id: number;
+  post_id: number;
+  parent_id: number;
+  author: string;
+  to?: string;
+  text: string;
+  status: string;
+  likes: number;
+  created_at: string;
+  replies?: CommentNode[];
+};

@@ -1,0 +1,125 @@
+<template>
+  <el-container class="admin-layout">
+    <aside class="primary-nav">
+      <div class="mini-logo">DH</div>
+      <button v-for="item in visibleMenus" :key="item.path" :class="['primary-item', { active: activeGroup.path === item.path }]" @click="router.push(item.path)">
+        <el-icon><component :is="icons[item.meta.icon]" /></el-icon>
+        <span>{{ item.meta.short || item.meta.title.slice(0, 2) }}</span>
+      </button>
+    </aside>
+
+    <aside class="sub-nav">
+      <div class="edition">DevHub 标准版</div>
+      <div class="sub-title">{{ activeGroup.meta?.title || '控制台' }}</div>
+      <button v-for="child in activeChildren" :key="child.key" :class="['sub-item', { active: child.key === activeSub }]" @click="activeSub = child.key">
+        {{ child.label }}
+      </button>
+    </aside>
+
+    <el-container class="workbench">
+      <el-header class="header">
+        <div class="header-left">
+          <el-icon class="fold-icon"><Fold /></el-icon>
+          <span class="route-title">{{ activeGroup.meta?.title }}</span>
+          <span class="slash">/</span>
+          <span>{{ activeSubLabel }}</span>
+        </div>
+        <div class="header-actions">
+          <el-icon><Refresh /></el-icon>
+          <el-input v-model="quickSearch" placeholder="搜索" :prefix-icon="Search" clearable class="quick-search" />
+          <el-badge is-dot>
+            <el-icon><Bell /></el-icon>
+          </el-badge>
+          <el-icon><FullScreen /></el-icon>
+          <el-tag effect="plain">{{ scopeLabel }}</el-tag>
+          <el-dropdown>
+            <span class="user-entry">{{ auth.user?.nickname || auth.user?.username || 'demo' }} <el-icon><ArrowDown /></el-icon></span>
+            <template #dropdown>
+              <el-dropdown-menu>
+                <el-dropdown-item @click="logout">退出登录</el-dropdown-item>
+              </el-dropdown-menu>
+            </template>
+          </el-dropdown>
+          <el-icon><Setting /></el-icon>
+        </div>
+      </el-header>
+
+      <div class="tabbar">
+        <el-tabs :model-value="$route.path" type="card" closable @tab-remove="removeTab" @tab-click="openTab">
+          <el-tab-pane v-for="tab in tabs.tabs" :key="tab.path" :label="tab.title" :name="tab.path" />
+        </el-tabs>
+        <el-icon class="grid-icon"><Grid /></el-icon>
+      </div>
+
+      <el-main class="main">
+        <router-view v-slot="{ Component, route }">
+          <keep-alive :include="keepAliveNames">
+            <component :is="Component" :key="route.name" />
+          </keep-alive>
+        </router-view>
+      </el-main>
+    </el-container>
+  </el-container>
+</template>
+
+<script setup>
+import { computed, ref, watch } from 'vue';
+import { useRoute, useRouter } from 'vue-router';
+import { ElMessage } from 'element-plus';
+import { ArrowDown, Bell, ChatDotRound, DataBoard, Document, Fold, FullScreen, Grid, Promotion, Refresh, Search, SetUp, Setting, TrendCharts, User } from '@element-plus/icons-vue';
+import { menuRoutes } from '@/router';
+import { useAuthStore } from '@/stores/auth';
+import { useTabsStore } from '@/stores/tabs';
+
+const icons = { ChatDotRound, DataBoard, Document, Promotion, SetUp, Setting, TrendCharts, User };
+const subMenus = {
+  dashboard: [{ key: 'overview', label: '运营概览' }, { key: 'todo', label: '待办事项' }],
+  content: [{ key: 'posts', label: '内容管理' }, { key: 'docs', label: '文档管理' }, { key: 'tags', label: '标签管理' }],
+  comments: [{ key: 'all', label: '评论列表' }, { key: 'audit', label: '审核队列' }],
+  sites: [{ key: 'site', label: '子网站配置' }, { key: 'board', label: '板块配置' }],
+  users: [{ key: 'list', label: '用户管理' }, { key: 'roles', label: '角色权限' }],
+  operation: [{ key: 'notice', label: '通知推送' }, { key: 'recommend', label: '推荐位' }],
+  statistics: [{ key: 'site', label: '子站统计' }, { key: 'board', label: '板块统计' }],
+  system: [{ key: 'setting', label: '基础设置' }, { key: 'log', label: '操作日志' }],
+};
+
+const auth = useAuthStore();
+const tabs = useTabsStore();
+const route = useRoute();
+const router = useRouter();
+const quickSearch = ref('');
+const activeSub = ref('overview');
+
+const visibleMenus = computed(() => menuRoutes.filter((item) => !item.meta.permission || auth.can(item.meta.permission)));
+const activeGroup = computed(() => visibleMenus.value.find((item) => item.path === route.path) || visibleMenus.value[0] || menuRoutes[0]);
+const activeChildren = computed(() => subMenus[activeGroup.value.name] || []);
+const activeSubLabel = computed(() => activeChildren.value.find((item) => item.key === activeSub.value)?.label || activeChildren.value[0]?.label || '');
+const keepAliveNames = computed(() => menuRoutes.filter((item) => item.meta.keepAlive).map((item) => item.name));
+const scopeLabel = computed(() => {
+  const site = new URLSearchParams(window.location.search).get('site') || 'portal';
+  return site === 'portal' ? '全局后台' : `${site} 子站`;
+});
+
+watch(route, (value) => {
+  tabs.add(value);
+  activeSub.value = (subMenus[value.name] || [])[0]?.key || '';
+}, { immediate: true });
+watch(quickSearch, (value) => {
+  const matched = visibleMenus.value.find((item) => item.meta.title.includes(value));
+  if (value && matched) ElMessage.info(`可进入：${matched.meta.title}`);
+});
+
+function removeTab(path) {
+  tabs.remove(path);
+  if (route.path === path) router.push(tabs.tabs.at(-1)?.path || '/dashboard');
+}
+
+function openTab(tab) {
+  router.push(tab.props.name);
+}
+
+async function logout() {
+  await auth.logout();
+  router.push('/login');
+}
+</script>

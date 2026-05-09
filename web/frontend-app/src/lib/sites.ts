@@ -1,0 +1,10 @@
+import type { Site } from './types';
+
+export const devhubSites: Site[] = [
+  { key: 'portal', name: '总站', logo: 'DH', title: 'DevHub 开发者社区', sub: '多站点内容与社区 CMS', pub: '总站', description: '聚合 PHP、Go、Java、AI、Frontend 等技术子站的文章、问答、文档和开源项目。', color: '#2563eb', status: 'active', sort: 0 },
+  { key: 'php', name: 'PHP', logo: 'PHP', title: 'PHP 开发者站', sub: '工程实践、框架生态、线上问题复盘', pub: 'PHP 子站', description: 'PHP 技术社区', color: '#6478c8', status: 'active', sort: 1 },
+  { key: 'go', name: 'Go', logo: 'GO', title: 'Go 开发者站', sub: '并发、服务端、云原生实践', pub: 'Go 子站', description: 'Go 技术社区', color: '#0891b2', status: 'active', sort: 2 },
+  { key: 'java', name: 'Java', logo: 'JAVA', title: 'Java 开发者站', sub: '后端架构、中间件、企业工程实践', pub: 'Java 子站', description: 'Java 技术社区', color: '#ea580c', status: 'active', sort: 3 },
+  { key: 'ai', name: 'AI', logo: 'AI', title: 'AI 开发者站', sub: 'Agent、RAG、Prompt 与工作流实践', pub: 'AI 子站', description: 'AI 技术社区', color: '#7c3aed', status: 'active', sort: 4 },
+  { key: 'frontend', name: 'Frontend', logo: 'FE', title: '前端开发者站', sub: 'Vue、React、TypeScript、性能与工程化', pub: '前端子站', description: '前端技术社区', color: '#16a34a', status: 'active', sort: 5 },
+];

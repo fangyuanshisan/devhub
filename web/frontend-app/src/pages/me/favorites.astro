@@ -1,0 +1,74 @@
+---
+import SiteHeader from '../../components/SiteHeader.astro';
+import SeoLayout from '../../layouts/SeoLayout.astro';
+import { devhubSites as sites } from '../../lib/sites';
+---
+<SeoLayout title="我的收藏 - DevHub" description="查看 DevHub 中当前用户收藏的主题内容。" canonical="/me/favorites/">
+  <SiteHeader sites={sites} activeSite="portal" />
+  <main>
+    <section class="page-title">
+      <h1>我的收藏</h1>
+      <p>保存过的主题内容会出现在这里。</p>
+    </section>
+    <section class="content-layout narrow">
+      <div>
+        <div class="section-head">
+          <h2>收藏内容</h2>
+          <span data-favorite-count>正在加载</span>
+        </div>
+        <div class="post-list" data-favorite-list>
+          <div class="empty-state">正在加载收藏内容...</div>
+        </div>
+      </div>
+      <aside class="sidebar">
+        <section>
+          <h2>快捷入口</h2>
+          <div class="quick-links">
+            <a href="/">去首页看看</a>
+            <a href="/search/">搜索内容</a>
+            <a href="/me/activities">我的动态</a>
+          </div>
+        </section>
+      </aside>
+    </section>
+  </main>
+  <script is:inline>
+    (() => {
+      const list = document.querySelector('[data-favorite-list]');
+      const count = document.querySelector('[data-favorite-count]');
+      const communityIDToSite = { 1: 'php', 2: 'go', 3: 'java', 4: 'ai', 5: 'frontend' };
+      const escapeHTML = (value) => String(value ?? '').replace(/[&<>"']/g, (char) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[char]));
+      const request = (url, options = {}) => fetch(url, options).then((response) => response.ok ? response.json() : response.json().then((data) => Promise.reject(data)));
+      const render = (item) => {
+        const topic = item.topic || {};
+        const community = item.community || {};
+        const site = community.slug || communityIDToSite[topic.community_id] || 'portal';
+        const tags = (topic.tags || []).map((tag) => `<a href="/search/?scope=community&community_slug=${encodeURIComponent(site)}&tag=${encodeURIComponent(tag)}">${escapeHTML(tag)}</a>`).join('');
+        return `<article class="post-card" data-favorite-item="${Number(item.target_id)}">
+          <div class="post-card-top"><a class="site-pill" href="/c/${encodeURIComponent(site)}/">${escapeHTML(community.name || site)}</a><span>${escapeHTML(item.category?.name || topic.content_type || '内容')}</span><span>${escapeHTML(item.created_at || '')} 收藏</span></div>
+          <h2><a href="/topics/${Number(topic.id || item.target_id)}/">${escapeHTML(topic.title || `主题 #${item.target_id}`)}</a></h2>
+          <p>${escapeHTML(topic.summary || String(topic.content || '').slice(0, 120))}</p>
+          ${tags ? `<div class="post-tags">${tags}</div>` : ''}
+          <footer><span>${Number(topic.like_count || 0)} 赞</span><span>${Number(topic.favorite_count || 0)} 收藏</span><span>${Number(topic.comment_count || 0)} 评论</span><button type="button" data-unfavorite="${Number(item.target_id)}">取消收藏</button></footer>
+        </article>`;
+      };
+      function load() {
+        request('/api/v1/me/favorites?page_size=20').then((data) => {
+          const items = data.items || [];
+          if (count) count.textContent = `${Number(data.total || items.length)} 条`;
+          if (!list) return;
+          list.innerHTML = items.length ? items.map(render).join('') : '<div class="empty-state">还没有收藏内容。<a href="/">去首页看看</a><a href="/search/">去搜索内容</a></div>';
+        }).catch(() => {
+          if (list) list.innerHTML = '<div class="empty-state">收藏列表暂时不可用。<a href="/search/">去搜索内容</a></div>';
+        });
+      }
+      list?.addEventListener('click', (event) => {
+        const button = event.target.closest('[data-unfavorite]');
+        if (!button) return;
+        button.disabled = true;
+        request(`/api/v1/topics/${Number(button.dataset.unfavorite)}/favorite`, { method: 'POST' }).then(load).catch(() => { button.disabled = false; });
+      });
+      load();
+    })();
+  </script>
+</SeoLayout>

@@ -1,0 +1,19 @@
+services:
+  mysql:
+    image: mysql:8.0
+    restart: unless-stopped
+    environment:
+      MYSQL_ROOT_PASSWORD: Devhub_root_123456
+      MYSQL_DATABASE: devhub
+      MYSQL_USER: devhub
+      MYSQL_PASSWORD: Devhub_123456
+    ports:
+      - "3307:3306"
+    command:
+      - --character-set-server=utf8mb4
+      - --collation-server=utf8mb4_unicode_ci
+    volumes:
+      - devhub_mysql_data:/var/lib/mysql
+
+volumes:
+  devhub_mysql_data:

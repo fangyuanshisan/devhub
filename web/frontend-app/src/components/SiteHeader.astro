@@ -1,0 +1,248 @@
+---
+import type { Site } from '../lib/types';
+
+type Props = {
+  sites: Site[];
+  activeSite?: string;
+};
+
+const { sites, activeSite = 'portal' } = Astro.props;
+const active = sites.find((site) => site.key === activeSite) || sites.find((site) => site.key === 'portal') || sites[0];
+const scopedSite = activeSite || 'portal';
+const searchScope = scopedSite === 'portal' ? 'scope=all' : `scope=community&community_slug=${encodeURIComponent(scopedSite)}`;
+const boardTypes = {
+  community: 'article',
+  qa: 'question',
+  docs: 'doc',
+  wiki: 'wiki',
+  opensource: 'project',
+  ai: 'ai_work',
+};
+const boardHref = (board: keyof typeof boardTypes) => `/search/?${searchScope}&content_type=${boardTypes[board]}`;
+---
+<header class="site-header">
+  <div class="top-accent"></div>
+  <div class="header-inner">
+    <div class="brand-menu" data-site-switcher>
+      <a class="brand" href="/">
+        <span>DH</span>
+        <strong>{active?.name || 'DevHub'}</strong>
+      </a>
+      <button class="nav-caret" type="button" aria-label="切换站点" aria-expanded="false" data-site-switcher-button>⌄</button>
+      <div class="site-dropdown">
+        <a class={activeSite === 'portal' ? 'active' : ''} href="/">总站</a>
+        {sites.filter((site) => site.key !== 'portal').map((site) => (
+          <a class={activeSite === site.key ? 'active' : ''} href={`/c/${site.key}/`}>
+            <span style={`--site-color:${site.color}`}>{site.logo || site.name.slice(0, 2)}</span>
+            {site.name}
+          </a>
+        ))}
+      </div>
+    </div>
+
+    <nav class="site-nav" aria-label="主导航">
+      <a href={boardHref('community')}>社区</a>
+      <a href={boardHref('qa')}>问答</a>
+      <a href={boardHref('docs')}>文档</a>
+      <a href={boardHref('wiki')}>Wiki</a>
+      <a href={boardHref('opensource')}>开源</a>
+      <a href={boardHref('ai')}>AI作品</a>
+    </nav>
+
+    <form class="header-search" action="/search/" method="get" role="search" data-header-search>
+      <select name="community_slug" aria-label="搜索范围">
+        <option value="" selected={scopedSite === 'portal'}>全站</option>
+        {scopedSite !== 'portal' && <option value={scopedSite} selected>当前子站</option>}
+        {sites.filter((site) => site.key !== 'portal' && site.key !== scopedSite).map((site) => (
+          <option value={site.key}>{site.name}</option>
+        ))}
+      </select>
+      <input type="hidden" name="scope" value={scopedSite === 'portal' ? 'all' : 'community'} data-header-search-scope />
+      <input type="search" name="keyword" placeholder={scopedSite === 'portal' ? '搜索全站内容' : `搜索 ${active?.name || scopedSite} 内容`} />
+      <button type="submit" aria-label="搜索">⌕</button>
+    </form>
+
+    <div class="header-actions">
+      <a class="publish-link" href={scopedSite === 'portal' ? '/topics/new/' : `/c/${scopedSite}/topics/new/`}>发布内容</a>
+      <a class="notice-link" href="/notifications" aria-label="通知" data-notice-count>0</a>
+      <div class="auth-links" data-guest-only>
+        <a href="/#login">登录</a>
+        <a class="register-link" href="/#register">注册</a>
+      </div>
+      <div class="user-menu is-hidden" data-auth-only>
+        <button type="button" aria-label="用户菜单">
+          <span class="avatar" data-user-avatar>U</span>
+          <strong data-user-name>用户</strong>
+          <span>⌄</span>
+        </button>
+        <div class="user-dropdown">
+          <a href="/me/activities">我的动态</a>
+          <a href="/me/favorites">我的收藏</a>
+          <a href="/me/follows">我的关注</a>
+          <a href="/notifications">通知中心</a>
+          <a href="/admin-next/content">内容管理</a>
+          <a href="/admin-next/comments">评论管理</a>
+          <a href="/search/?sort=featured">精华内容</a>
+          <a href="/admin-next">管理后台</a>
+          <button type="button" data-logout>退出登录</button>
+        </div>
+      </div>
+      <button class="theme-toggle" type="button" aria-label="切换夜间模式" data-theme-toggle>☾</button>
+    </div>
+  </div>
+  <script is:inline>
+    (() => {
+      const key = 'devhub-theme';
+      const root = document.documentElement;
+      const button = document.querySelector('[data-theme-toggle]');
+      const switcher = document.querySelector('[data-site-switcher]');
+      const switcherButton = document.querySelector('[data-site-switcher-button]');
+      const headerSearch = document.querySelector('[data-header-search]');
+      const headerSearchCommunity = headerSearch?.querySelector('select[name="community_slug"]');
+      const headerSearchScope = headerSearch?.querySelector('[data-header-search-scope]');
+      const apply = (theme) => {
+        root.dataset.theme = theme;
+        if (button) button.textContent = theme === 'dark' ? '☀' : '☾';
+      };
+      const saved = localStorage.getItem(key);
+      const preferred = window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
+      apply(saved || preferred);
+      button?.addEventListener('click', () => {
+        const next = root.dataset.theme === 'dark' ? 'light' : 'dark';
+        localStorage.setItem(key, next);
+        apply(next);
+      });
+      switcherButton?.addEventListener('click', (event) => {
+        event.stopPropagation();
+        const nextOpen = !switcher?.classList.contains('is-open');
+        switcher?.classList.toggle('is-open', nextOpen);
+        switcherButton.setAttribute('aria-expanded', String(nextOpen));
+      });
+      document.addEventListener('click', (event) => {
+        if (switcher && !switcher.contains(event.target)) {
+          switcher.classList.remove('is-open');
+          switcherButton?.setAttribute('aria-expanded', 'false');
+        }
+      });
+      const syncHeaderSearchScope = () => {
+        if (!headerSearchScope || !headerSearchCommunity) return;
+        headerSearchScope.value = headerSearchCommunity.value ? 'community' : 'all';
+      };
+      headerSearchCommunity?.addEventListener('change', syncHeaderSearchScope);
+      headerSearch?.addEventListener('submit', syncHeaderSearchScope);
+    })();
+
+    (() => {
+      const accessKey = 'devhub_access_token';
+      const refreshKey = 'devhub_refresh_token';
+      const userKey = 'devhub_user';
+      const token = () => localStorage.getItem(accessKey) || '';
+      const refreshToken = () => localStorage.getItem(refreshKey) || '';
+      const authOnly = document.querySelectorAll('[data-auth-only]');
+      const guestOnly = document.querySelectorAll('[data-guest-only]');
+      const userName = document.querySelector('[data-user-name]');
+      const userAvatar = document.querySelector('[data-user-avatar]');
+      const logout = document.querySelector('[data-logout]');
+      const noticeCount = document.querySelector('[data-notice-count]');
+      const getStoredUser = () => {
+        try {
+          return JSON.parse(localStorage.getItem(userKey) || 'null');
+        } catch {
+          return null;
+        }
+      };
+      const saveSession = (session) => {
+        const access = session?.access_token || session?.token || '';
+        if (access) localStorage.setItem(accessKey, access);
+        if (session?.refresh_token) localStorage.setItem(refreshKey, session.refresh_token);
+        if (session?.user) localStorage.setItem(userKey, JSON.stringify(session.user));
+        return session?.user || getStoredUser();
+      };
+      const clearSession = () => {
+        localStorage.removeItem(accessKey);
+        localStorage.removeItem(refreshKey);
+        localStorage.removeItem(userKey);
+        setGuest();
+        window.dispatchEvent(new CustomEvent('devhub:session-change', { detail: { user: null, token: '' } }));
+      };
+      const setAuthed = (user) => {
+        const name = user?.nickname || user?.username || user?.name || '用户';
+        authOnly.forEach((item) => item.classList.remove('is-hidden'));
+        guestOnly.forEach((item) => item.classList.add('is-hidden'));
+        if (userName) userName.textContent = name;
+        if (userAvatar) userAvatar.textContent = name.slice(0, 1).toUpperCase();
+        localStorage.setItem(userKey, JSON.stringify(user));
+      };
+      const setGuest = () => {
+        authOnly.forEach((item) => item.classList.add('is-hidden'));
+        guestOnly.forEach((item) => item.classList.remove('is-hidden'));
+      };
+      const syncNoticeCount = () => {
+        fetch('/api/v1/me/notifications?page_size=1', { headers: token() ? { Authorization: `Bearer ${token()}` } : {} })
+          .then((response) => response.ok ? response.json() : Promise.reject())
+          .then((data) => {
+            const count = Number(data.unread_count || 0);
+            if (!noticeCount) return;
+            noticeCount.textContent = String(count);
+            noticeCount.classList.toggle('is-muted', count <= 0);
+            noticeCount.setAttribute('aria-label', count > 0 ? `${count} 条未读通知` : '通知');
+          })
+          .catch(() => {
+            if (noticeCount) noticeCount.classList.add('is-muted');
+          });
+      };
+      const fetchMe = () => fetch('/api/v1/auth/me', { headers: { Authorization: `Bearer ${token()}` } })
+        .then((response) => response.ok ? response.json() : Promise.reject())
+        .then((user) => {
+          setAuthed(user);
+          syncNoticeCount();
+          window.dispatchEvent(new CustomEvent('devhub:session-change', { detail: { user, token: token() } }));
+          return user;
+        });
+      const refresh = () => {
+        if (!refreshToken()) return Promise.reject();
+        return fetch('/api/v1/auth/refresh', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ refresh_token: refreshToken() }),
+        }).then((response) => response.ok ? response.json() : Promise.reject())
+          .then((session) => {
+            const user = saveSession(session);
+            if (user) setAuthed(user);
+            return session;
+          });
+      };
+      const restore = () => {
+        const cachedUser = getStoredUser();
+        if (cachedUser && token()) setAuthed(cachedUser);
+        if (!token() && !refreshToken()) {
+          setGuest();
+          return;
+        }
+        fetchMe().catch(() => refresh().then(fetchMe).catch(clearSession));
+      };
+      if (!token() && !refreshToken()) {
+        setGuest();
+      }
+      restore();
+      syncNoticeCount();
+      window.addEventListener('devhub:session-change', (event) => {
+        const user = event.detail?.user || getStoredUser();
+        if (event.detail?.token || token()) {
+          user ? setAuthed(user) : restore();
+          syncNoticeCount();
+        } else {
+          setGuest();
+          syncNoticeCount();
+        }
+      });
+      logout?.addEventListener('click', () => {
+        fetch('/api/v1/auth/logout', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ refresh_token: refreshToken() }),
+        }).finally(clearSession);
+      });
+    })();
+  </script>
+</header>
