@@ -459,11 +459,12 @@ Authorization: Bearer <access_token>
 ```json
 {
   "ids": [1, 2, 3],
-  "action": "hide"
+  "action": "hide",
+  "note": "批量下架违规内容"
 }
 ```
 
-`action` 支持 `feature`、`unfeature`、`pin`、`unpin`、`hide`、`restore`、`lock-comments`、`unlock-comments`、`delete`。接口逐条校验权限并返回每条成功或失败原因。
+`action` 支持 `feature`、`unfeature`、`pin`、`unpin`、`hide`、`restore`、`lock-comments`、`unlock-comments`、`delete`。后台页面中的 `lock_comments` / `unlock_comments` 会映射为后端真实 action。接口逐条校验权限并返回每条成功或失败原因；`note` 会进入批量治理审计日志摘要。
 
 响应：
 
@@ -491,6 +492,7 @@ Authorization: Bearer <access_token>
 - 普通评论列表过滤 `hidden`、`deleted` 状态。
 - 当前版本禁止隐藏最佳答案评论；需要先更换最佳答案或后续治理轮次补取消采纳。
 - 批量 `action` 支持 `hide`、`restore`、`delete`，逐条返回成功或失败原因。
+- 批量请求体支持可选 `note`，会进入批量治理审计日志摘要。
 
 响应：
 
@@ -552,16 +554,49 @@ Authorization: Bearer <access_token>
 ### 治理审计日志
 
 ```http
-GET /api/v1/admin/audit-logs?site=portal&type=audit&actor=admin&target=topics&page=1&page_size=20
+GET /api/v1/admin/audit-logs?site=portal&type=audit&action=批量&target_type=topics&actor=admin&actor_user_id=1&community_id=1&page=1&page_size=20
 Authorization: Bearer <access_token>
 ```
 
 规则：
 
 - `type` 支持 `all`、`audit`、`operation`、`system`、`login` 等当前日志类型。
+- `action`、`actor`、`target` 为模糊筛选。
+- `target_type` 从 `target` 文本前缀派生，支持如 `topics`、`comments`、`reports`、`community_moderators`。
+- `actor_user_id` 当前通过 `actor` 文本和用户表派生匹配。
+- `community_id` 当前通过日志 `site_key` 与子站 ID 映射筛选。
 - 非全局后台仍按当前站点 scope 返回日志。
 - 新增/更新版主、内容 CRUD、举报处理、批量 topic/comment/report 治理都会写入 `admin_logs`。
+- 后台独立入口为 `/admin-next/audit-logs`；系统设置页仍保留基础日志区。
 - 旧 `GET /api/v1/admin/logs` 仍保留，返回当前站点日志列表。
+
+响应字段至少包含：
+
+```json
+{
+  "items": [
+    {
+      "id": 1,
+      "site": "portal",
+      "type": "audit",
+      "actor": "admin",
+      "actor_user_id": 1,
+      "role": "super_admin",
+      "action": "批量治理主题",
+      "target": "topics:hide:2/2",
+      "target_type": "topics",
+      "target_id": 0,
+      "community_id": 0,
+      "ip": "127.0.0.1",
+      "created_at": "2026-05-09 18:00:00"
+    }
+  ],
+  "total": 1,
+  "page": 1,
+  "page_size": 20,
+  "has_more": false
+}
+```
 
 ## 通知类型与动态类型
 

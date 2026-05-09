@@ -103,13 +103,23 @@ async function submitHandle() {
   await load();
 }
 function openBatch(status) {
+  if (!selected.value.length) {
+    ElMessage.warning('请先选择举报');
+    return;
+  }
   Object.assign(batchForm, { status, handle_note: status === 'accepted' ? '批量确认违规，已隐藏目标内容' : '批量驳回，未确认违规' });
   batchDialog.value = true;
 }
 async function submitBatch() {
+  if (!selected.value.length) {
+    ElMessage.warning('请先选择举报');
+    return;
+  }
   const data = await batchReports({ ids: selected.value.map((row) => row.id), status: batchForm.status, handle_note: batchForm.handle_note });
   batchDialog.value = false;
-  ElMessage.success(`已处理 ${data.updated || 0} 条，失败 ${data.failed || 0} 条`);
+  if (data.failed) ElMessage.warning(`已处理 ${data.updated || 0} 条，失败 ${data.failed || 0} 条`);
+  else ElMessage.success(`已处理 ${data.updated || 0} 条`);
+  selected.value = [];
   await load();
 }
 load();

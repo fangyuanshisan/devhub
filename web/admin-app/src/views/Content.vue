@@ -28,8 +28,9 @@
     <div class="batch-actions">
       <el-button type="primary" @click="openCreate">新增内容</el-button>
       <el-button :disabled="!selected.length" @click="openBatch('feature')">批量精华</el-button>
+      <el-button :disabled="!selected.length" @click="openBatch('pin')">批量置顶</el-button>
       <el-button :disabled="!selected.length" @click="openBatch('hide')">批量隐藏</el-button>
-      <el-button :disabled="!selected.length" @click="openBatch('lock-comments')">批量锁评</el-button>
+      <el-button :disabled="!selected.length" @click="openBatch('lock_comments')">批量锁评</el-button>
     </div>
     <el-table :data="rows" stripe @sort-change="sortChange" @selection-change="selected = $event">
       <el-table-column type="expand" width="44"><template #default="{ row }"><div class="content-meta">摘要：{{ row.summary || '暂无摘要' }}</div></template></el-table-column>
@@ -100,10 +101,13 @@
           <el-option label="取消置顶" value="unpin" />
           <el-option label="隐藏内容" value="hide" />
           <el-option label="恢复内容" value="restore" />
-          <el-option label="锁定评论" value="lock-comments" />
-          <el-option label="解锁评论" value="unlock-comments" />
+          <el-option label="锁定评论" value="lock_comments" />
+          <el-option label="解锁评论" value="unlock_comments" />
           <el-option label="删除内容" value="delete" />
         </el-select>
+      </el-form-item>
+      <el-form-item label="处理备注">
+        <el-input v-model="batchNote" type="textarea" maxlength="200" show-word-limit placeholder="可选，用于治理审计记录" />
       </el-form-item>
     </el-form>
     <template #footer>
@@ -130,6 +134,7 @@ const boardList = ref([]);
 const drawer = ref(false);
 const batchDrawer = ref(false);
 const batchAction = ref('feature');
+const batchNote = ref('');
 const selected = ref([]);
 const step = ref(0);
 const formRef = ref();
@@ -175,6 +180,7 @@ function openCreate() {
 }
 function openBatch(action) {
   batchAction.value = action;
+  batchNote.value = '';
   batchDrawer.value = true;
 }
 function openEdit(row) {
@@ -205,10 +211,20 @@ async function togglePin(row) { await pinTopic(row.id); await load(); }
 async function toggleLock(row) { row.comment_locked ? await unlockTopicComments(row.id) : await lockTopicComments(row.id); await load(); }
 async function toggleVisible(row) { row.status === 'offline' ? await restoreTopic(row.id) : await hideTopic(row.id); await load(); }
 async function submitBatch() {
-  const data = await batchTopics({ ids: selected.value.map((row) => row.id), action: batchAction.value });
+  if (!selected.value.length) {
+    ElMessage.warning('请先选择内容');
+    return;
+  }
+  const action = normalizeBatchAction(batchAction.value);
+  const data = await batchTopics({ ids: selected.value.map((row) => row.id), action, note: batchNote.value });
   batchDrawer.value = false;
-  ElMessage.success(`已处理 ${data.updated || 0} 条，失败 ${data.failed || 0} 条`);
+  if (data.failed) ElMessage.warning(`已处理 ${data.updated || 0} 条，失败 ${data.failed || 0} 条`);
+  else ElMessage.success(`已处理 ${data.updated || 0} 条`);
+  selected.value = [];
   await load();
+}
+function normalizeBatchAction(action) {
+  return { lock_comments: 'lock-comments', unlock_comments: 'unlock-comments' }[action] || action;
 }
 loadBase().then(load);
 </script>

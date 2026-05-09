@@ -40,8 +40,9 @@ func main() {
 
 	port := os.Getenv("PORT")
 	if port == "" {
-		port = "8080"
+		port = "8090"
 	}
+	log.Printf("DevHub listening on :%s", port)
 	if err := router.Run(":" + port); err != nil {
 		log.Fatalf("listen on port %s: %v", port, err)
 	}

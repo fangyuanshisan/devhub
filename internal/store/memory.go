@@ -1210,6 +1210,10 @@ func (s *MemoryStore) AdminOverview(site string) domain.AdminOverview {
 func (s *MemoryStore) AdminUsers() []domain.AdminUser {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
+	return s.adminUsersLocked()
+}
+
+func (s *MemoryStore) adminUsersLocked() []domain.AdminUser {
 	out := make([]domain.AdminUser, 0, len(s.users))
 	for _, u := range s.users {
 		cp := *u
@@ -1355,7 +1359,7 @@ func (s *MemoryStore) AdminLogs(site string) []domain.AdminLog {
 		if !logInSite(log, site) {
 			continue
 		}
-		out = append(out, log)
+		out = append(out, enrichAdminLog(log, s.adminUsersLocked()))
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i].ID > out[j].ID })
 	return out
@@ -1365,7 +1369,9 @@ func (s *MemoryStore) AdminLogsByFilter(filter domain.AdminLogFilter) ([]domain.
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	items := []domain.AdminLog{}
+	users := s.adminUsersLocked()
 	for _, log := range s.logs {
+		log = enrichAdminLog(log, users)
 		if !adminLogMatches(log, filter) {
 			continue
 		}
@@ -1417,6 +1423,21 @@ func adminLogMatches(log domain.AdminLog, filter domain.AdminLogFilter) bool {
 	}
 	if filter.Type != "" && filter.Type != "all" && log.Type != filter.Type {
 		return false
+	}
+	if filter.Action != "" && !strings.Contains(strings.ToLower(log.Action), strings.ToLower(filter.Action)) {
+		return false
+	}
+	if filter.TargetType != "" && filter.TargetType != "all" && !strings.EqualFold(log.TargetType, filter.TargetType) {
+		return false
+	}
+	if filter.ActorID > 0 && log.ActorUserID != filter.ActorID {
+		return false
+	}
+	if filter.CommunityID > 0 {
+		site := siteByCommunityID(filter.CommunityID)
+		if site == "" || !logInSite(log, site) {
+			return false
+		}
 	}
 	if filter.Actor != "" && !strings.Contains(strings.ToLower(log.Actor), strings.ToLower(filter.Actor)) {
 		return false

@@ -24,7 +24,7 @@
 ./dev.sh stop
 ```
 
-默认端口为 `8090`，默认数据仓库为 `CMS_STORE=memory`。修改 Go 后端代码后需要重启服务；只改 Go 且前后台产物无需重建时，可以使用 `./dev.sh restart --no-build` 或 `./dev.sh --local-go restart --no-build`。
+默认端口为 `8090`，默认数据仓库为 `CMS_STORE=memory`。`main.go` 直接运行也默认监听 `8090`，仍可通过 `PORT=8080 go run .` 覆盖。修改 Go 后端代码后需要重启服务；只改 Go 且前后台产物无需重建时，可以使用 `./dev.sh restart --no-build` 或 `./dev.sh --local-go restart --no-build`。
 
 ## 构建行为
 
@@ -121,10 +121,11 @@ kill <pid>
 
 ## 第八轮构建补充
 
-第八轮修改了 Go 后端和 `web/admin-app`。本机无 `npm` 时，后台构建可直接使用 Docker Node：
+第八轮补丁修改了 Go 后端、`web/admin-app` 和文档。后台 Vite dev proxy 已统一指向 `http://127.0.0.1:8090`。本机无 `npm` 时，前后台构建可直接使用 Docker Node：
 
 ```bash
-docker run --rm -v "$PWD/web/admin-app:/app" -w /app node:20-alpine sh -lc 'if [ ! -d node_modules ]; then npm install --registry=https://registry.npmmirror.com; fi; npm run build'
+docker run --rm -e NPM_CONFIG_REGISTRY=https://registry.npmmirror.com -e FRONTEND_SITE_URL=http://127.0.0.1:8090 -v "$PWD/web/frontend-app:/app" -v "$PWD/web/frontend:/frontend" -w /app node:20-alpine sh -lc 'if [ ! -d node_modules ]; then npm install --registry=https://registry.npmmirror.com; fi; npm run build'
+docker run --rm -e NPM_CONFIG_REGISTRY=https://registry.npmmirror.com -v "$PWD/web/admin-app:/app" -v "$PWD/web/admin-vue:/admin-vue" -w /app node:20-alpine sh -lc 'if [ ! -d node_modules ]; then npm install --registry=https://registry.npmmirror.com; fi; npm run build'
 ```
 
 构建产物仍输出到 `web/admin-vue`，由 Go 在 `/admin-next` 挂载。修改 Go 后端后仍需执行 `./dev.sh --restart`，或先 `go build -o .devhub/devhub .` 再按二进制排障启动。

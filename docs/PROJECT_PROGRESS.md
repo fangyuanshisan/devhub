@@ -15,7 +15,7 @@ DevHub 当前是 “Go API + Astro 前台 + Vue 后台” 的多子站社区 CMS
 后台：http://127.0.0.1:8090/admin-next
 ```
 
-首页、子站页、搜索页和用户中心使用 Astro 静态壳 + 运行时 API；Topic 详情页 `/topics/:id` 仍由 Go 动态输出 SEO HTML。第五轮互动闭环已完成基础实现：点赞、收藏、关注、我的收藏、我的关注、我的动态、通知列表和已读逻辑在 MemoryStore 与 MySQLStore 中均可用。第六轮已完成评论列表、发表评论、回复评论、问答采纳、未解决筛选、评论动态和评论通知的基础闭环。第七轮已完成举报、版主范围治理、精华、置顶、隐藏、评论锁定和后台最小治理入口。第八轮已完成 admin-next 后台内容 CRUD、版主管理 CRUD、批量治理、举报重复 pending 频控和治理审计日志。
+首页、子站页、搜索页和用户中心使用 Astro 静态壳 + 运行时 API；Topic 详情页 `/topics/:id` 仍由 Go 动态输出 SEO HTML。第五轮互动闭环已完成基础实现：点赞、收藏、关注、我的收藏、我的关注、我的动态、通知列表和已读逻辑在 MemoryStore 与 MySQLStore 中均可用。第六轮已完成评论列表、发表评论、回复评论、问答采纳、未解决筛选、评论动态和评论通知的基础闭环。第七轮已完成举报、版主范围治理、精华、置顶、隐藏、评论锁定和后台最小治理入口。第八轮补丁后，admin-next 后台内容 CRUD、版主管理 CRUD、批量治理、批量举报处理和治理审计日志均有真实页面入口和 API 封装。
 
 ## 近期迭代摘要
 
@@ -28,7 +28,7 @@ DevHub 当前是 “Go API + Astro 前台 + Vue 后台” 的多子站社区 CMS
 - 第五轮互动联动：补齐点赞、收藏、关注、我的收藏、我的关注、我的动态、通知中心和详情页互动状态；新增用户中心页面入口。
 - 第六轮评论问答：补齐 `GET/POST /api/v1/topics/:id/comments`、回复、采纳最佳答案、`sort=unsolved` 未解决筛选、`commented/accepted_answer` 动态和 `topic_commented/comment_replied/answer_accepted` 通知。
 - 第七轮社区治理：补齐 topic/comment 举报、举报后台处理、版主子站权限、精华、置顶、隐藏、恢复、评论锁定、评论隐藏和 sitemap 隐藏过滤。
-- 第八轮后台治理：补齐 admin-next 内容 CRUD 写入 `topics`、版主管理 CRUD、topic/comment/report 批量治理、举报重复 pending 限制、`/admin-next/moderators` 和治理审计筛选。
+- 第八轮后台治理：补齐 admin-next 内容 CRUD 写入 `topics`、版主管理 CRUD、topic/comment/report 批量治理、举报重复 pending 限制、`/admin-next/moderators` 和 `/admin-next/audit-logs`。
 
 ## 第五轮互动联动状态
 
@@ -102,12 +102,13 @@ DevHub 当前是 “Go API + Astro 前台 + Vue 后台” 的多子站社区 CMS
 - 批量 Comment 治理：已完成。`POST /api/v1/admin/comments/batch` 支持 `hide/restore/delete`；隐藏最佳答案仍然禁止。
 - 批量举报处理：已完成。`POST /api/v1/admin/reports/batch-handle` 支持批量 `accepted/rejected`，逐条返回成功和失败原因。
 - 举报频率限制：已完成最小限制。同一用户对同一对象已有 `pending` 举报时，新举报返回 `同一对象已有待处理举报，请勿重复提交`；已处理后可再次举报。
-- 治理审计日志：已完成。新增 `GET /api/v1/admin/audit-logs`，支持 `site/type/actor/target/page/page_size`；新增/更新版主、批量治理、举报处理、内容 CRUD 都会写入 `admin_logs`。
-- admin-next 页面：已完成。内容管理支持新增、编辑、删除和批量治理；评论管理支持勾选批量处理；举报管理支持批量接受 / 驳回；新增 `/admin-next/moderators` 版主管理；系统设置页的日志区升级为治理审计筛选。
+- 治理审计日志：已完成。新增 `GET /api/v1/admin/audit-logs`，支持 `site/type/action/target/target_type/actor/actor_user_id/community_id/page/page_size`；新增/更新版主、批量治理、举报处理、内容 CRUD 都会写入 `admin_logs`。当前表结构保存 `actor/action/target/site` 文本字段，接口返回的 `actor_user_id`、`target_type`、`target_id`、`community_id` 为派生字段。
+- admin-next 页面：已完成。内容管理支持新增、编辑、删除和批量治理；评论管理支持勾选批量处理；举报管理支持批量接受 / 驳回；`/admin-next/moderators` 提供版主管理；`/admin-next/audit-logs` 提供独立治理审计入口；系统设置页仍保留基础日志区。
 - MemoryStore 支持情况：已完成第八轮能力。支持版主 CRUD、后台内容 CRUD、批量治理、举报 pending 去重、审计日志筛选分页。
 - MySQLStore 支持情况：已完成第八轮能力。支持 `community_moderators` CRUD、`topics` 后台 CRUD、`reports` pending 去重索引、批量治理依赖的单项更新和 `admin_logs` 筛选分页，兼容 MySQL 8。
 - SEO 保护：已保持。第八轮未改变 `/topics/:id` Go 动态 SEO HTML；隐藏内容仍不进入普通列表、搜索和 sitemap。
-- 尚未完成事项：复杂登录系统、细粒度版主分配审批、评论点赞、取消已解决状态不在本轮主线。
+- 第八轮补丁收口：已完成 `admin.js` 版主管理 / 批量治理 / 审计日志封装对账；`Content.vue`、`Comments.vue`、`Reports.vue` 已接入真实批量接口并支持备注；后台 Vite dev proxy、`main.go` 默认端口和文档口径均统一为 `8090`。
+- 尚未完成事项：复杂登录系统、细粒度版主分配审批、评论点赞、取消已解决状态不在本轮主线。标签关注和用户关注后端已支持，但前台入口仍作为后续增强。
 
 ## 第六轮收尾验收记录
 
@@ -210,9 +211,11 @@ DevHub 当前是 “Go API + Astro 前台 + Vue 后台” 的多子站社区 CMS
 
 - `/admin-next` 和 `/admin-next/...` 深层路由可用。
 - `/admin`、`/admin/:site` 保持兼容重定向。
-- `/admin-next/reports` 提供举报管理最小入口，支持举报筛选、列表、接受和驳回。
-- 内容管理提供精华、置顶、隐藏 / 恢复、锁定 / 解锁评论操作入口。
-- 评论管理提供隐藏 / 恢复评论入口。
+- `/admin-next/reports` 提供举报管理入口，支持举报筛选、列表、单条接受 / 驳回和批量接受 / 驳回。
+- `/admin-next/content` 提供内容 CRUD、精华、置顶、隐藏 / 恢复、锁定 / 解锁评论和批量治理入口。
+- `/admin-next/comments` 提供评论隐藏 / 恢复 / 删除和批量治理入口。
+- `/admin-next/moderators` 提供版主管理 CRUD，删除为停用。
+- `/admin-next/audit-logs` 提供治理审计列表和筛选。
 
 ## 部分完成 / 已预留
 
@@ -237,6 +240,7 @@ DevHub 当前是 “Go API + Astro 前台 + Vue 后台” 的多子站社区 CMS
 
 - [x] 项目名称保持 DevHub。
 - [x] 默认端口固定为 `8090`。
+- [x] `main.go` 直接运行默认端口已统一为 `8090`，`PORT` 仍可覆盖。
 - [x] 前台 `/` 可打开。
 - [x] 后台 `/admin-next` 可打开。
 - [x] `/topics/:id` 由 Go 动态输出 SEO HTML。
@@ -264,6 +268,10 @@ DevHub 当前是 “Go API + Astro 前台 + Vue 后台” 的多子站社区 CMS
 - [x] `/topics/:id` 评论功能未破坏百度 SEO HTML。
 - [x] `POST /api/v1/reports` 可创建举报。
 - [x] `/admin-next/reports` 可查看和处理举报。
+- [x] `/admin-next/moderators` 可查看、新增、编辑和停用版主。
+- [x] `/admin-next/content` 可执行批量 Topic 治理。
+- [x] `/admin-next/comments` 可执行批量 Comment 治理。
+- [x] `/admin-next/audit-logs` 可查看治理审计日志。
 - [x] 管理员可处理全部举报，版主仅可处理自己子站举报。
 - [x] Topic 精华、置顶、隐藏、恢复、评论锁定、解锁可用。
 - [x] Comment 隐藏、恢复可用，隐藏最佳答案会被拒绝。

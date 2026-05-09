@@ -1679,10 +1679,11 @@ func (s *MySQLStore) AdminLogs(site string) []domain.AdminLog {
 	}
 	defer rows.Close()
 	out := []domain.AdminLog{}
+	users := s.AdminUsers()
 	for rows.Next() {
 		var l domain.AdminLog
 		if err := rows.Scan(&l.ID, &l.Site, &l.Type, &l.Actor, &l.Role, &l.Action, &l.Target, &l.IP, &l.CreatedAt); err == nil {
-			out = append(out, l)
+			out = append(out, enrichAdminLog(l, users))
 		}
 	}
 	return out
@@ -1692,6 +1693,7 @@ func (s *MySQLStore) AdminLogsByFilter(filter domain.AdminLogFilter) ([]domain.A
 	site := normalizeSiteScope(filter.Site)
 	where := ` WHERE 1=1`
 	args := []any{}
+	users := s.AdminUsers()
 	if site != "" && site != "portal" {
 		where += ` AND site_key=?`
 		args = append(args, site)
@@ -1699,6 +1701,39 @@ func (s *MySQLStore) AdminLogsByFilter(filter domain.AdminLogFilter) ([]domain.A
 	if filter.Type != "" && filter.Type != "all" {
 		where += ` AND log_type=?`
 		args = append(args, filter.Type)
+	}
+	if strings.TrimSpace(filter.Action) != "" {
+		where += ` AND action LIKE ?`
+		args = append(args, "%"+strings.TrimSpace(filter.Action)+"%")
+	}
+	if strings.TrimSpace(filter.TargetType) != "" && filter.TargetType != "all" {
+		where += ` AND target LIKE ?`
+		args = append(args, strings.TrimSpace(filter.TargetType)+"%")
+	}
+	if filter.ActorID > 0 {
+		var username, nickname string
+		for _, user := range users {
+			if user.ID == filter.ActorID {
+				username = user.Username
+				nickname = user.Nickname
+				break
+			}
+		}
+		if username == "" && nickname == "" {
+			where += ` AND 1=0`
+		} else {
+			where += ` AND (actor=? OR actor=?)`
+			args = append(args, username, nickname)
+		}
+	}
+	if filter.CommunityID > 0 {
+		scope := siteByCommunityID(filter.CommunityID)
+		if scope == "" {
+			where += ` AND 1=0`
+		} else {
+			where += ` AND site_key=?`
+			args = append(args, scope)
+		}
 	}
 	if strings.TrimSpace(filter.Actor) != "" {
 		where += ` AND actor LIKE ?`
@@ -1721,7 +1756,7 @@ func (s *MySQLStore) AdminLogsByFilter(filter domain.AdminLogFilter) ([]domain.A
 	for rows.Next() {
 		var l domain.AdminLog
 		if err := rows.Scan(&l.ID, &l.Site, &l.Type, &l.Actor, &l.Role, &l.Action, &l.Target, &l.IP, &l.CreatedAt); err == nil {
-			out = append(out, l)
+			out = append(out, enrichAdminLog(l, users))
 		}
 	}
 	return out, total

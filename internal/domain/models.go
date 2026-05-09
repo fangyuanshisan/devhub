@@ -316,15 +316,19 @@ type AdminComment struct {
 
 // AdminLog 表示后台操作日志。
 type AdminLog struct {
-	ID        int64  `json:"id"`
-	Site      string `json:"site"`
-	Type      string `json:"type"`
-	Actor     string `json:"actor"`
-	Role      string `json:"role,omitempty"`
-	Action    string `json:"action"`
-	Target    string `json:"target"`
-	IP        string `json:"ip"`
-	CreatedAt string `json:"created_at"`
+	ID          int64  `json:"id"`
+	Site        string `json:"site"`
+	Type        string `json:"type"`
+	Actor       string `json:"actor"`
+	ActorUserID int64  `json:"actor_user_id"`
+	Role        string `json:"role,omitempty"`
+	Action      string `json:"action"`
+	Target      string `json:"target"`
+	TargetType  string `json:"target_type"`
+	TargetID    int64  `json:"target_id"`
+	CommunityID int64  `json:"community_id"`
+	IP          string `json:"ip"`
+	CreatedAt   string `json:"created_at"`
 }
 
 // AdminSettings 表示后台基础参数配置。
@@ -658,6 +662,7 @@ type BatchModerationRequest struct {
 	IDs        []int64 `json:"ids" binding:"required"`
 	Action     string  `json:"action"`
 	Status     string  `json:"status"`
+	Note       string  `json:"note"`
 	HandleNote string  `json:"handle_note"`
 }
 
@@ -678,12 +683,16 @@ type BatchModerationResponse struct {
 
 // AdminLogFilter 是后台治理审计日志筛选条件。
 type AdminLogFilter struct {
-	Site     string `json:"site"`
-	Type     string `json:"type"`
-	Actor    string `json:"actor"`
-	Target   string `json:"target"`
-	Page     int    `json:"page"`
-	PageSize int    `json:"page_size"`
+	Site        string `json:"site"`
+	Type        string `json:"type"`
+	Action      string `json:"action"`
+	Target      string `json:"target"`
+	TargetType  string `json:"target_type"`
+	Actor       string `json:"actor"`
+	ActorID     int64  `json:"actor_user_id"`
+	CommunityID int64  `json:"community_id"`
+	Page        int    `json:"page"`
+	PageSize    int    `json:"page_size"`
 }
 
 // ModerationResult 表示治理动作后的目标状态。

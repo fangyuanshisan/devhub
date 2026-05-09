@@ -5,6 +5,7 @@ import (
 	"html"
 	"net/http"
 	"os"
+	"path/filepath"
 	"sort"
 	"strconv"
 	"strings"
@@ -295,13 +296,13 @@ func (s *Server) topicSEOPage(c *gin.Context) {
 }
 
 func (s *Server) topicNotFoundHTML() string {
-	return `<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>内容不存在 - DevHub</title><meta name="description" content="该内容不存在或已被删除。"><link rel="canonical" href="/"></head><body><main class="article-shell"><article class="article-main"><h1>内容不存在</h1><p>该内容不存在或已被删除。</p><p><a href="/">返回 DevHub 首页</a></p></article></main></body></html>`
+	return fmt.Sprintf(`<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>内容不存在 - DevHub</title><meta name="description" content="该内容不存在或已被删除。"><link rel="canonical" href="/"><link rel="stylesheet" href="%s"></head><body><main class="article-shell"><article class="article-main"><h1>内容不存在</h1><p>该内容不存在或已被删除。</p><p><a href="/">返回 DevHub 首页</a></p></article></main></body></html>`, esc(frontendStylesheetHref()))
 }
 
 func (s *Server) topicHiddenHTML(topic *domain.Topic) string {
 	title := "内容已隐藏 - DevHub"
 	description := "该内容因社区治理规则已被隐藏。"
-	return fmt.Sprintf(`<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>%s</title><meta name="description" content="%s"><meta name="robots" content="noindex,follow"><link rel="canonical" href="/"></head><body><main class="article-shell"><article class="article-main"><h1>内容已隐藏</h1><p>该主题已被管理员或版主隐藏。</p><p><a href="/">返回 DevHub 首页</a></p></article></main></body></html>`, esc(title), esc(description))
+	return fmt.Sprintf(`<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>%s</title><meta name="description" content="%s"><meta name="robots" content="noindex,follow"><link rel="canonical" href="/"><link rel="stylesheet" href="%s"></head><body><main class="article-shell"><article class="article-main"><h1>内容已隐藏</h1><p>该主题已被管理员或版主隐藏。</p><p><a href="/">返回 DevHub 首页</a></p></article></main></body></html>`, esc(title), esc(description), esc(frontendStylesheetHref()))
 }
 
 func (s *Server) renderTopicHTML(c *gin.Context, topic *domain.Topic) string {
@@ -324,6 +325,7 @@ func (s *Server) renderTopicHTML(c *gin.Context, topic *domain.Topic) string {
 	title := topic.Title + " - DevHub"
 	contentHTML := paragraphsHTML(topic.Content)
 	tagLinks := s.topicTagLinks(topic, communitySlug)
+	stylesheetHref := frontendStylesheetHref()
 	jsonLD := fmt.Sprintf(`{"@context":"https://schema.org","@type":"Article","headline":%q,"description":%q,"datePublished":%q,"dateModified":%q,"author":{"@type":"Person","name":"DevHub 用户"},"publisher":{"@type":"Organization","name":"DevHub"},"mainEntityOfPage":%q}`,
 		topic.Title, description, topic.CreatedAt, firstNonEmpty(topic.UpdatedAt, topic.CreatedAt), canonicalURL)
 
@@ -341,7 +343,7 @@ func (s *Server) renderTopicHTML(c *gin.Context, topic *domain.Topic) string {
   <meta property="og:description" content="%s">
   <meta property="og:url" content="%s">
   <meta name="theme-color" content="#2563eb">
-  <link rel="stylesheet" href="/_astro/index.css">
+  <link rel="stylesheet" href="%s">
   <script type="application/ld+json">%s</script>
 </head>
 <body>
@@ -690,7 +692,7 @@ func (s *Server) renderTopicHTML(c *gin.Context, topic *domain.Topic) string {
   </script>
 </body>
 </html>`,
-		esc(title), esc(description), esc(canonicalPath), esc(title), esc(description), esc(canonicalURL), jsonLD,
+		esc(title), esc(description), esc(canonicalPath), esc(title), esc(description), esc(canonicalURL), esc(stylesheetHref), jsonLD,
 		pathEsc(communitySlug), esc(communityName), queryEsc(communitySlug), queryEsc(topic.ContentType), esc(categoryName),
 		pathEsc(communitySlug), topic.ID,
 		pathEsc(communitySlug), esc(communityName), queryEsc(communitySlug), queryEsc(topic.ContentType), esc(categoryName),
@@ -1577,12 +1579,16 @@ func (s *Server) adminLogs(c *gin.Context) {
 func (s *Server) adminAuditLogs(c *gin.Context) {
 	page, pageSize := pagination(c)
 	filter := domain.AdminLogFilter{
-		Site:     adminSiteScope(c),
-		Type:     strings.TrimSpace(c.DefaultQuery("type", "all")),
-		Actor:    strings.TrimSpace(c.Query("actor")),
-		Target:   strings.TrimSpace(c.Query("target")),
-		Page:     page,
-		PageSize: pageSize,
+		Site:        adminSiteScope(c),
+		Type:        strings.TrimSpace(c.DefaultQuery("type", "all")),
+		Action:      strings.TrimSpace(c.Query("action")),
+		Target:      strings.TrimSpace(c.Query("target")),
+		TargetType:  strings.TrimSpace(c.Query("target_type")),
+		Actor:       strings.TrimSpace(c.Query("actor")),
+		ActorID:     int64Query(c, "actor_user_id", 0),
+		CommunityID: int64Query(c, "community_id", 0),
+		Page:        page,
+		PageSize:    pageSize,
 	}
 	items, total := s.svc.AdminLogsByFilter(filter)
 	c.JSON(http.StatusOK, domain.PageResponse{Items: items, Total: total, Page: page, PageSize: pageSize, HasMore: page*pageSize < total})
@@ -1844,7 +1850,7 @@ func (s *Server) batchAdminTopics(c *gin.Context) {
 		}
 		result.Items = append(result.Items, item)
 	}
-	s.audit(c, "audit", "批量治理主题", fmt.Sprintf("%s:%d/%d", action, result.Updated, len(result.Items)))
+	s.audit(c, "audit", "批量治理主题", batchAuditTarget("topics", action, result.Updated, len(result.Items), req.Note))
 	c.JSON(http.StatusOK, result)
 }
 
@@ -1879,7 +1885,7 @@ func (s *Server) batchAdminComments(c *gin.Context) {
 		}
 		result.Items = append(result.Items, item)
 	}
-	s.audit(c, "audit", "批量治理评论", fmt.Sprintf("%s:%d/%d", action, result.Updated, len(result.Items)))
+	s.audit(c, "audit", "批量治理评论", batchAuditTarget("comments", action, result.Updated, len(result.Items), req.Note))
 	c.JSON(http.StatusOK, result)
 }
 
@@ -3487,9 +3493,48 @@ func queryEsc(value string) string {
 	return urlQueryEsc(value)
 }
 
+func batchAuditTarget(targetType, action string, updated, total int, note string) string {
+	target := fmt.Sprintf("%s:%s:%d/%d", targetType, action, updated, total)
+	note = strings.TrimSpace(note)
+	if note == "" {
+		return target
+	}
+	runes := []rune(note)
+	if len(runes) > 80 {
+		note = string(runes[:80])
+	}
+	return target + " " + note
+}
+
 func urlQueryEsc(value string) string {
 	replacer := strings.NewReplacer("%", "%25", " ", "+", "&", "%26", "?", "%3F", "#", "%23", "=", "%3D", "/", "%2F")
 	return replacer.Replace(value)
+}
+
+func frontendStylesheetHref() string {
+	const fallback = "/_astro/index.css"
+
+	if htmlBytes, err := os.ReadFile("./web/frontend/index.html"); err == nil {
+		html := string(htmlBytes)
+		marker := `<link rel="stylesheet" href="`
+		start := strings.Index(html, marker)
+		if start >= 0 {
+			start += len(marker)
+			if end := strings.Index(html[start:], `"`); end > 0 {
+				href := strings.TrimSpace(html[start : start+end])
+				if strings.HasPrefix(href, "/_astro/") && strings.HasSuffix(href, ".css") {
+					return href
+				}
+			}
+		}
+	}
+
+	matches, err := filepath.Glob("./web/frontend/_astro/*.css")
+	if err == nil && len(matches) > 0 {
+		sort.Strings(matches)
+		return "/_astro/" + filepath.Base(matches[0])
+	}
+	return fallback
 }
 
 func firstNonEmpty(values ...string) string {

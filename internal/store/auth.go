@@ -10,6 +10,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"regexp"
 	"strconv"
 	"strings"
 	"time"
@@ -162,4 +163,33 @@ func notificationInSite(n domain.Notification, site string) bool {
 func logInSite(log domain.AdminLog, site string) bool {
 	site = normalizeSiteScope(site)
 	return site == "portal" || normalizeSiteScope(log.Site) == site
+}
+
+var adminLogTargetPattern = regexp.MustCompile(`^([A-Za-z_]+)[#:](\d+)`)
+
+func enrichAdminLog(log domain.AdminLog, users []domain.AdminUser) domain.AdminLog {
+	target := strings.TrimSpace(log.Target)
+	if log.TargetType == "" {
+		if index := strings.IndexAny(target, "#:"); index > 0 {
+			log.TargetType = target[:index]
+		}
+	}
+	if match := adminLogTargetPattern.FindStringSubmatch(target); len(match) == 3 {
+		log.TargetType = match[1]
+		if id, err := strconv.ParseInt(match[2], 10, 64); err == nil {
+			log.TargetID = id
+		}
+	}
+	if log.ActorUserID == 0 && strings.TrimSpace(log.Actor) != "" {
+		for _, user := range users {
+			if user.Username == log.Actor || user.Nickname == log.Actor {
+				log.ActorUserID = user.ID
+				break
+			}
+		}
+	}
+	if log.CommunityID == 0 {
+		log.CommunityID = communityIDBySite(normalizeSiteScope(log.Site))
+	}
+	return log
 }

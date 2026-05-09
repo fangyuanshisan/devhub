@@ -10,6 +10,7 @@ DevHub 当前 SEO 重点面向百度。核心原则是：动态 Topic 详情页�
 
 - `/topics/:id` 和 `/topics/:id/` 由 Go 的 `topicSEOPage` 动态输出 SEO HTML。
 - `/topics/:id` 不能退化成纯 CSR 空壳，源码中必须直接包含标题、描述、正文、标签等核心内容。
+- `/topics/:id` 的动态 HTML 会读取当前 Astro 构建产物中的 `/_astro/*.css` 样式链接，避免详情页引用过期 CSS hash 后无样式。
 - 首页、子站页、搜索页、用户中心类页面可以使用 Astro 静态壳 + 浏览器运行时 API。
 - 点赞、收藏、关注、通知、评论等互动功能属于前端运行时增强。
 - 互动按钮、评论运行时加载失败时，也不能影响 `/topics/:id` HTML 源码里的 SEO 内容。

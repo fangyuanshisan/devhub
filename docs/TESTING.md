@@ -15,6 +15,13 @@ cd web/frontend-app && npm run build
 cd web/admin-app && npm run build
 ```
 
+本机没有 `npm` 时，使用 Docker Node 等价构建：
+
+```bash
+docker run --rm -e NPM_CONFIG_REGISTRY=https://registry.npmmirror.com -e FRONTEND_SITE_URL=http://127.0.0.1:8090 -v "$PWD/web/frontend-app:/app" -v "$PWD/web/frontend:/frontend" -w /app node:20-alpine sh -lc 'if [ ! -d node_modules ]; then npm install --registry=https://registry.npmmirror.com --prefer-offline --no-audit --progress=false; fi; npm run build'
+docker run --rm -e NPM_CONFIG_REGISTRY=https://registry.npmmirror.com -v "$PWD/web/admin-app:/app" -v "$PWD/web/admin-vue:/admin-vue" -w /app node:20-alpine sh -lc 'if [ ! -d node_modules ]; then npm install --registry=https://registry.npmmirror.com --prefer-offline --no-audit --progress=false; fi; npm run build'
+```
+
 修改 Go 代码后需要重启：
 
 ```bash
@@ -393,7 +400,7 @@ curl "http://127.0.0.1:8090/api/v1/admin/audit-logs?type=audit&page=1&page_size=
   -H "Authorization: Bearer <token>"
 ```
 
-应验证：内容 CRUD、版主管理、举报处理、批量治理均写入 `admin_logs`；后台 `/admin-next/system` 可以筛选审计日志。
+应验证：内容 CRUD、版主管理、举报处理、批量治理均写入 `admin_logs`；后台 `/admin-next/audit-logs` 可以筛选审计日志。
 
 ## 我的页面和通知
 
@@ -527,8 +534,9 @@ MySQL 模式应验证：
 2026-05-09 已完成第八轮本地验收：
 
 - `go test -count=1 ./...`：通过。
-- `npm run build`：本机无 `npm`，预期失败；已使用 Docker Node 构建 admin-next 并通过。
-- `docker run --rm -v "$PWD/web/admin-app:/app" -w /app node:20-alpine sh -lc 'npm run build'`：通过，仅有 Vite chunk size warning。
+- `npm run build`：本机无 `npm`，预期失败；已使用 Docker Node 构建前台和 admin-next 并通过。
+- Docker Node 前台构建：通过。
+- Docker Node 后台构建：通过，仅有 Vite chunk size warning；产物包含 `AuditLogs-*.js`。
 - `./dev.sh --restart`：已执行，完成 Astro 前台和 Vue 后台构建，并启动 Docker Go 服务。
 - 稳定服务：为避免 `dev.sh` 前台进程悬挂，最终停止 Docker Go 容器，执行 `go build -o .devhub/devhub .`，并以 `PORT=8090 CMS_STORE=memory ./.devhub/devhub` 后台启动；`lsof -i :8090` 显示 `devhub` 正在监听。
 - `GET /api/v1/health`：200，`store=memory`。
@@ -538,8 +546,8 @@ MySQL 模式应验证：
 - 举报频率限制：首次 `POST /api/v1/reports` 返回 `pending`，同一用户同一对象重复 pending 举报返回 `同一对象已有待处理举报，请勿重复提交`。
 - 批量举报处理：`POST /api/v1/admin/reports/batch-handle` 的 `rejected` 返回 `updated=1, failed=0`。
 - 版主管理 CRUD：`POST /api/v1/admin/moderators` 新增 Java 版主，`PUT /api/v1/admin/moderators/:id` 更新为 `owner`，`DELETE /api/v1/admin/moderators/:id` 返回 `disabled=true`；稳定服务重启后 seed 版主列表正常返回 PHP/Go 两条。
-- 治理审计：`GET /api/v1/admin/audit-logs` 返回登录、批量治理、举报处理、版主管理等日志；稳定服务重启后 seed 和新登录日志正常返回。
-- 页面 URL：`/`、`/search?sort=unsolved`、`/topics/1`、`/admin-next`、`/admin-next/content`、`/admin-next/reports`、`/admin-next/moderators`、`/admin-next/system` 均返回 200。
+- 治理审计：`GET /api/v1/admin/audit-logs` 返回登录、批量治理、举报处理、版主管理等日志，包含派生的 `actor_user_id`、`target_type`、`target_id`、`community_id`；稳定服务重启后 seed 和新登录日志正常返回。
+- 页面 URL：`/`、`/search?sort=unsolved`、`/topics/1`、`/admin-next`、`/admin-next/content`、`/admin-next/comments`、`/admin-next/reports`、`/admin-next/moderators`、`/admin-next/audit-logs`、`/admin-next/system` 均返回 200。
 - SEO 回归：`/topics/1` 源码保留 `<title>`、`meta description`、`<h1>`、`<article>`、正文/摘要、标签链接和 Article JSON-LD；`/sitemap.xml`、`/robots.txt` 均返回 200。
 
 注意：MemoryStore 重启后运行时创建的临时 topic/report/comment/moderator 不持久化，这是当前 memory 模式预期行为。

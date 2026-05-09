@@ -134,7 +134,7 @@ Password: Devhub_123456
 Database: devhub
 ```
 
-应用直接 `go run .` 时，如果未设置 `CMS_STORE=memory`，会默认连接 MySQL。推荐本地开发仍通过 `./dev.sh` 启动，避免端口、构建产物和数据模式不一致。
+应用直接 `go run .` 时默认监听 `8090`；如果未设置 `CMS_STORE=memory`，会默认连接 MySQL。推荐本地开发仍通过 `./dev.sh` 启动，避免端口、构建产物和数据模式不一致。
 
 ## 页面入口
 
@@ -154,8 +154,11 @@ Database: devhub
 /notifications          通知中心
 /me/notifications       通知中心别名
 /admin-next             当前后台
+/admin-next/content     内容管理
+/admin-next/comments    评论管理
 /admin-next/reports     举报管理
 /admin-next/moderators  版主管理
+/admin-next/audit-logs  治理审计日志
 /admin-next/...         后台前端路由
 ```
 
@@ -244,6 +247,7 @@ PUT  /api/v1/admin/posts/:id
 DELETE /api/v1/admin/posts/:id
 GET  /api/v1/admin/comments
 GET  /api/v1/admin/reports
+GET  /api/v1/admin/reports/:id
 POST /api/v1/admin/reports/:id/handle
 POST /api/v1/admin/reports/batch-handle
 GET  /api/v1/admin/moderators
@@ -264,6 +268,8 @@ GET  /api/v1/admin/audit-logs
 GET  /api/v1/admin/users
 GET  /api/v1/admin/settings
 ```
+
+说明：`/admin-next/moderators`、`/admin-next/content`、`/admin-next/comments`、`/admin-next/reports` 和 `/admin-next/audit-logs` 已接入当前真实后台 API。批量 Topic / Comment 治理和批量举报处理都会写入 `admin_logs`；审计接口返回的 `actor_user_id`、`target_type`、`target_id`、`community_id` 为基于当前文本日志的派生字段。
 
 后台开发种子账号：
 

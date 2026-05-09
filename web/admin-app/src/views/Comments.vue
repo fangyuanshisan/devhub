@@ -6,7 +6,7 @@
   </el-card>
   <el-dialog v-model="batchDialog" title="批量处理" width="420px">
     <el-alert :title="`已选择 ${selected.length} 条评论`" type="info" :closable="false" />
-    <el-form label-width="88px" class="mt"><el-form-item label="治理动作"><el-select v-model="batchAction"><el-option label="隐藏评论" value="hide" /><el-option label="恢复评论" value="restore" /><el-option label="删除评论" value="delete" /></el-select></el-form-item></el-form>
+    <el-form label-width="88px" class="mt"><el-form-item label="治理动作"><el-select v-model="batchAction"><el-option label="隐藏评论" value="hide" /><el-option label="恢复评论" value="restore" /><el-option label="删除评论" value="delete" /></el-select></el-form-item><el-form-item label="处理备注"><el-input v-model="batchNote" type="textarea" maxlength="200" show-word-limit placeholder="可选，用于治理审计记录" /></el-form-item></el-form>
     <template #footer><el-button @click="batchDialog = false">取消</el-button><el-button type="primary" :disabled="!selected.length" @click="submitBatch">确认</el-button></template>
   </el-dialog>
 </template>
@@ -22,15 +22,22 @@ const status = ref('all');
 const keyword = ref('');
 const batchDialog = ref(false);
 const batchAction = ref('hide');
+const batchNote = ref('');
 const filtered = computed(() => rows.value.filter((row) => (status.value === 'all' || row.status === status.value) && `${row.text} ${row.author} ${row.post_title}`.toLowerCase().includes(keyword.value.toLowerCase())));
 async function load() { rows.value = (await comments('portal')).items || []; }
 async function hide(row) { await hideComment(row.id); await load(); }
 async function restore(row) { await restoreComment(row.id); await load(); }
 async function remove(row) { await deleteComment(row.id); await load(); }
 async function submitBatch() {
-  const data = await batchComments({ ids: selected.value.map((row) => row.id), action: batchAction.value });
+  if (!selected.value.length) {
+    ElMessage.warning('请先选择评论');
+    return;
+  }
+  const data = await batchComments({ ids: selected.value.map((row) => row.id), action: batchAction.value, note: batchNote.value });
   batchDialog.value = false;
-  ElMessage.success(`已处理 ${data.updated || 0} 条，失败 ${data.failed || 0} 条`);
+  if (data.failed) ElMessage.warning(`已处理 ${data.updated || 0} 条，失败 ${data.failed || 0} 条`);
+  else ElMessage.success(`已处理 ${data.updated || 0} 条`);
+  selected.value = [];
   await load();
 }
 load();
