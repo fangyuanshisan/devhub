@@ -70,6 +70,22 @@ DevHub 当前是 “Go API + Astro 前台 + Vue 后台” 的多子站社区 CMS
 - SEO 是否保持不被破坏：已保持。`/topics/:id` 仍由 Go 动态输出 SEO HTML；评论区和最佳答案为运行时增强，当前不强制进入初始 SEO HTML。
 - 尚未完成事项：评论点赞未纳入本轮；取消已解决状态未实现；评论 anchor 跳转当前可后续优化。
 
+## 第六轮收尾验收
+
+2026-05-09 已完成第六轮收尾验收，不进入第七轮：
+
+- 启动方式：清理残留进程后，使用 `go build -o .devhub/devhub .` 产出二进制，并以 `PORT=8090 CMS_STORE=memory` 通过 `setsid` 后台启动。
+- 8090 状态：`curl -I /`、`GET /api/v1/health`、`GET /api/v1/topics` 均返回 200，当前 8090 有稳定 DevHub 进程监听。
+- Gitee 卡住问题：仓库依赖未发现 Gitee 私有模块；已清理残留 `git-upload-pack` 子进程，最终避开 `go run`，使用二进制启动完成验收。
+- Go 测试：本轮已执行 `go test ./...` 并通过。
+- 前端构建：`./dev.sh --local-go --restart` 已完成 Astro 前台和 Vue 后台构建；本机无 `npm` 时由 Docker Node 构建。
+- 评论验收：`GET /api/v1/topics/1/comments` 返回正常；`POST /api/v1/topics/1/comments` 新增评论 ID `9`；`POST /api/v1/topics/1/comments/9/replies` 新增回复 ID `10`；`comment_count`、`last_active_at`、`hot_score` 均更新。
+- 采纳验收：topic 1 是 article，采纳返回 400；topic 2 是 question，新增回答 ID `11` 后采纳成功，`is_solved=true`，`best_comment_id=11`，评论 `is_best=true`。
+- 未解决筛选：采纳 topic 2 后，`GET /api/v1/search/topics?sort=unsolved` 不再返回 topic 2，只返回未解决 question。
+- 动态和通知：`GET /api/v1/me/activities` 返回 `commented` 与 `accepted_answer`；`GET /api/v1/me/notifications` 返回正常。memory 模式当前认证统一为 demo/user 1，本次自操作未新增自通知，符合“不通知自己”规则；非本人通知路径已在 Store 实现中保留。
+- SEO 回归：`/topics/1` 源码保留 `<title>`、`meta description`、`<h1>`、`<article>`、正文和标签链接；`/sitemap.xml`、`/robots.txt` 均返回 200。
+- 页面回归：`/`、`/search?sort=unsolved`、`/topics/1`、`/me/activities`、`/notifications`、`/admin-next`、`/topics/new`、`/c/php` 均返回 200。
+
 ## 已完成
 
 ### 项目结构

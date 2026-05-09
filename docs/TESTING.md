@@ -23,6 +23,16 @@ cd web/admin-app && npm run build
 
 默认端口仍是 `8090`，发布 Topic、发表评论、采纳最佳答案都不需要重新 `npm run build`。
 
+### 2026-05-09 第六轮收尾实测
+
+本次收尾只做启动、验收和文档补充，不再改业务功能。
+
+- 残留进程：`lsof -i :8090` 初始无监听；发现并清理了残留 `git@gitee.com git-upload-pack 'OAK_cloud_master/devhub.git'` 子进程。
+- Go 模块环境：`GOPROXY=https://goproxy.cn,direct`，`GOPRIVATE` / `GONOSUMDB` 为空，`GOSUMDB=sum.golang.org`；仓库 `go.mod` / `go.sum` 未发现 Gitee 私有依赖。
+- 构建：此前 `./dev.sh --local-go --restart` 已完成 Astro 前台和 Vue 后台构建；本机没有 `npm` 时由 Docker Node 完成构建。
+- 启动：`go build -o .devhub/devhub .` 成功；最终使用 `setsid` 后台启动二进制：`PORT=8090 CMS_STORE=memory ./.devhub/devhub`。
+- 稳定性：`curl -I /`、`GET /api/v1/health`、`GET /api/v1/topics` 均返回 200。
+
 ## 基础页面
 
 应可打开：
@@ -278,3 +288,22 @@ MySQL 模式应验证：
 - 采纳支持更换最佳答案，暂不支持取消已解决状态。
 - 最佳答案当前通过详情页运行时评论区展示，不进入初始 SEO HTML。
 - 举报、版主治理、评论锁定后续轮次实现。
+
+## 第六轮接口实测记录
+
+2026-05-09 收尾验收结果：
+
+- `GET /api/v1/topics`：200。
+- `GET /api/v1/search/topics?sort=unsolved`：200；采纳 topic 2 后返回 ID 为 `27,21,14,8` 的未解决 question，topic 2 已移除。
+- `GET /api/v1/topics/1/comments`：200，返回评论列表和 replies。
+- `POST /api/v1/topics/1/comments`：201，新增评论 ID `9`，`comment_count`、`last_active_at`、`hot_score` 已更新。
+- `POST /api/v1/topics/1/comments/9/replies`：201，新增回复 ID `10`，`parent_id=9`，并更新 Topic 统计。
+- `POST /api/v1/topics/1/comments/1/accept`：400，符合非 question 不能采纳的规则。
+- `POST /api/v1/topics/2/comments`：201，新增可采纳回答 ID `11`。
+- `POST /api/v1/topics/2/comments/11/accept`：200，`is_solved=true`，`best_comment_id=11`。
+- `GET /api/v1/topics/2/comments?sort=best`：200，评论 ID `11` 的 `is_best=true`。
+- `GET /api/v1/me/activities`：200，出现 `commented` 和 `accepted_answer`。
+- `GET /api/v1/me/notifications`：200；memory 模式当前认证统一落到 demo/user 1，本次自评论、自回复、自采纳未新增自通知，符合“不通知自己”规则。非本人通知由 MemoryStore / MySQLStore 代码路径支持，MySQL 多用户场景需单独验收。
+- `/topics/1` 源码：包含 `<title>`、`meta description`、`<h1>`、`<article>`、正文内容和标签链接。
+- `/sitemap.xml`、`/robots.txt`：200。
+- 页面 URL：`/`、`/search?sort=unsolved`、`/topics/1`、`/me/activities`、`/notifications`、`/admin-next`、`/topics/new`、`/c/php` 均返回 200。

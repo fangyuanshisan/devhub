@@ -20,6 +20,7 @@ DevHub 是一个多子站技术社区 CMS。当前项目使用 Go + Gin 提供�
 - [项目进度](docs/PROJECT_PROGRESS.md)
 - [API 文档](docs/API.md)
 - [测试文档](docs/TESTING.md)
+- [部署启动文档](docs/DEPLOYMENT.md)
 - [SEO 文档](docs/SEO.md)
 - [需求原文](更新.md)
 
@@ -58,6 +59,7 @@ DevHub 是一个多子站技术社区 CMS。当前项目使用 Go + Gin 提供�
 │   ├── PROJECT_PROGRESS.md         # 当前进度、迭代结果和下一步
 │   ├── API.md                      # 当前真实 API 路径、参数、响应和限制
 │   ├── TESTING.md                  # 手工验收和回归测试清单
+│   ├── DEPLOYMENT.md               # 启动、部署和 8090 排障
 │   ├── SEO.md                      # 百度 SEO 保护要求
 │   └── archive/                    # 历史规划归档说明
 └── 更新.md                         # 本轮产品需求原文
