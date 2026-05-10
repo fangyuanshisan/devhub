@@ -619,35 +619,3 @@ CREATE TABLE IF NOT EXISTS community_moderators (
   UNIQUE KEY uk_community_moderators (community_id, user_id),
   KEY idx_community_moderators_user (user_id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
-
-CREATE TABLE IF NOT EXISTS wiki_pages (
-  id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
-  community_id BIGINT UNSIGNED NOT NULL,
-  category_id BIGINT UNSIGNED NULL,
-  user_id BIGINT UNSIGNED NOT NULL,
-  title VARCHAR(200) NOT NULL,
-  slug VARCHAR(220) NULL,
-  summary VARCHAR(500) NULL,
-  content MEDIUMTEXT NOT NULL,
-  status TINYINT NOT NULL DEFAULT 1,
-  view_count INT UNSIGNED NOT NULL DEFAULT 0,
-  like_count INT UNSIGNED NOT NULL DEFAULT 0,
-  created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-  updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-  deleted_at DATETIME NULL,
-  PRIMARY KEY (id),
-  KEY idx_wiki_pages_community (community_id, status)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
-
-CREATE TABLE IF NOT EXISTS wiki_revisions (
-  id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
-  wiki_page_id BIGINT UNSIGNED NOT NULL,
-  editor_id BIGINT UNSIGNED NOT NULL,
-  title VARCHAR(200) NOT NULL,
-  content MEDIUMTEXT NOT NULL,
-  change_note VARCHAR(500) NULL,
-  created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-  PRIMARY KEY (id),
-  KEY idx_wiki_revisions_page (wiki_page_id),
-  CONSTRAINT fk_wiki_revisions_page FOREIGN KEY (wiki_page_id) REFERENCES wiki_pages(id) ON DELETE CASCADE
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
