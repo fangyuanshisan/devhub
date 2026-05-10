@@ -52,6 +52,35 @@ v1.1.5 补丁已并入当前分支，主题是“前台 UI 美化专项”。本
 - v1.3.0 Core + Plugins 架构拆分：新增 `plugins` 表与插件注册服务；`topics` 增加 `plugin_code`，`categories` 增加 `plugin_code` / `allowed_content_types`；新增 `qa`、`docs`、`wiki` 内置插件目录、插件权限、插件菜单和插件运行状态 API；新增 `qa_questions`、`qa_answers`、`docs_spaces`、`docs_documents`、`wiki_spaces`、`wiki_pages`、`wiki_page_versions`；发布内容时校验板块绑定插件、插件启用状态和允许内容类型。
 - 主题与 UI 架构整理：新增 `docs/THEME_AND_UI_ARCHITECTURE.md` 和 `docs/UI_STYLE_GUIDE.md`；前台新增 `tokens.css` 作为主题 token 入口；首页、搜索页、子站页、发布页改为更多复用共享站点配置与内容类型映射，减少页面级硬编码。
 
+## v1.3.0 Core + Plugins 架构拆分进度
+
+已完成：
+
+- 内置系统插件定义：`qa` / `docs` / `wiki`（内容类型、菜单、权限、路由描述）。
+- 插件运行时状态：`plugins` 表 + `installed/enabled/disabled`，并提供启用/禁用 API 与后台入口。
+- Core 表字段增强：`topics.plugin_code`、`categories.plugin_code`、`categories.allowed_content_types`。
+- 发布校验：`POST /api/v1/topics` 对 `plugin_code`、插件状态、`allowed_content_types` 做一致性校验，并兼容 `doc/wiki -> document/wiki_page`。
+- 前台发布页：内容类型选择按“启用插件 + 板块 allowed_content_types”收口。
+
+部分完成：
+
+- 插件菜单：已提供 `admin/plugin-menus`、`moderator/plugin-menus`，当前按启用状态与权限过滤；更精细的“按版主子站范围过滤插件菜单”仍需后续增强。
+- docs/wiki 专用编辑体验：已具备表结构与基础注册，但专用树/版本 UI 留到后续专项。
+
+未完成：
+
+- 插件市场、压缩包上传安装、远程更新、动态运行时加载器。
+- 插件依赖管理与版本升级策略。
+
+风险：
+
+- 历史数据中可能存在 `categories.plugin_code/allowed_content_types` 为空或不一致的情况，依赖兼容分支推断为 `core`；建议生产升级时先执行迁移 SQL 并抽样校验板块配置。
+
+下一步：
+
+- 细化 moderator 菜单与治理页面的社区范围过滤策略（仅展示版主可治理子站相关入口）。
+- 为 docs/wiki 补齐最小可用的管理页筛选与内容字段展示（不做复杂编辑器）。
+
 ## v1.1.5 前台 UI 美化专项范围
 
 已完成能力：

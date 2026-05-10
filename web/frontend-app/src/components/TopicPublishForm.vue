@@ -81,10 +81,21 @@ import { contentTypeOptions } from '../lib/site-config';
 const props = defineProps<{ defaultCommunity?: string }>();
 
 type Community = { id: number; name: string; slug: string; description: string };
-type Category = { id: number; name: string; slug: string; type?: string; content_type?: string; postable?: boolean; status?: number };
+type Category = {
+  id: number;
+  name: string;
+  slug: string;
+  type?: string;
+  content_type?: string;
+  plugin_code?: string;
+  allowed_content_types?: string[];
+  postable?: boolean;
+  status?: number;
+};
 type Tag = { id?: number; name: string; slug?: string; count: number; topic_count?: number; description?: string };
+type Plugin = { code: string; status: string; content_types?: string[] };
 
-const contentTypes = [...contentTypeOptions];
+const enabledPluginCodes = ref<Set<string>>(new Set());
 
 const communities = ref<Community[]>([]);
 const categories = ref<Category[]>([]);
@@ -107,7 +118,32 @@ const form = reactive({
 });
 
 const currentCommunity = computed(() => communities.value.find((item) => item.slug === form.community_slug));
-const currentTypeDescription = computed(() => contentTypes.find((item) => item.value === form.content_type)?.desc || '');
+const contentTypes = computed(() => {
+  // Only show content types that are actually publishable in current community:
+  // - plugin-owned types require plugin enabled
+  // - must exist in at least one selectable category’s allowed_content_types (or match category’s primary type)
+  const selectable = selectableCategories();
+  const allowedByCommunity = new Set<string>();
+  for (const category of selectable) {
+    const allowed = (category.allowed_content_types || []).map(normalizeContentType).filter(Boolean);
+    if (allowed.length) {
+      for (const typ of allowed) allowedByCommunity.add(typ);
+      continue;
+    }
+    const primary = categoryContentType(category);
+    if (primary) allowedByCommunity.add(primary);
+  }
+
+  return contentTypeOptions.filter((opt) => {
+    const typ = normalizeContentType(opt.value);
+    if (!typ) return false;
+    if (!allowedByCommunity.has(typ)) return false;
+    const plugin = pluginCodeForContentType(typ);
+    if (plugin === 'core') return true;
+    return enabledPluginCodes.value.has(plugin);
+  });
+});
+const currentTypeDescription = computed(() => contentTypes.value.find((item) => item.value === form.content_type)?.desc || '');
 const cancelHref = computed(() => form.community_slug ? `/c/${form.community_slug}/` : '/');
 
 onMounted(async () => {
@@ -134,12 +170,14 @@ async function loadCommunityData() {
   allowedTagNames.value = new Set();
   if (!form.community_slug) return;
   try {
-    const [categoryData, tagData] = await Promise.all([
+    const [categoryData, tagData, pluginData] = await Promise.all([
       ofetch(`/api/v1/communities/${encodeURIComponent(form.community_slug)}/categories`),
       ofetch(`/api/v1/tags/suggestions?community_slug=${encodeURIComponent(form.community_slug)}&limit=30`),
+      ofetch(`/api/v1/plugins`),
     ]);
     categories.value = categoryData.items || [];
     setTags(tagData.items || []);
+    enabledPluginCodes.value = new Set<string>(((pluginData.items || []) as Plugin[]).map((item) => item.code));
     selectCategoryForType(form.content_type);
   } catch {
     setMessage('板块或标签加载失败，请切换子站后重试');
@@ -181,7 +219,8 @@ function initialContentType() {
   if (typeof window === 'undefined') return 'article';
   const raw = new URLSearchParams(window.location.search).get('type') || new URLSearchParams(window.location.search).get('content_type') || 'article';
   const value = normalizeContentType(raw);
-  return contentTypes.some((item) => item.value === value) ? value : 'article';
+  // Don’t over-restrict before community/plugins loaded.
+  return contentTypeOptions.some((item) => item.value === value) ? value : 'article';
 }
 
 function categoryContentType(category?: Category) {
@@ -194,11 +233,30 @@ function normalizeContentType(value: string) {
   return value;
 }
 
+function pluginCodeForContentType(contentType: string) {
+  switch (normalizeContentType(contentType)) {
+    case 'question':
+      return 'qa';
+    case 'document':
+      return 'docs';
+    case 'wiki_page':
+      return 'wiki';
+    default:
+      return 'core';
+  }
+}
+
 function selectableCategories() {
   return categories.value.filter((category) => category.status !== 0 && category.postable !== false);
 }
 
 function selectCategoryForType(contentType: string) {
+  // If plugin is disabled, fall back to first available type.
+  const plugin = pluginCodeForContentType(contentType);
+  if (plugin !== 'core' && !enabledPluginCodes.value.has(plugin)) {
+    const first = contentTypes.value[0]?.value || 'article';
+    contentType = first;
+  }
   const matched = selectableCategories().find((category) => categoryContentType(category) === contentType);
   const fallback = selectableCategories()[0] || categories.value[0];
   if (matched) {
@@ -230,16 +288,20 @@ function validate() {
   const selectedCategory = categories.value.find((item) => item.id === form.category_id);
   if (!selectedCategory) return '请选择当前子站下的板块';
   const selectedType = categoryContentType(selectedCategory);
+  const plugin = pluginCodeForContentType(form.content_type);
+  if (plugin !== 'core' && !enabledPluginCodes.value.has(plugin)) return '当前内容类型对应插件未启用';
+  const allowed = (selectedCategory.allowed_content_types || []).map(normalizeContentType).filter(Boolean);
+  if (allowed.length && !allowed.includes(normalizeContentType(form.content_type))) return '当前板块不允许发布该内容类型';
   if (selectedType && selectedType !== form.content_type) {
     const target = selectableCategories().find((category) => categoryContentType(category) === form.content_type);
-    return target ? `当前板块不支持该内容类型，请切换到「${target.name}」板块` : `当前子站未配置${contentTypes.find((item) => item.value === form.content_type)?.label || form.content_type}板块`;
+    return target ? `当前板块不支持该内容类型，请切换到「${target.name}」板块` : `当前子站未配置${contentTypes.value.find((item) => item.value === form.content_type)?.label || form.content_type}板块`;
   }
   if (form.title.length < 4 || form.title.length > 120) return '标题长度需为 4 到 120 个字符';
   if (form.summary.length > 300) return '摘要最多 300 个字符';
   if (form.content.length < 10) return '正文至少 10 个字符';
   if (form.tags.length > 5) return '最多选择 5 个标签';
-  const allowed = allowedTagNames.value;
-  if (form.tags.some((tag) => !allowed.has(tag))) return '请选择当前子站已启用标签';
+  const allowedTags = allowedTagNames.value;
+  if (form.tags.some((tag) => !allowedTags.has(tag))) return '请选择当前子站已启用标签';
   return '';
 }
 

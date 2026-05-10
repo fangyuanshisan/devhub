@@ -8,6 +8,11 @@
 
 `v1.3.0` 是 Core + Plugins 架构拆分版。Core 不再把问答、文档、Wiki 作为硬编码核心类型处理，而是通过内置系统插件注册内容类型、菜单、权限和路由描述。
 
+## 系统目标
+
+- Core 只处理通用社区能力，并提供“插件注册与分发”基础设施。
+- Plugins 负责扩展内容类型与专属业务能力；Core 通过 `plugin_code + content_type` 分发与约束发布。
+
 ## Core 边界
 
 Core 保留通用能力：
@@ -36,15 +41,34 @@ Core 保留通用能力：
 - `enabled`：已启用，可发布对应内容。
 - `disabled`：已禁用，对应板块不能继续发布新内容。
 
+插件生命周期（概念层）：
+
+- `registered`：代码内置定义层的插件（`internal/plugins/*`），不一定落库。
+- `installed` / `enabled` / `disabled`：运行时状态（落库到 `plugins` 表），覆盖静态定义。
+
+插件定义结构（静态定义 + 运行时覆盖）：
+
+- `code` / `plugin_code`：插件唯一标识（当前两者等价，优先以 `code` 为准）。
+- `name` / `version` / `description`：展示信息。
+- `status`：运行时状态。
+- `content_types`：插件拥有的内容类型（例如 `qa -> question`）。
+- `menus` / `permissions` / `routes`：后台/版主菜单、权限码和路由描述。
+
 ## 发布校验
 
 `POST /api/v1/topics` 会执行以下校验：
 
 - 当前 `category` 必须属于目标 `community`。
-- `category.plugin_code` 必须匹配 `content_type` 对应插件。
-- 插件类型必须是 `enabled`。
-- `content_type` 必须在 `category.allowed_content_types` 中。
-- 历史 `doc` / `wiki` 会归一为 `document` / `wiki_page`。
+- `content_type` 先归一：历史 `doc` / `wiki` 会归一为 `document` / `wiki_page`。
+- 根据 `content_type` 判断 `plugin_code`（例如 `question -> qa`，否则为 `core`）。
+- `category.plugin_code` 必须匹配 `content_type` 对应插件（历史空值兼容为 `core`）。
+- 插件类型必须为 `enabled`（禁用后只限制新发布，不影响已有内容阅读与 SEO）。
+- `content_type` 必须在 `category.allowed_content_types` 中（允许 legacy alias）。
+- 通过后写入 `topics.content_type`（归一后）与 `topics.plugin_code`。
+
+前台发布页接入策略：
+
+- 内容类型选择会按“启用插件 + 当前子站板块 `allowed_content_types`”收口；禁用插件的内容类型不会出现在下拉中。
 
 ## 数据表
 
@@ -70,3 +94,4 @@ Core 保留通用能力：
 - 暂未做插件市场、压缩包上传安装、远程更新。
 - 插件路由当前以注册描述和 Core 分发为主，没有引入独立运行时加载器。
 - 文档树、Wiki 协作编辑和版本回滚已具备表结构与基础注册，完整专用编辑 UI 留到后续迭代。
+- admin-next 侧边栏默认只展示“系统插件”入口；插件业务管理页（qa/docs/wiki）通过系统插件列表进入，避免插件菜单散落在左侧导航中。

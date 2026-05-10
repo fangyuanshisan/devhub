@@ -26,13 +26,14 @@
 - 禁用 `qa` 后，问答板块不能继续发布 `question`。
 - 禁用 `docs` 后，文档板块不能继续发布 `document`。
 - 禁用 `wiki` 后，Wiki 板块不能继续发布 `wiki_page`。
+- 禁用 `qa/docs/wiki` 后，前台发布页内容类型下拉不再出现对应类型；强行提交应返回“插件未启用/板块不允许”的错误提示。
 - 问答板块只能发布 `question`。
 - 文档板块只能发布 `document`，旧 `doc` 参数会归一兼容。
 - Wiki 板块只能发布 `wiki_page`，旧 `wiki` 参数会归一兼容。
 - `/admin-next/plugins` 可以查看插件状态。
-- `/admin-next/qa`、`/admin-next/docs`、`/admin-next/wiki` 按权限显示。
+- `/admin-next/qa`、`/admin-next/docs`、`/admin-next/wiki` 需要插件启用且具备权限；页面入口通过“系统插件”列表进入（插件业务页默认不出现在左侧导航）。
 - 普通前台会员不能看到总后台入口。
-- 版主可以访问 `/moderator`，并可通过 `/api/v1/moderator/plugin-menus` 获取插件治理菜单。
+- 版主可以访问 `/moderator`，并可通过 `/api/v1/moderator/plugin-menus` 获取插件治理菜单（仅返回 enabled 插件菜单，并按当前用户权限过滤）。
 - 已有内容列表、搜索页和 `/topics/:id` 仍能正常展示。
 - `/topics/:id` SEO 源码不受插件拆分影响。
 - MemoryStore 与 MySQLStore 插件状态和发布校验行为一致。

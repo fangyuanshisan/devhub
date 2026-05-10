@@ -2881,6 +2881,7 @@ func (s *Server) moderatorCommunities(c *gin.Context) {
 }
 
 func (s *Server) moderatorPluginMenus(c *gin.Context) {
+	user, _ := currentUser(c)
 	menus := []domain.PluginMenu{}
 	for _, plugin := range s.svc.Plugins() {
 		if plugin.Status != pluginregistry.StatusEnabled {
@@ -2888,7 +2889,9 @@ func (s *Server) moderatorPluginMenus(c *gin.Context) {
 		}
 		for _, menu := range plugin.Menus {
 			if menu.Area == "moderator" {
-				menus = append(menus, menu)
+				if menu.Permission == "" || hasPermission(user.Permissions, menu.Permission) {
+					menus = append(menus, menu)
+				}
 			}
 		}
 	}

@@ -1,6 +1,7 @@
 package plugins
 
 import (
+	"sort"
 	"strings"
 
 	"devhub-gin-backend/internal/domain"
@@ -23,6 +24,76 @@ func Definitions() []domain.Plugin {
 		docs.Definition(),
 		wiki.Definition(),
 	}
+}
+
+// AllContentTypes returns all canonical content types from built-in definitions.
+func AllContentTypes() []string {
+	seen := map[string]bool{}
+	out := []string{}
+	for _, def := range Definitions() {
+		for _, typ := range def.ContentTypes {
+			typ = NormalizeContentType(typ)
+			if typ == "" || seen[typ] {
+				continue
+			}
+			seen[typ] = true
+			out = append(out, typ)
+		}
+	}
+	sort.Strings(out)
+	return out
+}
+
+// ContentTypesByPlugin returns canonical content types owned by a plugin.
+func ContentTypesByPlugin(code string) []string {
+	def, ok := DefinitionByCode(code)
+	if !ok {
+		return nil
+	}
+	seen := map[string]bool{}
+	out := []string{}
+	for _, typ := range def.ContentTypes {
+		typ = NormalizeContentType(typ)
+		if typ == "" || seen[typ] {
+			continue
+		}
+		seen[typ] = true
+		out = append(out, typ)
+	}
+	sort.Strings(out)
+	return out
+}
+
+// MenusByArea returns menus from built-in definitions for a given area.
+func MenusByArea(area string) []domain.PluginMenu {
+	area = strings.TrimSpace(area)
+	menus := []domain.PluginMenu{}
+	for _, def := range Definitions() {
+		for _, menu := range def.Menus {
+			if area == "" || menu.Area == area {
+				menus = append(menus, menu)
+			}
+		}
+	}
+	return menus
+}
+
+// PermissionsByPlugin returns permissions for a built-in plugin.
+func PermissionsByPlugin(code string) []domain.PluginPermission {
+	def, ok := DefinitionByCode(code)
+	if !ok {
+		return nil
+	}
+	return append([]domain.PluginPermission(nil), def.Permissions...)
+}
+
+// RoutesByPlugin returns routes for a built-in plugin.
+func RoutesByPlugin(code string) []domain.PluginRoute {
+	def, ok := DefinitionByCode(code)
+	if !ok {
+		return nil
+	}
+	return append([]domain.PluginRoute(nil), def.Routes...)
 }
 
 // DefinitionByCode returns a plugin definition by code.
