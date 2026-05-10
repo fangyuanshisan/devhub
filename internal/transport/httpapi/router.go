@@ -3006,13 +3006,13 @@ func (s *Server) moderatorPluginMenus(c *gin.Context) {
 			continue
 		}
 		if communityID > 0 {
-			if !s.pluginEnabledForCommunity(communityID, plugin.Code) {
+			if !s.svc.IsPluginEnabledForCommunity(communityID, plugin.Code) {
 				continue
 			}
 		} else if len(moderated) > 0 {
 			ok := false
 			for _, comm := range moderated {
-				if s.pluginEnabledForCommunity(comm.ID, plugin.Code) {
+				if s.svc.IsPluginEnabledForCommunity(comm.ID, plugin.Code) {
 					ok = true
 					break
 				}
@@ -4539,20 +4539,12 @@ func (s *Server) listCategories(c *gin.Context) {
 		return
 	}
 	categories := s.svc.Categories(comm.ID)
-	enabled := map[string]bool{pluginregistry.CoreCode: true}
-	if plugins, err := s.svc.CommunityPlugins(comm.ID); err == nil {
-		for _, plugin := range plugins {
-			if plugin.Status == pluginregistry.StatusEnabled {
-				enabled[plugin.Code] = true
-			}
-		}
-	}
 	filtered := make([]domain.Category, 0, len(categories))
 	for _, cat := range categories {
 		if cat.Status != 1 || !cat.Visible {
 			continue
 		}
-		if enabled[firstNonEmpty(cat.PluginCode, pluginregistry.CoreCode)] {
+		if s.svc.IsPluginEnabledForCommunity(comm.ID, firstNonEmpty(cat.PluginCode, pluginregistry.CoreCode)) {
 			filtered = append(filtered, cat)
 		}
 	}
@@ -5496,27 +5488,16 @@ func (s *Server) normalizeCreateTopicRequest(req *domain.CreateTopicRequest) err
 	if req.ContentType == "" {
 		req.ContentType = pluginregistry.NormalizeContentType(firstNonEmpty(category.ContentType, category.Type))
 	}
-	categoryContentType := pluginregistry.NormalizeContentType(firstNonEmpty(category.ContentType, category.Type))
-	if categoryContentType != "" && !pluginregistry.ContentTypeAllowed(category.AllowedContentTypes, req.ContentType) {
-		return fmt.Errorf("内容类型与板块不匹配")
-	}
-	if !validContentType(req.ContentType) {
-		return fmt.Errorf("内容类型不合法")
-	}
-	req.PluginCode = pluginregistry.PluginCodeForContentType(req.ContentType)
-	categoryPlugin := firstNonEmpty(category.PluginCode, pluginregistry.PluginCodeForContentType(categoryContentType))
-	if categoryPlugin != req.PluginCode {
-		return fmt.Errorf("当前板块未绑定对应插件")
-	}
-	if req.PluginCode != pluginregistry.CoreCode {
-		plugin, ok := s.svc.PluginByCode(req.PluginCode)
-		if !ok || plugin.Status != pluginregistry.StatusEnabled {
+	normalizedType, pluginCode, err := s.svc.ValidateTopicPluginAccess(req.CommunityID, req.CategoryID, req.ContentType)
+	if err != nil {
+		// Keep user-facing errors stable and explicit.
+		if strings.Contains(err.Error(), "全局") {
 			return fmt.Errorf("插件未启用，不能发布该类型内容")
 		}
-		if !s.pluginEnabledForCommunity(req.CommunityID, req.PluginCode) {
-			return fmt.Errorf("当前子站未启用该插件，不能发布该类型内容")
-		}
+		return err
 	}
+	req.ContentType = normalizedType
+	req.PluginCode = pluginCode
 
 	if len(req.TagIDs) > 0 {
 		req.Tags = req.Tags[:0]
@@ -5552,22 +5533,6 @@ func (s *Server) normalizeCreateTopicRequest(req *domain.CreateTopicRequest) err
 		req.Tags = uniqueStrings(normalized)
 	}
 	return nil
-}
-
-func (s *Server) pluginEnabledForCommunity(communityID int64, pluginCode string) bool {
-	if strings.TrimSpace(pluginCode) == "" || pluginCode == pluginregistry.CoreCode {
-		return true
-	}
-	items, err := s.svc.CommunityPlugins(communityID)
-	if err != nil {
-		return false
-	}
-	for _, plugin := range items {
-		if plugin.Code == pluginCode {
-			return plugin.Status == pluginregistry.StatusEnabled
-		}
-	}
-	return false
 }
 
 func (s *Server) communityTagsForCreate(communityID int64) []domain.Tag {

@@ -1,6 +1,12 @@
 package service
 
-import "devhub-gin-backend/internal/domain"
+import (
+	"errors"
+	"strings"
+
+	"devhub-gin-backend/internal/domain"
+	pluginregistry "devhub-gin-backend/internal/plugins"
+)
 
 // Repository 定义业务服务依赖的数据访问能力。
 type Repository interface {
@@ -241,6 +247,103 @@ func (s *Service) SetCommunityPluginConfig(communityID int64, code, configJSON s
 // ReorderCommunityPlugins updates per-community plugin sort order.
 func (s *Service) ReorderCommunityPlugins(communityID int64, codes []string) (int, error) {
 	return s.repo.ReorderCommunityPlugins(communityID, codes)
+}
+
+// IsPluginEnabled checks whether a plugin is globally enabled.
+// Core is always enabled and not persisted in plugins table.
+func (s *Service) IsPluginEnabled(pluginCode string) bool {
+	pluginCode = strings.TrimSpace(pluginCode)
+	if pluginCode == "" || pluginCode == pluginregistry.CoreCode {
+		return true
+	}
+	plugin, ok := s.repo.PluginByCode(pluginCode)
+	return ok && plugin.Status == pluginregistry.StatusEnabled
+}
+
+// IsPluginEnabledForCommunity checks whether a plugin is enabled for a community,
+// requiring both global and community status enabled.
+func (s *Service) IsPluginEnabledForCommunity(communityID int64, pluginCode string) bool {
+	pluginCode = strings.TrimSpace(pluginCode)
+	if pluginCode == "" || pluginCode == pluginregistry.CoreCode {
+		return true
+	}
+	items, err := s.repo.CommunityPlugins(communityID)
+	if err != nil {
+		return false
+	}
+	for _, item := range items {
+		if item.Code == pluginCode {
+			return item.Status == pluginregistry.StatusEnabled
+		}
+	}
+	return false
+}
+
+// ListEnabledPluginsForCommunity returns plugins enabled for a community.
+func (s *Service) ListEnabledPluginsForCommunity(communityID int64) ([]domain.Plugin, error) {
+	items, err := s.repo.CommunityPlugins(communityID)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]domain.Plugin, 0, len(items))
+	for _, item := range items {
+		if item.Status == pluginregistry.StatusEnabled {
+			out = append(out, item)
+		}
+	}
+	return out, nil
+}
+
+// ValidateTopicPluginAccess validates plugin enablement and category bindings for publishing.
+// It returns the normalized contentType and resolved pluginCode.
+func (s *Service) ValidateTopicPluginAccess(communityID, categoryID int64, contentType string) (string, string, error) {
+	contentType = pluginregistry.NormalizeContentType(strings.TrimSpace(contentType))
+	if contentType == "" {
+		return "", "", errors.New("内容类型不能为空")
+	}
+	if !pluginregistry.ValidContentType(contentType) {
+		return "", "", errors.New("内容类型不合法")
+	}
+	pluginCode := pluginregistry.PluginCodeForContentType(contentType)
+	if pluginCode != pluginregistry.CoreCode {
+		if !s.IsPluginEnabled(pluginCode) {
+			return "", "", errors.New("插件全局未启用")
+		}
+		if !s.IsPluginEnabledForCommunity(communityID, pluginCode) {
+			return "", "", errors.New("当前子站未启用该插件")
+		}
+	}
+	if categoryID > 0 {
+		categories := s.repo.Categories(communityID)
+		var category *domain.Category
+		for i := range categories {
+			if categories[i].ID == categoryID {
+				category = &categories[i]
+				break
+			}
+		}
+		if category == nil {
+			return "", "", errors.New("板块不存在")
+		}
+		categoryType := pluginregistry.NormalizeContentType(firstNonEmpty(category.ContentType, category.Type))
+		expectedPlugin := firstNonEmpty(category.PluginCode, pluginregistry.PluginCodeForContentType(categoryType))
+		if expectedPlugin != pluginCode {
+			return "", "", errors.New("当前板块未绑定对应插件")
+		}
+		if !pluginregistry.ContentTypeAllowed(category.AllowedContentTypes, contentType) {
+			return "", "", errors.New("内容类型与板块不匹配")
+		}
+	}
+	return contentType, pluginCode, nil
+}
+
+func firstNonEmpty(items ...string) string {
+	for _, item := range items {
+		if strings.TrimSpace(item) != "" {
+			return strings.TrimSpace(item)
+		}
+	}
+	return ""
 }
 
 // SetPluginStatus 更新插件状态。
