@@ -111,7 +111,7 @@ PORT=8090 CMS_STORE=memory ./.devhub/devhub
 ## 当前 1.x 版本方向
 
 - 当前版本线：`v1.3.x`，主题是“Core + Plugins 架构拆分与插件平台收口”。
-- 当前最高优先级长期主线：完成完整插件系统。Core 只保留通用社区底座，业务能力逐步通过插件声明、状态、权限、菜单、配置、Hook、migration、API、SEO、通知、搜索和测试矩阵扩展。
+- 当前最高优先级长期主线：完成完整插件系统。Core 只保留通用社区底座，业务能力逐步通过插件声明、状态、权限、菜单、配置、Hook、migration、API、SEO、通知、搜索和测试矩阵扩展；下一阶段完整目标以 `docs/PLUGIN_SYSTEM_ROADMAP.md` 为准。
 - 当前 P0 目标：把内置系统插件底座做稳，包括 Manifest、Registry、ActorContext、权限码、全局插件状态、子站插件状态、板块绑定、发布校验、菜单过滤、config_json、config_schema 基础校验、HookBus 调用点、结构化审计、migration 边界和测试矩阵。
 - 历史版本能力已并入当前分支；需要追溯时再阅读对应 Release Notes。
 - 下一步以 `docs/PROJECT_PROGRESS.md` 的“当前未完成 / 风险 / 下一步”为准，不要从旧 Roadmap 推断当前任务。

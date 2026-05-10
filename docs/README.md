@@ -1,6 +1,6 @@
 # DevHub 文档入口
 
-DevHub 当前文档只围绕 v1.3.1 真实状态维护。历史版本 Release Notes 只作追溯依据，不作为当前 Codex 必读主列表。
+DevHub 当前文档只围绕 v1.3.2 真实状态维护。历史版本 Release Notes 只作追溯依据，不作为当前 Codex 必读主列表。
 
 ## 当前有效文档
 
@@ -22,16 +22,19 @@ DevHub 当前文档只围绕 v1.3.1 真实状态维护。历史版本 Release No
 6. [插件架构说明](PLUGIN_ARCHITECTURE.md)
    - Core 与 Plugins 边界、两层插件状态、qa / docs / wiki 内置插件和当前限制。
 
-7. [测试文档](TESTING.md)
+7. [完整插件系统路线图](PLUGIN_SYSTEM_ROADMAP.md)
+   - 下一阶段最高优先级目标，定义插件生命周期、治理、运行时、审计、迁移、后台和 E2E 要求。
+
+8. [测试文档](TESTING.md)
    - 已实现必测项、后续补测项、必要历史回归和 SEO 回归命令。
 
-8. [v1.3.1 Release Notes](releases/v1.3.1.md)
-   - 插件化关键入口封口、权限校验补强、后台更新边界和当前限制。
+9. [v1.3.2 Release Notes](releases/v1.3.2.md)
+   - 插件平台治理增强、HookBus、config_schema、审计、迁移和当前限制。
 
-9. [部署启动文档](DEPLOYMENT.md)
+10. [部署启动文档](DEPLOYMENT.md)
    - 本地启动、构建行为、8090 端口排查、Go 模块网络和二进制排障启动。
 
-10. [备份与回滚文档](BACKUP_AND_ROLLBACK.md)
+11. [备份与回滚文档](BACKUP_AND_ROLLBACK.md)
     - v1.x 上线前后需要备份的内容、MySQL 备份恢复、二进制回滚、Git 回滚和紧急回滚流程。
 
 ## 历史版本归档
@@ -45,6 +48,7 @@ DevHub 当前文档只围绕 v1.3.1 真实状态维护。历史版本 Release No
 - [v1.2.0 Release Notes](releases/v1.2.0.md)
 - [v1.2.1 Release Notes](releases/v1.2.1.md)
 - [v1.3.0 Release Notes](releases/v1.3.0.md)
+- [v1.3.1 Release Notes](releases/v1.3.1.md)
 
 ## 辅助文档
 
