@@ -4,6 +4,8 @@
 
 DevHub v1.3.0 is the Core + Plugins architecture split release.
 
+Current status: v1.3.0 is code-level integrated for built-in `qa`, `docs`, and `wiki` system plugins, global plugin state, per-community plugin state, and publishing validation. Some product-facing UI and fine-grained permission checks remain follow-up work and are listed below.
+
 ### Added
 
 - Built-in plugin registry with `qa`, `docs`, and `wiki` system plugins.
@@ -12,18 +14,22 @@ DevHub v1.3.0 is the Core + Plugins architecture split release.
 - `topics.plugin_code` plus `categories.plugin_code` and `categories.allowed_content_types`.
 - Plugin-owned tables: `qa_questions`, `qa_answers`, `docs_spaces`, `docs_documents`, `wiki_spaces`, `wiki_pages`, and `wiki_page_versions`.
 - Admin plugin APIs and lightweight admin-next plugin management / plugin content entries.
+- Public community plugin API, admin community plugin APIs, and moderator plugin menu API.
 
 ### Changed
 
 - `question`, `document`, and `wiki_page` are now owned by `qa`, `docs`, and `wiki` plugins rather than hardcoded as Core-only types.
-- Topic publishing validates category plugin binding, enabled plugin status, and allowed content types.
+- Topic publishing validates category plugin binding, global plugin status, per-community plugin status, and allowed content types.
 - Legacy `doc` / `wiki` request values are normalized to `document` / `wiki_page` for compatibility.
+- `project`, `job`, and `ai_work` remain Core-compatible content types or future plugin candidates; they are not fully pluginized in v1.3.0.
 
 ### Known Limitations
 
 - Plugin marketplace, package upload, and remote update are still out of scope.
 - Plugin route loading is currently registry metadata plus Core dispatch, not a dynamic module loader.
 - Dedicated Docs tree editing UI and Wiki collaboration / rollback UI remain follow-up work.
+- Community plugin `config_json` and sort APIs exist, but the admin UI still needs fuller controls and browser acceptance.
+- Publishing does not yet enforce plugin permission codes such as `qa.question.create`, `docs.document.create`, or `wiki.page.create` as fine-grained user permissions.
 
 ## v1.2.1
 
@@ -186,7 +192,7 @@ DevHub v1.1.0 is the sub-site module enhancement release. It upgrades communitie
 
 - v1.1.0 uses enabled categories as the default community navigation; deeper custom navigation is left for a later release.
 - Advanced tag features such as aliases, merging, and tag admin were planned for v1.2.0 and are now delivered in v1.2.0–v1.2.1; tag trend statistics remains out of scope.
-- A complete followed-community feed remains planned for v1.3.0; this release completes follow state, follower count, activities, and "my follows" visibility.
+- A complete followed-community feed remains planned for a later release; this release completes follow state, follower count, activities, and "my follows" visibility.
 - Comment likes, canceling solved status, recommendation algorithms, reputation, and complex analytics are outside this release.
 - Sitemap output is still single-file dynamic output and is not yet sharded for very large installations.
 

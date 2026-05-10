@@ -4,7 +4,7 @@
 
 更新时间：2026-05-10
 
-本文档是后续 DevHub 1.x 开发任务的固定协作规则。Codex / AI Agent 接到任务后，应先阅读并遵守本文档，再阅读 `docs/PROJECT_PROGRESS.md`、`docs/API.md`、`docs/SEO.md` 和对应 release 文档。
+本文档是后续 DevHub 1.x 开发任务的固定协作规则。Codex / AI Agent 接到任务后，应先阅读并遵守本文档，再阅读 `docs/README.md`、`docs/PROJECT_PROGRESS.md`、`docs/API.md`、`docs/PLUGIN_ARCHITECTURE.md`、`docs/SEO.md`、`docs/TESTING.md` 和当前版本 release 文档。旧版本 Release Notes 只作追溯依据，不作为当前必读主线。
 
 ## 固定项目约束
 
@@ -85,16 +85,7 @@ PORT=8090 CMS_STORE=memory ./.devhub/devhub
 
 ## 当前 1.x 版本方向
 
-- `v1.0.0` 是 DevHub 第一个可运行大版本基线。
-- `v1.1.0` 主题是“子站模块增强版”，目标是把子站从内容筛选维度增强为独立社区空间。
-- `v1.1.1` 主题是“前后台身份边界整理版”，目标是把 `users`、`admin_users`、`community_moderators` 的职责和鉴权边界固定下来。
-- `v1.1.3` 主题是“独立版主工作台 MVP”，目标是让子站版主通过 `/moderator` 处理自己子站的举报、内容、评论和审计。
-- `v1.2.0` 主题是“标签系统增强版”，目标是补齐标签页、标签详情 API、标签聚合、标签关注、发布建议、后台标签 CRUD、标签 SEO 字段和 sitemap 标签收录。
-- `v1.2.1` 主题是“标签合并、别名与统计重算版”，目标是补齐标签合并、标签别名、标签统计重算、merged/disabled 的 SEO 与 sitemap 行为、标签治理审计日志和后台标签管理增强。
-- `v1.3.0` 主题是“Core + Plugins 架构拆分版”，目标是把问答、文档、Wiki 从核心内容类型中拆为 `qa`、`docs`、`wiki` 内置系统插件。
-- 后续建议：
-  - `v1.3.x`：继续完善插件专用 UI、Docs 文档树和 Wiki 版本回滚交互。
-  - `v1.4.0`：推荐、关注流和内容发现。
-  - `v1.5.0`：用户成长、声望和个人主页。
-  - `v1.6.0`：后台运营、治理和数据统计增强。
-  - `v1.7.0`：生产化、migration、性能和 CI/CD。
+- 当前版本：`v1.3.0`，主题是“Core + Plugins 架构拆分版”。
+- 当前目标：把问答、文档、Wiki 从核心内容类型中拆为 `qa`、`docs`、`wiki` 内置系统插件，并保证插件全局状态、子站状态、发布、板块、菜单和 SEO 边界一致。
+- 历史版本能力已并入当前分支；需要追溯时再阅读对应 Release Notes。
+- 下一步以 `docs/PROJECT_PROGRESS.md` 的“当前未完成 / 风险 / 下一步”为准，不要从旧 Roadmap 推断当前任务。

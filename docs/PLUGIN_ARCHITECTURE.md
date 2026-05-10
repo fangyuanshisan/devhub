@@ -1,85 +1,88 @@
 # DevHub 插件架构说明
 
-[返回文档大纲](README.md)
+[返回文档入口](README.md)
 
 更新时间：2026-05-10
 
 ## 版本定位
 
-`v1.3.0` 是 Core + Plugins 架构拆分版。Core 不再把问答、文档、Wiki 作为硬编码核心类型处理，而是通过内置系统插件注册内容类型、菜单、权限和路由描述。
-
-## 系统目标
-
-- Core 只处理通用社区能力，并提供“插件注册与分发”基础设施。
-- Plugins 负责扩展内容类型与专属业务能力；Core 通过 `plugin_code + content_type` 分发与约束发布。
+`v1.3.0` 是 Core + Plugins 架构拆分版。问答、文档、Wiki 不再作为 Core 硬编码业务类型描述，而是由 `qa`、`docs`、`wiki` 三个内置系统插件注册内容类型、菜单、权限和路由描述。
 
 ## Core 边界
 
-Core 保留通用能力：
+Core 只保留通用社区能力：
 
 - 用户、前台认证、后台认证、子站版主授权。
 - 子站、板块、通用内容、评论、标签、搜索、通知、收藏、关注、举报、审计日志。
-- 后台 RBAC、版主 scope 校验、SEO 动态页和 sitemap / robots。
-- 插件注册、插件状态、插件菜单、插件权限描述。
+- 权限、后台 RBAC、版主 scope 校验。
+- `/topics/:id`、子站页、标签页、sitemap 和 robots 的 SEO 兜底。
+- 插件注册、插件状态、插件菜单、插件权限描述和基础分发。
 
-当前物理表兼容历史命名：
+当前兼容命名：
 
-- `topics` 是 Core 内容表，对应需求中的 `contents`。
-- `categories` 是 Core 板块表，对应需求中的 `channels`。
+- `topics` 是当前通用内容表，对应目标架构中的 `contents`。
+- `categories` 是当前通用板块表，对应目标架构中的 `channels`。
 
-## 插件边界
+## 内置系统插件
 
-内置插件目录：
+- `qa`：问答插件，提供 `question` 内容类型，并承载问题、回答、采纳和已解决状态。
+- `docs`：文档插件，提供 `document` 内容类型，并预留文档空间、文档树和文档详情能力。
+- `wiki`：Wiki 插件，提供 `wiki_page` 内容类型，并预留页面版本、回滚和协作编辑能力。
 
-- `internal/plugins/qa`：注册 `qa` 插件和 `question` 内容类型。
-- `internal/plugins/docs`：注册 `docs` 插件和 `document` 内容类型。
-- `internal/plugins/wiki`：注册 `wiki` 插件和 `wiki_page` 内容类型。
+`project`、`job`、`ai_work` 当前仍是 Core 兼容内容类型或后续插件候选，尚未完整拆成独立插件。
 
-插件状态：
+## 两层插件状态
 
-- `installed`：已安装但未启用。
-- `enabled`：已启用，可发布对应内容。
-- `disabled`：已禁用，对应板块不能继续发布新内容。
+插件状态分两层：
 
-插件状态分层（全局 + 子站）：
+- `plugins.status`：全局插件状态，表示插件是否在系统层面可用。
+- `community_plugins.status`：子站插件状态，表示某个子站是否启用该插件。
 
-- `plugins.status`：系统层插件状态，决定插件是否全局可用。
-- `community_plugins.status`：子站层插件状态，决定某个子站是否启用该插件。
-- 只有当插件同时满足“全局 enabled + 子站 enabled”时，才能在该子站绑定板块、展示菜单、发布新内容。
-- 禁用只影响新发布与入口展示，不影响已有内容 `/topics/:id` 的访问与 SEO。
+状态值：
 
-插件生命周期（概念层）：
+- `installed`：已安装 / 已注册，但未启用。
+- `enabled`：已启用。
+- `disabled`：已禁用。
 
-- `registered`：代码内置定义层的插件（`internal/plugins/*`），不一定落库。
-- `installed` / `enabled` / `disabled`：运行时状态（落库到 `plugins` 表），覆盖静态定义。
+插件在某个子站可用必须同时满足：
 
-插件定义结构（静态定义 + 运行时覆盖）：
+- 插件已注册。
+- `plugins.status = enabled`。
+- `community_plugins.status = enabled`。
+- 当前板块 `categories.plugin_code` 匹配插件。
+- 当前 `content_type` 在 `categories.allowed_content_types` 内。
+- 当前用户具备对应权限。
 
-- `code` / `plugin_code`：插件唯一标识（当前两者等价，优先以 `code` 为准）。
-- `name` / `version` / `description`：展示信息。
-- `status`：运行时状态。
-- `content_types`：插件拥有的内容类型（例如 `qa -> question`）。
-- `menus` / `permissions` / `routes`：后台/版主菜单、权限码和路由描述。
+特殊说明：
 
-## 发布校验
+- `core` 是兼容内置能力，Service 层视为始终可用，不要求写入 `plugins` 或 `community_plugins`。
+- 禁用全局插件会影响所有子站的新发布、导航、菜单和管理入口。
+- 禁用子站插件只影响该子站的新发布、导航、菜单和后台管理入口。
+- 禁用插件不影响历史内容访问，尤其不能破坏 `/topics/:id` SEO 动态 HTML。
 
-`POST /api/v1/topics` 会执行以下校验：
+## 发布校验流程
 
-- 当前 `category` 必须属于目标 `community`。
-- `content_type` 先归一：历史 `doc` / `wiki` 会归一为 `document` / `wiki_page`。
-- 根据 `content_type` 判断 `plugin_code`（例如 `question -> qa`，否则为 `core`）。
-- `category.plugin_code` 必须匹配 `content_type` 对应插件（历史空值兼容为 `core`）。
-- 插件必须全局 `enabled`，且当前子站 `community_plugins` 也为 `enabled`（禁用后只限制新发布，不影响已有内容阅读与 SEO）。
-- `content_type` 必须在 `category.allowed_content_types` 中（允许 legacy alias）。
-- 通过后写入 `topics.content_type`（归一后）与 `topics.plugin_code`。
+发布 Topic 时应走统一插件校验：
 
-前台发布页接入策略：
+1. 解析 community。
+2. 解析 category，并校验 category 属于 community。
+3. 归一 `content_type`：`doc -> document`，`wiki -> wiki_page`。
+4. 根据 `content_type` 推断 `plugin_code`：`question -> qa`，`document -> docs`，`wiki_page -> wiki`，其他兼容类型 -> `core`。
+5. 校验全局插件状态。
+6. 校验当前子站插件状态。
+7. 校验 `category.plugin_code` 是否匹配。
+8. 校验 `content_type` 是否在 `category.allowed_content_types` 内。
+9. 校验当前用户权限。
+10. 写入归一后的 `topics.content_type` 和 `topics.plugin_code`。
 
-- 内容类型选择会按“启用插件 + 当前子站板块 `allowed_content_types`”收口；禁用插件的内容类型不会出现在下拉中。
+当前真实状态：
 
-## 数据表
+- 步骤 1-8 已在 `ValidateTopicPluginAccess` 和 Store 层板块校验中落地。
+- 步骤 9 的插件权限码细粒度发布拦截仍是部分完成 / 待实现。
 
-新增：
+## 数据结构
+
+插件相关表：
 
 - `plugins`
 - `community_plugins`
@@ -91,15 +94,41 @@ Core 保留通用能力：
 - `wiki_pages`
 - `wiki_page_versions`
 
-增强：
+增强字段：
 
 - `topics.plugin_code`
 - `categories.plugin_code`
 - `categories.allowed_content_types`
 
+## API 与菜单
+
+已注册的插件 API 包括：
+
+- `GET /api/v1/plugins`
+- `GET /api/v1/communities/:slug/plugins`
+- `GET /api/v1/admin/plugins`
+- `POST /api/v1/admin/plugins/:code/enable`
+- `POST /api/v1/admin/plugins/:code/disable`
+- `GET /api/v1/admin/plugin-menus`
+- `GET /api/v1/admin/communities/:id/plugins`
+- `POST /api/v1/admin/communities/:id/plugins/:code/enable`
+- `POST /api/v1/admin/communities/:id/plugins/:code/disable`
+- `PUT /api/v1/admin/communities/:id/plugins/:code/config`
+- `PUT /api/v1/admin/communities/:id/plugins/sort`
+- `GET /api/v1/moderator/plugin-menus`
+
+菜单策略：
+
+- 后台左侧导航只保留“系统插件”入口。
+- 插件业务管理页通过系统插件列表进入，避免 qa / docs / wiki 直接散落到左侧导航。
+- 版主插件菜单必须同时满足全局 enabled、子站 enabled、当前用户是该子站版主、当前用户具备菜单权限。
+
 ## 当前限制
 
-- 暂未做插件市场、压缩包上传安装、远程更新。
-- 插件路由当前以注册描述和 Core 分发为主，没有引入独立运行时加载器。
-- 文档树、Wiki 协作编辑和版本回滚已具备表结构与基础注册，完整专用编辑 UI 留到后续迭代。
-- admin-next 侧边栏默认只展示“系统插件”入口；插件业务管理页（qa/docs/wiki）通过系统插件列表进入，避免插件菜单散落在左侧导航中。
+- 当前阶段不做插件市场。
+- 当前阶段不做插件包上传。
+- 当前阶段不做远程插件下载或在线更新。
+- 当前阶段不做 Go 动态插件加载。
+- 插件路由当前是注册描述 + Core 分发，不是真正动态运行时路由加载。
+- Docs / Wiki 的专用编辑体验仍是部分完成。
+- 子站插件配置和排序已有 API，但后台 UI 仍需继续完善和验收。

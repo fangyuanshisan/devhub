@@ -1,6 +1,6 @@
-# DevHub 文档大纲
+# DevHub 文档入口
 
-DevHub 文档已收敛为少量当前有效入口。日常优先看下面这些文档。
+DevHub 当前文档只围绕 v1.3.0 真实状态维护。历史版本 Release Notes 只作追溯依据，不作为当前 Codex 必读主列表。
 
 ## 当前有效文档
 
@@ -8,74 +8,56 @@ DevHub 文档已收敛为少量当前有效入口。日常优先看下面这些�
    - 后续 Agent 任务必须遵守的项目名称、端口、入口、SEO、环境、文档同步和验收边界规则。
 
 2. [项目总览](../README.md)
-   - 项目定位、目录结构、启动方式、入口、API 概览。
+   - 项目定位、技术栈、启动入口、当前能力和目录结构。
 
 3. [项目进度](PROJECT_PROGRESS.md)
-   - 当前做到哪里、最近几轮结果、已完成、风险、下一步、验收清单。
+   - 当前版本结论、已完成、部分完成、未完成、风险、下一步和当前验收清单。
 
 4. [API 文档](API.md)
-   - 当前真实 API 路径、请求参数、响应结构、错误返回、认证要求、评论问答、举报治理、版主管理、批量治理和审计日志能力。
+   - 当前真实 API、认证要求、插件 API、发布校验和集中规划 / 未完成接口。
 
 5. [SEO 文档](SEO.md)
-   - 百度 SEO 兜底策略，尤其是 `/topics/:id` 动态 HTML 的保护要求。
+   - `/topics/:id`、子站页、标签页、sitemap 和 robots 的 SEO 保护要求。
 
 6. [插件架构说明](PLUGIN_ARCHITECTURE.md)
-   - Core 与 Plugins 边界、内置 qa / docs / wiki 插件、发布校验、数据表和当前限制。
+   - Core 与 Plugins 边界、两层插件状态、qa / docs / wiki 内置插件和当前限制。
 
-7. [v1.3.0 Release Notes](releases/v1.3.0.md)
-   - Core + Plugins 架构拆分版的插件基础表、内容模型增强、插件模块、后台菜单和兼容策略。
+7. [测试文档](TESTING.md)
+   - 已实现必测项、后续补测项、必要历史回归和 SEO 回归命令。
 
-8. [v1.2.1 Release Notes](releases/v1.2.1.md)
-   - 标签合并、标签别名、统计重算、SEO / sitemap 治理、后台标签治理和已知限制。
+8. [v1.3.0 Release Notes](releases/v1.3.0.md)
+   - Core + Plugins 架构拆分版的真实完成情况、部分完成项、当前限制和验收未覆盖项。
 
-9. [v1.2.0 Release Notes](releases/v1.2.0.md)
-   - 标签系统增强版的标签页、API、关注、发布建议、后台管理、SEO、sitemap 和已知限制。
-
-10. [v1.1.5 Release Notes](releases/v1.1.5.md)
-   - 前台 UI 美化专项的全局样式、页面视觉、组件样式、响应式和 SEO 保护说明。
-
-11. [v1.1.4 Release Notes](releases/v1.1.4.md)
-   - 前台登录态、权限入口、子站关注、“我的”类页面、发布类型匹配和后台子站入口修复。
-
-12. [v1.1.3 Release Notes](releases/v1.1.3.md)
-   - 独立版主工作台 MVP 的页面、API、权限边界、审计日志和已知限制。
-
-13. [v1.1.1 Release Notes](releases/v1.1.1.md)
-   - 前后台身份边界整理版的身份模型、token 边界、middleware、审计 actor 和已知限制。
-
-14. [v1.1.0 Release Notes](releases/v1.1.0.md)
-   - 子站模块增强版的版本定位、数据结构变化、API、SEO、后台、测试清单和已知限制。
-
-15. [测试文档](TESTING.md)
-   - 页面、接口、互动、SEO、memory / mysql 模式的手工验收清单。
-
-16. [部署启动文档](DEPLOYMENT.md)
+9. [部署启动文档](DEPLOYMENT.md)
    - 本地启动、构建行为、8090 端口排查、Go 模块网络和二进制排障启动。
 
-17. [备份与回滚文档](BACKUP_AND_ROLLBACK.md)
-   - v1.x 上线前后需要备份的内容、MySQL 备份恢复、二进制回滚、Git 回滚和紧急回滚流程。
+10. [备份与回滚文档](BACKUP_AND_ROLLBACK.md)
+    - v1.x 上线前后需要备份的内容、MySQL 备份恢复、二进制回滚、Git 回滚和紧急回滚流程。
 
-18. [v1.0.0 Release Notes](releases/v1.0.0.md)
-   - 首个可运行大版本的版本定位、启动部署、测试清单、已知限制和下一版本规划。
+## 历史版本归档
 
-19. [需求原文](../更新.md)
-   - 产品需求原始文档，用于核对目标和范围。
+- [v1.0.0 Release Notes](releases/v1.0.0.md)
+- [v1.1.0 Release Notes](releases/v1.1.0.md)
+- [v1.1.1 Release Notes](releases/v1.1.1.md)
+- [v1.1.3 Release Notes](releases/v1.1.3.md)
+- [v1.1.4 Release Notes](releases/v1.1.4.md)
+- [v1.1.5 Release Notes](releases/v1.1.5.md)
+- [v1.2.0 Release Notes](releases/v1.2.0.md)
+- [v1.2.1 Release Notes](releases/v1.2.1.md)
 
 ## 辅助文档
 
+- [需求原文](../更新.md)：产品需求原始文档，用于核对任务来源。
 - [Web 目录说明](../web/README.md)：前台 / 后台源码目录说明。
 - [后台前端说明](../web/admin-app/README.md)：Vue 后台开发说明。
+- [主题与 UI 架构](THEME_AND_UI_ARCHITECTURE.md)：前台主题 token 和 UI 架构说明。
+- [UI 样式指南](UI_STYLE_GUIDE.md)：前台样式规范。
 - [历史文档归档](archive/README.md)：不再作为当前验收依据的历史规划说明。
 
 ## 维护规则
 
-- 当前状态变化后，优先更新 [项目进度](PROJECT_PROGRESS.md)。
-- 每轮遗留项统一沉淀到 [项目进度](PROJECT_PROGRESS.md) 的“已完成 / 部分完成 / 未完成 / 风险 / 下一步”；版本范围内的限制写入对应 Release Notes；测试缺口写入 [测试文档](TESTING.md)。
-- API 变化后，同步更新 [API 文档](API.md) 和 [项目总览](../README.md) 的 API 概览。
-- [API 文档](API.md) 以真实可用接口为主；未实现接口只能集中放在“规划 / 未完成”小节，不要按轮次堆散落清单。
+- 每轮遗留项统一沉淀到 [项目进度](PROJECT_PROGRESS.md) 的“已完成 / 部分完成 / 未完成 / 风险 / 下一步”结构。
+- 版本范围内的限制写入对应 Release Notes；测试缺口写入 [测试文档](TESTING.md)。
+- [API 文档](API.md) 以真实可用接口为主；未实现接口只能集中放在“规划 / 未完成”小节。
 - [项目总览](../README.md) 只保留项目定位、入口和当前能力概览，不承载详细未完成问题。
-- 页面入口、启动方式变化后，同步更新 [项目总览](../README.md)、[部署启动文档](DEPLOYMENT.md) 和 [测试文档](TESTING.md)。
-- SEO 相关变化后，同步更新 [SEO 文档](SEO.md)。
-- 版本归档变化后，同步更新对应 [Release Notes](releases/v1.3.0.md)、[变更日志](../CHANGELOG.md) 和根目录 [VERSION](../VERSION)。
-- Agent 协作规则变化后，同步更新 [AGENT_RULES.md](AGENT_RULES.md)，不要散落在临时对话里。
 - 新增文档前，优先判断能否合并进现有文档，避免文档继续膨胀。

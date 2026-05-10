@@ -1,6 +1,6 @@
 # DevHub
 
-DevHub 是一个通用开源社区程序，默认演示为开发者社区，支持多子站、多板块、多内容类型，并逐步采用 Core + Plugins 架构。当前项目使用 Go + Gin 提供后端 API 与静态资源托管，前台使用 Astro + Vue Islands，后台使用 Vue 3 + Element Plus。
+DevHub 是一个多子站通用开源社区程序，默认演示为开发者社区，支持多子站、多板块、多内容类型，并采用 Core + Plugins 架构逐步拆分业务能力。当前项目使用 Go + Gin 提供后端 API 与静态资源托管，前台使用 Astro + Vue Islands，后台使用 Vue 3 + Element Plus。
 
 当前版本：`v1.3.0`，版本主题为“Core + Plugins 架构拆分版”。
 
@@ -28,74 +28,24 @@ DevHub 是一个通用开源社区程序，默认演示为开发者社区，支�
 - [SEO 文档](docs/SEO.md)
 - [插件架构说明](docs/PLUGIN_ARCHITECTURE.md)
 - [v1.3.0 Release Notes](docs/releases/v1.3.0.md)
-- [v1.2.1 Release Notes](docs/releases/v1.2.1.md)
-- [v1.2.0 Release Notes](docs/releases/v1.2.0.md)
-- [v1.1.5 Release Notes](docs/releases/v1.1.5.md)
-- [v1.1.4 Release Notes](docs/releases/v1.1.4.md)
-- [v1.1.3 Release Notes](docs/releases/v1.1.3.md)
-- [v1.1.1 Release Notes](docs/releases/v1.1.1.md)
-- [v1.1.0 Release Notes](docs/releases/v1.1.0.md)
-- [v1.0.0 Release Notes](docs/releases/v1.0.0.md)
 - [变更日志](CHANGELOG.md)
-- [需求原文](更新.md)
 
 ## 当前能力
 
-- 多子站：总站、PHP、Go、Java、AI、Frontend；v1.1.0 起子站具备独立首页、SEO、配置、板块、版主、统计、关注和公告。
-- 多板块：社区、问答中心、开源项目、AI 作品、招聘内推、Wiki、文档；后台支持按子站管理板块、启用 / 禁用、排序和导航展示。
-- 插件架构：v1.3.0 起 Core 保留通用能力，问答、文档、Wiki 由 `qa`、`docs`、`wiki` 三个内置系统插件注册内容类型、菜单、权限和路由描述。
-- 子站插件：插件同时支持“全局状态 + 子站状态”，不同子站可按需启用不同插件；禁用只影响新发布与入口，不影响历史内容访问与 SEO。
-- 内容：列表、详情、发布、编辑、删除、浏览数、点赞、收藏、关注、标签、热门排序。
-- 标签：v1.2.1 起支持标签详情 SEO 页、标签下内容聚合、标签关注、发布页标签建议、后台标签 CRUD、启用 / 禁用 / 合并、标签别名、标签统计重算、治理审计和 sitemap / canonical 治理。
-- 通用 Topic：已支持 `article`、`question`、`project`、`ai_work`、`job`、`wiki_page`、`document`、`news` 等内容类型，并兼容旧 `wiki` / `doc` 参数。
-- 搜索：支持全站、子站、板块、关键词、标签筛选，并支持 `sort=unsolved` 未解决问答筛选。
-- 评论：支持 Topic 评论列表、加载更多、发表评论、回复评论、问答采纳和最佳答案展示；评论点赞仍仅保留旧兼容接口。
-- 互动：MemoryStore / MySQLStore 均支持 Topic 点赞、收藏、关注、我的收藏、我的关注、我的动态、通知中心、评论动态和评论通知。
-- 治理：支持举报 Topic / Comment，后台举报处理，版主子站范围管理，精华、置顶、隐藏、恢复、评论锁定、评论隐藏。
-- 用户与权限：前台 `users`、后台 `admin_users`、子站版主 `community_moderators` 边界已整理；前台 / 后台 token 分离，后台 RBAC 与版主子站范围治理可用。
-- 版主工作台：`/moderator` 提供独立轻量工作台，版主可处理自己子站的举报、主题、评论和审计日志。
-- 后台：控制台、内容管理、举报管理、评论审核、子站管理、子站板块管理、版主管理、用户权限、运营工具、数据统计、系统设置。
-- 存储：支持内存模式和 MySQL 模式。
+- Core 通用能力：用户、前台 / 后台认证、子站、板块、通用内容、评论、标签、搜索、通知、关注、收藏、举报、审计、SEO、权限和插件注册 / 分发。
+- 内置系统插件：`qa` 提供 `question`，`docs` 提供 `document`，`wiki` 提供 `wiki_page`。
+- 插件状态：支持全局插件状态 `plugins.status` 和子站插件状态 `community_plugins.status`；禁用插件只影响新发布、导航、菜单和管理入口，不影响历史内容详情 SEO。
+- 兼容内容类型：`article`、`project`、`job`、`ai_work`、`news` 等仍作为 Core 兼容内容类型存在，其中 `project`、`job`、`ai_work` 是后续插件候选，尚未完整插件化。
+- 内容与互动：Topic 列表、详情、发布、编辑、删除、浏览数、点赞、收藏、关注、评论、问答采纳、用户中心和通知中心。
+- 标签治理：支持标签 SEO 页、标签聚合、标签关注、发布页标签建议、后台标签 CRUD、启用 / 禁用 / 合并、标签别名、统计重算、审计和 sitemap / canonical 治理。
+- 治理与后台：支持举报、版主子站范围治理、内容治理、评论治理、子站管理、板块管理、系统插件管理和审计日志。
+- 存储模式：MemoryStore 与 MySQLStore。
 
 ## v1.3.0 定位
 
 DevHub v1.3.0 是“Core + Plugins 架构拆分版”。本版本新增 `plugins` 表、插件注册定义、插件状态 API 和后台插件入口；`topics` 作为兼容实现中的 Core 内容表新增 `plugin_code`，`categories` 作为 Core 板块表新增 `plugin_code` / `allowed_content_types`；问答、文档、Wiki 分别迁移为 `qa`、`docs`、`wiki` 内置系统插件。
 
 本版本范围和当前限制以 [v1.3.0 Release Notes](docs/releases/v1.3.0.md) 为准，长期滚动状态见 [项目进度](docs/PROJECT_PROGRESS.md)。
-
-## v1.2.1 定位
-
-DevHub v1.2.1 是“标签合并、别名与统计重算版”。本版本在 v1.2.0 的标签页、标签 SEO、标签关注、后台标签 CRUD 和 sitemap 收录基础上，补齐标签别名、标签合并、标签统计重算、alias / merged SEO 处理、后台标签治理审计和 admin-next 标签治理入口。
-
-## v1.2.0 定位
-
-DevHub v1.2.0 是“标签系统增强版”。本版本新增 `/tags/:tag/` 全站标签 SEO 页、`/c/:communitySlug/tags/:tag/` 子站标签 SEO 页、标签详情 API、标签内容聚合、标签关注、发布页标签建议、后台标签 CRUD、标签启用 / 禁用、标签 SEO 字段、标签关联内容查看和 sitemap 标签收录。
-
-## v1.1.5 定位
-
-DevHub v1.1.5 是“前台 UI 美化专项”。本补丁已并入当前 v1.3.0 工作分支，只优化前台全局视觉、导航、首页、子站页、Topic 列表、Topic 详情、搜索页、发布页、“我的”页面、版主入口和移动端响应式样式；不修改 API、Store、数据库、路由、鉴权、业务逻辑或 Go 动态 SEO 结构。
-
-## v1.1.4 定位
-
-DevHub v1.1.4 是“前台登录态与权限入口修复版”。本补丁已并入当前 v1.3.0 工作分支，修复前台登录状态恢复、子站关注和“我的”类页面误判未登录、普通会员误见总后台入口、版主工作台入口、发布 `question` 板块匹配，以及后台子站入口重复问题。
-
-## v1.1.3 定位
-
-DevHub v1.1.3 是“独立版主工作台 MVP”。本版本新增 `/moderator`、`/moderator/reports`、`/moderator/topics`、`/moderator/comments`、`/moderator/audit-logs`，让子站版主使用前台 `users` 登录态和 `community_moderators` 授权关系治理自己负责的子站。
-
-版主工作台复用现有举报、Topic、Comment 治理能力和 `admin_logs`，但通过 `/api/v1/moderator/*` 做专用权限入口。普通用户不能访问，跨子站治理返回 403。
-
-## v1.1.1 定位
-
-DevHub v1.1.1 是“前后台身份边界整理版”。本版本明确 `users`、`admin_users`、`community_moderators` 三类身份：前台用户负责社区行为，后台人员负责后台管理，子站版主通过前台用户身份获得指定子站的治理权限。
-
-前台登录态和后台登录态已经分离。前台推荐使用 `devhub_user_token` / `devhub_user_refresh_token`，后台使用 `devhub_admin_token` / `devhub_admin_refresh_token`；普通前台 token 不能访问后台特权接口，后台 admin token 也不会被当作前台用户身份。
-
-## v1.1.0 定位
-
-DevHub v1.1.0 是“子站模块增强版”。本版本把子站从“内容筛选维度”升级为“独立社区空间”：每个启用子站都有 `/c/:slug/` 首页、Go 动态 SEO HTML、独立配置、独立板块、版主展示、统计、关注按钮和公告区域。
-
-DevHub v1.0.0 仍是第一个可运行大版本归档；v1.1.0 在不改变前台 `/`、后台 `/admin-next`、默认端口 `8090` 和 `/topics/:id` SEO 动态详情页的前提下增强子站模块。
 
 ## 目录结构
 
@@ -311,7 +261,7 @@ GET    /api/v1/communities/:slug/tags/:tag
 GET    /api/v1/communities/:slug/tags/:tag/topics
 ```
 
-说明：第五轮互动、第六轮评论 / 采纳、第七轮举报 / 治理接口的真实路径、响应字段和部分完成项以 [docs/API.md](docs/API.md) 为准。`GET /api/v1/search/topics?sort=unsolved` 当前只返回未解决问答，`sort=featured` 当前只返回精华内容。
+说明：真实 API 路径、响应字段、认证要求和当前限制以 [docs/API.md](docs/API.md) 为准。`GET /api/v1/search/topics?sort=unsolved` 当前只返回未解决问答，`sort=featured` 当前只返回精华内容。
 
 认证与后台 API：
 
