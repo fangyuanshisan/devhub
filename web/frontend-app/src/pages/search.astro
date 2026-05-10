@@ -32,7 +32,7 @@ const typeToBoard = { article: 'community', question: 'qa', project: 'opensource
   <main>
     <section class="search-panel">
       <h1>搜索内容</h1>
-      <form action="/search/" method="get" data-search-form>
+      <form action="/search/" method="get" data-search-form data-testid="frontend-search-form">
         <select name="scope" aria-label="搜索范围">
           <option value="all">全站</option>
           <option value="current">当前子站</option>
@@ -42,7 +42,7 @@ const typeToBoard = { article: 'community', question: 'qa', project: 'opensource
           <option value="">全部子站</option>
           {sites.filter((item) => item.key !== 'portal').map((item) => <option value={item.key}>{item.name}</option>)}
         </select>
-        <input type="search" name="keyword" placeholder="输入关键词" />
+        <input type="search" name="keyword" placeholder="输入关键词" data-testid="frontend-search-input" />
         <select name="content_type">
           {categories.map((item) => <option value={item.type}>{item.name}</option>)}
         </select>
@@ -53,7 +53,7 @@ const typeToBoard = { article: 'community', question: 'qa', project: 'opensource
         <input type="hidden" name="tag_id" />
         <input type="hidden" name="category_id" />
         <input type="hidden" name="page_size" value="20" />
-        <button type="submit">搜索</button>
+        <button type="submit" data-testid="frontend-search-submit">搜索</button>
       </form>
     </section>
 
@@ -76,7 +76,7 @@ const typeToBoard = { article: 'community', question: 'qa', project: 'opensource
         <div class="sort-tabs" aria-label="排序">
           {sortTabs.map((item) => <a data-sort={item.key} href="/search/">{item.name}</a>)}
         </div>
-        <div class="post-list" data-result-list>
+        <div class="post-list" data-result-list data-testid="frontend-search-results">
           <div class="empty-state">正在加载搜索结果...</div>
         </div>
         <nav class="pager" aria-label="搜索分页" data-pager>

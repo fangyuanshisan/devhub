@@ -1,11 +1,11 @@
 <template>
-  <section class="publish-layout">
+  <section class="publish-layout" data-testid="frontend-topic-publish-form">
     <form class="publish-form" @submit.prevent="submit">
-      <div v-if="message" class="form-message" :class="{ error: messageType === 'error', success: messageType === 'success' }">{{ message }}</div>
+      <div v-if="message" class="form-message" :class="{ error: messageType === 'error', success: messageType === 'success' }" data-testid="frontend-publish-message">{{ message }}</div>
 
       <label>
         <span>所属子站</span>
-        <select v-model="form.community_slug" @change="loadCommunityData">
+        <select v-model="form.community_slug" data-testid="frontend-publish-community" @change="loadCommunityData">
           <option value="">请选择子站</option>
           <option v-for="community in communities" :key="community.slug" :value="community.slug">{{ community.name }}</option>
         </select>
@@ -13,7 +13,7 @@
 
       <label>
         <span>所属板块</span>
-        <select v-model.number="form.category_id" @change="syncCategoryType">
+        <select v-model.number="form.category_id" data-testid="frontend-publish-category" @change="syncCategoryType">
           <option :value="0">请选择板块</option>
           <option v-for="category in categories" :key="category.id" :value="category.id">{{ category.name }}</option>
         </select>
@@ -21,14 +21,14 @@
 
       <label>
         <span>内容类型</span>
-        <select v-model="form.content_type" @change="selectCategoryForType(form.content_type)">
+        <select v-model="form.content_type" data-testid="frontend-publish-content-type" @change="selectCategoryForType(form.content_type)">
           <option v-for="item in contentTypes" :key="item.value" :value="item.value">{{ item.label }}</option>
         </select>
       </label>
 
       <label>
         <span>标题</span>
-        <input v-model.trim="form.title" maxlength="120" placeholder="4 到 120 个字符" />
+        <input v-model.trim="form.title" maxlength="120" placeholder="4 到 120 个字符" data-testid="frontend-publish-title" />
       </label>
 
       <label>
@@ -38,13 +38,13 @@
 
       <label>
         <span>正文</span>
-        <textarea v-model.trim="form.content" rows="14" placeholder="支持 Markdown 原文，至少 10 个字符" />
+        <textarea v-model.trim="form.content" rows="14" placeholder="支持 Markdown 原文，至少 10 个字符" data-testid="frontend-publish-body" />
       </label>
 
       <fieldset class="tag-picker">
         <legend>标签</legend>
         <p>最多选择 5 个标签，标签来自当前子站已启用标签。</p>
-        <input v-model.trim="tagKeyword" type="search" placeholder="搜索标签建议" @input="loadTagSuggestions" />
+        <input v-model.trim="tagKeyword" type="search" placeholder="搜索标签建议" data-testid="frontend-publish-tag-search" @input="loadTagSuggestions" />
         <div>
           <label v-for="tag in tags" :key="tag.name">
             <input type="checkbox" :value="tag.name" :checked="form.tags.includes(tag.name)" @change="toggleTag(tag.name)" />
@@ -56,7 +56,7 @@
       </fieldset>
 
       <div class="publish-actions">
-        <button type="submit" :disabled="submitting">{{ submitting ? '发布中...' : '发布' }}</button>
+        <button type="submit" :disabled="submitting" data-testid="frontend-topic-publish-submit">{{ submitting ? '发布中...' : '发布' }}</button>
         <a :href="cancelHref">取消</a>
       </div>
     </form>

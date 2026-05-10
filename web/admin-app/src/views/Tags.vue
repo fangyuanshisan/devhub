@@ -1,5 +1,5 @@
 <template>
-  <section class="filter-panel">
+  <section class="filter-panel" data-testid="admin-tags-page">
     <el-form :inline="true" :model="query">
       <el-form-item label="子站">
         <el-select v-model="query.site" style="width: 180px">
@@ -17,7 +17,7 @@
         </el-select>
       </el-form-item>
       <el-form-item label="搜索">
-        <el-input v-model="query.q" clearable placeholder="名称 / slug / 描述" style="width: 220px" />
+        <el-input v-model="query.q" clearable placeholder="名称 / slug / 描述" style="width: 220px" data-testid="admin-tags-search" />
       </el-form-item>
       <el-form-item>
         <el-button type="primary" @click="load">查询</el-button>

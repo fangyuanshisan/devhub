@@ -1,5 +1,5 @@
 <template>
-  <section class="filter-panel">
+  <section class="filter-panel" data-testid="admin-audit-logs-page">
     <el-form :inline="true" :model="query" class="filter-form">
       <el-form-item label="类型">
         <el-select v-model="query.type" style="width: 130px">
@@ -27,7 +27,7 @@
           <el-option label="系统" value="system" />
         </el-select>
       </el-form-item>
-      <el-form-item label="动作"><el-input v-model="query.action" clearable placeholder="动作关键词" style="width: 150px" /></el-form-item>
+      <el-form-item label="动作"><el-input v-model="query.action" clearable placeholder="动作关键词" style="width: 150px" data-testid="admin-audit-action-search" /></el-form-item>
       <el-form-item label="目标"><el-input v-model="query.target" clearable placeholder="topics#1" style="width: 150px" /></el-form-item>
       <el-form-item><el-button type="primary" @click="load">查询</el-button><el-button @click="reset">重置</el-button></el-form-item>
     </el-form>

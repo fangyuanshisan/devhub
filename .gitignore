@@ -41,6 +41,8 @@ web/frontend/
 web/admin-vue/
 web/admin-app/playwright-report/
 web/admin-app/test-results/
+web/frontend-app/playwright-report/
+web/frontend-app/test-results/
 
 # Cache directories
 .cache/

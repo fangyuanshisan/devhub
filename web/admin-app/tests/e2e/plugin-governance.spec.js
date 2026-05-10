@@ -1,34 +1,6 @@
 import { expect, test } from '@playwright/test';
-
-const adminUser = {
-  id: 1,
-  username: 'admin',
-  nickname: '超级管理员',
-  role: '超级管理员',
-  role_code: 'super_admin',
-  permissions: ['*'],
-};
-
-async function login(page) {
-  await page.goto('/admin-next/login');
-  await page.getByRole('button', { name: '登录' }).click();
-  await expect(page).toHaveURL(/\/admin-next\/dashboard/);
-}
-
-async function seedAdminSession(page) {
-  await page.goto('/admin-next/login');
-  await page.evaluate((user) => {
-    sessionStorage.setItem('devhub_admin_token', 'devhub-admin-1');
-    sessionStorage.setItem('devhub_admin_refresh_token', 'devhub-admin-1-refresh');
-    sessionStorage.setItem('devhub_admin_user', JSON.stringify(user));
-  }, adminUser);
-}
-
-async function ensurePluginEnabled(request, code) {
-  await request.post(`/api/v1/admin/plugins/${code}/enable`, {
-    headers: { Authorization: 'Bearer devhub-admin-1' },
-  });
-}
+import { ensurePluginEnabled } from './helpers/api.js';
+import { seedAdminSession } from './helpers/auth.js';
 
 test.describe('plugin governance center', () => {
   test.beforeEach(async ({ page, request }) => {

@@ -592,3 +592,72 @@ P3：高级能力
 
 1. 将 `docker compose build admin-e2e` 和 `docker compose run --rm admin-e2e` 接入 CI workflow。
 2. 扩展 E2E 覆盖多账号、多子站、配置保存持久化和版主菜单权限边界。
+
+### 2026-05-11：扩展 DevHub E2E，覆盖前台与后台核心前端链路
+
+修改范围：
+
+- 新增 `frontend-e2e` Docker Compose 服务与 `web/frontend-app/Dockerfile.e2e`，固定 Playwright 基础镜像 `mcr.microsoft.com/playwright:v1.59.1-noble`。
+- 新增 `web/frontend-app/playwright.config.js`、前台 `test:e2e` 脚本、前台 E2E helper 与 6 条前台冒烟用例。
+- 扩展后台 E2E：抽取 `tests/e2e/helpers/auth.js` / `api.js`，新增后台登录与核心页面冒烟用例。
+- 为前台 header、搜索页、发布页和后台核心页面补充少量稳定 `data-testid`。
+- 更新 `docs/TESTING.md`、`docs/PROJECT_PROGRESS.md`、`docs/releases/v1.3.2.md` 和 `CHANGELOG.md`。
+
+已完成事项：
+
+- 前台 Docker runner：
+  - `docker compose build frontend-e2e`
+  - `docker compose run --rm frontend-e2e npm run build`
+  - `docker compose run --rm frontend-e2e`
+- 前台已自动化 6 条：
+  - 首页打开且游客不显示总后台入口。
+  - `/c/php/` 与 `/c/go/` 子站首页打开并检查 canonical。
+  - 搜索页提交关键词并显示结果区域。
+  - `/topics/1/` 动态详情页包含 h1、article 和 JSON-LD。
+  - 未登录访问发布页并提交时提示登录。
+  - 全局标签页与子站标签页打开并检查 canonical。
+- 后台 E2E 从 5 条扩展到 11 条：
+  - 保留插件治理中心 5 条通过用例。
+  - 新增后台登录保护页边界。
+  - 新增内容管理、评论管理、子站管理、标签管理、审计日志打开与筛选冒烟。
+
+未完成事项：
+
+- 本轮不追求完整浏览器矩阵；前台登录互动、发布成功、插件启停联动、版主工作台、多账号和跨子站权限仍待后续自动化。
+- 本轮未新增 Makefile 聚合命令；当前以 Docker Compose 命令为准。
+
+新发现风险：
+
+- Playwright / npm 首次镜像构建对网络较敏感；前台 Dockerfile 已增加 `npm ci` fetch retry / timeout 参数，首次构建仍可能耗时较长。
+- Element Plus 组件内部 DOM 不适合直接依赖透传到内部 input 的 `data-testid`；E2E 已改为页面级 `data-testid` + 稳定 placeholder / role 组合。
+
+已执行检查：
+
+- `go test ./...`：通过。
+- `go build -o .devhub/devhub .`：通过。
+- `bash -n dev.sh`：通过。
+- `docker compose build admin-e2e`：通过。
+- `docker compose run --rm admin-e2e npm run build`：通过，Vite 仅输出 chunk size warning。
+- `docker compose run --rm admin-e2e`：通过，11 个 Playwright 用例全部通过。
+- `docker compose build frontend-e2e`：首次因网络 `ETIMEDOUT` 失败；加入 npm fetch retry / timeout 后重试通过。
+- `docker compose run --rm frontend-e2e npm run build`：通过。
+- `docker compose run --rm frontend-e2e`：通过，6 个 Playwright 用例全部通过。
+
+跳过项及原因：
+
+- 未执行 `make e2e`：仓库当前没有 Makefile 聚合命令，本轮未新增。
+
+影响范围：
+
+- API：无新增或修改。
+- 数据库：无结构变更。
+- 权限：无业务权限逻辑变更；新增后台登录保护页 E2E。
+- SEO：新增 `/topics/1/`、子站页和标签页的浏览器 SEO 冒烟断言。
+- 插件系统：保留并通过既有插件治理中心 E2E。
+- 前后台 UI：只增加稳定测试锚点，不改变视觉和业务交互。
+
+下一轮建议：
+
+1. 继续扩展前台 E2E：登录、点赞、收藏、关注、评论、发布成功和用户中心。
+2. 继续扩展插件联动 E2E：后台禁用插件后前台入口隐藏、强传非法 `content_type` 被接口拒绝、历史内容 SEO 不受影响。
+3. 继续扩展版主 E2E：普通用户拒绝、版主可访问授权子站、跨子站不可越权。

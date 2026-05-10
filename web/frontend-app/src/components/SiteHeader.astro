@@ -13,7 +13,7 @@ const scopedSite = activeSite || defaultSiteKey;
 const searchScope = scopedSite === 'portal' ? 'scope=all' : `scope=community&community_slug=${encodeURIComponent(scopedSite)}`;
 const navHref = (contentType: string) => `/search/?${searchScope}&content_type=${contentType}`;
 ---
-<header class="site-header">
+<header class="site-header" data-testid="frontend-site-header">
   <div class="top-accent"></div>
   <div class="header-inner">
     <div class="brand-menu" data-site-switcher>
@@ -33,7 +33,7 @@ const navHref = (contentType: string) => `/search/?${searchScope}&content_type=$
       </div>
     </div>
 
-    <nav class="site-nav" aria-label="主导航">
+    <nav class="site-nav" aria-label="主导航" data-testid="frontend-site-nav">
       {communityNavItems.map((item) => <a href={navHref(item.contentType)} data-plugin-nav={item.contentType}>{item.label}</a>)}
     </nav>
 
@@ -51,13 +51,13 @@ const navHref = (contentType: string) => `/search/?${searchScope}&content_type=$
     </form>
 
     <div class="header-actions">
-      <a class="publish-link" href={scopedSite === defaultSiteKey ? '/topics/new/' : `/c/${scopedSite}/topics/new/`}>发布内容</a>
+      <a class="publish-link" href={scopedSite === defaultSiteKey ? '/topics/new/' : `/c/${scopedSite}/topics/new/`} data-testid="frontend-publish-link">发布内容</a>
       <a class="notice-link" href="/notifications" aria-label="通知" data-notice-count>0</a>
       <div class="auth-links" data-guest-only>
-        <a href="/#login">登录</a>
+        <a href="/#login" data-testid="frontend-login-link">登录</a>
         <a class="register-link" href="/#register">注册</a>
       </div>
-      <div class="user-menu is-hidden" data-auth-only>
+      <div class="user-menu is-hidden" data-auth-only data-testid="frontend-user-menu">
         <button type="button" aria-label="用户菜单">
           <span class="avatar" data-user-avatar>U</span>
           <strong data-user-name>用户</strong>

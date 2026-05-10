@@ -136,18 +136,52 @@ docker compose run --rm admin-e2e
 
 当前已自动化覆盖：
 
+- 后台登录与保护页面会话边界。
+- `/admin-next/content` 内容管理打开与标题搜索。
+- `/admin-next/comments` 评论管理打开与筛选。
+- `/admin-next/communities` 子站管理打开与搜索。
+- `/admin-next/tags` 标签管理打开与搜索。
+- `/admin-next/audit-logs` 治理审计打开与动作筛选。
 - `/admin-next/plugins` 打开与搜索筛选。
 - 插件详情 Tabs、`config_schema` / `resolved_config` 展示和 schema 错误提示。
 - 全局禁用确认、impact 提示和全局 disabled 后子站启用限制。
 - 子站插件配置抽屉、JSON Editor 与 Ajv 错误提示。
 - 通用 `PluginContent` 页入口、子站筛选和状态筛选。
 
+## 前台 E2E Docker Runner
+
+前台 Playwright E2E 使用项目内固定 Docker 镜像，不依赖宿主机 Node/npm：
+
+```bash
+docker compose build frontend-e2e
+docker compose run --rm frontend-e2e npm run build
+docker compose run --rm frontend-e2e
+```
+
+说明：
+
+- `frontend-e2e` 使用 `web/frontend-app/Dockerfile.e2e`，基础镜像固定为 `mcr.microsoft.com/playwright:v1.59.1-noble`。
+- 镜像构建阶段执行 `npm ci`；为适应慢网环境，Dockerfile 为 `npm ci` 增加了 fetch retry / timeout 参数。
+- 运行阶段通过 Docker volume 复用依赖，不把 `node_modules` 写入仓库。
+- 默认测试目标是 `DEVHUB_E2E_ORIGIN=http://host.docker.internal:8090`，运行 E2E 前需要先启动 DevHub 后端服务。
+- E2E 前建议先执行 `docker compose run --rm frontend-e2e npm run build`，让 Go 服务读取最新 `web/frontend` 静态产物。
+
+当前已自动化覆盖：
+
+- `/` 总站首页打开，基础导航可见，游客看不到总后台入口。
+- `/c/php/` 和 `/c/go/` 子站首页打开，并检查 canonical 基础 SEO 元素。
+- `/search/` 关键词搜索提交，结果区域可见。
+- `/topics/1/` 动态 Topic 详情打开，包含 h1、article 和 JSON-LD。
+- `/topics/new/` 未登录发布拦截，提交后提示登录。
+- `/tags/go/` 与 `/c/php/tags/laravel/` 标签页打开，并检查 canonical 基础 SEO 元素。
+
 ## 已实现但后续补测
 
 - 插件全局 `config_json` 和子站 `config_json` 接口已有自动化覆盖，仍需要真实 admin token 做联调补测。
 - 插件声明里的 `config_schema`、`dependencies`、`min_core_version` 和 `hooks` 已有结构测试，仍需要继续补测前后台展示或消费场景；`config_schema` 强校验当前不作为通过项。
 - 子站插件排序接口已有自动化覆盖，仍需要真实 admin token 和浏览器做联调补测。
-- 后台插件治理中心已有 Docker 化 Playwright 最小 E2E runner；更大矩阵（多浏览器、多账号、多子站和视觉细节）仍需要按下方手工矩阵或后续扩展 E2E 补测。
+- 后台插件治理中心和核心后台页面已有 Docker 化 Playwright E2E runner；更大矩阵（多浏览器、多账号、多子站和视觉细节）仍需要按下方手工矩阵或后续扩展 E2E 补测。
+- 前台已有 Docker 化 Playwright 冒烟 E2E runner；登录互动、发布成功、插件启停联动、版主工作台、多账号权限边界仍待后续自动化。
 - 前台发布页按子站插件状态收口需要浏览器验收。
 - 子站导航按插件状态显示需要继续做多子站浏览器验收。
 - 版主菜单按子站插件状态和权限过滤需要多子站、多版主账号矩阵补测。

@@ -1,5 +1,5 @@
 <template>
-  <section class="filter-panel">
+  <section class="filter-panel" data-testid="admin-content-page">
     <el-form :inline="true" :model="query" class="filter-form">
       <el-form-item label="内容站点">
         <el-select v-model="query.site" style="width: 220px"><el-option label="全部站点" value="portal" /><el-option v-for="s in siteList" :key="s.key" :label="s.name" :value="s.key" /></el-select>
@@ -9,7 +9,7 @@
       </el-form-item>
       <el-form-item label="更新时间"><el-date-picker v-model="dateRange" type="daterange" start-placeholder="开始日期" end-placeholder="结束日期" /></el-form-item>
       <el-form-item label="内容搜索"><el-select v-model="searchField" style="width: 90px"><el-option label="全部" value="all" /><el-option label="标题" value="title" /><el-option label="作者" value="author" /><el-option label="标签" value="tag" /></el-select></el-form-item>
-      <el-form-item><el-input v-model="query.q" placeholder="请输入" clearable style="width: 160px" /></el-form-item>
+      <el-form-item><el-input v-model="query.q" placeholder="请输入" clearable style="width: 160px" data-testid="admin-content-search" /></el-form-item>
       <el-form-item><el-button type="primary" @click="load">查询</el-button><el-button @click="reset">重置</el-button></el-form-item>
     </el-form>
   </section>

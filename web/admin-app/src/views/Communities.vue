@@ -1,8 +1,8 @@
 <template>
-  <section class="filter-panel">
+  <section class="filter-panel" data-testid="admin-communities-page">
     <el-form :inline="true">
       <el-form-item label="子站搜索">
-        <el-input v-model="keyword" placeholder="名称 / slug" clearable style="width: 220px" />
+        <el-input v-model="keyword" placeholder="名称 / slug" clearable style="width: 220px" data-testid="admin-communities-search" />
       </el-form-item>
       <el-form-item>
         <el-button type="primary" @click="load">刷新</el-button>
