@@ -118,6 +118,53 @@ curl -s http://127.0.0.1:8090/robots.txt
 
 ## 后台 E2E Docker Runner
 
+## 前后台前端统一检查脚本
+
+推荐使用 `scripts/check-frontend.sh` 作为前台与后台构建 / E2E 的统一入口。脚本默认使用 Docker Compose runner，不依赖宿主机 Node/npm，并把日志写入 `.devhub/checks/{时间戳}/`。
+
+常用命令：
+
+```bash
+./scripts/check-frontend.sh
+./scripts/check-frontend.sh --target admin
+./scripts/check-frontend.sh --target frontend
+./scripts/check-frontend.sh --target both
+./scripts/check-frontend.sh --quick
+./scripts/check-frontend.sh --strict
+./scripts/check-frontend.sh --quiet
+```
+
+目标选择：
+
+- `--target admin`：只检查后台 `web/admin-app`。
+- `--target frontend`：只检查前台 `web/frontend-app`。
+- `--target both`：同时检查前台与后台。
+- `--admin-only` 等价于 `--target admin`，`--frontend-only` 等价于 `--target frontend`。
+- 在交互式终端直接运行且没有传 target 时，脚本会询问检查范围；在非交互环境默认检查 `both`，避免 CI 卡住。
+
+模式说明：
+
+- 默认：build + E2E。
+- `--quick` / `--build-only`：只跑 build。
+- `--e2e-only`：只跑 E2E。
+- `--strict`：如果 `package.json` 存在 `lint` / `typecheck` 脚本，则额外执行；不存在则显示 `SKIP`，不视为失败。
+- `--rebuild`：执行前先构建对应 e2e 镜像。
+- `--remove-orphans`：传给 `docker compose run`，用于清理 orphan container 提示。
+- 默认实时显示完整日志，同时落盘；`--quiet` 可只显示摘要和失败日志尾部。
+- `--tail-lines N`：失败时展示最后 N 行日志。
+
+结果含义：
+
+- `PASS`：必要检查通过。
+- `FAIL`：必要检查失败，脚本最终 `exit 1`。
+- `SKIP`：compose 服务或 package script 不存在，按可选项跳过；例如未来某 runner 暂未创建时不会误报失败。
+
+`admin-e2e` 与 `frontend-e2e` 关系：
+
+- `admin-e2e` 用于后台构建和后台 Playwright E2E。
+- `frontend-e2e` 用于前台构建和前台 Playwright E2E。
+- 两者都由 `scripts/check-frontend.sh` 调度；也可以继续直接使用下方单独 Docker Compose 命令。
+
 后台 Playwright E2E 使用项目内固定 Docker 镜像，不依赖宿主机 Node/npm：
 
 ```bash

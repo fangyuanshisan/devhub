@@ -661,3 +661,57 @@ P3：高级能力
 1. 继续扩展前台 E2E：登录、点赞、收藏、关注、评论、发布成功和用户中心。
 2. 继续扩展插件联动 E2E：后台禁用插件后前台入口隐藏、强传非法 `content_type` 被接口拒绝、历史内容 SEO 不受影响。
 3. 继续扩展版主 E2E：普通用户拒绝、版主可访问授权子站、跨子站不可越权。
+
+### 2026-05-11：新增前后台前端统一检测脚本，统一 DevHub 前台与后台构建/E2E 检查入口
+
+修改范围：
+
+- 新增 `scripts/check-frontend.sh`，统一调度后台 `admin-e2e` 和前台 `frontend-e2e` 的 build / E2E / 可选 lint/typecheck。
+- 更新 `docs/AGENT_RULES.md`、`docs/TESTING.md` 和 `docs/PROJECT_PROGRESS.md`。
+
+已完成事项：
+
+- 脚本自动定位项目根目录，支持 `docker compose` 和 `docker-compose`。
+- 支持检查范围选择：
+  - `--target admin`
+  - `--target frontend`
+  - `--target both`
+  - 兼容 `--admin-only` / `--frontend-only`
+- 交互式终端直接运行且没有传 target 时会询问检查范围；非交互环境默认 `both`，避免 CI 卡住。
+- 支持 `--quick`、`--strict`、`--build-only`、`--e2e-only`、`--no-build`、`--no-e2e`、`--rebuild`、`--remove-orphans`、`--tail-lines`。
+- 默认实时显示日志并落盘到 `.devhub/checks/{timestamp}/`；新增 `--quiet` 可切换为摘要模式。
+- 支持 PASS / FAIL / SKIP 汇总表；缺失 compose 服务或缺失可选 npm script 时显示 SKIP，不误报失败。
+
+未完成事项：
+
+- 未新增 Makefile 聚合命令；当前推荐直接使用 `./scripts/check-frontend.sh`。
+
+新发现风险：
+
+- 本轮发现 `docs/TESTING.md` 曾被误写成旧 E2E 脚本内容；已恢复为测试文档并补充统一检查脚本说明。
+
+已执行检查：
+
+- `bash -n scripts/check-frontend.sh`：通过。
+- `./scripts/check-frontend.sh --help`：通过。
+- `./scripts/check-frontend.sh --target admin --quick --quiet`：通过。
+- `./scripts/check-frontend.sh --target frontend --quick`：通过，验证默认实时日志输出。
+- `./scripts/check-frontend.sh --target both --quiet`：通过，后台 build + E2E、前台 build + E2E 全部 PASS。
+
+跳过项及原因：
+
+- 未执行 frontend-e2e 缺失时的 SKIP 场景：当前仓库已有 `frontend-e2e` 服务，因此本轮验证实际运行通过。
+
+影响范围：
+
+- API：无新增或修改。
+- 数据库：无结构变更。
+- 权限：无业务权限逻辑变更。
+- SEO：无 SEO 行为变更。
+- 插件系统：无业务逻辑变更；统一检查入口会覆盖现有插件治理 E2E。
+- 前后台 UI：无页面视觉或交互变更。
+
+下一轮建议：
+
+1. 如团队需要更短命令，可新增轻量 Makefile alias：`make check-frontend`、`make check-frontend-quick`。
+2. 后续 CI 可直接调用 `./scripts/check-frontend.sh --target both --quiet` 或按阶段拆分 admin/frontend。

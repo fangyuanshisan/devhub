@@ -7,19 +7,20 @@ set -uo pipefail
 #   ./scripts/check-frontend.sh
 #   ./scripts/check-frontend.sh --quick
 #   ./scripts/check-frontend.sh --strict
-#   ./scripts/check-frontend.sh --admin-only
-#   ./scripts/check-frontend.sh --frontend-only
+#   ./scripts/check-frontend.sh --target admin
+#   ./scripts/check-frontend.sh --target frontend
+#   ./scripts/check-frontend.sh --target both
 #   ./scripts/check-frontend.sh --rebuild --remove-orphans
-#   ./scripts/check-frontend.sh --verbose
 
 RUN_ADMIN=1
 RUN_FRONTEND=1
+TARGET_SET=0
 RUN_BUILD=1
 RUN_E2E=1
 RUN_OPTIONAL=0
 REBUILD=0
 REMOVE_ORPHANS=0
-VERBOSE=0
+VERBOSE=1
 TAIL_LINES=60
 
 RESULT_NAMES=()
@@ -67,6 +68,7 @@ DevHub 前台/后台前端检查脚本
   3. 前台 frontend-e2e npm run build
   4. 前台 frontend-e2e E2E
 
+交互式终端直接运行时会先询问检查范围；非交互环境默认检查 both。
 如果 frontend-e2e 服务还没有创建，会显示 SKIP，不会误报失败。
 
 用法：
@@ -75,6 +77,7 @@ DevHub 前台/后台前端检查脚本
 常用参数：
   --quick             只跑 build，不跑 E2E
   --strict            额外检查 lint/typecheck，前提是 package.json 里存在对应脚本
+  --target TARGET     检查范围：admin / frontend / both
   --admin-only        只检查后台 web/admin-app
   --frontend-only     只检查前台 web/frontend-app
   --build-only        只跑 build
@@ -83,16 +86,76 @@ DevHub 前台/后台前端检查脚本
   --no-e2e            不跑 E2E
   --rebuild           执行前先 docker compose build 对应 e2e 镜像
   --remove-orphans    docker compose run 时自动带 --remove-orphans
-  --verbose           实时输出完整日志
+  --verbose           实时输出完整日志（默认开启）
+  --quiet             不实时输出完整日志，只在失败时展示尾部日志
   --tail-lines N      失败时展示最后 N 行日志，默认 60
   -h, --help          查看帮助
 
 示例：
   ./scripts/check-frontend.sh --quick
   ./scripts/check-frontend.sh --strict
-  ./scripts/check-frontend.sh --admin-only --verbose
+  ./scripts/check-frontend.sh --target admin
+  ./scripts/check-frontend.sh --target frontend --quick
   ./scripts/check-frontend.sh --rebuild --remove-orphans
 USAGE
+}
+
+set_target() {
+  local target="$1"
+  case "$target" in
+    admin)
+      RUN_ADMIN=1
+      RUN_FRONTEND=0
+      TARGET_SET=1
+      ;;
+    frontend)
+      RUN_ADMIN=0
+      RUN_FRONTEND=1
+      TARGET_SET=1
+      ;;
+    both)
+      RUN_ADMIN=1
+      RUN_FRONTEND=1
+      TARGET_SET=1
+      ;;
+    *)
+      echo "${C_RED}--target 只支持：admin / frontend / both${C_RESET}"
+      exit 2
+      ;;
+  esac
+}
+
+choose_target_if_needed() {
+  if [[ "${TARGET_SET}" -eq 1 ]]; then
+    return 0
+  fi
+  if [[ ! -t 0 || ! -t 1 ]]; then
+    return 0
+  fi
+
+  echo "${C_BLUE}请选择本次检查范围：${C_RESET}"
+  echo "  1) 后台 web/admin-app"
+  echo "  2) 前台 web/frontend-app"
+  echo "  3) 前台 + 后台"
+  printf "输入 1/2/3，直接回车默认 3："
+
+  local answer
+  read -r answer || answer=""
+  case "${answer:-3}" in
+    1)
+      set_target admin
+      ;;
+    2)
+      set_target frontend
+      ;;
+    3)
+      set_target both
+      ;;
+    *)
+      echo "${C_RED}无效选择：${answer}${C_RESET}"
+      exit 2
+      ;;
+  esac
 }
 
 while [[ $# -gt 0 ]]; do
@@ -104,13 +167,19 @@ while [[ $# -gt 0 ]]; do
     --strict)
       RUN_OPTIONAL=1
       ;;
+    --target)
+      shift
+      if [[ $# -eq 0 ]]; then
+        echo "${C_RED}--target 需要参数：admin / frontend / both${C_RESET}"
+        exit 2
+      fi
+      set_target "$1"
+      ;;
     --admin-only)
-      RUN_ADMIN=1
-      RUN_FRONTEND=0
+      set_target admin
       ;;
     --frontend-only)
-      RUN_ADMIN=0
-      RUN_FRONTEND=1
+      set_target frontend
       ;;
     --build-only)
       RUN_BUILD=1
@@ -135,6 +204,9 @@ while [[ $# -gt 0 ]]; do
     --verbose)
       VERBOSE=1
       ;;
+    --quiet)
+      VERBOSE=0
+      ;;
     --tail-lines)
       shift
       if [[ $# -eq 0 || ! "${1:-}" =~ ^[0-9]+$ ]]; then
@@ -155,6 +227,8 @@ while [[ $# -gt 0 ]]; do
   esac
   shift
 done
+
+choose_target_if_needed
 
 need_cmd() {
   local cmd="$1"
