@@ -27,6 +27,11 @@
     <a href="/moderator/audit-logs" data-tab="audit-logs">审计</a>
   </nav>
 
+  <section class="moderator-plugin-links">
+    <div class="section-head"><h2>插件治理入口</h2><span>按当前子站插件状态与权限过滤</span></div>
+    <div class="tag-cloud" data-plugin-links><span>正在加载插件入口...</span></div>
+  </section>
+
   <section data-panel="dashboard">
     <div class="section-head"><h2>最近举报</h2><span data-recent-report-count>0 条</span></div>
     <div class="moderator-list" data-dashboard-reports><div class="empty-state">正在加载...</div></div>
@@ -261,6 +266,21 @@
         root.querySelector('[data-audit-list]').innerHTML = items.length ? items.map(renderAudit).join('') : renderEmpty('暂无审计记录。');
       }).catch((err) => setMessage(err.message || '审计加载失败', true));
     }
+    function loadPluginLinks() {
+      const id = selectedCommunityID();
+      const query = id ? `?community_id=${id}` : '';
+      return api(`/plugin-menus${query}`).then((data) => {
+        const items = data.items || [];
+        const box = root.querySelector('[data-plugin-links]');
+        if (!box) return;
+        box.innerHTML = items.length
+          ? items.map((item) => `<a href="${escapeHTML(item.path || '#')}">${escapeHTML(item.title || item.short || item.code || '插件')}</a>`).join('')
+          : '<span>当前子站暂无可用插件治理入口</span>';
+      }).catch(() => {
+        const box = root.querySelector('[data-plugin-links]');
+        if (box) box.innerHTML = '<span>当前子站暂无可用插件治理入口</span>';
+      });
+    }
     function refreshCurrent() {
       setMessage('');
       const tab = activeTab();
@@ -298,10 +318,16 @@
     root.querySelector('[data-load-topics]')?.addEventListener('click', loadTopics);
     root.querySelector('[data-load-comments]')?.addEventListener('click', loadComments);
     root.querySelector('[data-load-audits]')?.addEventListener('click', loadAudits);
-    communitySelect?.addEventListener('change', refreshCurrent);
+    communitySelect?.addEventListener('change', () => {
+      refreshCurrent();
+      loadPluginLinks();
+    });
     syncPanels();
     loadCommunities().then((items) => {
-      if (items?.length) refreshCurrent();
+      if (items?.length) {
+        refreshCurrent();
+        loadPluginLinks();
+      }
     });
   })();
 </script>

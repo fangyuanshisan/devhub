@@ -5,7 +5,10 @@ import (
 	"strings"
 
 	"devhub-gin-backend/internal/domain"
+	"devhub-gin-backend/internal/plugins/aiworks"
 	"devhub-gin-backend/internal/plugins/docs"
+	"devhub-gin-backend/internal/plugins/jobs"
+	"devhub-gin-backend/internal/plugins/projects"
 	"devhub-gin-backend/internal/plugins/qa"
 	"devhub-gin-backend/internal/plugins/wiki"
 )
@@ -23,6 +26,9 @@ func Definitions() []domain.Plugin {
 		qa.Definition(),
 		docs.Definition(),
 		wiki.Definition(),
+		projects.Definition(),
+		jobs.Definition(),
+		aiworks.Definition(),
 	}
 }
 
@@ -70,7 +76,14 @@ func MenusByArea(area string) []domain.PluginMenu {
 	menus := []domain.PluginMenu{}
 	for _, def := range Definitions() {
 		for _, menu := range def.Menus {
-			if area == "" || menu.Area == area {
+			menuArea := strings.TrimSpace(firstNonBlank(menu.Area, menu.Location))
+			if area == "" || menuArea == area {
+				if menu.Area == "" {
+					menu.Area = menuArea
+				}
+				if menu.Location == "" {
+					menu.Location = menuArea
+				}
 				menus = append(menus, menu)
 			}
 		}
@@ -105,6 +118,104 @@ func DefinitionByCode(code string) (domain.Plugin, bool) {
 		}
 	}
 	return domain.Plugin{}, false
+}
+
+// ContentTypeDefinitions returns normalized content type definitions for a plugin.
+func ContentTypeDefinitions(code string) []domain.ContentTypeDefinition {
+	def, ok := DefinitionByCode(code)
+	if !ok {
+		return nil
+	}
+	items := make([]domain.ContentTypeDefinition, 0, len(def.ContentTypeDefs))
+	for _, item := range def.ContentTypeDefs {
+		cp := item
+		cp.Type = NormalizeContentType(cp.Type)
+		aliases := make([]string, 0, len(cp.Aliases))
+		for _, alias := range cp.Aliases {
+			alias = strings.TrimSpace(alias)
+			if alias != "" {
+				aliases = append(aliases, alias)
+			}
+		}
+		if len(aliases) == 0 {
+			aliases = ContentTypeAliases(cp.Type)
+		}
+		cp.Aliases = aliases
+		items = append(items, cp)
+	}
+	return items
+}
+
+// ContentTypeDefinitionByType resolves a canonical or alias type to a content type definition.
+func ContentTypeDefinitionByType(contentType string) (domain.ContentTypeDefinition, bool) {
+	want := NormalizeContentType(contentType)
+	if want == "" {
+		return domain.ContentTypeDefinition{}, false
+	}
+	for _, def := range Definitions() {
+		for _, item := range ContentTypeDefinitions(def.Code) {
+			if item.Type == want {
+				return item, true
+			}
+			for _, alias := range item.Aliases {
+				if NormalizeContentType(alias) == want || strings.TrimSpace(alias) == strings.TrimSpace(contentType) {
+					return item, true
+				}
+			}
+		}
+	}
+	if !ValidContentType(want) {
+		return domain.ContentTypeDefinition{}, false
+	}
+	return domain.ContentTypeDefinition{
+		Type:             want,
+		Name:             want,
+		PluginCode:       CoreCode,
+		Aliases:          ContentTypeAliases(want),
+		CreatePermission: "core.topic.create",
+		EditPermission:   "post.update",
+		DeletePermission: "post.delete",
+		DefaultStatus:    "publish",
+		AllowComment:     true,
+		AllowLike:        true,
+		AllowFavorite:    true,
+		SEOType:          "Article",
+	}, true
+}
+
+// HookDefinitions returns declared hooks for a plugin.
+func HookDefinitions(code string) []domain.HookDefinition {
+	def, ok := DefinitionByCode(code)
+	if !ok {
+		return nil
+	}
+	return append([]domain.HookDefinition(nil), def.Hooks...)
+}
+
+// ResolvePluginConfig merges default config schema, global config placeholder and community config placeholder.
+// v1.3.x only persists community config_json; plugins.config_json remains a planned extension point.
+func ResolvePluginConfig(def domain.Plugin, globalConfigJSON, communityConfigJSON string) map[string]any {
+	out := map[string]any{}
+	if schema, ok := def.ConfigSchema.(map[string]any); ok {
+		out["default"] = schema
+	}
+	if strings.TrimSpace(globalConfigJSON) != "" {
+		out["global_config_json"] = strings.TrimSpace(globalConfigJSON)
+	}
+	if strings.TrimSpace(communityConfigJSON) != "" {
+		out["community_config_json"] = strings.TrimSpace(communityConfigJSON)
+	}
+	return out
+}
+
+func firstNonBlank(items ...string) string {
+	for _, item := range items {
+		item = strings.TrimSpace(item)
+		if item != "" {
+			return item
+		}
+	}
+	return ""
 }
 
 // NormalizeContentType maps legacy core content types to plugin-owned content types.
@@ -143,6 +254,12 @@ func PluginCodeForContentType(contentType string) string {
 		return docs.Code
 	case "wiki_page":
 		return wiki.Code
+	case "project":
+		return projects.Code
+	case "job":
+		return jobs.Code
+	case "ai_work":
+		return aiworks.Code
 	default:
 		return CoreCode
 	}

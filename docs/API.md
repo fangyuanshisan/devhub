@@ -24,6 +24,7 @@
 - 认证：不需要。
 - 返回：只返回全局 `enabled` 插件。
 - 用途：前台判断系统可用插件能力。
+- 说明：当前返回的是内置系统插件统一 manifest 视图，包括内容类型、权限、菜单、路由声明与 `config_schema` 预留字段。
 
 响应示例：
 
@@ -63,6 +64,7 @@
 - 影响：禁用全局插件后，所有子站都不能继续发布该插件内容；已有内容详情不应受影响。
 - 返回：更新后的插件对象。
 - 审计：写入插件状态变更审计日志。
+  当前通过 `admin_logs.target` 记录 `plugin_code` 与 old/new 状态摘要。
 
 常见错误：
 
@@ -101,6 +103,7 @@
 - 规则：全局 disabled 插件不能被子站启用。
 - 返回：更新后的插件对象。
 - 审计：写入子站插件状态变更审计日志。
+  当前通过 `admin_logs.target` 记录 `community_id`、`plugin_code` 与 old/new 状态摘要。
 
 `POST /api/v1/admin/communities/:id/plugins/:code/disable`
 
@@ -109,6 +112,7 @@
 - 影响：只影响该子站的新发布、导航、菜单和管理入口，不影响历史内容访问。
 - 返回：更新后的插件对象。
 - 审计：写入子站插件状态变更审计日志。
+  当前通过 `admin_logs.target` 记录 `community_id`、`plugin_code` 与 old/new 状态摘要。
 
 `PUT /api/v1/admin/communities/:id/plugins/:code/config`
 
@@ -126,6 +130,7 @@
 
 - 返回：更新后的插件对象。
 - 审计：写入子站插件配置审计日志。
+  当前通过 `admin_logs.target` 记录 `community_id`、`plugin_code` 与 old/new 配置摘要。
 
 `PUT /api/v1/admin/communities/:id/plugins/sort`
 
@@ -148,6 +153,7 @@
 ```
 
 - 审计：写入子站插件排序审计日志。
+  当前通过 `admin_logs.target` 记录 `community_id` 与排序前后摘要。
 
 常见错误：
 
@@ -191,11 +197,12 @@
 1. 解析 community。
 2. 解析 category，并校验 category 属于 community。
 3. 归一 `content_type`：`doc -> document`，`wiki -> wiki_page`。
-4. 根据内容类型推断插件：`question -> qa`，`document -> docs`，`wiki_page -> wiki`，其他兼容类型 -> `core`。
+4. 根据内容类型推断插件：`question -> qa`，`document -> docs`，`wiki_page -> wiki`，`project -> projects`，`job -> jobs`，`ai_work -> ai_works`，其他 Core 兼容类型 -> `core`。
 5. 校验全局插件是否 enabled。
 6. 校验当前子站插件是否 enabled。
 7. 校验 `category.plugin_code` 是否匹配。
 8. 校验 `content_type` 是否在 `category.allowed_content_types` 内。
+9. 校验当前用户是否具备内容类型对应的发布权限码。
 
 常见错误：
 
@@ -214,7 +221,29 @@
   - `question -> qa.question.create`
   - `document -> docs.document.create`
   - `wiki_page -> wiki.page.create`
-  - Core 兼容类型目前使用粗粒度 `post.create`。
+  - `project -> projects.project.create`
+  - `job -> jobs.job.create`
+  - `ai_work -> ai_works.work.create`
+  - `article`、`news` 当前仍使用粗粒度 `core.topic.create`（兼容旧 `post.create`）。
+- 当前内容类型权限码来自统一 `ContentTypeDefinition` 声明，而不是散落在各个 handler 中。
+- `projects/jobs/ai_works` 当前已完成插件归属、发布校验、权限码和菜单声明；专属扩展表与完整业务流程仍是后续任务。
+
+## 插件声明约定
+
+当前内置插件统一按 manifest 风格组织：
+
+- `PluginManifest`
+- `ContentTypeDefinition`
+- `PermissionDefinition`
+- `MenuDefinition`
+- `RouteDefinition`
+- `HookDefinition`
+
+当前说明：
+
+- 这是内置系统插件规范，不是插件市场，也不是第三方动态插件机制。
+- `HookDefinition` 当前主要作为扩展点声明，不代表已经存在通用运行时 Hook 执行器。
+- 配置优先级按“默认配置 -> 全局插件配置预留 -> 子站插件配置”约定，其中 v1.3.x 当前真实可写的是 `community_plugins.config_json`。
 
 ## 当前真实 API 索引
 
@@ -250,6 +279,9 @@ Topic 与搜索：
 ```http
 GET    /api/v1/topics
 GET    /api/v1/topics/:id
+GET    /api/v1/topics/:id/qa
+GET    /api/v1/topics/:id/docs
+GET    /api/v1/topics/:id/wiki/versions
 POST   /api/v1/topics
 PUT    /api/v1/topics/:id
 DELETE /api/v1/topics/:id
@@ -265,6 +297,18 @@ POST /api/v1/topics/:id/comments/:commentId/replies
 POST /api/v1/topics/:id/comments/:commentId/accept
 POST /api/v1/topics/:id/solve
 ```
+
+插件扩展只读接口：
+
+- `GET /api/v1/topics/:id/qa`
+  - 仅适用于 `question`
+  - 返回 `qa_questions` 扩展状态和 `qa_answers` 列表
+- `GET /api/v1/topics/:id/docs`
+  - 仅适用于 `document`
+  - 返回 `docs_documents` 扩展行和当前文档空间的基础文档树
+- `GET /api/v1/topics/:id/wiki/versions`
+  - 仅适用于 `wiki_page`
+  - 返回 `wiki_pages` 扩展行和 `wiki_page_versions` 列表
 
 标签：
 

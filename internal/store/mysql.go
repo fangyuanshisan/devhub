@@ -186,12 +186,18 @@ func (s *MySQLStore) migrateSiteScopedAudit() error {
 	_, _ = s.db.Exec(`UPDATE categories SET type='document', plugin_code='docs', allowed_content_types=JSON_ARRAY('document','doc') WHERE type='doc' OR slug='docs'`)
 	_, _ = s.db.Exec(`UPDATE categories SET type='wiki_page', plugin_code='wiki', allowed_content_types=JSON_ARRAY('wiki_page','wiki') WHERE type='wiki' OR slug='wiki'`)
 	_, _ = s.db.Exec(`UPDATE categories SET plugin_code='qa', allowed_content_types=JSON_ARRAY('question') WHERE type='question'`)
+	_, _ = s.db.Exec(`UPDATE categories SET plugin_code='projects', allowed_content_types=JSON_ARRAY('project') WHERE type='project' OR slug='opensource'`)
+	_, _ = s.db.Exec(`UPDATE categories SET plugin_code='jobs', allowed_content_types=JSON_ARRAY('job') WHERE type='job' OR slug='jobs'`)
+	_, _ = s.db.Exec(`UPDATE categories SET plugin_code='ai_works', allowed_content_types=JSON_ARRAY('ai_work') WHERE type='ai_work' OR slug='ai'`)
 	_, _ = s.db.Exec(`UPDATE categories SET plugin_code='core', allowed_content_types=JSON_ARRAY(type) WHERE plugin_code='core' AND allowed_content_types IS NULL`)
 	_, _ = s.db.Exec(`ALTER TABLE topics ADD COLUMN plugin_code VARCHAR(64) NOT NULL DEFAULT 'core' AFTER slug`)
 	_, _ = s.db.Exec(`ALTER TABLE topics ADD KEY idx_topics_plugin_type_status (plugin_code, content_type, status)`)
 	_, _ = s.db.Exec(`UPDATE topics SET content_type='document', plugin_code='docs' WHERE content_type='doc'`)
 	_, _ = s.db.Exec(`UPDATE topics SET content_type='wiki_page', plugin_code='wiki' WHERE content_type='wiki'`)
 	_, _ = s.db.Exec(`UPDATE topics SET plugin_code='qa' WHERE content_type='question'`)
+	_, _ = s.db.Exec(`UPDATE topics SET plugin_code='projects' WHERE content_type='project'`)
+	_, _ = s.db.Exec(`UPDATE topics SET plugin_code='jobs' WHERE content_type='job'`)
+	_, _ = s.db.Exec(`UPDATE topics SET plugin_code='ai_works' WHERE content_type='ai_work'`)
 	_, _ = s.db.Exec(`CREATE TABLE IF NOT EXISTS community_plugins (
 		id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
 		community_id BIGINT UNSIGNED NOT NULL,
@@ -552,6 +558,7 @@ func (s *MySQLStore) seedAuthData() error {
 		{"board.write", "board", "write", "管理板块"},
 		{"post.read", "post", "read", "查看内容"},
 		{"post.create", "post", "create", "创建内容"},
+		{"core.topic.create", "core", "topic.create", "创建 Core 内容（兼容类型）"},
 		{"post.update", "post", "update", "更新内容"},
 		{"post.delete", "post", "delete", "删除内容"},
 		{"comment.read", "comment", "read", "查看评论"},
@@ -582,6 +589,12 @@ func (s *MySQLStore) seedAuthData() error {
 		{"wiki.page.edit", "wiki", "page.edit", "编辑 Wiki 页面"},
 		{"wiki.page.audit", "wiki", "page.audit", "审核 Wiki 页面"},
 		{"wiki.page.version.rollback", "wiki", "page.version.rollback", "回滚 Wiki 版本"},
+		{"projects.project.create", "projects", "project.create", "发布项目"},
+		{"projects.project.audit", "projects", "project.audit", "审核项目"},
+		{"jobs.job.create", "jobs", "job.create", "发布招聘"},
+		{"jobs.job.audit", "jobs", "job.audit", "审核招聘"},
+		{"ai_works.work.create", "ai_works", "work.create", "发布 AI 作品"},
+		{"ai_works.work.audit", "ai_works", "work.audit", "审核 AI 作品"},
 	}
 	for _, p := range permissions {
 		if _, err := s.db.Exec(`INSERT IGNORE INTO permissions (code,module,action,description) VALUES (?,?,?,?)`, p.Code, p.Module, p.Action, p.Description); err != nil {
@@ -596,10 +609,10 @@ func (s *MySQLStore) seedAuthData() error {
 		Permissions []string
 	}{
 		{1, "super_admin", "超级管理员", "拥有全部站点和全部权限", []string{"*"}},
-		{2, "site_admin", "站点管理员", "管理被授权站点", []string{"dashboard.read", "site.read", "site.write", "board.read", "board.write", "post.read", "post.create", "post.update", "post.delete", "topic.moderate", "comment.read", "comment.moderate", "report.read", "report.handle", "moderator.read", "user.read", "setting.read", "notification.write", "log.read", "plugin.read", "qa.question.audit", "docs.document.audit", "docs.space.manage", "wiki.page.audit", "wiki.page.version.rollback"}},
-		{3, "editor", "编辑", "创建和编辑内容", []string{"dashboard.read", "post.read", "post.create", "post.update", "comment.read"}},
-		{4, "moderator", "审核员", "审核内容和评论", []string{"dashboard.read", "post.read", "post.update", "topic.moderate", "comment.read", "comment.moderate", "report.read", "report.handle", "plugin.read", "qa.question.audit", "docs.document.audit", "wiki.page.audit"}},
-		{5, "user", "普通用户", "前台登录用户", []string{"post.create", "comment.read", "qa.question.create", "qa.answer.create", "docs.document.create", "wiki.page.create"}},
+		{2, "site_admin", "站点管理员", "管理被授权站点", []string{"dashboard.read", "site.read", "site.write", "board.read", "board.write", "post.read", "post.create", "post.update", "post.delete", "topic.moderate", "comment.read", "comment.moderate", "report.read", "report.handle", "moderator.read", "user.read", "setting.read", "notification.write", "log.read", "plugin.read", "qa.question.audit", "docs.document.audit", "docs.space.manage", "wiki.page.audit", "wiki.page.version.rollback", "projects.project.audit", "jobs.job.audit", "ai_works.work.audit"}},
+		{3, "editor", "编辑", "创建和编辑内容", []string{"dashboard.read", "post.read", "post.create", "post.update", "comment.read", "projects.project.create", "jobs.job.create", "ai_works.work.create"}},
+		{4, "moderator", "审核员", "审核内容和评论", []string{"dashboard.read", "post.read", "post.update", "topic.moderate", "comment.read", "comment.moderate", "report.read", "report.handle", "plugin.read", "qa.question.audit", "docs.document.audit", "wiki.page.audit", "projects.project.audit", "jobs.job.audit", "ai_works.work.audit"}},
+		{5, "user", "普通用户", "前台登录用户", []string{"post.create", "comment.read", "qa.question.create", "qa.answer.create", "docs.document.create", "wiki.page.create", "projects.project.create", "jobs.job.create", "ai_works.work.create"}},
 	}
 	for _, r := range roles {
 		if _, err := s.db.Exec(`INSERT IGNORE INTO roles (id,code,name,builtin,description) VALUES (?,?,?,?,?)`, r.ID, r.Code, r.Name, true, r.Description); err != nil {
@@ -1212,7 +1225,6 @@ func (s *MySQLStore) SetPluginStatus(code, status string) (domain.Plugin, error)
 		def.Code, def.Name, def.Version, status, def.Description); err != nil {
 		return domain.Plugin{}, err
 	}
-	s.appendLog("system", "admin", "更新插件状态", fmt.Sprintf("plugins#%s:%s", def.Code, status), "127.0.0.1")
 	plugin, _ := s.PluginByCode(def.Code)
 	return plugin, nil
 }
@@ -1296,7 +1308,6 @@ func (s *MySQLStore) SetCommunityPluginStatus(communityID int64, code, status st
 		ON DUPLICATE KEY UPDATE status=VALUES(status),updated_at=NOW()`, communityID, def.Code, status); err != nil {
 		return domain.Plugin{}, err
 	}
-	s.appendLog("system", "admin", "更新子站插件状态", fmt.Sprintf("community_plugins#%d:%s:%s", communityID, def.Code, status), "127.0.0.1")
 	items, _ := s.CommunityPlugins(communityID)
 	for _, item := range items {
 		if item.Code == def.Code {
@@ -1328,7 +1339,6 @@ func (s *MySQLStore) SetCommunityPluginConfig(communityID int64, code, configJSO
 		ON DUPLICATE KEY UPDATE config_json=VALUES(config_json),updated_at=NOW()`, communityID, def.Code, pluginregistry.StatusDisabled, config); err != nil {
 		return domain.Plugin{}, err
 	}
-	s.appendLog("system", "admin", "更新子站插件配置", fmt.Sprintf("community_plugins#%d:%s:config", communityID, def.Code), "127.0.0.1")
 	items, _ := s.CommunityPlugins(communityID)
 	for _, item := range items {
 		if item.Code == def.Code {
@@ -1356,7 +1366,6 @@ func (s *MySQLStore) ReorderCommunityPlugins(communityID int64, codes []string) 
 		}
 		updated++
 	}
-	s.appendLog("system", "admin", "更新子站插件排序", fmt.Sprintf("community_plugins#%d:sort", communityID), "127.0.0.1")
 	return updated, nil
 }
 
@@ -4056,6 +4065,98 @@ func (s *MySQLStore) AcceptBestAnswer(topicID int64, commentID int64, actorUserI
 		return false
 	}
 	return true
+}
+
+func (s *MySQLStore) QAQuestionByTopicID(topicID int64) (*domain.QAQuestion, error) {
+	item := &domain.QAQuestion{}
+	var acceptedAt sql.NullString
+	err := s.db.QueryRow(`SELECT id,topic_id,is_solved,COALESCE(best_answer_id,0),COALESCE(DATE_FORMAT(accepted_at,'%Y-%m-%d %H:%i:%s'),''),DATE_FORMAT(created_at,'%Y-%m-%d %H:%i:%s'),DATE_FORMAT(updated_at,'%Y-%m-%d %H:%i:%s') FROM qa_questions WHERE topic_id=?`, topicID).
+		Scan(&item.ID, &item.TopicID, &item.IsResolved, &item.AcceptedAnswerID, &acceptedAt, &item.CreatedAt, &item.UpdatedAt)
+	if err != nil {
+		return nil, err
+	}
+	item.AcceptedAt = acceptedAt.String
+	_ = s.db.QueryRow(`SELECT COUNT(*) FROM qa_answers WHERE topic_id=?`, topicID).Scan(&item.AnswerCount)
+	return item, nil
+}
+
+func (s *MySQLStore) QAAnswersByTopicID(topicID int64) ([]domain.QAAnswer, error) {
+	rows, err := s.db.Query(`SELECT id,topic_id,comment_id,user_id,is_accepted,COALESCE(DATE_FORMAT(accepted_at,'%Y-%m-%d %H:%i:%s'),''),DATE_FORMAT(created_at,'%Y-%m-%d %H:%i:%s'),DATE_FORMAT(updated_at,'%Y-%m-%d %H:%i:%s') FROM qa_answers WHERE topic_id=? ORDER BY id`, topicID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []domain.QAAnswer{}
+	for rows.Next() {
+		var item domain.QAAnswer
+		if err := rows.Scan(&item.ID, &item.TopicID, &item.CommentID, &item.UserID, &item.IsAccepted, &item.AcceptedAt, &item.CreatedAt, &item.UpdatedAt); err == nil {
+			items = append(items, item)
+		}
+	}
+	return items, nil
+}
+
+func (s *MySQLStore) DocsDocumentByTopicID(topicID int64) (*domain.DocsDocument, error) {
+	item := &domain.DocsDocument{}
+	err := s.db.QueryRow(`SELECT id,COALESCE(space_id,0),topic_id,COALESCE(parent_id,0),sort_order,status,DATE_FORMAT(created_at,'%Y-%m-%d %H:%i:%s'),DATE_FORMAT(updated_at,'%Y-%m-%d %H:%i:%s') FROM docs_documents WHERE topic_id=?`, topicID).
+		Scan(&item.ID, &item.SpaceID, &item.TopicID, &item.ParentID, &item.SortOrder, &item.Status, &item.CreatedAt, &item.UpdatedAt)
+	if err != nil {
+		return nil, err
+	}
+	item.Version = 1
+	item.EditorType = "markdown"
+	return item, nil
+}
+
+func (s *MySQLStore) DocsTree(communityID int64, spaceID int64) ([]domain.DocsDocument, error) {
+	query := `SELECT d.id,COALESCE(d.space_id,0),d.topic_id,COALESCE(d.parent_id,0),d.sort_order,d.status,DATE_FORMAT(d.created_at,'%Y-%m-%d %H:%i:%s'),DATE_FORMAT(d.updated_at,'%Y-%m-%d %H:%i:%s') FROM docs_documents d JOIN docs_spaces s ON s.id=d.space_id WHERE s.community_id=?`
+	args := []any{communityID}
+	if spaceID > 0 {
+		query += ` AND d.space_id=?`
+		args = append(args, spaceID)
+	}
+	query += ` ORDER BY d.parent_id,d.sort_order,d.id`
+	rows, err := s.db.Query(query, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []domain.DocsDocument{}
+	for rows.Next() {
+		var item domain.DocsDocument
+		if err := rows.Scan(&item.ID, &item.SpaceID, &item.TopicID, &item.ParentID, &item.SortOrder, &item.Status, &item.CreatedAt, &item.UpdatedAt); err == nil {
+			item.Version = 1
+			item.EditorType = "markdown"
+			items = append(items, item)
+		}
+	}
+	return items, nil
+}
+
+func (s *MySQLStore) WikiPageByTopicID(topicID int64) (*domain.WikiPage, error) {
+	item := &domain.WikiPage{}
+	err := s.db.QueryRow(`SELECT wp.id,COALESCE(wp.space_id,0),wp.topic_id,COALESCE(wp.current_version_id,0),wp.status,DATE_FORMAT(wp.created_at,'%Y-%m-%d %H:%i:%s'),DATE_FORMAT(wp.updated_at,'%Y-%m-%d %H:%i:%s'),t.community_id,t.category_id,t.user_id,t.title,COALESCE(t.slug,''),COALESCE(t.summary,''),t.content,t.view_count,t.like_count FROM wiki_pages wp JOIN topics t ON t.id=wp.topic_id WHERE wp.topic_id=?`, topicID).
+		Scan(&item.ID, &item.SpaceID, &item.TopicID, &item.CurrentVersionID, &item.Status, &item.CreatedAt, &item.UpdatedAt, &item.CommunityID, &item.CategoryID, &item.UserID, &item.Title, &item.Slug, &item.Summary, &item.Content, &item.ViewCount, &item.LikeCount)
+	if err != nil {
+		return nil, err
+	}
+	return item, nil
+}
+
+func (s *MySQLStore) WikiVersionsByTopicID(topicID int64) ([]domain.WikiRevision, error) {
+	rows, err := s.db.Query(`SELECT v.id,v.wiki_page_id,v.topic_id,v.editor_id,v.version_no,v.title,v.content,v.change_note,DATE_FORMAT(v.created_at,'%Y-%m-%d %H:%i:%s') FROM wiki_page_versions v WHERE v.topic_id=? ORDER BY v.version_no DESC`, topicID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []domain.WikiRevision{}
+	for rows.Next() {
+		var item domain.WikiRevision
+		if err := rows.Scan(&item.ID, &item.WikiPageID, &item.TopicID, &item.EditorID, &item.VersionNo, &item.Title, &item.Content, &item.ChangeNote, &item.CreatedAt); err == nil {
+			items = append(items, item)
+		}
+	}
+	return items, nil
 }
 
 // CreateReport 创建举报记录。

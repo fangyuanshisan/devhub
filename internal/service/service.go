@@ -35,6 +35,12 @@ type Repository interface {
 	SetCommunityPluginStatus(communityID int64, code, status string) (domain.Plugin, error)
 	SetCommunityPluginConfig(communityID int64, code, configJSON string) (domain.Plugin, error)
 	ReorderCommunityPlugins(communityID int64, codes []string) (int, error)
+	QAQuestionByTopicID(topicID int64) (*domain.QAQuestion, error)
+	QAAnswersByTopicID(topicID int64) ([]domain.QAAnswer, error)
+	DocsDocumentByTopicID(topicID int64) (*domain.DocsDocument, error)
+	DocsTree(communityID int64, spaceID int64) ([]domain.DocsDocument, error)
+	WikiPageByTopicID(topicID int64) (*domain.WikiPage, error)
+	WikiVersionsByTopicID(topicID int64) ([]domain.WikiRevision, error)
 	ListPosts(site, board, q, tag string) []domain.Post
 	GetPost(id int64, increaseView bool) (*domain.Post, bool)
 	CreatePost(req domain.CreatePostRequest) (*domain.Post, error)
@@ -249,6 +255,30 @@ func (s *Service) ReorderCommunityPlugins(communityID int64, codes []string) (in
 	return s.repo.ReorderCommunityPlugins(communityID, codes)
 }
 
+func (s *Service) QAQuestionByTopicID(topicID int64) (*domain.QAQuestion, error) {
+	return s.repo.QAQuestionByTopicID(topicID)
+}
+
+func (s *Service) QAAnswersByTopicID(topicID int64) ([]domain.QAAnswer, error) {
+	return s.repo.QAAnswersByTopicID(topicID)
+}
+
+func (s *Service) DocsDocumentByTopicID(topicID int64) (*domain.DocsDocument, error) {
+	return s.repo.DocsDocumentByTopicID(topicID)
+}
+
+func (s *Service) DocsTree(communityID int64, spaceID int64) ([]domain.DocsDocument, error) {
+	return s.repo.DocsTree(communityID, spaceID)
+}
+
+func (s *Service) WikiPageByTopicID(topicID int64) (*domain.WikiPage, error) {
+	return s.repo.WikiPageByTopicID(topicID)
+}
+
+func (s *Service) WikiVersionsByTopicID(topicID int64) ([]domain.WikiRevision, error) {
+	return s.repo.WikiVersionsByTopicID(topicID)
+}
+
 // IsPluginEnabled checks whether a plugin is globally enabled.
 // Core is always enabled and not persisted in plugins table.
 func (s *Service) IsPluginEnabled(pluginCode string) bool {
@@ -347,18 +377,13 @@ func firstNonEmpty(items ...string) string {
 }
 
 func requiredCreatePermission(contentType, pluginCode string) string {
-	contentType = strings.TrimSpace(contentType)
+	contentType = pluginregistry.NormalizeContentType(strings.TrimSpace(contentType))
 	pluginCode = strings.TrimSpace(pluginCode)
-	switch contentType {
-	case "question":
-		return "qa.question.create"
-	case "document":
-		return "docs.document.create"
-	case "wiki_page":
-		return "wiki.page.create"
+	if def, ok := pluginregistry.ContentTypeDefinitionByType(contentType); ok {
+		return strings.TrimSpace(def.CreatePermission)
 	}
 	if pluginCode == "" || pluginCode == pluginregistry.CoreCode {
-		return "post.create"
+		return "core.topic.create"
 	}
 	return ""
 }
@@ -371,6 +396,15 @@ func hasPermission(perms []string, permission string) bool {
 	for _, p := range perms {
 		if p == "*" || p == permission {
 			return true
+		}
+	}
+	// Compatibility: historically core publishing uses post.create.
+	// v1.3.x introduces core.topic.create, but we keep old roles working.
+	if permission == "core.topic.create" {
+		for _, p := range perms {
+			if p == "post.create" {
+				return true
+			}
 		}
 	}
 	return false

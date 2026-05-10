@@ -88,6 +88,9 @@ func NewRouter(svc *service.Service) *gin.Engine {
 		api.GET("/communities/:slug/moderators", srv.listCommunityModerators)
 		api.GET("/topics", srv.listTopics)
 		api.GET("/topics/:id", srv.getTopic)
+		api.GET("/topics/:id/qa", srv.topicQA)
+		api.GET("/topics/:id/docs", srv.topicDocs)
+		api.GET("/topics/:id/wiki/versions", srv.topicWikiVersions)
 		api.GET("/topics/:id/comments", srv.topicComments)
 		api.POST("/topics/:id/comments", srv.userAuthRequired(), srv.createTopicComment)
 		api.POST("/topics/:id/comments/:commentId/replies", srv.userAuthRequired(), srv.replyTopicComment)
@@ -1927,12 +1930,13 @@ func (s *Server) disableAdminPlugin(c *gin.Context) {
 
 func (s *Server) setAdminPluginStatus(c *gin.Context, status string) {
 	code := strings.TrimSpace(c.Param("code"))
+	before, _ := s.svc.PluginByCode(code)
 	plugin, err := s.svc.SetPluginStatus(code, status)
 	if err != nil {
 		fail(c, http.StatusBadRequest, err.Error())
 		return
 	}
-	s.audit(c, "system", "更新插件状态", fmt.Sprintf("plugins#%s:%s", plugin.Code, status))
+	s.audit(c, "system", "更新插件状态", fmt.Sprintf("plugins#%s global_status:%s->%s", plugin.Code, before.Status, plugin.Status))
 	c.JSON(http.StatusOK, plugin)
 }
 
@@ -2342,12 +2346,20 @@ func (s *Server) setAdminCommunityPluginStatus(c *gin.Context, status string) {
 		return
 	}
 	code := strings.TrimSpace(c.Param("code"))
+	beforeItems, _ := s.svc.CommunityPlugins(id)
+	beforeStatus := ""
+	for _, item := range beforeItems {
+		if item.Code == code {
+			beforeStatus = item.CommunityStatus
+			break
+		}
+	}
 	plugin, err := s.svc.SetCommunityPluginStatus(id, code, status)
 	if err != nil {
 		fail(c, http.StatusBadRequest, err.Error())
 		return
 	}
-	s.audit(c, "system", "更新子站插件状态", fmt.Sprintf("community_plugins#%d:%s:%s", id, plugin.Code, status))
+	s.audit(c, "system", "更新子站插件状态", fmt.Sprintf("community_plugins#%d:%s community_status:%s->%s", id, plugin.Code, beforeStatus, plugin.CommunityStatus))
 	c.JSON(http.StatusOK, plugin)
 }
 
@@ -2360,6 +2372,14 @@ func (s *Server) updateAdminCommunityPluginConfig(c *gin.Context) {
 		return
 	}
 	code := strings.TrimSpace(c.Param("code"))
+	beforeItems, _ := s.svc.CommunityPlugins(id)
+	beforeConfig := ""
+	for _, item := range beforeItems {
+		if item.Code == code {
+			beforeConfig = item.ConfigJSON
+			break
+		}
+	}
 	var req struct {
 		ConfigJSON any `json:"config_json"`
 	}
@@ -2378,7 +2398,7 @@ func (s *Server) updateAdminCommunityPluginConfig(c *gin.Context) {
 		fail(c, http.StatusBadRequest, err.Error())
 		return
 	}
-	s.audit(c, "system", "更新子站插件配置", fmt.Sprintf("community_plugins#%d:%s:config", id, plugin.Code))
+	s.audit(c, "system", "更新子站插件配置", fmt.Sprintf("community_plugins#%d:%s config_json:%q->%q", id, plugin.Code, beforeConfig, plugin.ConfigJSON))
 	c.JSON(http.StatusOK, plugin)
 }
 
@@ -2397,12 +2417,17 @@ func (s *Server) reorderAdminCommunityPlugins(c *gin.Context) {
 		fail(c, http.StatusBadRequest, err.Error())
 		return
 	}
+	beforeItems, _ := s.svc.CommunityPlugins(id)
+	beforeCodes := make([]string, 0, len(beforeItems))
+	for _, item := range beforeItems {
+		beforeCodes = append(beforeCodes, item.Code)
+	}
 	updated, err := s.svc.ReorderCommunityPlugins(id, uniqueStrings(req.Codes))
 	if err != nil {
 		fail(c, http.StatusBadRequest, err.Error())
 		return
 	}
-	s.audit(c, "system", "子站插件排序", fmt.Sprintf("community_plugins#%d:sort:%d", id, updated))
+	s.audit(c, "system", "子站插件排序", fmt.Sprintf("community_plugins#%d sort_order:%v->%v updated:%d", id, beforeCodes, uniqueStrings(req.Codes), updated))
 	c.JSON(http.StatusOK, gin.H{"updated": updated})
 }
 
@@ -4647,6 +4672,87 @@ func (s *Server) getTopic(c *gin.Context) {
 	}
 	s.applyTopicInteraction(c, topic)
 	c.JSON(http.StatusOK, topic)
+}
+
+func (s *Server) topicQA(c *gin.Context) {
+	id, ok := idParam(c, "id")
+	if !ok {
+		return
+	}
+	topic, err := s.svc.TopicByID(id, false)
+	if err != nil {
+		fail(c, http.StatusNotFound, "主题不存在")
+		return
+	}
+	if topic.ContentType != "question" {
+		fail(c, http.StatusBadRequest, "当前主题不是 question")
+		return
+	}
+	question, err := s.svc.QAQuestionByTopicID(id)
+	if err != nil {
+		fail(c, http.StatusNotFound, "问答扩展不存在")
+		return
+	}
+	answers, err := s.svc.QAAnswersByTopicID(id)
+	if err != nil {
+		fail(c, http.StatusBadRequest, err.Error())
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"topic_id": id, "question": question, "answers": answers})
+}
+
+func (s *Server) topicDocs(c *gin.Context) {
+	id, ok := idParam(c, "id")
+	if !ok {
+		return
+	}
+	topic, err := s.svc.TopicByID(id, false)
+	if err != nil {
+		fail(c, http.StatusNotFound, "主题不存在")
+		return
+	}
+	if topic.ContentType != "document" {
+		fail(c, http.StatusBadRequest, "当前主题不是 document")
+		return
+	}
+	document, err := s.svc.DocsDocumentByTopicID(id)
+	if err != nil {
+		fail(c, http.StatusNotFound, "文档扩展不存在")
+		return
+	}
+	tree, err := s.svc.DocsTree(topic.CommunityID, document.SpaceID)
+	if err != nil {
+		fail(c, http.StatusBadRequest, err.Error())
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"topic_id": id, "document": document, "tree": tree})
+}
+
+func (s *Server) topicWikiVersions(c *gin.Context) {
+	id, ok := idParam(c, "id")
+	if !ok {
+		return
+	}
+	topic, err := s.svc.TopicByID(id, false)
+	if err != nil {
+		fail(c, http.StatusNotFound, "主题不存在")
+		return
+	}
+	if topic.ContentType != "wiki_page" {
+		fail(c, http.StatusBadRequest, "当前主题不是 wiki_page")
+		return
+	}
+	page, err := s.svc.WikiPageByTopicID(id)
+	if err != nil {
+		fail(c, http.StatusNotFound, "Wiki 页面扩展不存在")
+		return
+	}
+	versions, err := s.svc.WikiVersionsByTopicID(id)
+	if err != nil {
+		fail(c, http.StatusBadRequest, err.Error())
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"topic_id": id, "page": page, "versions": versions})
 }
 
 func (s *Server) topicComments(c *gin.Context) {

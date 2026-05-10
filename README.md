@@ -33,9 +33,9 @@ DevHub 是一个面向多子站场景的通用开源社区程序，采用 Core +
 ## 当前能力
 
 - Core 通用能力：用户、前台 / 后台认证、子站、板块、通用内容、评论、标签、搜索、通知、关注、收藏、举报、审计、SEO、权限和插件注册 / 分发。
-- 内置系统插件：`qa` 提供 `question`，`docs` 提供 `document`，`wiki` 提供 `wiki_page`。
+- 内置系统插件：`qa` 提供 `question`，`docs` 提供 `document`，`wiki` 提供 `wiki_page`；`projects`、`jobs`、`ai_works` 已接管 `project`、`job`、`ai_work` 的插件归属。
 - 插件状态：支持全局插件状态 `plugins.status` 和子站插件状态 `community_plugins.status`；禁用插件只影响新发布、导航、菜单和管理入口，不影响历史内容详情 SEO。
-- 兼容内容类型：`article`、`project`、`job`、`ai_work`、`news` 等仍作为 Core 兼容内容类型存在，其中 `project`、`job`、`ai_work` 是后续插件候选，尚未完整插件化。
+- 兼容内容类型：`article`、`news` 等仍作为 Core 兼容内容类型存在；`project`、`job`、`ai_work` 已完成插件归属迁移，但专属扩展表和完整业务闭环仍留到后续版本。
 - 内容与互动：Topic 列表、详情、发布、编辑、删除、浏览数、点赞、收藏、关注、评论、问答采纳、用户中心和通知中心。
 - 标签治理：支持标签 SEO 页、标签聚合、标签关注、发布页标签建议、后台标签 CRUD、启用 / 禁用 / 合并、标签别名、统计重算、审计和 sitemap / canonical 治理。
 - 治理与后台：支持举报、版主子站范围治理、内容治理、评论治理、子站管理、板块管理、系统插件管理和审计日志。
@@ -43,7 +43,7 @@ DevHub 是一个面向多子站场景的通用开源社区程序，采用 Core +
 
 ## v1.3.0 定位
 
-DevHub v1.3.0 是“Core + Plugins 架构拆分版”。本版本新增 `plugins` 表、插件注册定义、插件状态 API 和后台插件入口；`topics` 作为兼容实现中的 Core 内容表新增 `plugin_code`，`categories` 作为 Core 板块表新增 `plugin_code` / `allowed_content_types`；问答、文档、Wiki 分别迁移为 `qa`、`docs`、`wiki` 内置系统插件。
+DevHub v1.3.0 是“Core + Plugins 架构拆分版”。本版本新增 `plugins` 表、插件注册定义、插件状态 API 和后台插件入口；`topics` 作为兼容实现中的通用内容表新增 `plugin_code`，`categories` 作为通用板块表新增 `plugin_code` / `allowed_content_types`；问答、文档、Wiki 分别迁移为 `qa`、`docs`、`wiki` 内置系统插件，项目、招聘、AI 作品已完成 `projects`、`jobs`、`ai_works` 插件归属迁移。
 
 本版本范围和当前限制以 [v1.3.0 Release Notes](docs/releases/v1.3.0.md) 为准，长期滚动状态见 [项目进度](docs/PROJECT_PROGRESS.md)。
 
@@ -51,9 +51,9 @@ DevHub v1.3.0 是“Core + Plugins 架构拆分版”。本版本新增 `plugins
 
 ## Roadmap
 
-- v1.3.x：插件系统验收、子站插件配置 UI、插件权限码校验
+- v1.3.x：插件系统验收、子站插件配置 UI 浏览器矩阵、细粒度插件权限矩阵
 - v1.4.0：Docs/Wiki 专用体验
-- v1.5.0：开源项目、招聘、AI 作品插件化
+- v1.5.0：开源项目、招聘、AI 作品专属业务闭环
 - v1.6.0：生产化、migration、性能和 CI/CD
 
 ## 目录结构

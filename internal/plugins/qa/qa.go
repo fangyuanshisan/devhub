@@ -7,28 +7,57 @@ const Code = "qa"
 // Definition returns the built-in question-answer plugin registration.
 func Definition() domain.Plugin {
 	return domain.Plugin{
-		Code:         Code,
-		PluginCode:   Code,
-		Name:         "问答插件",
-		Version:      "1.0.0",
-		Status:       "enabled",
-		Description:  "提供 question 内容类型、问题发布、回答、采纳和已解决状态。",
-		ContentTypes: []string{"question"},
-		Menus: []domain.PluginMenu{
-			{PluginCode: Code, Key: "qa", Title: "问答管理", Short: "问答", Path: "/qa", Area: "admin", Icon: "QuestionFilled", Permission: "qa.question.audit"},
-			{PluginCode: Code, Key: "qa-moderator", Title: "问答治理", Short: "问答", Path: "/moderator/topics?content_type=question", Area: "moderator", Icon: "QuestionFilled", Permission: "qa.question.audit"},
+		PluginManifest: domain.PluginManifest{
+			Code:           Code,
+			PluginCode:     Code,
+			Name:           "问答插件",
+			Version:        "1.0.0",
+			Description:    "提供 question 内容类型、问题发布、回答、采纳和已解决状态。",
+			IsSystem:       true,
+			ContentTypes:   []string{"question"},
+			Dependencies:   nil,
+			MinCoreVersion: "v1.3.0",
+			ContentTypeDefs: []domain.ContentTypeDefinition{
+				{
+					Type:             "question",
+					Name:             "问答",
+					PluginCode:       Code,
+					CreatePermission: "qa.question.create",
+					EditPermission:   "post.update",
+					DeletePermission: "post.delete",
+					AuditPermission:  "qa.question.audit",
+					DefaultStatus:    "publish",
+					AllowComment:     true,
+					AllowLike:        true,
+					AllowFavorite:    true,
+					SEOType:          "QAPage",
+				},
+			},
+			Menus: []domain.MenuDefinition{
+				{PluginCode: Code, Code: "qa", Key: "qa", Title: "问答管理", Short: "问答", Path: "/qa", Location: "admin", Area: "admin", Icon: "QuestionFilled", Permission: "qa.question.audit", SortOrder: 200},
+				{PluginCode: Code, Code: "qa-moderator", Key: "qa-moderator", Title: "问答治理", Short: "问答", Path: "/moderator/topics?content_type=question", Location: "moderator", Area: "moderator", Icon: "QuestionFilled", Permission: "qa.question.audit", SortOrder: 200},
+			},
+			Permissions: []domain.PermissionDefinition{
+				{PluginCode: Code, Code: "qa.question.create", Name: "发布问题", Description: "创建 question 内容", Scope: "community,category"},
+				{PluginCode: Code, Code: "qa.question.audit", Name: "审核问题", Description: "审核 question 内容", Scope: "community,category"},
+				{PluginCode: Code, Code: "qa.answer.create", Name: "提交回答", Description: "在 question 下创建回答", Scope: "community,category"},
+				{PluginCode: Code, Code: "qa.answer.accept", Name: "采纳回答", Description: "采纳最佳回答", Scope: "own,community"},
+			},
+			Routes: []domain.RouteDefinition{
+				{PluginCode: Code, Area: "frontend", Method: "POST", Path: "/api/v1/topics", Handler: "qa.question.create"},
+				{PluginCode: Code, Area: "frontend", Method: "POST", Path: "/api/v1/topics/:id/comments", Handler: "qa.answer.create"},
+				{PluginCode: Code, Area: "frontend", Method: "POST", Path: "/api/v1/topics/:id/comments/:commentId/accept", Handler: "qa.answer.accept"},
+				{PluginCode: Code, Area: "admin", Method: "GET", Path: "/api/v1/admin/posts?content_type=question", Handler: "qa.question.audit"},
+			},
+			ConfigSchema: map[string]any{
+				"type":       "object",
+				"properties": map[string]any{},
+			},
+			Hooks: []domain.HookDefinition{
+				{PluginCode: Code, Name: "AfterCreateComment", Description: "回答创建后同步问答状态", Critical: false, FailurePolicy: "log"},
+				{PluginCode: Code, Name: "OnSEOBuild", Description: "构建问答详情页 SEO 元信息", Critical: false, FailurePolicy: "log"},
+			},
 		},
-		Permissions: []domain.PluginPermission{
-			{PluginCode: Code, Code: "qa.question.create", Name: "发布问题", Scope: "community,category"},
-			{PluginCode: Code, Code: "qa.question.audit", Name: "审核问题", Scope: "community,category"},
-			{PluginCode: Code, Code: "qa.answer.create", Name: "提交回答", Scope: "community,category"},
-			{PluginCode: Code, Code: "qa.answer.accept", Name: "采纳回答", Scope: "community,category"},
-		},
-		Routes: []domain.PluginRoute{
-			{PluginCode: Code, Area: "frontend", Method: "POST", Path: "/api/v1/topics", Handler: "qa.question.create"},
-			{PluginCode: Code, Area: "frontend", Method: "POST", Path: "/api/v1/topics/:id/comments", Handler: "qa.answer.create"},
-			{PluginCode: Code, Area: "frontend", Method: "POST", Path: "/api/v1/topics/:id/comments/:commentId/accept", Handler: "qa.answer.accept"},
-			{PluginCode: Code, Area: "admin", Method: "GET", Path: "/api/v1/admin/posts?content_type=question", Handler: "qa.question.audit"},
-		},
+		Status: "enabled",
 	}
 }

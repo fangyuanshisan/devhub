@@ -23,24 +23,94 @@ type Board struct {
 	Visible bool   `json:"visible"`
 }
 
+// ContentTypeDefinition 描述一个内容类型的统一声明。
+type ContentTypeDefinition struct {
+	Type             string   `json:"type"`
+	Name             string   `json:"name"`
+	PluginCode       string   `json:"plugin_code"`
+	Aliases          []string `json:"aliases,omitempty"`
+	CreatePermission string   `json:"create_permission,omitempty"`
+	EditPermission   string   `json:"edit_permission,omitempty"`
+	DeletePermission string   `json:"delete_permission,omitempty"`
+	AuditPermission  string   `json:"audit_permission,omitempty"`
+	DefaultStatus    string   `json:"default_status,omitempty"`
+	AllowComment     bool     `json:"allow_comment"`
+	AllowLike        bool     `json:"allow_like"`
+	AllowFavorite    bool     `json:"allow_favorite"`
+	SEOType          string   `json:"seo_type,omitempty"`
+}
+
+// PermissionDefinition 描述插件或 Core 暴露的权限点。
+type PermissionDefinition struct {
+	PluginCode  string `json:"plugin_code"`
+	Code        string `json:"code"`
+	Name        string `json:"name"`
+	Description string `json:"description,omitempty"`
+	Scope       string `json:"scope,omitempty"`
+}
+
+// MenuDefinition 描述插件暴露的菜单入口。
+type MenuDefinition struct {
+	PluginCode string `json:"plugin_code"`
+	Code       string `json:"code,omitempty"`
+	Key        string `json:"key,omitempty"`
+	Title      string `json:"title"`
+	Short      string `json:"short,omitempty"`
+	Path       string `json:"path"`
+	Location   string `json:"location,omitempty"`
+	Area       string `json:"area,omitempty"`
+	Icon       string `json:"icon,omitempty"`
+	Permission string `json:"permission,omitempty"`
+	SortOrder  int    `json:"sort_order,omitempty"`
+}
+
+// RouteDefinition 描述插件声明的路由元数据。
+type RouteDefinition struct {
+	PluginCode string `json:"plugin_code"`
+	Area       string `json:"area"`
+	Method     string `json:"method"`
+	Path       string `json:"path"`
+	Handler    string `json:"handler,omitempty"`
+}
+
+// HookDefinition 描述插件可声明的扩展 Hook。
+type HookDefinition struct {
+	PluginCode    string `json:"plugin_code"`
+	Name          string `json:"name"`
+	Description   string `json:"description,omitempty"`
+	Critical      bool   `json:"critical"`
+	FailurePolicy string `json:"failure_policy,omitempty"`
+}
+
+// PluginManifest 描述插件声明层，不直接承载运行时流程。
+type PluginManifest struct {
+	Code            string                  `json:"code"`
+	PluginCode      string                  `json:"plugin_code,omitempty"`
+	Name            string                  `json:"name"`
+	Version         string                  `json:"version"`
+	Description     string                  `json:"description,omitempty"`
+	IsSystem        bool                    `json:"is_system"`
+	ContentTypes    []string                `json:"content_types,omitempty"`
+	ContentTypeDefs []ContentTypeDefinition `json:"content_type_definitions,omitempty"`
+	Permissions     []PermissionDefinition  `json:"permissions,omitempty"`
+	Menus           []MenuDefinition        `json:"menus,omitempty"`
+	Routes          []RouteDefinition       `json:"routes,omitempty"`
+	ConfigSchema    any                     `json:"config_schema,omitempty"`
+	Dependencies    []string                `json:"dependencies,omitempty"`
+	MinCoreVersion  string                  `json:"min_core_version,omitempty"`
+	Hooks           []HookDefinition        `json:"hooks,omitempty"`
+}
+
 // Plugin 描述系统插件的注册与运行状态。
 type Plugin struct {
-	Code            string             `json:"code"`
-	PluginCode      string             `json:"plugin_code,omitempty"`
-	Name            string             `json:"name"`
-	Version         string             `json:"version"`
-	Status          string             `json:"status"`
-	GlobalStatus    string             `json:"global_status,omitempty"`
-	CommunityStatus string             `json:"community_status,omitempty"`
-	SortOrder       int                `json:"sort_order,omitempty"`
-	Description     string             `json:"description,omitempty"`
-	ContentTypes    []string           `json:"content_types,omitempty"`
-	Menus           []PluginMenu       `json:"menus,omitempty"`
-	Permissions     []PluginPermission `json:"permissions,omitempty"`
-	Routes          []PluginRoute      `json:"routes,omitempty"`
-	ConfigJSON      string             `json:"config_json,omitempty"`
-	CreatedAt       string             `json:"created_at,omitempty"`
-	UpdatedAt       string             `json:"updated_at,omitempty"`
+	PluginManifest
+	Status          string `json:"status"`
+	GlobalStatus    string `json:"global_status,omitempty"`
+	CommunityStatus string `json:"community_status,omitempty"`
+	SortOrder       int    `json:"sort_order,omitempty"`
+	ConfigJSON      string `json:"config_json,omitempty"`
+	CreatedAt       string `json:"created_at,omitempty"`
+	UpdatedAt       string `json:"updated_at,omitempty"`
 }
 
 // CommunityPlugin 表示子站对某个插件的启用状态与配置。
@@ -55,34 +125,14 @@ type CommunityPlugin struct {
 	UpdatedAt   string `json:"updated_at,omitempty"`
 }
 
-// PluginMenu 表示插件注册到后台或版主工作台的菜单。
-type PluginMenu struct {
-	PluginCode string `json:"plugin_code"`
-	Key        string `json:"key"`
-	Title      string `json:"title"`
-	Short      string `json:"short,omitempty"`
-	Path       string `json:"path"`
-	Area       string `json:"area,omitempty"`
-	Icon       string `json:"icon,omitempty"`
-	Permission string `json:"permission,omitempty"`
-}
+// PluginMenu 是 MenuDefinition 的兼容别名。
+type PluginMenu = MenuDefinition
 
-// PluginPermission 表示插件提供的权限码。
-type PluginPermission struct {
-	PluginCode string `json:"plugin_code"`
-	Code       string `json:"code"`
-	Name       string `json:"name"`
-	Scope      string `json:"scope,omitempty"`
-}
+// PluginPermission 是 PermissionDefinition 的兼容别名。
+type PluginPermission = PermissionDefinition
 
-// PluginRoute 表示插件注册的前台或后台路由描述。
-type PluginRoute struct {
-	PluginCode string `json:"plugin_code"`
-	Area       string `json:"area"`
-	Method     string `json:"method"`
-	Path       string `json:"path"`
-	Handler    string `json:"handler,omitempty"`
-}
+// PluginRoute 是 RouteDefinition 的兼容别名。
+type PluginRoute = RouteDefinition
 
 // TagStat 表示标签及其关联内容数量。
 type TagStat struct {
@@ -583,40 +633,43 @@ type Category struct {
 
 // Topic 表示社区主题内容，支持多种内容类型。
 type Topic struct {
-	ID            int64    `json:"id"`
-	CommunityID   int64    `json:"community_id"`
-	CategoryID    int64    `json:"category_id"`
-	UserID        int64    `json:"user_id"`
-	Title         string   `json:"title"`
-	Slug          string   `json:"slug"`
-	ContentType   string   `json:"content_type"`
-	PluginCode    string   `json:"plugin_code"`
-	Summary       string   `json:"summary"`
-	Content       string   `json:"content"`
-	AISummary     string   `json:"ai_summary,omitempty"`
-	CoverImage    string   `json:"cover_image,omitempty"`
-	Status        int      `json:"status"`
-	IsPinned      bool     `json:"is_pinned"`
-	IsFeatured    bool     `json:"is_featured"`
-	IsSolved      bool     `json:"is_solved"`
-	CommentLocked bool     `json:"comment_locked"`
-	RejectReason  string   `json:"reject_reason,omitempty"`
-	OfflineReason string   `json:"offline_reason,omitempty"`
-	BestCommentID int64    `json:"best_comment_id,omitempty"`
-	ViewCount     int      `json:"view_count"`
-	CommentCount  int      `json:"comment_count"`
-	LikeCount     int      `json:"like_count"`
-	FavoriteCount int      `json:"favorite_count"`
-	HotScore      int      `json:"hot_score"`
-	LastActiveAt  string   `json:"last_active_at,omitempty"`
-	Tags          []string `json:"tags,omitempty"`
-	Liked         bool     `json:"liked,omitempty"`
-	Favorited     bool     `json:"favorited,omitempty"`
-	Followed      bool     `json:"followed,omitempty"`
-	CanEdit       bool     `json:"can_edit,omitempty"`
-	CanDelete     bool     `json:"can_delete,omitempty"`
-	CreatedAt     string   `json:"created_at"`
-	UpdatedAt     string   `json:"updated_at"`
+	ID            int64         `json:"id"`
+	CommunityID   int64         `json:"community_id"`
+	CategoryID    int64         `json:"category_id"`
+	UserID        int64         `json:"user_id"`
+	Title         string        `json:"title"`
+	Slug          string        `json:"slug"`
+	ContentType   string        `json:"content_type"`
+	PluginCode    string        `json:"plugin_code"`
+	Summary       string        `json:"summary"`
+	Content       string        `json:"content"`
+	AISummary     string        `json:"ai_summary,omitempty"`
+	CoverImage    string        `json:"cover_image,omitempty"`
+	Status        int           `json:"status"`
+	IsPinned      bool          `json:"is_pinned"`
+	IsFeatured    bool          `json:"is_featured"`
+	IsSolved      bool          `json:"is_solved"`
+	CommentLocked bool          `json:"comment_locked"`
+	RejectReason  string        `json:"reject_reason,omitempty"`
+	OfflineReason string        `json:"offline_reason,omitempty"`
+	BestCommentID int64         `json:"best_comment_id,omitempty"`
+	ViewCount     int           `json:"view_count"`
+	CommentCount  int           `json:"comment_count"`
+	LikeCount     int           `json:"like_count"`
+	FavoriteCount int           `json:"favorite_count"`
+	HotScore      int           `json:"hot_score"`
+	LastActiveAt  string        `json:"last_active_at,omitempty"`
+	Tags          []string      `json:"tags,omitempty"`
+	Liked         bool          `json:"liked,omitempty"`
+	Favorited     bool          `json:"favorited,omitempty"`
+	Followed      bool          `json:"followed,omitempty"`
+	CanEdit       bool          `json:"can_edit,omitempty"`
+	CanDelete     bool          `json:"can_delete,omitempty"`
+	CreatedAt     string        `json:"created_at"`
+	UpdatedAt     string        `json:"updated_at"`
+	QAQuestion    *QAQuestion   `json:"qa_question,omitempty"`
+	DocsDocument  *DocsDocument `json:"docs_document,omitempty"`
+	WikiPage      *WikiPage     `json:"wiki_page,omitempty"`
 }
 
 // TopicTag 表示主题与标签的关联。
@@ -928,30 +981,85 @@ type ModerationResult struct {
 
 // WikiPage 表示 Wiki 页面。
 type WikiPage struct {
-	ID          int64  `json:"id"`
-	CommunityID int64  `json:"community_id"`
-	CategoryID  int64  `json:"category_id,omitempty"`
-	UserID      int64  `json:"user_id"`
-	Title       string `json:"title"`
-	Slug        string `json:"slug"`
-	Summary     string `json:"summary"`
-	Content     string `json:"content"`
-	Status      int    `json:"status"`
-	ViewCount   int    `json:"view_count"`
-	LikeCount   int    `json:"like_count"`
-	CreatedAt   string `json:"created_at"`
-	UpdatedAt   string `json:"updated_at"`
+	ID               int64  `json:"id"`
+	SpaceID          int64  `json:"space_id,omitempty"`
+	TopicID          int64  `json:"topic_id,omitempty"`
+	CommunityID      int64  `json:"community_id"`
+	CategoryID       int64  `json:"category_id,omitempty"`
+	UserID           int64  `json:"user_id"`
+	Title            string `json:"title"`
+	Slug             string `json:"slug"`
+	Summary          string `json:"summary"`
+	Content          string `json:"content"`
+	CurrentVersionID int64  `json:"current_version_id,omitempty"`
+	Status           int    `json:"status"`
+	ViewCount        int    `json:"view_count"`
+	LikeCount        int    `json:"like_count"`
+	CreatedAt        string `json:"created_at"`
+	UpdatedAt        string `json:"updated_at"`
 }
 
 // WikiRevision 表示 Wiki 版本记录。
 type WikiRevision struct {
 	ID         int64  `json:"id"`
 	WikiPageID int64  `json:"wiki_page_id"`
+	TopicID    int64  `json:"topic_id,omitempty"`
 	EditorID   int64  `json:"editor_id"`
+	VersionNo  int    `json:"version_no,omitempty"`
 	Title      string `json:"title"`
 	Content    string `json:"content"`
 	ChangeNote string `json:"change_note,omitempty"`
 	CreatedAt  string `json:"created_at"`
+}
+
+// QAQuestion 表示 question 内容的扩展行。
+type QAQuestion struct {
+	ID               int64  `json:"id"`
+	TopicID          int64  `json:"topic_id"`
+	AnswerCount      int    `json:"answer_count"`
+	IsResolved       bool   `json:"is_resolved"`
+	AcceptedAnswerID int64  `json:"accepted_answer_id,omitempty"`
+	AcceptedAt       string `json:"accepted_at,omitempty"`
+	CreatedAt        string `json:"created_at,omitempty"`
+	UpdatedAt        string `json:"updated_at,omitempty"`
+}
+
+// QAAnswer 表示基于评论映射出的回答扩展行。
+type QAAnswer struct {
+	ID         int64  `json:"id"`
+	TopicID    int64  `json:"topic_id"`
+	CommentID  int64  `json:"comment_id"`
+	UserID     int64  `json:"user_id"`
+	IsAccepted bool   `json:"is_accepted"`
+	AcceptedAt string `json:"accepted_at,omitempty"`
+	CreatedAt  string `json:"created_at,omitempty"`
+	UpdatedAt  string `json:"updated_at,omitempty"`
+}
+
+// DocsSpace 表示文档空间。
+type DocsSpace struct {
+	ID          int64  `json:"id"`
+	CommunityID int64  `json:"community_id"`
+	Name        string `json:"name"`
+	Slug        string `json:"slug"`
+	Description string `json:"description,omitempty"`
+	Status      int    `json:"status"`
+	CreatedAt   string `json:"created_at,omitempty"`
+	UpdatedAt   string `json:"updated_at,omitempty"`
+}
+
+// DocsDocument 表示文档扩展行。
+type DocsDocument struct {
+	ID         int64  `json:"id"`
+	SpaceID    int64  `json:"space_id,omitempty"`
+	TopicID    int64  `json:"topic_id"`
+	ParentID   int64  `json:"parent_id,omitempty"`
+	SortOrder  int    `json:"sort_order"`
+	Status     int    `json:"status"`
+	Version    int    `json:"version"`
+	EditorType string `json:"editor_type,omitempty"`
+	CreatedAt  string `json:"created_at,omitempty"`
+	UpdatedAt  string `json:"updated_at,omitempty"`
 }
 
 // ===== 新增：请求/响应类型 =====

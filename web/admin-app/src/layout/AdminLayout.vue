@@ -66,13 +66,13 @@
 import { computed, onMounted, ref, watch } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import { ElMessage } from 'element-plus';
-import { ArrowDown, Bell, ChatDotRound, Connection, DataBoard, Document, Fold, FullScreen, Grid, Notebook, PriceTag, Promotion, QuestionFilled, Refresh, Search, SetUp, Setting, Tickets, TrendCharts, User, UserFilled, Warning } from '@element-plus/icons-vue';
+import { ArrowDown, Bell, Briefcase, ChatDotRound, Connection, DataBoard, Document, Fold, FolderOpened, FullScreen, Grid, MagicStick, Notebook, PriceTag, Promotion, QuestionFilled, Refresh, Search, SetUp, Setting, Tickets, TrendCharts, User, UserFilled, Warning } from '@element-plus/icons-vue';
 import { plugins as fetchPlugins } from '@/api/admin';
 import { menuRoutes } from '@/router';
 import { useAuthStore } from '@/stores/auth';
 import { useTabsStore } from '@/stores/tabs';
 
-const icons = { ChatDotRound, Connection, DataBoard, Document, Notebook, PriceTag, Promotion, QuestionFilled, SetUp, Setting, Tickets, TrendCharts, User, UserFilled, Warning };
+const icons = { Briefcase, ChatDotRound, Connection, DataBoard, Document, FolderOpened, MagicStick, Notebook, PriceTag, Promotion, QuestionFilled, SetUp, Setting, Tickets, TrendCharts, User, UserFilled, Warning };
 const subMenus = {
   dashboard: [{ key: 'overview', label: '运营概览' }, { key: 'todo', label: '待办事项' }],
   content: [{ key: 'posts', label: '内容管理' }, { key: 'docs', label: '文档管理' }, { key: 'tags', label: '标签管理' }],
@@ -85,6 +85,9 @@ const subMenus = {
   qaPlugin: [{ key: 'questions', label: '问题列表' }, { key: 'answers', label: '回答治理' }],
   docsPlugin: [{ key: 'documents', label: '文档列表' }, { key: 'spaces', label: '空间结构' }],
   wikiPlugin: [{ key: 'pages', label: '页面列表' }, { key: 'versions', label: '版本历史' }],
+  projectsPlugin: [{ key: 'projects', label: '项目列表' }, { key: 'review', label: '项目治理' }],
+  jobsPlugin: [{ key: 'jobs', label: '招聘列表' }, { key: 'review', label: '招聘治理' }],
+  aiWorksPlugin: [{ key: 'works', label: '作品列表' }, { key: 'review', label: '作品治理' }],
   communities: [{ key: 'site', label: '子站配置' }, { key: 'board', label: '板块管理' }],
   sites: [{ key: 'site', label: '子站配置' }, { key: 'board', label: '板块管理' }],
   users: [{ key: 'list', label: '用户管理' }, { key: 'roles', label: '角色权限' }],

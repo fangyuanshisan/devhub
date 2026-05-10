@@ -241,6 +241,12 @@ function pluginCodeForContentType(contentType: string) {
       return 'docs';
     case 'wiki_page':
       return 'wiki';
+    case 'project':
+      return 'projects';
+    case 'job':
+      return 'jobs';
+    case 'ai_work':
+      return 'ai_works';
     default:
       return 'core';
   }

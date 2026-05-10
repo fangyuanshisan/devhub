@@ -23,10 +23,16 @@ ALTER TABLE categories ADD COLUMN allowed_content_types JSON NULL AFTER plugin_c
 UPDATE topics SET content_type='document', plugin_code='docs' WHERE content_type='doc';
 UPDATE topics SET content_type='wiki_page', plugin_code='wiki' WHERE content_type='wiki';
 UPDATE topics SET plugin_code='qa' WHERE content_type='question';
+UPDATE topics SET plugin_code='projects' WHERE content_type='project';
+UPDATE topics SET plugin_code='jobs' WHERE content_type='job';
+UPDATE topics SET plugin_code='ai_works' WHERE content_type='ai_work';
 
 UPDATE categories SET type='document', plugin_code='docs', allowed_content_types=JSON_ARRAY('document','doc') WHERE type='doc' OR slug='docs';
 UPDATE categories SET type='wiki_page', plugin_code='wiki', allowed_content_types=JSON_ARRAY('wiki_page','wiki') WHERE type='wiki' OR slug='wiki';
 UPDATE categories SET plugin_code='qa', allowed_content_types=JSON_ARRAY('question') WHERE type='question';
+UPDATE categories SET plugin_code='projects', allowed_content_types=JSON_ARRAY('project') WHERE type='project' OR slug='opensource';
+UPDATE categories SET plugin_code='jobs', allowed_content_types=JSON_ARRAY('job') WHERE type='job' OR slug='jobs';
+UPDATE categories SET plugin_code='ai_works', allowed_content_types=JSON_ARRAY('ai_work') WHERE type='ai_work' OR slug='ai';
 UPDATE categories SET plugin_code='core', allowed_content_types=JSON_ARRAY(type) WHERE plugin_code='core' AND allowed_content_types IS NULL;
 
 CREATE TABLE IF NOT EXISTS qa_questions (

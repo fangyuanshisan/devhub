@@ -40,6 +40,12 @@ type MemoryStore struct {
 	categories       map[int64]*domain.Category
 	plugins          map[string]*domain.Plugin
 	communityPlugins map[int64]map[string]*domain.CommunityPlugin
+	qaQuestions      map[int64]*domain.QAQuestion
+	qaAnswers        map[int64]*domain.QAAnswer
+	docsSpaces       map[int64]*domain.DocsSpace
+	docsDocuments    map[int64]*domain.DocsDocument
+	wikiPages        map[int64]*domain.WikiPage
+	wikiVersions     map[int64]*domain.WikiRevision
 	tags             map[int64]*domain.Tag
 	tagAliases       map[int64]*domain.TagAlias
 	boardOrder       []string
@@ -84,6 +90,12 @@ func NewMemoryStore() *MemoryStore {
 		categories:       map[int64]*domain.Category{},
 		plugins:          map[string]*domain.Plugin{},
 		communityPlugins: map[int64]map[string]*domain.CommunityPlugin{},
+		qaQuestions:      map[int64]*domain.QAQuestion{},
+		qaAnswers:        map[int64]*domain.QAAnswer{},
+		docsSpaces:       map[int64]*domain.DocsSpace{},
+		docsDocuments:    map[int64]*domain.DocsDocument{},
+		wikiPages:        map[int64]*domain.WikiPage{},
+		wikiVersions:     map[int64]*domain.WikiRevision{},
 		tags:             map[int64]*domain.Tag{},
 		tagAliases:       map[int64]*domain.TagAlias{},
 		boardOrder:       []string{"all", "community", "qa", "opensource", "ai", "jobs", "wiki", "docs"},
@@ -233,6 +245,101 @@ func (s *MemoryStore) seedCommunityPluginsLocked() {
 			}
 		}
 	}
+}
+
+func (s *MemoryStore) ensureDocsSpaceLocked(communityID int64) int64 {
+	for _, space := range s.docsSpaces {
+		if space != nil && space.CommunityID == communityID && space.Slug == "default" {
+			return space.ID
+		}
+	}
+	id := int64(len(s.docsSpaces) + 1)
+	s.docsSpaces[id] = &domain.DocsSpace{
+		ID:          id,
+		CommunityID: communityID,
+		Name:        "默认文档空间",
+		Slug:        "default",
+		Description: "由 Docs 插件自动创建的默认空间。",
+		Status:      1,
+		CreatedAt:   Now(),
+		UpdatedAt:   Now(),
+	}
+	return id
+}
+
+func (s *MemoryStore) ensureWikiPageLocked(topic domain.Topic) {
+	if _, ok := s.wikiPages[topic.ID]; ok {
+		return
+	}
+	spaceID := int64(topic.CommunityID)
+	id := topic.ID
+	versionID := int64(len(s.wikiVersions) + 1)
+	s.wikiPages[id] = &domain.WikiPage{
+		ID:               id,
+		SpaceID:          spaceID,
+		TopicID:          topic.ID,
+		CommunityID:      topic.CommunityID,
+		CategoryID:       topic.CategoryID,
+		UserID:           topic.UserID,
+		Title:            topic.Title,
+		Summary:          topic.Summary,
+		Content:          topic.Content,
+		Status:           1,
+		CurrentVersionID: versionID,
+		CreatedAt:        topic.CreatedAt,
+		UpdatedAt:        topic.UpdatedAt,
+	}
+	s.wikiVersions[versionID] = &domain.WikiRevision{
+		ID:         versionID,
+		WikiPageID: id,
+		TopicID:    topic.ID,
+		EditorID:   topic.UserID,
+		VersionNo:  1,
+		Title:      topic.Title,
+		Content:    topic.Content,
+		ChangeNote: "初始版本",
+		CreatedAt:  topic.CreatedAt,
+	}
+}
+
+func (s *MemoryStore) seedPluginContentRowsLocked(topic domain.Topic) {
+	switch topic.PluginCode {
+	case "qa":
+		s.qaQuestions[topic.ID] = &domain.QAQuestion{
+			ID:          topic.ID,
+			TopicID:     topic.ID,
+			AnswerCount: 0,
+			IsResolved:  topic.IsSolved,
+			CreatedAt:   topic.CreatedAt,
+			UpdatedAt:   topic.UpdatedAt,
+		}
+	case "docs":
+		spaceID := s.ensureDocsSpaceLocked(topic.CommunityID)
+		s.docsDocuments[topic.ID] = &domain.DocsDocument{
+			ID:         topic.ID,
+			SpaceID:    spaceID,
+			TopicID:    topic.ID,
+			ParentID:   0,
+			SortOrder:  0,
+			Status:     1,
+			Version:    1,
+			EditorType: "markdown",
+			CreatedAt:  topic.CreatedAt,
+			UpdatedAt:  topic.UpdatedAt,
+		}
+	case "wiki":
+		s.ensureWikiPageLocked(topic)
+	}
+}
+
+func (s *MemoryStore) countWikiVersionsLocked(wikiPageID int64) int {
+	count := 0
+	for _, item := range s.wikiVersions {
+		if item != nil && item.WikiPageID == wikiPageID {
+			count++
+		}
+	}
+	return count
 }
 
 func (s *MemoryStore) seedCommunitiesAndCategories() {
@@ -878,7 +985,7 @@ func (s *MemoryStore) memoryAuthUserLocked(userID int64, identity string) domain
 	}
 	if identity == "user" {
 		// Frontend users have a baseline set of permissions for publishing and interaction.
-		perms = []string{"post.create", "comment.read", "qa.question.create", "qa.answer.create", "docs.document.create", "wiki.page.create"}
+		perms = []string{"post.create", "core.topic.create", "comment.read", "qa.question.create", "qa.answer.create", "docs.document.create", "wiki.page.create", "projects.project.create", "jobs.job.create", "ai_works.work.create"}
 	}
 	return domain.AuthUser{
 		ID:          u.ID,
@@ -1100,7 +1207,6 @@ func (s *MemoryStore) SetPluginStatus(code, status string) (domain.Plugin, error
 	}
 	runtime.Status = status
 	runtime.UpdatedAt = Now()
-	s.appendLogLocked("system", "admin", "更新插件状态", fmt.Sprintf("plugins#%s:%s", def.Code, status), "127.0.0.1")
 	return pluginregistry.MergeRuntimeState(def, *runtime), nil
 }
 
@@ -1171,8 +1277,6 @@ func (s *MemoryStore) SetCommunityPluginStatus(communityID int64, code, status s
 	}
 	cp.Status = status
 	cp.UpdatedAt = Now()
-	s.appendLogLocked("system", "admin", "更新子站插件状态", fmt.Sprintf("community_plugins#%d:%s:%s", communityID, def.Code, status), "127.0.0.1")
-
 	plugin := pluginregistry.MergeRuntimeState(def, *global)
 	plugin.GlobalStatus = global.Status
 	plugin.CommunityStatus = cp.Status
@@ -1209,8 +1313,6 @@ func (s *MemoryStore) SetCommunityPluginConfig(communityID int64, code, configJS
 	}
 	cp.ConfigJSON = strings.TrimSpace(configJSON)
 	cp.UpdatedAt = Now()
-	s.appendLogLocked("system", "admin", "更新子站插件配置", fmt.Sprintf("community_plugins#%d:%s:config", communityID, def.Code), "127.0.0.1")
-
 	plugin := pluginregistry.MergeRuntimeState(def, *global)
 	plugin.GlobalStatus = global.Status
 	plugin.CommunityStatus = cp.Status
@@ -1247,7 +1349,6 @@ func (s *MemoryStore) ReorderCommunityPlugins(communityID int64, codes []string)
 		cp.UpdatedAt = Now()
 		updated++
 	}
-	s.appendLogLocked("system", "admin", "更新子站插件排序", fmt.Sprintf("community_plugins#%d:sort", communityID), "127.0.0.1")
 	return updated, nil
 }
 
@@ -4260,7 +4361,7 @@ func (s *MemoryStore) CreateTopic(req domain.CreateTopicRequest) (*domain.Topic,
 	s.appendActivityLocked(userID, req.CommunityID, "created_topic", "topic", post.ID, post.ID, post.Title)
 	s.appendLogLocked("operation", "DevHub 用户", "创建主题", fmt.Sprintf("topics#%d", post.ID), "127.0.0.1")
 
-	return &domain.Topic{
+	topic := domain.Topic{
 		ID:            post.ID,
 		CommunityID:   req.CommunityID,
 		CategoryID:    req.CategoryID,
@@ -4283,7 +4384,9 @@ func (s *MemoryStore) CreateTopic(req domain.CreateTopicRequest) (*domain.Topic,
 		Tags:          post.Tags,
 		CreatedAt:     now,
 		UpdatedAt:     now,
-	}, nil
+	}
+	s.seedPluginContentRowsLocked(topic)
+	return &topic, nil
 }
 
 func (s *MemoryStore) UpdateTopic(id int64, req domain.UpdateTopicRequest) (*domain.Topic, error) {
@@ -4348,6 +4451,42 @@ func (s *MemoryStore) UpdateTopic(id int64, req domain.UpdateTopicRequest) (*dom
 		p.Tags = uniqueTags(*req.Tags)
 	}
 	p.UpdatedAt = Now()
+	if contentTypeForBoard(p.Board) == "question" {
+		if q, ok := s.qaQuestions[id]; ok && q != nil {
+			q.IsResolved = s.topicIsSolvedLocked(p)
+			q.AcceptedAnswerID = s.bestCommentIDLocked(id)
+			q.AnswerCount = p.Comments
+			q.UpdatedAt = p.UpdatedAt
+		}
+	}
+	if contentTypeForBoard(p.Board) == "document" {
+		if doc, ok := s.docsDocuments[id]; ok && doc != nil {
+			doc.Version++
+			doc.UpdatedAt = p.UpdatedAt
+		}
+	}
+	if contentTypeForBoard(p.Board) == "wiki_page" {
+		if page, ok := s.wikiPages[id]; ok && page != nil {
+			versionID := int64(len(s.wikiVersions) + 1)
+			versionNo := s.countWikiVersionsLocked(page.ID) + 1
+			s.wikiVersions[versionID] = &domain.WikiRevision{
+				ID:         versionID,
+				WikiPageID: page.ID,
+				TopicID:    id,
+				EditorID:   p.UserID,
+				VersionNo:  versionNo,
+				Title:      p.Title,
+				Content:    p.Content,
+				ChangeNote: "更新页面",
+				CreatedAt:  p.UpdatedAt,
+			}
+			page.Title = p.Title
+			page.Summary = p.Summary
+			page.Content = p.Content
+			page.UpdatedAt = p.UpdatedAt
+			page.CurrentVersionID = versionID
+		}
+	}
 	s.rebuildTagsFromPostsLocked()
 	topic, _ := s.topicFromPostLocked(id, false)
 	return &topic, nil
@@ -4991,6 +5130,23 @@ func (s *MemoryStore) CreateCommentWithRequest(topicID int64, req domain.CreateC
 	} else {
 		s.createUserNoticeLocked(p.UserID, userID, "topic_commented", "topic", topicID, topicID, c.ID, "你的主题有新的评论", fmt.Sprintf("%s 评论了《%s》。", author, p.Title))
 	}
+	if contentTypeForBoard(p.Board) == "question" {
+		answerID := int64(len(s.qaAnswers) + 1)
+		s.qaAnswers[answerID] = &domain.QAAnswer{
+			ID:         answerID,
+			TopicID:    topicID,
+			CommentID:  c.ID,
+			UserID:     userID,
+			IsAccepted: false,
+			CreatedAt:  c.CreatedAt,
+			UpdatedAt:  c.CreatedAt,
+		}
+		if q, ok := s.qaQuestions[topicID]; ok && q != nil {
+			q.AnswerCount++
+			q.UpdatedAt = Now()
+		}
+		s.createUserNoticeLocked(p.UserID, userID, "qa.question.answered", "topic", topicID, topicID, c.ID, "你的问题有了新回答", fmt.Sprintf("%s 回答了《%s》。", author, p.Title))
+	}
 	cp := *c
 	s.normalizeCommentLocked(&cp)
 	return &cp, nil
@@ -5022,6 +5178,24 @@ func (s *MemoryStore) AcceptBestAnswer(topicID int64, commentID int64, actorUser
 	now := Now()
 	p.UpdatedAt = now
 	c.UpdatedAt = now
+	if q, ok := s.qaQuestions[topicID]; ok && q != nil {
+		q.IsResolved = true
+		q.AcceptedAnswerID = commentID
+		q.AcceptedAt = now
+		q.UpdatedAt = now
+	}
+	for _, answer := range s.qaAnswers {
+		if answer == nil || answer.TopicID != topicID {
+			continue
+		}
+		answer.IsAccepted = answer.CommentID == commentID
+		if answer.IsAccepted {
+			answer.AcceptedAt = now
+		} else {
+			answer.AcceptedAt = ""
+		}
+		answer.UpdatedAt = now
+	}
 	communityID := s.communityIDBySlugLocked(p.Site)
 	s.appendActivityLocked(actorUserID, communityID, "accepted_answer", "comment", commentID, topicID, p.Title)
 	receiverID := c.UserID
@@ -5029,7 +5203,85 @@ func (s *MemoryStore) AcceptBestAnswer(topicID int64, commentID int64, actorUser
 		receiverID = 1
 	}
 	s.createUserNoticeLocked(receiverID, actorUserID, "answer_accepted", "comment", commentID, topicID, commentID, "你的回答被采纳", fmt.Sprintf("你在《%s》中的回答被采纳为最佳答案。", p.Title))
+	s.createUserNoticeLocked(receiverID, actorUserID, "qa.answer.accepted", "comment", commentID, topicID, commentID, "问答已采纳最佳答案", fmt.Sprintf("《%s》已采纳你的回答。", p.Title))
 	return true
+}
+
+func (s *MemoryStore) QAQuestionByTopicID(topicID int64) (*domain.QAQuestion, error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	item, ok := s.qaQuestions[topicID]
+	if !ok || item == nil {
+		return nil, errors.New("问答扩展不存在")
+	}
+	cp := *item
+	return &cp, nil
+}
+
+func (s *MemoryStore) QAAnswersByTopicID(topicID int64) ([]domain.QAAnswer, error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	items := []domain.QAAnswer{}
+	for _, item := range s.qaAnswers {
+		if item != nil && item.TopicID == topicID {
+			items = append(items, *item)
+		}
+	}
+	return items, nil
+}
+
+func (s *MemoryStore) DocsDocumentByTopicID(topicID int64) (*domain.DocsDocument, error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	item, ok := s.docsDocuments[topicID]
+	if !ok || item == nil {
+		return nil, errors.New("文档扩展不存在")
+	}
+	cp := *item
+	return &cp, nil
+}
+
+func (s *MemoryStore) DocsTree(communityID int64, spaceID int64) ([]domain.DocsDocument, error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	items := []domain.DocsDocument{}
+	for _, item := range s.docsDocuments {
+		if item == nil {
+			continue
+		}
+		if spaceID > 0 && item.SpaceID != spaceID {
+			continue
+		}
+		items = append(items, *item)
+	}
+	return items, nil
+}
+
+func (s *MemoryStore) WikiPageByTopicID(topicID int64) (*domain.WikiPage, error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	item, ok := s.wikiPages[topicID]
+	if !ok || item == nil {
+		return nil, errors.New("Wiki 页面扩展不存在")
+	}
+	cp := *item
+	return &cp, nil
+}
+
+func (s *MemoryStore) WikiVersionsByTopicID(topicID int64) ([]domain.WikiRevision, error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	page, ok := s.wikiPages[topicID]
+	if !ok || page == nil {
+		return nil, errors.New("Wiki 页面扩展不存在")
+	}
+	items := []domain.WikiRevision{}
+	for _, item := range s.wikiVersions {
+		if item != nil && item.WikiPageID == page.ID {
+			items = append(items, *item)
+		}
+	}
+	return items, nil
 }
 
 // CreateReport 创建举报记录。

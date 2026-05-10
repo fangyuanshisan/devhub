@@ -38,6 +38,9 @@ const typeLabels = {
     <nav class="board-tabs js-board-tabs" aria-label="板块" data-category-tabs>
       <a class="active" data-content-type="" href={`/c/${site.key}/`}>全部</a>
     </nav>
+    <div class="sort-tabs" data-plugin-nav>
+      <span>正在加载插件入口...</span>
+    </div>
     <section class="content-layout">
       <div>
         <div class="section-head">
@@ -95,6 +98,7 @@ const typeLabels = {
       const authHeaders = (extra = {}) => token() ? { ...extra, Authorization: `Bearer ${token()}` } : extra;
       const postJSON = (url, body) => fetch(url, { method: 'POST', headers: authHeaders({ 'Content-Type': 'application/json' }), body: JSON.stringify(body) }).then((response) => response.ok ? response.json() : response.json().then((data) => Promise.reject(data)));
       const tagURL = (tag) => `/c/${encodeURIComponent(community)}/tags/${encodeURIComponent(String(tag).trim().toLowerCase().replace(/\s+/g, '-'))}/`;
+      const pluginNav = document.querySelector('[data-plugin-nav]');
       const buildURL = (next = {}) => {
         const search = new URLSearchParams();
         const type = next.content_type ?? activeType;
@@ -154,6 +158,20 @@ const typeLabels = {
           tabs.innerHTML = `<a data-content-type="" class="${activeType === '' ? 'active' : ''}" href="${buildURL({ content_type: '' })}">全部</a>` + categories.map((cat) => `<a data-content-type="${escapeHTML(cat.type)}" class="${activeType === cat.type ? 'active' : ''}" href="${buildURL({ content_type: cat.type })}">${escapeHTML(cat.name)}</a>`).join('');
         }
       }).catch(() => {});
+
+      getJSON(`/api/v1/communities/${encodeURIComponent(community)}/plugins`).then((data) => {
+        const items = data.items || [];
+        const links = [];
+        if (items.some((item) => item.code === 'qa')) links.push(`<a href="/search/?scope=community&community_slug=${encodeURIComponent(community)}&content_type=question">问答</a>`);
+        if (items.some((item) => item.code === 'docs')) links.push(`<a href="/search/?scope=community&community_slug=${encodeURIComponent(community)}&content_type=document">文档</a>`);
+        if (items.some((item) => item.code === 'wiki')) links.push(`<a href="/search/?scope=community&community_slug=${encodeURIComponent(community)}&content_type=wiki_page">Wiki</a>`);
+        if (items.some((item) => item.code === 'projects')) links.push(`<a href="/search/?scope=community&community_slug=${encodeURIComponent(community)}&content_type=project">开源项目</a>`);
+        if (items.some((item) => item.code === 'jobs')) links.push(`<a href="/search/?scope=community&community_slug=${encodeURIComponent(community)}&content_type=job">招聘内推</a>`);
+        if (items.some((item) => item.code === 'ai_works')) links.push(`<a href="/search/?scope=community&community_slug=${encodeURIComponent(community)}&content_type=ai_work">AI作品</a>`);
+        if (pluginNav) pluginNav.innerHTML = links.length ? links.join('') : '<span>当前子站暂无插件入口</span>';
+      }).catch(() => {
+        if (pluginNav) pluginNav.innerHTML = '<span>当前子站暂无插件入口</span>';
+      });
 
 	      const topicQuery = new URLSearchParams({ community_slug: community, sort: activeSort, page_size: '24' });
 	      if (activeSort === 'unsolved') topicQuery.set('content_type', 'question');

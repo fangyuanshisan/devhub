@@ -4,11 +4,11 @@
 
 DevHub v1.3.0 is the Core + Plugins architecture split release.
 
-Current status: v1.3.0 is code-level integrated for built-in `qa`, `docs`, and `wiki` system plugins, global plugin state, per-community plugin state, and publishing validation. Some product-facing UI and fine-grained permission checks remain follow-up work and are listed below.
+Current status: v1.3.0 is code-level integrated for built-in `qa`, `docs`, `wiki`, `projects`, `jobs`, and `ai_works` system plugins, global plugin state, per-community plugin state, and publishing validation. Some browser acceptance, plugin-specific product workflows, and fine-grained permission matrices remain follow-up work and are listed below.
 
 ### Added
 
-- Built-in plugin registry with `qa`, `docs`, and `wiki` system plugins.
+- Built-in plugin registry with `qa`, `docs`, `wiki`, `projects`, `jobs`, and `ai_works` system plugins.
 - MySQL `plugins` table with `installed`, `enabled`, and `disabled` states.
 - Per-community plugin enablement via the `community_plugins` table.
 - `topics.plugin_code` plus `categories.plugin_code` and `categories.allowed_content_types`.
@@ -18,18 +18,18 @@ Current status: v1.3.0 is code-level integrated for built-in `qa`, `docs`, and `
 
 ### Changed
 
-- `question`, `document`, and `wiki_page` are now owned by `qa`, `docs`, and `wiki` plugins rather than hardcoded as Core-only types.
+- `question`, `document`, `wiki_page`, `project`, `job`, and `ai_work` are now owned by `qa`, `docs`, `wiki`, `projects`, `jobs`, and `ai_works` plugins rather than hardcoded as Core-only types.
 - Topic publishing validates category plugin binding, global plugin status, per-community plugin status, and allowed content types.
 - Legacy `doc` / `wiki` request values are normalized to `document` / `wiki_page` for compatibility.
-- `project`, `job`, and `ai_work` remain Core-compatible content types or future plugin candidates; they are not fully pluginized in v1.3.0.
+- `project`, `job`, and `ai_work` have plugin ownership, publish validation, permissions, and menus; plugin-specific extension tables and full product workflows remain follow-up work.
 
 ### Known Limitations
 
 - Plugin marketplace, package upload, and remote update are still out of scope.
 - Plugin route loading is currently registry metadata plus Core dispatch, not a dynamic module loader.
 - Dedicated Docs tree editing UI and Wiki collaboration / rollback UI remain follow-up work.
-- Community plugin `config_json` and sort APIs exist, but the admin UI still needs fuller controls and browser acceptance.
-- Publishing does not yet enforce plugin permission codes such as `qa.question.create`, `docs.document.create`, or `wiki.page.create` as fine-grained user permissions.
+- Community plugin `config_json` and sort have a minimal admin UI, but still need full browser matrix acceptance and stronger product polish.
+- Publishing currently enforces minimal permission-code checks for plugin-owned types. Core-compatible `article` and `news` still use a coarse permission (`core.topic.create`, compatible with legacy `post.create`) and do not yet support fine-grained per-type permission matrices.
 
 ## v1.2.1
 

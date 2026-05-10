@@ -86,6 +86,12 @@ alias URL 和 merged source URL 优先 301 到主标签 canonical URL，不作�
 - `question`、`document`、`wiki_page` 类型的历史 Topic 仍由 Core `/topics/:id` 动态页输出 SEO HTML。
 - 插件专用 UI 后续增强时，不得替换或破坏 `/topics/:id` 的 Go 动态 SEO 输出。
 
+当前增强与限制：
+
+- `question` 当前仍复用通用 Article JSON-LD；`QAPage` 结构化数据属于后续增强项。
+- `document` 当前仍复用通用 Article JSON-LD；`BreadcrumbList` 属于后续增强项。
+- `wiki_page` 当前仍复用通用 Article JSON-LD；`TechArticle` 与版本元信息属于后续增强项。
+
 ## 回归命令
 
 ```bash

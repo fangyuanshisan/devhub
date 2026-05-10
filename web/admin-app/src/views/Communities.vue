@@ -119,7 +119,7 @@
     <el-table :data="pluginRows" border stripe>
       <el-table-column prop="sort_order" label="排序" width="120">
         <template #default="{ row, $index }">
-          <span class="content-meta">#{{ row.sort_order ?? 0 }}</span>
+          <el-input-number v-model="row.sort_order" :min="0" size="small" />
           <el-button link :disabled="$index === 0" @click="movePlugin($index, -1)">上移</el-button>
           <el-button link :disabled="$index === pluginRows.length - 1" @click="movePlugin($index, 1)">下移</el-button>
         </template>
@@ -183,7 +183,7 @@
 <script setup>
 import { computed, reactive, ref } from 'vue';
 import { useRouter } from 'vue-router';
-import { ElMessage } from 'element-plus';
+import { ElMessage, ElMessageBox } from 'element-plus';
 import { adminCommunities, adminCommunityCategories, adminCommunityPlugins, createCommunity, createCommunityCategory, disableCategory, disableCommunity, disableCommunityPlugin, enableCategory, enableCommunity, enableCommunityPlugin, reorderCategories, reorderCommunities, reorderCommunityPlugins, updateCategory, updateCommunity, updateCommunityPluginConfig } from '@/api/admin';
 
 const router = useRouter();
@@ -286,6 +286,13 @@ async function loadPlugins() {
 }
 
 async function setCommunityPlugin(row, status) {
+  if (status === 'disabled') {
+    await ElMessageBox.confirm(
+      '禁用子站插件后，只影响新发布、导航、菜单和管理入口，不影响历史内容访问。是否继续？',
+      '禁用确认',
+      { type: 'warning' },
+    );
+  }
   if (status === 'enabled') await enableCommunityPlugin(currentCommunity.value.id, row.code);
   else await disableCommunityPlugin(currentCommunity.value.id, row.code);
   ElMessage.success('子站插件已更新');
@@ -304,7 +311,9 @@ function movePlugin(index, delta) {
 }
 
 async function savePluginOrder() {
-  const codes = pluginRows.value.map((p) => p.code);
+  const codes = [...pluginRows.value]
+    .sort((a, b) => Number(a.sort_order || 0) - Number(b.sort_order || 0))
+    .map((p) => p.code);
   await reorderCommunityPlugins(currentCommunity.value.id, { codes });
   ElMessage.success('插件排序已保存');
   await loadPlugins();
