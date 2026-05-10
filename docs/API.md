@@ -2,7 +2,7 @@
 
 [返回文档入口](README.md)
 
-更新时间：2026-05-10
+更新时间：2026-05-10（v1.3.2 文档口径同步）
 
 本文档只记录当前仓库真实可用 API。接口路径以 `internal/transport/httpapi/router.go` 为准；未实现能力集中放在“规划 / 未完成”小节，不写入当前真实 API 主体。
 
@@ -91,7 +91,7 @@
 ```
 
 - 返回：更新后的插件对象，包含 `config_json` 和 `resolved_config`。
-- 校验：当前只校验 `config_json` 是合法 JSON，暂不做 `config_schema` 强校验。
+- 校验：会按插件 `config_schema` 执行基础校验（简化 JSON Schema），至少覆盖 `type`、`required`、`enum`、`min/max` 与未知字段策略。
 - 审计：写入插件全局配置审计日志。
   当前同时写入 `admin_logs.target` 文本摘要和 `old_value` / `new_value` / `metadata_json` 结构化字段。
 
@@ -158,7 +158,7 @@
 ```
 
 - 返回：更新后的插件对象。
-- 校验：当前只校验 `config_json` 是合法 JSON，暂不做 `config_schema` 强校验。
+- 校验：会按插件 `config_schema` 执行基础校验（简化 JSON Schema），至少覆盖 `type`、`required`、`enum`、`min/max` 与未知字段策略。
 - 审计：写入子站插件配置审计日志。
   当前同时写入 `admin_logs.target` 文本摘要和 `old_value` / `new_value` / `metadata_json` 结构化字段。
 

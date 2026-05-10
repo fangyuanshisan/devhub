@@ -50,8 +50,13 @@ func Definition() domain.Plugin {
 				{PluginCode: Code, Area: "admin", Method: "GET", Path: "/api/v1/admin/posts?content_type=wiki_page", Handler: "wiki.page.audit"},
 			},
 			ConfigSchema: map[string]any{
-				"type":       "object",
-				"properties": map[string]any{},
+				"type":                 "object",
+				"additionalProperties": false,
+				"properties": map[string]any{
+					"enable_version_history": map[string]any{"type": "boolean", "description": "是否启用版本历史"},
+					"max_versions":           map[string]any{"type": "integer", "min": float64(1), "max": float64(200), "description": "保留最大版本数"},
+				},
+				"required": []any{"enable_version_history"},
 			},
 			Hooks: []domain.HookDefinition{
 				{PluginCode: Code, Name: "BeforeUpdateContent", Description: "更新 Wiki 页面前预留版本快照校验", Critical: true, FailurePolicy: "rollback"},

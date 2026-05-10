@@ -50,8 +50,13 @@ func Definition() domain.Plugin {
 				{PluginCode: Code, Area: "admin", Method: "GET", Path: "/api/v1/admin/posts?content_type=document", Handler: "docs.document.audit"},
 			},
 			ConfigSchema: map[string]any{
-				"type":       "object",
-				"properties": map[string]any{},
+				"type":                 "object",
+				"additionalProperties": false,
+				"properties": map[string]any{
+					"allow_public_spaces": map[string]any{"type": "boolean", "description": "是否允许公开文档空间"},
+					"max_tree_depth":      map[string]any{"type": "integer", "min": float64(1), "max": float64(20), "description": "文档树最大深度"},
+				},
+				"required": []any{"allow_public_spaces"},
 			},
 			Hooks: []domain.HookDefinition{
 				{PluginCode: Code, Name: "BeforeCreateContent", Description: "创建文档前预留文档树约束校验", Critical: true, FailurePolicy: "rollback"},

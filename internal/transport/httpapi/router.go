@@ -1940,6 +1940,23 @@ func (s *Server) setAdminPluginStatus(c *gin.Context, status string) {
 		gin.H{"status": before.Status},
 		gin.H{"status": plugin.Status},
 		gin.H{"scope": "global", "plugin_code": plugin.Code, "operation": "plugin_status"})
+	// Platform governance: emit plugin lifecycle hook.
+	hookName := pluginregistry.HookAfterPluginEnabled
+	if status == pluginregistry.StatusDisabled {
+		hookName = pluginregistry.HookAfterPluginDisabled
+	}
+	ctx := s.actorContext(c)
+	_ = s.svc.DispatchHook(pluginregistry.HookEvent{
+		Name: hookName,
+		Mode: pluginregistry.HookNonBlocking,
+		Ctx: pluginregistry.HookContext{
+			PluginCode: plugin.Code,
+			ActorType:  pluginregistry.HookActorAdmin,
+			ActorID:    ctx.AdminID,
+			Actor:      ctx,
+			Metadata:   map[string]any{"scope": "global", "status": status},
+		},
+	})
 	c.JSON(http.StatusOK, plugin)
 }
 
@@ -2405,6 +2422,24 @@ func (s *Server) setAdminCommunityPluginStatus(c *gin.Context, status string) {
 		gin.H{"community_status": beforeStatus},
 		gin.H{"community_status": plugin.CommunityStatus},
 		gin.H{"scope": "community", "community_id": id, "plugin_code": plugin.Code, "operation": "community_plugin_status"})
+	// Platform governance: emit plugin lifecycle hook for community scope.
+	hookName := pluginregistry.HookAfterPluginEnabled
+	if status == pluginregistry.StatusDisabled {
+		hookName = pluginregistry.HookAfterPluginDisabled
+	}
+	ctx := s.actorContext(c)
+	_ = s.svc.DispatchHook(pluginregistry.HookEvent{
+		Name: hookName,
+		Mode: pluginregistry.HookNonBlocking,
+		Ctx: pluginregistry.HookContext{
+			PluginCode:  plugin.Code,
+			CommunityID: id,
+			ActorType:   pluginregistry.HookActorAdmin,
+			ActorID:     ctx.AdminID,
+			Actor:       ctx,
+			Metadata:    map[string]any{"scope": "community", "community_id": id, "status": status},
+		},
+	})
 	c.JSON(http.StatusOK, plugin)
 }
 

@@ -8,7 +8,7 @@
 
 ## 当前版本结论
 
-当前版本为 `v1.3.1`，主题是“插件化关键入口封口与权限校验补强版”。DevHub 当前定位为多子站通用开源社区程序，默认演示为开发者社区。
+当前版本为 `v1.3.2`，主题是“插件平台治理增强版”。DevHub 当前定位为多子站通用开源社区程序，默认演示为开发者社区。
 
 Core 保留用户、认证、子站、板块、通用内容、评论、标签、搜索、通知、SEO、权限、审计、插件注册和分发能力。问答、文档、Wiki、项目、招聘、AI 作品已按内置系统插件建模：`qa -> question`、`docs -> document`、`wiki -> wiki_page`、`projects -> project`、`jobs -> job`、`ai_works -> ai_work`。
 
@@ -35,6 +35,8 @@ Core 保留用户、认证、子站、板块、通用内容、评论、标签、
 - 权限上下文：`CreateTopicRequest.ActorPermissions` / `ActorContext` 均由服务端从 token、后台身份和版主 scope 计算，客户端请求体不能覆盖。
 - 配置合并：`plugins.config_json` 与 `community_plugins.config_json` 已落库并可写，返回 `resolved_config.default/global/community/effective` 合并视图。
 - HookBus：Service 层已有最小内部 HookBus，当前调用点覆盖内容创建、更新、删除、评论、搜索、通知和 SEO 事件；Search / Notification / SEO 当前是最小事件派发，不做第三方动态执行。
+- `v1.3.2`：HookBus 已作为插件平台能力收口到 `internal/plugins`，内置插件可注册最小 Hook handlers；同时 `config_schema` 已在全局/子站插件配置保存时做基础校验（简化 JSON Schema）。
+- `v1.3.2`：新增 `plugin_migrations` 表，用于记录插件迁移执行状态（平台治理能力的一部分）。
 - 前台入口：子站插件公开接口会隐藏 `config_json` / `resolved_config` 等后台配置；子站板块导航会按子站插件状态过滤。
 - 后台入口：`/admin-next/plugins` 作为系统插件管理入口；插件业务页通过系统插件列表进入，默认不散落在后台左侧导航。
 - 后台插件管理体验：

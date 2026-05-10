@@ -101,6 +101,20 @@ type PluginManifest struct {
 	Hooks           []HookDefinition        `json:"hooks,omitempty"`
 }
 
+// PluginMigration represents a plugin migration execution record.
+type PluginMigration struct {
+	ID              int64  `json:"id"`
+	PluginCode      string `json:"plugin_code"`
+	Version         string `json:"version"`
+	MigrationName   string `json:"migration_name"`
+	Checksum        string `json:"checksum,omitempty"`
+	Status          string `json:"status"`
+	ExecutedAt      string `json:"executed_at,omitempty"`
+	ExecutionTimeMS int    `json:"execution_time_ms,omitempty"`
+	ErrorMessage    string `json:"error_message,omitempty"`
+	CreatedAt       string `json:"created_at,omitempty"`
+}
+
 // Plugin 描述系统插件的注册与运行状态。
 type Plugin struct {
 	PluginManifest

@@ -12,10 +12,10 @@ func TestMemoryPluginConfigValidationAndMerge(t *testing.T) {
 		t.Fatal("expected invalid community plugin config to fail")
 	}
 
-	if _, err := s.SetPluginConfig("qa", `{"limit":3,"mode":"global"}`); err != nil {
+	if _, err := s.SetPluginConfig("qa", `{"allow_anonymous_answer":true,"default_question_status":"publish"}`); err != nil {
 		t.Fatalf("set global plugin config: %v", err)
 	}
-	item, err := s.SetCommunityPluginConfig(1, "qa", `{"mode":"community"}`)
+	item, err := s.SetCommunityPluginConfig(1, "qa", `{"allow_anonymous_answer":true,"default_question_status":"publish","require_accept_permission":true}`)
 	if err != nil {
 		t.Fatalf("set community plugin config: %v", err)
 	}
@@ -27,7 +27,7 @@ func TestMemoryPluginConfigValidationAndMerge(t *testing.T) {
 	if !ok {
 		t.Fatalf("expected effective config map, got %#v", resolved["effective"])
 	}
-	if effective["limit"] != float64(3) || effective["mode"] != "community" {
+	if effective["allow_anonymous_answer"] != true || effective["default_question_status"] != "publish" || effective["require_accept_permission"] != true {
 		t.Fatalf("unexpected effective config: %#v", effective)
 	}
 }

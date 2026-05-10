@@ -1,7 +1,6 @@
 package store
 
 import (
-	"encoding/json"
 	"errors"
 	"fmt"
 	"sort"
@@ -41,6 +40,7 @@ type MemoryStore struct {
 	categories       map[int64]*domain.Category
 	plugins          map[string]*domain.Plugin
 	communityPlugins map[int64]map[string]*domain.CommunityPlugin
+	pluginMigrations map[string][]domain.PluginMigration // plugin_code -> records
 	qaQuestions      map[int64]*domain.QAQuestion
 	qaAnswers        map[int64]*domain.QAAnswer
 	docsSpaces       map[int64]*domain.DocsSpace
@@ -91,6 +91,7 @@ func NewMemoryStore() *MemoryStore {
 		categories:       map[int64]*domain.Category{},
 		plugins:          map[string]*domain.Plugin{},
 		communityPlugins: map[int64]map[string]*domain.CommunityPlugin{},
+		pluginMigrations: map[string][]domain.PluginMigration{},
 		qaQuestions:      map[int64]*domain.QAQuestion{},
 		qaAnswers:        map[int64]*domain.QAAnswer{},
 		docsSpaces:       map[int64]*domain.DocsSpace{},
@@ -129,6 +130,40 @@ func NewMemoryStore() *MemoryStore {
 	}
 	s.seed()
 	return s
+}
+
+func (s *MemoryStore) PluginMigrations(pluginCode string) ([]domain.PluginMigration, error) {
+	pluginCode = strings.TrimSpace(pluginCode)
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	items := s.pluginMigrations[pluginCode]
+	out := make([]domain.PluginMigration, 0, len(items))
+	out = append(out, items...)
+	sort.Slice(out, func(i, j int) bool { return out[i].ID > out[j].ID })
+	return out, nil
+}
+
+func (s *MemoryStore) AppendPluginMigration(record domain.PluginMigration) (domain.PluginMigration, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	record.PluginCode = strings.TrimSpace(record.PluginCode)
+	record.Version = strings.TrimSpace(record.Version)
+	record.MigrationName = strings.TrimSpace(record.MigrationName)
+	if record.PluginCode == "" || record.MigrationName == "" {
+		return domain.PluginMigration{}, errors.New("plugin_code 和 migration_name 不能为空")
+	}
+	// Prevent duplicates by (plugin_code, version, migration_name).
+	for _, it := range s.pluginMigrations[record.PluginCode] {
+		if it.PluginCode == record.PluginCode && it.Version == record.Version && it.MigrationName == record.MigrationName {
+			return it, nil
+		}
+	}
+	record.ID = int64(len(s.pluginMigrations[record.PluginCode]) + 1)
+	if record.CreatedAt == "" {
+		record.CreatedAt = Now()
+	}
+	s.pluginMigrations[record.PluginCode] = append(s.pluginMigrations[record.PluginCode], record)
+	return record, nil
 }
 
 // Now 返回符合接口格式的当前时间字符串。
@@ -1222,14 +1257,14 @@ func (s *MemoryStore) SetPluginStatus(code, status string) (domain.Plugin, error
 
 func (s *MemoryStore) SetPluginConfig(code, configJSON string) (domain.Plugin, error) {
 	configJSON = strings.TrimSpace(configJSON)
-	if configJSON != "" && !json.Valid([]byte(configJSON)) {
-		return domain.Plugin{}, errors.New("config_json 必须是合法 JSON")
-	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	def, ok := pluginregistry.DefinitionByCode(code)
 	if !ok {
 		return domain.Plugin{}, errors.New("插件不存在")
+	}
+	if err := pluginregistry.ValidateConfigJSON(def, configJSON); err != nil {
+		return domain.Plugin{}, err
 	}
 	runtime, ok := s.plugins[def.Code]
 	if !ok {
@@ -1326,9 +1361,6 @@ func (s *MemoryStore) SetCommunityPluginStatus(communityID int64, code, status s
 
 func (s *MemoryStore) SetCommunityPluginConfig(communityID int64, code, configJSON string) (domain.Plugin, error) {
 	configJSON = strings.TrimSpace(configJSON)
-	if configJSON != "" && !json.Valid([]byte(configJSON)) {
-		return domain.Plugin{}, errors.New("config_json 必须是合法 JSON")
-	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if _, ok := s.communities[communityID]; !ok {
@@ -1337,6 +1369,9 @@ func (s *MemoryStore) SetCommunityPluginConfig(communityID int64, code, configJS
 	def, ok := pluginregistry.DefinitionByCode(code)
 	if !ok {
 		return domain.Plugin{}, errors.New("插件不存在")
+	}
+	if err := pluginregistry.ValidateConfigJSON(def, configJSON); err != nil {
+		return domain.Plugin{}, err
 	}
 	global, ok := s.plugins[def.Code]
 	if !ok {

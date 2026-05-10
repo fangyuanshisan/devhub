@@ -31,6 +31,54 @@ type MySQLStore struct {
 	database string
 }
 
+func (s *MySQLStore) PluginMigrations(pluginCode string) ([]domain.PluginMigration, error) {
+	pluginCode = strings.TrimSpace(pluginCode)
+	if pluginCode == "" {
+		return []domain.PluginMigration{}, nil
+	}
+	rows, err := s.db.Query(`SELECT id,plugin_code,version,migration_name,checksum,status,COALESCE(DATE_FORMAT(executed_at,'%Y-%m-%d %H:%i:%s'),''),execution_time_ms,COALESCE(error_message,''),DATE_FORMAT(created_at,'%Y-%m-%d %H:%i:%s')
+		FROM plugin_migrations WHERE plugin_code=? ORDER BY id DESC`, pluginCode)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := []domain.PluginMigration{}
+	for rows.Next() {
+		var it domain.PluginMigration
+		if err := rows.Scan(&it.ID, &it.PluginCode, &it.Version, &it.MigrationName, &it.Checksum, &it.Status, &it.ExecutedAt, &it.ExecutionTimeMS, &it.ErrorMessage, &it.CreatedAt); err == nil {
+			out = append(out, it)
+		}
+	}
+	return out, nil
+}
+
+func (s *MySQLStore) AppendPluginMigration(record domain.PluginMigration) (domain.PluginMigration, error) {
+	record.PluginCode = strings.TrimSpace(record.PluginCode)
+	record.Version = strings.TrimSpace(record.Version)
+	record.MigrationName = strings.TrimSpace(record.MigrationName)
+	record.Status = strings.TrimSpace(record.Status)
+	if record.PluginCode == "" || record.MigrationName == "" {
+		return domain.PluginMigration{}, errors.New("plugin_code 和 migration_name 不能为空")
+	}
+	if record.Status == "" {
+		record.Status = "pending"
+	}
+	// Upsert-like: if existing unique key exists, do not insert again.
+	_, err := s.db.Exec(`INSERT IGNORE INTO plugin_migrations (plugin_code,version,migration_name,checksum,status,executed_at,execution_time_ms,error_message,created_at)
+		VALUES (?,?,?,?,?,NULL,?,?,NOW())`,
+		record.PluginCode, record.Version, record.MigrationName, record.Checksum, record.Status, record.ExecutionTimeMS, record.ErrorMessage)
+	if err != nil {
+		return domain.PluginMigration{}, err
+	}
+	// Return latest record for that unique key.
+	var out domain.PluginMigration
+	_ = s.db.QueryRow(`SELECT id,plugin_code,version,migration_name,checksum,status,COALESCE(DATE_FORMAT(executed_at,'%Y-%m-%d %H:%i:%s'),''),execution_time_ms,COALESCE(error_message,''),DATE_FORMAT(created_at,'%Y-%m-%d %H:%i:%s')
+		FROM plugin_migrations WHERE plugin_code=? AND version=? AND migration_name=? ORDER BY id DESC LIMIT 1`,
+		record.PluginCode, record.Version, record.MigrationName).
+		Scan(&out.ID, &out.PluginCode, &out.Version, &out.MigrationName, &out.Checksum, &out.Status, &out.ExecutedAt, &out.ExecutionTimeMS, &out.ErrorMessage, &out.CreatedAt)
+	return out, nil
+}
+
 // NewMySQLStore 创建 MySQL 仓储，自动建表并在空库时写入演示数据。
 func NewMySQLStore(cfg MySQLConfig) (*MySQLStore, error) {
 	dsn := fmt.Sprintf("%s:%s@tcp(%s:%s)/%s?charset=utf8mb4&parseTime=true&loc=Local",
@@ -186,6 +234,23 @@ func (s *MySQLStore) migrateSiteScopedAudit() error {
 	_, _ = s.db.Exec(`ALTER TABLE categories ADD COLUMN allowed_content_types JSON NULL AFTER plugin_code`)
 	_, _ = s.db.Exec(`ALTER TABLE categories ADD KEY idx_categories_plugin_status (plugin_code, status)`)
 	_, _ = s.db.Exec(`ALTER TABLE plugins ADD COLUMN config_json JSON NULL AFTER description`)
+	_, _ = s.db.Exec(`CREATE TABLE IF NOT EXISTS plugin_migrations (
+		id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+		plugin_code VARCHAR(64) NOT NULL,
+		version VARCHAR(32) NOT NULL DEFAULT '',
+		migration_name VARCHAR(128) NOT NULL,
+		checksum VARCHAR(128) NOT NULL DEFAULT '',
+		status ENUM('pending','success','failed') NOT NULL DEFAULT 'pending',
+		executed_at DATETIME NULL,
+		execution_time_ms INT NOT NULL DEFAULT 0,
+		error_message VARCHAR(1000) NOT NULL DEFAULT '',
+		created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+		PRIMARY KEY (id),
+		UNIQUE KEY uk_plugin_migrations_unique (plugin_code, version, migration_name),
+		KEY idx_plugin_migrations_plugin (plugin_code),
+		KEY idx_plugin_migrations_status (status),
+		KEY idx_plugin_migrations_executed (executed_at)
+	) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci`)
 	_, _ = s.db.Exec(`UPDATE categories SET nav_visible=visible WHERE nav_visible=1`)
 	_, _ = s.db.Exec(`UPDATE categories SET type='document', plugin_code='docs', allowed_content_types=JSON_ARRAY('document','doc') WHERE type='doc' OR slug='docs'`)
 	_, _ = s.db.Exec(`UPDATE categories SET type='wiki_page', plugin_code='wiki', allowed_content_types=JSON_ARRAY('wiki_page','wiki') WHERE type='wiki' OR slug='wiki'`)
@@ -1244,11 +1309,11 @@ func (s *MySQLStore) SetPluginConfig(code, configJSON string) (domain.Plugin, er
 		return domain.Plugin{}, errors.New("插件不存在")
 	}
 	configJSON = strings.TrimSpace(configJSON)
+	if err := pluginregistry.ValidateConfigJSON(def, configJSON); err != nil {
+		return domain.Plugin{}, err
+	}
 	var config any = nil
 	if configJSON != "" {
-		if !json.Valid([]byte(configJSON)) {
-			return domain.Plugin{}, errors.New("config_json 必须是合法 JSON")
-		}
 		config = json.RawMessage(configJSON)
 	}
 	if _, err := s.db.Exec(`INSERT INTO plugins (plugin_code,name,version,status,description,config_json,created_at,updated_at)
@@ -1361,11 +1426,11 @@ func (s *MySQLStore) SetCommunityPluginConfig(communityID int64, code, configJSO
 		return domain.Plugin{}, errors.New("子站不存在")
 	}
 	configJSON = strings.TrimSpace(configJSON)
+	if err := pluginregistry.ValidateConfigJSON(def, configJSON); err != nil {
+		return domain.Plugin{}, err
+	}
 	var config any = nil
 	if configJSON != "" {
-		if !json.Valid([]byte(configJSON)) {
-			return domain.Plugin{}, errors.New("config_json 必须是合法 JSON")
-		}
 		config = json.RawMessage(configJSON)
 	}
 	if _, err := s.db.Exec(`INSERT INTO community_plugins (community_id,plugin_code,status,sort_order,config_json,created_at,updated_at)

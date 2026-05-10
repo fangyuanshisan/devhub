@@ -76,7 +76,7 @@
 - 禁用 `wiki` 后，`POST /api/v1/admin/posts` 不能创建 `wiki_page`。
 - 后台编辑内容不能绕过 `allowed_content_types`。
 - 后台编辑内容不能绕过插件 enabled 状态。
-- v1.3.1 当前禁止后台普通编辑修改内容归属：修改 `site`、`board`、`content_type` 或 `plugin_code` 应失败。
+- v1.3.1 起禁止后台普通编辑修改内容归属：修改 `site`、`board`、`content_type` 或 `plugin_code` 应失败。
 - 已有内容列表、详情、评论、标签、收藏和关注不受影响。
 
 页面与 SEO：
@@ -158,9 +158,9 @@ P0 已实现或必测：
 
 P0 待实现 / 待补测：
 
-- `config_schema` 基础校验：至少覆盖 `type`、`enum`、`required`。
+- `config_schema` 基础校验：已接入（简化 JSON Schema），仍需用真实浏览器矩阵补测错误提示与边界值。
 - HookBus 业务处理器：Create / Update / Delete / Search / Notification / SEO 不仅能派发事件，还要具备插件处理器、错误日志和失败策略验收。
-- 插件 migration runner：当前只有 SQL 文件和启动辅助，尚未形成完整 runner。
+- 插件 migration runner：当前新增 `plugin_migrations` 表用于记录执行状态，完整 runner 与后台一键执行仍待后续。
 - 完整真实 token 验收矩阵：全局禁用、子站禁用、跨子站发布、版主菜单、历史 SEO。
 
 P1 / P2 / P3 后续验收：

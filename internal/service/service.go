@@ -33,6 +33,8 @@ type Repository interface {
 	PluginByCode(code string) (domain.Plugin, bool)
 	SetPluginStatus(code, status string) (domain.Plugin, error)
 	SetPluginConfig(code, configJSON string) (domain.Plugin, error)
+	PluginMigrations(pluginCode string) ([]domain.PluginMigration, error)
+	AppendPluginMigration(record domain.PluginMigration) (domain.PluginMigration, error)
 	CommunityPlugins(communityID int64) ([]domain.Plugin, error)
 	SetCommunityPluginStatus(communityID int64, code, status string) (domain.Plugin, error)
 	SetCommunityPluginConfig(communityID int64, code, configJSON string) (domain.Plugin, error)
@@ -148,63 +150,23 @@ type Repository interface {
 // Service 封装业务入口，向 HTTP 层提供稳定的调用接口。
 type Service struct {
 	repo  Repository
-	hooks *HookBus
+	hooks *pluginregistry.HookBus
 }
 
 // New 创建业务服务实例。
 func New(repo Repository) *Service {
-	return &Service{repo: repo, hooks: NewHookBus()}
+	bus := pluginregistry.NewHookBus()
+	pluginregistry.RegisterBuiltinHookHandlers(bus)
+	return &Service{repo: repo, hooks: bus}
 }
 
-// HookEvent 表示内置插件 HookBus 的运行时事件。
-type HookEvent struct {
-	Name          string
-	PluginCode    string
-	Topic         *domain.Topic
-	PreviousTopic *domain.Topic
-	Request       *domain.CreateTopicRequest
-	UpdateRequest *domain.UpdateTopicRequest
-	Comment       *domain.Comment
-	SearchRequest *domain.SearchRequest
-	SearchResults []domain.Topic
-	Notification  *domain.Notification
-	SEOHTML       string
-	Actor         domain.ActorContext
-}
-
-// HookHandler 是内置插件 HookBus 的处理函数。
-type HookHandler func(HookEvent) error
-
-// HookBus 提供内置插件扩展点调度，不承载第三方动态插件执行。
-type HookBus struct {
-	handlers map[string][]HookHandler
-}
-
-// NewHookBus 创建空 HookBus；当前内置插件业务仍由 Store 保持兼容写入。
-func NewHookBus() *HookBus {
-	return &HookBus{handlers: map[string][]HookHandler{}}
-}
-
-// Register 注册内置 Hook 处理器。
-func (b *HookBus) Register(name string, handler HookHandler) {
-	name = strings.TrimSpace(name)
-	if b == nil || name == "" || handler == nil {
-		return
-	}
-	b.handlers[name] = append(b.handlers[name], handler)
-}
-
-// Dispatch 执行 Hook。关键 Hook 的错误会向上返回；非关键 Hook 错误由调用方决定是否记录。
-func (b *HookBus) Dispatch(event HookEvent) error {
-	if b == nil {
+// DispatchHook exposes HookBus dispatch for platform-governance actions (enable/disable/config/etc).
+// Keep this minimal: callers should only send non-business platform events.
+func (s *Service) DispatchHook(event pluginregistry.HookEvent) error {
+	if s == nil || s.hooks == nil {
 		return nil
 	}
-	for _, handler := range b.handlers[strings.TrimSpace(event.Name)] {
-		if err := handler(event); err != nil {
-			return err
-		}
-	}
-	return nil
+	return s.hooks.Dispatch(event)
 }
 
 // ActorContextFromAuthUser converts server-authenticated identity into a trusted actor context.
@@ -525,6 +487,14 @@ func (s *Service) SetPluginConfig(code, configJSON string) (domain.Plugin, error
 	return s.repo.SetPluginConfig(code, configJSON)
 }
 
+func (s *Service) PluginMigrations(pluginCode string) ([]domain.PluginMigration, error) {
+	return s.repo.PluginMigrations(pluginCode)
+}
+
+func (s *Service) AppendPluginMigration(record domain.PluginMigration) (domain.PluginMigration, error) {
+	return s.repo.AppendPluginMigration(record)
+}
+
 // ListPosts 按站点、板块、关键词和标签筛选帖子列表。
 func (s *Service) ListPosts(site, board, q, tag string) []domain.Post {
 	return s.repo.ListPosts(site, board, q, tag)
@@ -733,7 +703,12 @@ func (s *Service) AppendAdminLog(log domain.AdminLog) { s.repo.AppendAdminLog(lo
 func (s *Service) PushNotification(req domain.PushNotificationRequest) *domain.Notification {
 	notice := s.repo.PushNotification(req)
 	if notice != nil {
-		_ = s.hooks.Dispatch(HookEvent{Name: "OnNotificationBuild", Notification: notice})
+		_ = s.hooks.Dispatch(pluginregistry.HookEvent{
+			Name:         pluginregistry.HookOnNotificationBuild,
+			Mode:         pluginregistry.HookNonBlocking,
+			Ctx:          pluginregistry.HookContext{ActorType: pluginregistry.HookActorSystem},
+			Notification: notice,
+		})
 	}
 	return notice
 }
@@ -818,7 +793,12 @@ func (s *Service) TopicsByFilter(communityID, categoryID int64, contentType, sor
 func (s *Service) TopicByID(id int64, increaseView bool) (*domain.Topic, error) {
 	topic, err := s.repo.TopicByID(id, increaseView)
 	if err == nil && topic != nil {
-		_ = s.hooks.Dispatch(HookEvent{Name: "OnSEOBuild", PluginCode: topic.PluginCode, Topic: topic})
+		_ = s.hooks.Dispatch(pluginregistry.HookEvent{
+			Name:  pluginregistry.HookOnSEOBuild,
+			Mode:  pluginregistry.HookNonBlocking,
+			Ctx:   pluginregistry.HookContext{PluginCode: topic.PluginCode, ContentType: topic.ContentType, CommunityID: topic.CommunityID, CategoryID: topic.CategoryID, ContentID: topic.ID, ActorType: pluginregistry.HookActorSystem},
+			Topic: topic,
+		})
 	}
 	return topic, err
 }
@@ -840,16 +820,41 @@ func (s *Service) CreateTopic(req domain.CreateTopicRequest) (*domain.Topic, err
 			return nil, errors.New("无权发布该类型内容")
 		}
 	}
-	if err := s.hooks.Dispatch(HookEvent{Name: "BeforeCreateContent", PluginCode: pluginCode, Request: &req, Actor: req.ActorContext}); err != nil {
+	if err := s.hooks.Dispatch(pluginregistry.HookEvent{
+		Name: pluginregistry.HookBeforeCreateContent,
+		Mode: pluginregistry.HookBlocking,
+		Ctx: pluginregistry.HookContext{
+			PluginCode:  pluginCode,
+			ContentType: normalizedType,
+			CommunityID: req.CommunityID,
+			CategoryID:  req.CategoryID,
+			ActorType:   actorTypeFromActor(req.ActorContext),
+			ActorID:     actorIDFromActor(req.ActorContext),
+			Actor:       req.ActorContext,
+		},
+		Request: &req,
+	}); err != nil {
 		return nil, err
 	}
 	topic, err := s.repo.CreateTopic(req)
 	if err != nil {
 		return nil, err
 	}
-	if err := s.hooks.Dispatch(HookEvent{Name: "AfterCreateContent", PluginCode: pluginCode, Topic: topic, Actor: req.ActorContext}); err != nil {
-		return nil, err
-	}
+	_ = s.hooks.Dispatch(pluginregistry.HookEvent{
+		Name: pluginregistry.HookAfterCreateContent,
+		Mode: pluginregistry.HookNonBlocking,
+		Ctx: pluginregistry.HookContext{
+			PluginCode:  pluginCode,
+			ContentType: normalizedType,
+			CommunityID: req.CommunityID,
+			CategoryID:  req.CategoryID,
+			ContentID:   topic.ID,
+			ActorType:   actorTypeFromActor(req.ActorContext),
+			ActorID:     actorIDFromActor(req.ActorContext),
+			Actor:       req.ActorContext,
+		},
+		Topic: topic,
+	})
 	return topic, nil
 }
 
@@ -860,14 +865,64 @@ func (s *Service) UpdateTopic(id int64, req domain.UpdateTopicRequest) (*domain.
 	if before != nil {
 		pluginCode = before.PluginCode
 	}
-	if err := s.hooks.Dispatch(HookEvent{Name: "BeforeUpdateContent", PluginCode: pluginCode, PreviousTopic: before, UpdateRequest: &req, Actor: req.ActorContext}); err != nil {
+	if err := s.hooks.Dispatch(pluginregistry.HookEvent{
+		Name: pluginregistry.HookBeforeUpdateContent,
+		Mode: pluginregistry.HookBlocking,
+		Ctx: pluginregistry.HookContext{
+			PluginCode: pluginCode,
+			ContentType: firstNonEmpty(func() string {
+				if req.ContentType != nil {
+					return *req.ContentType
+				}
+				return ""
+			}(), func() string {
+				if before != nil {
+					return before.ContentType
+				}
+				return ""
+			}()),
+			CommunityID: func() int64 {
+				if before != nil {
+					return before.CommunityID
+				}
+				return 0
+			}(),
+			CategoryID: func() int64 {
+				if before != nil {
+					return before.CategoryID
+				}
+				return 0
+			}(),
+			ContentID: id,
+			ActorType: actorTypeFromActor(req.ActorContext),
+			ActorID:   actorIDFromActor(req.ActorContext),
+			Actor:     req.ActorContext,
+		},
+		PreviousTopic: before,
+		UpdateRequest: &req,
+	}); err != nil {
 		return nil, err
 	}
 	topic, err := s.repo.UpdateTopic(id, req)
 	if err != nil {
 		return nil, err
 	}
-	_ = s.hooks.Dispatch(HookEvent{Name: "AfterUpdateContent", PluginCode: topic.PluginCode, Topic: topic, PreviousTopic: before, Actor: req.ActorContext})
+	_ = s.hooks.Dispatch(pluginregistry.HookEvent{
+		Name: pluginregistry.HookAfterUpdateContent,
+		Mode: pluginregistry.HookNonBlocking,
+		Ctx: pluginregistry.HookContext{
+			PluginCode:  topic.PluginCode,
+			ContentType: topic.ContentType,
+			CommunityID: topic.CommunityID,
+			CategoryID:  topic.CategoryID,
+			ContentID:   topic.ID,
+			ActorType:   actorTypeFromActor(req.ActorContext),
+			ActorID:     actorIDFromActor(req.ActorContext),
+			Actor:       req.ActorContext,
+		},
+		Topic:         topic,
+		PreviousTopic: before,
+	})
 	return topic, nil
 }
 
@@ -878,12 +933,68 @@ func (s *Service) DeleteTopic(id int64) bool {
 	if before != nil {
 		pluginCode = before.PluginCode
 	}
-	if err := s.hooks.Dispatch(HookEvent{Name: "BeforeDeleteContent", PluginCode: pluginCode, PreviousTopic: before}); err != nil {
+	if err := s.hooks.Dispatch(pluginregistry.HookEvent{
+		Name: pluginregistry.HookBeforeModerateContent,
+		Mode: pluginregistry.HookBlocking,
+		Ctx: pluginregistry.HookContext{
+			PluginCode: pluginCode,
+			ContentType: func() string {
+				if before != nil {
+					return before.ContentType
+				}
+				return ""
+			}(),
+			CommunityID: func() int64 {
+				if before != nil {
+					return before.CommunityID
+				}
+				return 0
+			}(),
+			CategoryID: func() int64 {
+				if before != nil {
+					return before.CategoryID
+				}
+				return 0
+			}(),
+			ContentID: id,
+			ActorType: pluginregistry.HookActorSystem,
+			ActorID:   0,
+		},
+		PreviousTopic: before,
+	}); err != nil {
 		return false
 	}
 	deleted := s.repo.DeleteTopic(id)
 	if deleted {
-		_ = s.hooks.Dispatch(HookEvent{Name: "AfterDeleteContent", PluginCode: pluginCode, PreviousTopic: before})
+		_ = s.hooks.Dispatch(pluginregistry.HookEvent{
+			Name: pluginregistry.HookAfterModerateContent,
+			Mode: pluginregistry.HookNonBlocking,
+			Ctx: pluginregistry.HookContext{
+				PluginCode: pluginCode,
+				ContentType: func() string {
+					if before != nil {
+						return before.ContentType
+					}
+					return ""
+				}(),
+				CommunityID: func() int64 {
+					if before != nil {
+						return before.CommunityID
+					}
+					return 0
+				}(),
+				CategoryID: func() int64 {
+					if before != nil {
+						return before.CategoryID
+					}
+					return 0
+				}(),
+				ContentID: id,
+				ActorType: pluginregistry.HookActorSystem,
+				ActorID:   0,
+			},
+			PreviousTopic: before,
+		})
 	}
 	return deleted
 }
@@ -891,7 +1002,13 @@ func (s *Service) DeleteTopic(id int64) bool {
 // SearchTopics 搜索主题。
 func (s *Service) SearchTopics(req domain.SearchRequest) ([]domain.Topic, int) {
 	topics, total := s.repo.SearchTopics(req)
-	_ = s.hooks.Dispatch(HookEvent{Name: "OnSearchIndex", SearchRequest: &req, SearchResults: topics})
+	_ = s.hooks.Dispatch(pluginregistry.HookEvent{
+		Name:          pluginregistry.HookOnSearchIndex,
+		Mode:          pluginregistry.HookNonBlocking,
+		Ctx:           pluginregistry.HookContext{ActorType: pluginregistry.HookActorSystem},
+		SearchRequest: &req,
+		SearchResults: topics,
+	})
 	return topics, total
 }
 
@@ -1017,14 +1134,40 @@ func (s *Service) SetTopicFeatured(id int64, featured bool) (*domain.Topic, erro
 	if before != nil {
 		pluginCode = before.PluginCode
 	}
-	if err := s.hooks.Dispatch(HookEvent{Name: "BeforeUpdateContent", PluginCode: pluginCode, PreviousTopic: before}); err != nil {
+	if err := s.hooks.Dispatch(pluginregistry.HookEvent{
+		Name: pluginregistry.HookBeforeUpdateContent,
+		Mode: pluginregistry.HookBlocking,
+		Ctx: pluginregistry.HookContext{PluginCode: pluginCode, ContentType: func() string {
+			if before != nil {
+				return before.ContentType
+			}
+			return ""
+		}(), CommunityID: func() int64 {
+			if before != nil {
+				return before.CommunityID
+			}
+			return 0
+		}(), CategoryID: func() int64 {
+			if before != nil {
+				return before.CategoryID
+			}
+			return 0
+		}(), ContentID: id, ActorType: pluginregistry.HookActorSystem},
+		PreviousTopic: before,
+	}); err != nil {
 		return nil, err
 	}
 	topic, err := s.repo.SetTopicFeatured(id, featured)
 	if err != nil {
 		return nil, err
 	}
-	_ = s.hooks.Dispatch(HookEvent{Name: "AfterUpdateContent", PluginCode: topic.PluginCode, Topic: topic, PreviousTopic: before})
+	_ = s.hooks.Dispatch(pluginregistry.HookEvent{
+		Name:          pluginregistry.HookAfterUpdateContent,
+		Mode:          pluginregistry.HookNonBlocking,
+		Ctx:           pluginregistry.HookContext{PluginCode: topic.PluginCode, ContentType: topic.ContentType, CommunityID: topic.CommunityID, CategoryID: topic.CategoryID, ContentID: topic.ID, ActorType: pluginregistry.HookActorSystem},
+		Topic:         topic,
+		PreviousTopic: before,
+	})
 	return topic, nil
 }
 
@@ -1034,14 +1177,40 @@ func (s *Service) SetTopicPinned(id int64, pinned bool) (*domain.Topic, error) {
 	if before != nil {
 		pluginCode = before.PluginCode
 	}
-	if err := s.hooks.Dispatch(HookEvent{Name: "BeforeUpdateContent", PluginCode: pluginCode, PreviousTopic: before}); err != nil {
+	if err := s.hooks.Dispatch(pluginregistry.HookEvent{
+		Name: pluginregistry.HookBeforeUpdateContent,
+		Mode: pluginregistry.HookBlocking,
+		Ctx: pluginregistry.HookContext{PluginCode: pluginCode, ContentType: func() string {
+			if before != nil {
+				return before.ContentType
+			}
+			return ""
+		}(), CommunityID: func() int64 {
+			if before != nil {
+				return before.CommunityID
+			}
+			return 0
+		}(), CategoryID: func() int64 {
+			if before != nil {
+				return before.CategoryID
+			}
+			return 0
+		}(), ContentID: id, ActorType: pluginregistry.HookActorSystem},
+		PreviousTopic: before,
+	}); err != nil {
 		return nil, err
 	}
 	topic, err := s.repo.SetTopicPinned(id, pinned)
 	if err != nil {
 		return nil, err
 	}
-	_ = s.hooks.Dispatch(HookEvent{Name: "AfterUpdateContent", PluginCode: topic.PluginCode, Topic: topic, PreviousTopic: before})
+	_ = s.hooks.Dispatch(pluginregistry.HookEvent{
+		Name:          pluginregistry.HookAfterUpdateContent,
+		Mode:          pluginregistry.HookNonBlocking,
+		Ctx:           pluginregistry.HookContext{PluginCode: topic.PluginCode, ContentType: topic.ContentType, CommunityID: topic.CommunityID, CategoryID: topic.CategoryID, ContentID: topic.ID, ActorType: pluginregistry.HookActorSystem},
+		Topic:         topic,
+		PreviousTopic: before,
+	})
 	return topic, nil
 }
 
@@ -1051,14 +1220,40 @@ func (s *Service) SetTopicStatus(id int64, status int) (*domain.Topic, error) {
 	if before != nil {
 		pluginCode = before.PluginCode
 	}
-	if err := s.hooks.Dispatch(HookEvent{Name: "BeforeUpdateContent", PluginCode: pluginCode, PreviousTopic: before}); err != nil {
+	if err := s.hooks.Dispatch(pluginregistry.HookEvent{
+		Name: pluginregistry.HookBeforeUpdateContent,
+		Mode: pluginregistry.HookBlocking,
+		Ctx: pluginregistry.HookContext{PluginCode: pluginCode, ContentType: func() string {
+			if before != nil {
+				return before.ContentType
+			}
+			return ""
+		}(), CommunityID: func() int64 {
+			if before != nil {
+				return before.CommunityID
+			}
+			return 0
+		}(), CategoryID: func() int64 {
+			if before != nil {
+				return before.CategoryID
+			}
+			return 0
+		}(), ContentID: id, ActorType: pluginregistry.HookActorSystem},
+		PreviousTopic: before,
+	}); err != nil {
 		return nil, err
 	}
 	topic, err := s.repo.SetTopicStatus(id, status)
 	if err != nil {
 		return nil, err
 	}
-	_ = s.hooks.Dispatch(HookEvent{Name: "AfterUpdateContent", PluginCode: topic.PluginCode, Topic: topic, PreviousTopic: before})
+	_ = s.hooks.Dispatch(pluginregistry.HookEvent{
+		Name:          pluginregistry.HookAfterUpdateContent,
+		Mode:          pluginregistry.HookNonBlocking,
+		Ctx:           pluginregistry.HookContext{PluginCode: topic.PluginCode, ContentType: topic.ContentType, CommunityID: topic.CommunityID, CategoryID: topic.CategoryID, ContentID: topic.ID, ActorType: pluginregistry.HookActorSystem},
+		Topic:         topic,
+		PreviousTopic: before,
+	})
 	return topic, nil
 }
 
@@ -1068,14 +1263,40 @@ func (s *Service) SetTopicCommentLocked(id int64, locked bool) (*domain.Topic, e
 	if before != nil {
 		pluginCode = before.PluginCode
 	}
-	if err := s.hooks.Dispatch(HookEvent{Name: "BeforeUpdateContent", PluginCode: pluginCode, PreviousTopic: before}); err != nil {
+	if err := s.hooks.Dispatch(pluginregistry.HookEvent{
+		Name: pluginregistry.HookBeforeUpdateContent,
+		Mode: pluginregistry.HookBlocking,
+		Ctx: pluginregistry.HookContext{PluginCode: pluginCode, ContentType: func() string {
+			if before != nil {
+				return before.ContentType
+			}
+			return ""
+		}(), CommunityID: func() int64 {
+			if before != nil {
+				return before.CommunityID
+			}
+			return 0
+		}(), CategoryID: func() int64 {
+			if before != nil {
+				return before.CategoryID
+			}
+			return 0
+		}(), ContentID: id, ActorType: pluginregistry.HookActorSystem},
+		PreviousTopic: before,
+	}); err != nil {
 		return nil, err
 	}
 	topic, err := s.repo.SetTopicCommentLocked(id, locked)
 	if err != nil {
 		return nil, err
 	}
-	_ = s.hooks.Dispatch(HookEvent{Name: "AfterUpdateContent", PluginCode: topic.PluginCode, Topic: topic, PreviousTopic: before})
+	_ = s.hooks.Dispatch(pluginregistry.HookEvent{
+		Name:          pluginregistry.HookAfterUpdateContent,
+		Mode:          pluginregistry.HookNonBlocking,
+		Ctx:           pluginregistry.HookContext{PluginCode: topic.PluginCode, ContentType: topic.ContentType, CommunityID: topic.CommunityID, CategoryID: topic.CategoryID, ContentID: topic.ID, ActorType: pluginregistry.HookActorSystem},
+		Topic:         topic,
+		PreviousTopic: before,
+	})
 	return topic, nil
 }
 
@@ -1098,6 +1319,57 @@ func (s *Service) CreateCommentWithRequest(topicID int64, req domain.CreateComme
 	if err != nil {
 		return nil, err
 	}
-	_ = s.hooks.Dispatch(HookEvent{Name: "AfterCreateComment", Topic: &domain.Topic{ID: topicID}, Comment: comment})
+	topic, _ := s.repo.TopicByID(topicID, false)
+	pluginCode := ""
+	contentType := ""
+	communityID := int64(0)
+	categoryID := int64(0)
+	if topic != nil {
+		pluginCode = topic.PluginCode
+		contentType = topic.ContentType
+		communityID = topic.CommunityID
+		categoryID = topic.CategoryID
+	}
+	actor := domain.ActorContext{UserID: req.ActorUserID, Permissions: nil}
+	_ = s.hooks.Dispatch(pluginregistry.HookEvent{
+		Name: pluginregistry.HookAfterCreateComment,
+		Mode: pluginregistry.HookNonBlocking,
+		Ctx: pluginregistry.HookContext{
+			PluginCode:  pluginCode,
+			ContentType: contentType,
+			CommunityID: communityID,
+			CategoryID:  categoryID,
+			ContentID:   topicID,
+			ActorType:   actorTypeFromActor(actor),
+			ActorID:     actorIDFromActor(actor),
+			Actor:       actor,
+			Metadata:    map[string]any{"topic_id": topicID},
+		},
+		Topic:   topic,
+		Comment: comment,
+	})
 	return comment, nil
+}
+
+func actorTypeFromActor(actor domain.ActorContext) pluginregistry.HookActorType {
+	if actor.IsAdmin {
+		return pluginregistry.HookActorAdmin
+	}
+	if actor.IsModerator {
+		return pluginregistry.HookActorModerator
+	}
+	if actor.UserID > 0 {
+		return pluginregistry.HookActorUser
+	}
+	return pluginregistry.HookActorSystem
+}
+
+func actorIDFromActor(actor domain.ActorContext) int64 {
+	if actor.IsAdmin && actor.AdminID > 0 {
+		return actor.AdminID
+	}
+	if actor.UserID > 0 {
+		return actor.UserID
+	}
+	return 0
 }

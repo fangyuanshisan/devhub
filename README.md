@@ -2,7 +2,7 @@
 
 DevHub 是一个面向多子站场景的通用开源社区程序，采用 Core + Plugins 架构。Core 提供用户、认证、子站、板块、通用内容、评论、标签、搜索、通知、SEO、权限、审计和插件分发能力；问答、文档、Wiki 通过 qa、docs、wiki 内置系统插件扩展。
 
-当前版本：`v1.3.1`，版本主题为“插件化关键入口封口与权限校验补强版”。
+当前版本：`v1.3.2`，版本主题为“插件平台治理增强版”。
 
 当前只维护两个入口：
 
@@ -27,7 +27,7 @@ DevHub 是一个面向多子站场景的通用开源社区程序，采用 Core +
 - [BACKUP_AND_ROLLBACK.md](docs/BACKUP_AND_ROLLBACK.md)
 - [SEO.md](docs/SEO.md)
 - [PLUGIN_ARCHITECTURE.md](docs/PLUGIN_ARCHITECTURE.md)
-- [docs/releases/v1.3.1.md](docs/releases/v1.3.1.md)
+- [docs/releases/v1.3.2.md](docs/releases/v1.3.2.md)
 - [CHANGELOG.md](CHANGELOG.md)
 
 ## 当前能力
@@ -41,13 +41,13 @@ DevHub 是一个面向多子站场景的通用开源社区程序，采用 Core +
 - 治理与后台：支持举报、版主子站范围治理、内容治理、评论治理、子站管理、板块管理、系统插件管理和审计日志。
 - 存储模式：MemoryStore 与 MySQLStore。
 
-## v1.3.1 定位
+## v1.3.2 定位
 
-DevHub v1.3.1 是“插件化关键入口封口与权限校验补强版”。本版本基于 v1.3.0 Core + Plugins 架构，重点收口旧 `posts` 写入口、后台内容创建的插件 create 权限、后台内容更新的归属变更边界，以及 `post.create` 到 `core.topic.create` 的兼容说明。
+DevHub v1.3.2 是“插件平台治理增强版”。本版本聚焦插件平台本身的治理能力增强：HookBus 真实执行与内置 Hook 注册、`config_schema` 对插件配置的真实约束校验、插件迁移记录表与升级口径对齐，并继续强化结构化审计字段的可追溯性。
 
 完整插件系统是当前最高优先级长期主线。Core 只保留通用社区底座，业务能力逐步通过插件声明、状态、权限、菜单、配置、Hook、migration、API、SEO、通知、搜索和测试矩阵扩展；插件包、插件市场、远程安装和动态加载进入后续阶段路线，但不是当前已实现能力。
 
-本版本范围和当前限制以 [v1.3.1 Release Notes](docs/releases/v1.3.1.md) 为准，长期滚动状态见 [项目进度](docs/PROJECT_PROGRESS.md)。
+本版本范围和当前限制以 [v1.3.2 Release Notes](docs/releases/v1.3.2.md) 为准，长期滚动状态见 [项目进度](docs/PROJECT_PROGRESS.md)。
 
 历史版本说明见 `docs/README.md` 的“历史版本归档”。
 
@@ -435,16 +435,16 @@ git status
 
 本地没有 `npm` 时，可使用 `dev.sh` 或 Docker Node 构建；构建产物由脚本生成，不需要提交。
 
-v1.3.1 归档建议命令：
+v1.3.2 归档建议命令：
 
 ```bash
 git status
 git diff
 git add .
-git commit -m "chore: release DevHub v1.3.1"
-git tag v1.3.1
+git commit -m "chore: release DevHub v1.3.2"
+git tag v1.3.2
 git push origin main
-git push origin v1.3.1
+git push origin v1.3.2
 ```
 
 打 tag 前必须先确认工作区没有未审阅差异，且测试矩阵通过。

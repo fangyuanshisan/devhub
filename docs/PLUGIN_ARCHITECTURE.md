@@ -231,7 +231,8 @@ HookBus 完整化属于插件平台 P0 收口任务。当前只服务内置系�
 当前状态：
 
 - `HookDefinition` 是 manifest 声明层，描述插件希望参与的扩展点。
-- `Service` 已有最小内部 `HookBus`，当前调用点覆盖 `BeforeCreateContent`、`AfterCreateContent`、`BeforeUpdateContent`、`AfterUpdateContent`、`BeforeDeleteContent`、`AfterDeleteContent`、`AfterCreateComment`、`OnSearchIndex`、`OnNotificationBuild` 和 `OnSEOBuild`。
+- `v1.3.2` 起 HookBus 作为插件平台能力收口到 `internal/plugins`，并在 Service 的内容创建/更新/删除、评论创建、搜索、通知与 SEO 构建等流程中派发 Hook 事件。
+- HookBus 当前仅注册内置系统插件 Hook handlers（编译期内置注册，不支持第三方动态加载）。
 - 当前没有第三方动态注册，也没有插件包运行时加载；HookBus 仅服务内置系统插件和后续 Core 内部扩展。
 - 搜索、通知和 SEO 当前是最小调用点：已能派发事件，但还没有复杂索引、通知模板或结构化数据插件处理器。
 - 完整插件业务处理器、统一失败日志、重试策略和跨 Store 事务边界属于 P0/P1 继续收口项，不能降级为低优先级优化。

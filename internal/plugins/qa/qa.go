@@ -50,8 +50,14 @@ func Definition() domain.Plugin {
 				{PluginCode: Code, Area: "admin", Method: "GET", Path: "/api/v1/admin/posts?content_type=question", Handler: "qa.question.audit"},
 			},
 			ConfigSchema: map[string]any{
-				"type":       "object",
-				"properties": map[string]any{},
+				"type":                 "object",
+				"additionalProperties": false,
+				"properties": map[string]any{
+					"allow_anonymous_answer":    map[string]any{"type": "boolean", "description": "是否允许匿名回答"},
+					"require_accept_permission": map[string]any{"type": "boolean", "description": "采纳答案是否要求 qa.answer.accept 权限"},
+					"default_question_status":   map[string]any{"type": "string", "enum": []any{"publish", "review"}, "description": "问题默认状态"},
+				},
+				"required": []any{"allow_anonymous_answer", "default_question_status"},
 			},
 			Hooks: []domain.HookDefinition{
 				{PluginCode: Code, Name: "AfterCreateComment", Description: "回答创建后同步问答状态", Critical: false, FailurePolicy: "log"},

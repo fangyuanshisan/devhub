@@ -1,5 +1,15 @@
 # Changelog
 
+## v1.3.2
+
+DevHub v1.3.2 is the plugin platform governance enhancement release.
+
+### Changed
+
+- Moved HookBus into the plugin platform layer (`internal/plugins`) and registered minimal built-in hook handlers for system plugins.
+- Enforced `config_schema` validation when saving plugin `config_json` (both global `plugins.config_json` and per-community `community_plugins.config_json`).
+- Added `plugin_migrations` table (schema + migration) for tracking plugin migration execution state.
+
 ## v1.3.1
 
 DevHub v1.3.1 is the plugin-entry hardening and permission-boundary release.
