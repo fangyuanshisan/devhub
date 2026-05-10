@@ -93,9 +93,11 @@
 
 后台与版主体验：
 
-- `/admin-next/plugins` 可查看插件 code/name/version/status/content_types/permissions。
-- `/admin-next/plugins` 支持查看插件声明与 `config_schema`，并明确提示当前 `config_schema` 仅展示 / 预留，保存配置时只做 JSON 合法性校验。
-- `/admin-next/communities` 的插件配置抽屉支持启用 / 禁用、`config_json` 编辑和数字排序。
+- `/admin-next/plugins` 可查看插件 name/code/version/status/content_types/permissions/menus/schema 摘要。
+- `/admin-next/plugins` 支持打开插件详情抽屉，按基础信息、内容类型、权限、菜单、配置、路由和 Hooks 分区展示。
+- `/admin-next/plugins` 支持查看 `config_schema` 和 `resolved_config`，并明确提示当前 `config_schema` 仅展示 / 预留，保存配置时只做 JSON 合法性校验。
+- `/admin-next/plugins` 全局启用 / 禁用有确认提示，并明确 disabled 不影响历史内容详情和 SEO。
+- `/admin-next/communities` 的插件配置抽屉支持启用 / 禁用、全局 / 子站双状态、全局禁用原因、`config_json` 编辑、schema 参考、JSON 格式化、JSON 合法性拦截和数字排序保存。
 - `/moderator` 可按当前子站显示插件治理入口；全局 disabled 或子站 disabled 插件不显示。
 
 HookBus 最小检查：
@@ -119,7 +121,7 @@ curl -s http://127.0.0.1:8090/robots.txt
 - 插件全局 `config_json` 和子站 `config_json` 接口已有自动化覆盖，仍需要真实 admin token 做联调补测。
 - 插件声明里的 `config_schema`、`dependencies`、`min_core_version` 和 `hooks` 已有结构测试，仍需要继续补测前后台展示或消费场景；`config_schema` 强校验当前不作为通过项。
 - 子站插件排序接口已有自动化覆盖，仍需要真实 admin token 和浏览器做联调补测。
-- 后台子站插件配置 UI 的 `config_json` 编辑、JSON 校验、数字排序、禁用确认和保存后刷新已经有最小实现；本仓库当前未引入自动浏览器测试，需要按下方手工矩阵继续验收。
+- 后台插件管理 UI 已增强为详情抽屉 + 子站配置抽屉；本仓库当前未引入自动浏览器测试，需要按下方手工矩阵继续验收。
 - 前台发布页按子站插件状态收口需要浏览器验收。
 - 子站导航按插件状态显示需要继续做多子站浏览器验收。
 - 版主菜单按子站插件状态和权限过滤需要多子站、多版主账号矩阵补测。
@@ -177,15 +179,21 @@ P1 / P2 / P3 后续验收：
 - `sites/posts` 兼容 API 继续可用。
 - 隐藏 Topic 不进入 sitemap，隐藏详情页带 `noindex,follow`。
 
-## 子站插件配置 UI 手工验收矩阵
+## 后台插件管理 UI 手工验收矩阵
 
-当前没有自动浏览器测试 runner，以下步骤需要在 `/admin-next/communities` 手工执行，并把结果回填到当前任务验收记录：
+当前没有自动浏览器测试 runner，以下步骤需要在 `/admin-next/plugins` 和 `/admin-next/communities` 手工执行，并把结果回填到当前任务验收记录：
 
-1. 使用后台管理员登录 `/admin-next`，进入“子站管理”。
-2. 打开任一子站的“插件管理 / 插件配置”抽屉，确认列表展示 `code`、名称、全局状态、子站状态、内容类型和 `sort_order`。
-3. 禁用 `qa`，确认出现“只影响新发布、导航、菜单和管理入口，不影响历史内容访问”的确认文案，保存后刷新列表仍为 disabled。
-4. 启用 `qa`，确认全局 enabled 时可恢复子站 enabled；若先在全局插件页禁用 `qa`，再回到子站启用应失败。
-5. 打开“配置”，输入合法 JSON，例如 `{"mode":"test"}`，保存后刷新列表，确认 `config_json` 持久化。
-6. 再次打开“配置”，输入非法 JSON，例如 `{bad`，确认前端阻止保存并提示 `config_json 不是合法 JSON`。
-7. 修改数字排序或使用上移 / 下移，点击“保存排序”，刷新后确认顺序保持。
-8. 到对应子站前台和发布页确认禁用插件入口不展示；直接强传对应 `content_type` 发布应由接口拒绝。
+1. 使用后台管理员登录 `/admin-next`，进入“系统插件”，确认顶部说明卡片说明禁用不影响历史内容。
+2. 确认全局插件列表展示插件名称、code、版本、system 标识、全局状态、内容类型、权限数量、菜单数量和 schema 状态。
+3. 点击“详情”，确认插件详情抽屉可打开，并能查看基础信息、内容类型、权限、菜单、配置、路由和 Hooks tabs。
+4. 在详情抽屉的“配置”tab 中确认 `config_schema` 与 `resolved_config` 使用 JSON 代码块展示，复制按钮可用或有明确失败提示。
+5. 点击全局“配置”，输入合法 JSON，例如 `{"mode":"test"}`，保存后刷新列表，确认全局配置持久化。
+6. 在全局“配置”中输入非法 JSON，例如 `{bad`，确认前端阻止保存并提示 `config_json 不是合法 JSON`。
+7. 全局禁用任一测试插件，确认二次确认文案说明所有子站不能新发布、入口隐藏、历史内容和 SEO 不受影响；再启用恢复。
+8. 进入“子站管理”，打开任一子站的“插件配置”抽屉，确认列表展示插件名称、code、版本、全局状态、子站状态、内容类型和 `sort_order`。
+9. 禁用子站插件，确认二次确认文案说明只影响当前子站的新发布、导航、发布入口和版主菜单，不影响历史内容和 SEO。
+10. 启用子站插件，确认全局 enabled 时可恢复子站 enabled；若先在全局插件页禁用该插件，再回到子站启用应被禁用并显示“该插件已被全局禁用，不能在子站启用”。
+11. 打开子站“配置”，确认能看到 schema 参考；输入合法 JSON 并保存，刷新后确认 `config_json` 持久化。
+12. 再次打开子站“配置”，输入非法 JSON，确认前端阻止保存并提示 `config_json 不是合法 JSON`。
+13. 使用上移 / 下移或数字排序调整 `sort_order`，点击“保存排序”，刷新后确认顺序保持。
+14. 到对应子站前台和发布页确认禁用插件入口不展示；直接强传对应 `content_type` 发布应由接口拒绝。

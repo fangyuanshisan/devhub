@@ -19,6 +19,8 @@ DevHub v1.3.1 is the plugin-entry hardening and permission-boundary release.
 - Expanded the minimal internal HookBus call points to content create/update/delete, comment creation, search, notification, and SEO events.
 - Added structured plugin audit fields (`old_value`, `new_value`, `metadata_json`) and writes for plugin status/config/sort governance actions.
 - Made the admin plugin page consume manifest-declared admin menu paths instead of hardcoded plugin route maps.
+- Improved the admin global plugin page with an explanatory card, status badges, capability summaries, a tabbed plugin-detail drawer, JSON config/schema display, and clearer enable/disable confirmations.
+- Improved the admin community plugin drawer with global/community status badges, enablement summaries, disabled-reason hints, schema reference display, JSON formatting/validation, and reliable sort-order updates.
 - Added tests for plugin mappings, config JSON validation, public config hiding, plugin audit logs, and moderator plugin-menu scope filtering.
 
 ### Known Limitations
@@ -26,6 +28,8 @@ DevHub v1.3.1 is the plugin-entry hardening and permission-boundary release.
 - `post.create` remains a compatibility bridge for `core.topic.create`; it is not the long-term primary permission.
 - HookBus is still minimal: search/notification/SEO currently dispatch events but do not yet have full plugin business handlers, retry, or unified error logging.
 - `plugins.config_json` and `community_plugins.config_json` validate JSON syntax only; `config_schema` enforcement remains follow-up work.
+- The improved admin plugin UI still needs a real browser acceptance matrix; there is no automated browser test runner in the repo yet.
+- Plugin impact-scope statistics are not implemented yet, so the admin UI does not show affected community/board counts.
 - Non-plugin historical audit logs may still only have `admin_logs.target` text summaries.
 - `project`, `job`, and `ai_work` are plugin-owned but still lack dedicated extension tables and full business workflows.
 - Plugin packages, marketplace, remote install/update, and dynamic loading are not implemented in v1.3.1; they are staged as P2/P3 plugin-platform roadmap items rather than permanent exclusions.

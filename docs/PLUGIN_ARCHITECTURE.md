@@ -390,12 +390,21 @@ v1.3.1 采用稳妥策略：后台编辑已存在内容时禁止修改归属和�
 - 插件业务管理页通过系统插件列表进入，避免 qa / docs / wiki 直接散落到左侧导航。
 - 版主插件菜单必须同时满足全局 enabled、子站 enabled、当前用户是该子站版主、当前用户具备菜单权限。
 
+后台插件管理体验：
+
+- `/admin-next/plugins` 展示全局插件列表、状态 badge、系统插件标识、内容类型、权限数量、菜单数量和 `config_schema` 摘要。
+- 插件详情使用抽屉分区展示基础信息、内容类型、权限、菜单、配置、路由和 Hooks，避免把 JSON 直接堆在表格中。
+- 全局插件配置继续使用 textarea 编辑 `config_json`，并展示 `config_schema` 作为参考；当前只校验 JSON 合法性，暂不做 schema 强校验。
+- `/admin-next/communities` 的子站插件配置抽屉展示全局状态和子站状态双 badge，并支持子站启用 / 禁用、`config_json` 编辑、JSON 格式化、数字排序和禁用原因提示。
+- 全局禁用和子站禁用都有二次确认，并明确 disabled 只影响新发布、导航、菜单和管理入口，不影响历史内容详情页和 SEO。
+- 当前没有插件影响范围统计接口，后台 UI 不展示启用子站数量、绑定板块数量或受影响内容数量，避免伪造数据。
+
 ## 当前限制与阶段边界
 
 - 插件市场、插件包上传、本地/远程安装、在线更新和 Go 动态插件加载不是当前 P0 代码实现范围；它们分别进入 P2 / P3 路线，后续推进时必须满足安全红线、权限隔离、migration 备份回滚和 SEO 不退化。
 - 插件路由当前是注册描述 + Core 分发；动态路由加载和动态执行环境进入 P2 / P3 路线评估。
 - Docs / Wiki 的专用编辑体验仍是部分完成。
-- 子站插件配置和排序已有 API 与最小后台 UI，但仍需继续做浏览器矩阵验收。
+- 子站插件配置和排序已有 API 与增强后的后台 UI，但仍需继续做真实浏览器矩阵验收。
 - 插件治理审计已新增 `admin_logs.old_value`、`admin_logs.new_value` 和 `admin_logs.metadata_json` 结构化字段，同时保留 `target` 文本摘要兼容旧展示；非插件历史日志可能仍没有结构化 diff。
 - 新装库已在 `db/mysql/001_schema.sql` 和 `internal/store/schema.go` 包含结构化审计字段；老库升级使用 `db/mysql/migrations/007_admin_logs_structured_plugin_audit.sql`，启动迁移辅助也会尝试补齐这些列。
 - `plugins.config_json` 与 `community_plugins.config_json` 已可写，但当前仅做 JSON 格式校验；`config_schema` 基础校验属于 P0，自动表单渲染属于 P1。

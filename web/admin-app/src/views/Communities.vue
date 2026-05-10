@@ -105,7 +105,7 @@
     </el-table>
   </el-drawer>
 
-  <el-drawer v-model="pluginDrawer" :title="`${currentCommunity.name || ''} 插件管理`" size="720px">
+  <el-drawer v-model="pluginDrawer" :title="`${currentCommunity.name || ''} 插件配置`" size="860px">
     <div class="drawer-head">
       <div>
         <h3 class="drawer-title">{{ currentCommunity.name }} <span class="muted">/{{ currentCommunity.slug }}</span></h3>
@@ -116,30 +116,51 @@
         <el-button type="primary" :disabled="pluginRows.length < 2" @click="savePluginOrder">保存排序</el-button>
       </div>
     </div>
-    <el-table :data="pluginRows" border stripe>
-      <el-table-column prop="sort_order" label="排序" width="120">
+    <div class="plugin-summary">
+      <div><strong>{{ enabledCommunityPlugins }}</strong><span>子站已启用</span></div>
+      <div><strong>{{ disabledCommunityPlugins }}</strong><span>子站未启用</span></div>
+      <div><strong>{{ globallyDisabledPlugins }}</strong><span>全局禁用</span></div>
+    </div>
+    <el-table v-loading="pluginLoading" :data="pluginRows" border stripe empty-text="暂无插件">
+      <el-table-column prop="sort_order" label="排序" width="150">
         <template #default="{ row, $index }">
-          <el-input-number v-model="row.sort_order" :min="0" size="small" />
-          <el-button link :disabled="$index === 0" @click="movePlugin($index, -1)">上移</el-button>
-          <el-button link :disabled="$index === pluginRows.length - 1" @click="movePlugin($index, 1)">下移</el-button>
+          <el-input-number v-model="row.sort_order" :min="0" size="small" controls-position="right" class="sort-input" />
+          <div class="sort-actions">
+            <el-button link :disabled="$index === 0" @click="movePlugin($index, -1)">上移</el-button>
+            <el-button link :disabled="$index === pluginRows.length - 1" @click="movePlugin($index, 1)">下移</el-button>
+          </div>
         </template>
       </el-table-column>
-      <el-table-column prop="code" label="code" width="110" />
-      <el-table-column prop="name" label="名称" width="140" />
+      <el-table-column label="插件" min-width="200">
+        <template #default="{ row }">
+          <div class="plugin-name">
+            <strong>{{ row.name }}</strong>
+            <span>{{ row.code }} · v{{ row.version || '-' }}</span>
+          </div>
+        </template>
+      </el-table-column>
       <el-table-column label="内容类型" min-width="180">
         <template #default="{ row }">
-          <el-tag v-for="type in row.content_types || []" :key="type" class="mr-6">{{ type }}</el-tag>
+          <el-tag v-for="type in row.content_types || []" :key="type" class="mr-6" effect="plain">{{ type }}</el-tag>
+          <span v-if="!(row.content_types || []).length" class="muted">无</span>
         </template>
       </el-table-column>
-      <el-table-column label="全局/子站" width="170">
+      <el-table-column label="状态" width="190">
         <template #default="{ row }">
-          <el-tag :type="(row.global_status || row.status) === 'enabled' ? 'success' : 'info'" class="mr-6">{{ row.global_status || row.status }}</el-tag>
-          <el-tag :type="(row.community_status || row.status) === 'enabled' ? 'success' : 'info'">{{ row.community_status || row.status }}</el-tag>
+          <div class="status-stack">
+            <span><em>全局</em><el-tag :type="statusType(globalStatus(row))">{{ globalStatus(row) }}</el-tag></span>
+            <span><em>子站</em><el-tag :type="statusType(communityStatus(row))">{{ communityStatus(row) }}</el-tag></span>
+          </div>
         </template>
       </el-table-column>
-      <el-table-column label="操作" width="160">
+      <el-table-column label="说明" min-width="230">
         <template #default="{ row }">
-          <el-button v-if="row.community_status !== 'enabled'" link type="success" @click="setCommunityPlugin(row, 'enabled')">启用</el-button>
+          <span :class="globalStatus(row) !== 'enabled' ? 'danger-text' : 'muted'">{{ pluginAvailabilityText(row) }}</span>
+        </template>
+      </el-table-column>
+      <el-table-column label="操作" fixed="right" width="210">
+        <template #default="{ row }">
+          <el-button v-if="communityStatus(row) !== 'enabled'" link type="success" :disabled="globalStatus(row) !== 'enabled'" @click="setCommunityPlugin(row, 'enabled')">启用</el-button>
           <el-button v-else link type="warning" @click="setCommunityPlugin(row, 'disabled')">禁用</el-button>
           <el-button link type="primary" @click="openPluginConfig(row)">配置</el-button>
         </template>
@@ -150,6 +171,15 @@
   <el-dialog v-model="pluginConfigDialog" :title="`${pluginConfigTarget?.name || ''} 配置`" width="640px">
     <el-form label-width="110px">
       <el-alert title="当前 config_schema 仅用于声明展示；这里保存时只校验 config_json 是合法 JSON，暂不做 schema 强校验。" type="info" show-icon :closable="false" class="mb" />
+      <el-form-item label="状态">
+        <div class="config-status">
+          <el-tag :type="statusType(globalStatus(pluginConfigTarget || {}))">全局 {{ globalStatus(pluginConfigTarget || {}) }}</el-tag>
+          <el-tag :type="statusType(communityStatus(pluginConfigTarget || {}))">子站 {{ communityStatus(pluginConfigTarget || {}) }}</el-tag>
+        </div>
+      </el-form-item>
+      <el-form-item label="config_schema">
+        <pre class="json-box compact">{{ formatJSON(pluginConfigTarget?.config_schema || {}) }}</pre>
+      </el-form-item>
       <el-form-item label="config_json">
         <el-input v-model="pluginConfigText" type="textarea" :rows="10" placeholder="{}" />
       </el-form-item>
@@ -159,6 +189,7 @@
     </el-form>
     <template #footer>
       <el-button @click="pluginConfigDialog = false">取消</el-button>
+      <el-button @click="formatPluginConfig">格式化</el-button>
       <el-button type="primary" @click="savePluginConfig">保存</el-button>
     </template>
   </el-dialog>
@@ -198,6 +229,7 @@ const pluginDrawer = ref(false);
 const currentCommunity = ref({});
 const categoryRows = ref([]);
 const pluginRows = ref([]);
+const pluginLoading = ref(false);
 const pluginConfigDialog = ref(false);
 const pluginConfigTarget = ref(null);
 const pluginConfigText = ref('{}');
@@ -218,6 +250,9 @@ const filteredRows = computed(() => {
   return rows.value.filter((row) => `${row.name} ${row.slug}`.toLowerCase().includes(q));
 });
 const categoryEnabled = computed({ get: () => categoryForm.status === 1, set: (value) => { categoryForm.status = value ? 1 : 0; } });
+const enabledCommunityPlugins = computed(() => pluginRows.value.filter((row) => communityStatus(row) === 'enabled').length);
+const disabledCommunityPlugins = computed(() => pluginRows.value.filter((row) => communityStatus(row) !== 'enabled').length);
+const globallyDisabledPlugins = computed(() => pluginRows.value.filter((row) => globalStatus(row) !== 'enabled').length);
 
 function blankCommunity() {
   return { name: '', slug: '', logo: '', cover_image: '', slogan: '', description: '', theme_color: '#2563eb', seo_title: '', seo_description: '', seo_keywords: '', sort_order: 0, status: 1, announcement_title: '', announcement_content: '', announcement_url: '' };
@@ -282,17 +317,32 @@ async function openPlugins(row) {
 }
 
 async function loadPlugins() {
-  const data = await adminCommunityPlugins(currentCommunity.value.id);
-  pluginRows.value = data.items || [];
+  pluginLoading.value = true;
+  try {
+    const data = await adminCommunityPlugins(currentCommunity.value.id);
+    pluginRows.value = data.items || [];
+  } finally {
+    pluginLoading.value = false;
+  }
 }
 
 async function setCommunityPlugin(row, status) {
   if (status === 'disabled') {
     await ElMessageBox.confirm(
-      '禁用子站插件后，只影响新发布、导航、菜单和管理入口，不影响历史内容访问。是否继续？',
+      '禁用该子站插件后，仅当前子站不能新发布该插件内容，当前子站导航、发布入口、版主菜单会隐藏。历史内容详情页和 SEO 不受影响。',
       '禁用确认',
-      { type: 'warning' },
+      { type: 'warning', confirmButtonText: '确认禁用', cancelButtonText: '取消' },
     );
+  } else {
+    if (globalStatus(row) !== 'enabled') {
+      ElMessage.warning('该插件已被全局禁用，不能在子站启用。');
+      return;
+    }
+    await ElMessageBox.confirm('启用后，当前子站可以在允许的板块中发布该插件内容，并显示对应导航与菜单入口。是否继续？', '启用确认', {
+      type: 'info',
+      confirmButtonText: '确认启用',
+      cancelButtonText: '取消',
+    });
   }
   if (status === 'enabled') await enableCommunityPlugin(currentCommunity.value.id, row.code);
   else await disableCommunityPlugin(currentCommunity.value.id, row.code);
@@ -309,6 +359,7 @@ function movePlugin(index, delta) {
   arr[index] = arr[next];
   arr[next] = tmp;
   pluginRows.value = arr;
+  normalizePluginSortOrder();
 }
 
 async function savePluginOrder() {
@@ -322,8 +373,17 @@ async function savePluginOrder() {
 
 function openPluginConfig(row) {
   pluginConfigTarget.value = row;
-  pluginConfigText.value = row.config_json && row.config_json.trim() ? row.config_json : '{}';
+  pluginConfigText.value = editableJSON(row.config_json);
   pluginConfigDialog.value = true;
+}
+
+function formatPluginConfig() {
+  const raw = (pluginConfigText.value || '').trim();
+  try {
+    pluginConfigText.value = JSON.stringify(raw ? JSON.parse(raw) : {}, null, 2);
+  } catch {
+    ElMessage.error('config_json 不是合法 JSON，无法格式化');
+  }
 }
 
 async function savePluginConfig() {
@@ -342,6 +402,44 @@ async function savePluginConfig() {
   ElMessage.success('插件配置已保存');
   pluginConfigDialog.value = false;
   await loadPlugins();
+}
+
+function normalizePluginSortOrder() {
+  pluginRows.value = pluginRows.value.map((row, index) => ({ ...row, sort_order: index + 1 }));
+}
+
+function globalStatus(row) {
+  return row?.global_status || row?.status || 'disabled';
+}
+
+function communityStatus(row) {
+  return row?.community_status || row?.status || 'disabled';
+}
+
+function statusType(status) {
+  if (status === 'enabled') return 'success';
+  if (status === 'disabled') return 'danger';
+  return 'info';
+}
+
+function pluginAvailabilityText(row) {
+  if (globalStatus(row) !== 'enabled') return '该插件已被全局禁用，不能在子站启用。';
+  if (communityStatus(row) !== 'enabled') return '当前子站未启用，不能新发布对应内容。';
+  return '当前子站已启用，可用于发布入口、导航和版主菜单。';
+}
+
+function formatJSON(value) {
+  try {
+    return JSON.stringify(value ?? {}, null, 2);
+  } catch {
+    return '{}';
+  }
+}
+
+function editableJSON(value) {
+  if (!value) return '{}';
+  if (typeof value === 'string') return value.trim() ? value : '{}';
+  return formatJSON(value);
 }
 function openCategoryCreate() {
   Object.assign(categoryForm, blankCategory(), { sort_order: categoryRows.value.length + 1 });
@@ -380,4 +478,21 @@ load();
 .drawer-title { margin: 0 0 6px; }
 .muted { color: #64748b; }
 .mr-6 { margin-right: 6px; }
+.danger-text { color: #b91c1c; }
+.plugin-summary { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; margin-bottom: 14px; }
+.plugin-summary div { border: 1px solid #e2e8f0; border-radius: 14px; padding: 12px; background: #f8fafc; display: grid; gap: 4px; }
+.plugin-summary strong { font-size: 22px; color: #0f172a; }
+.plugin-summary span { color: #64748b; font-size: 12px; }
+.sort-input { width: 92px; }
+.sort-actions { display: flex; gap: 6px; margin-top: 4px; }
+.plugin-name { display: grid; gap: 3px; }
+.plugin-name strong { color: #0f172a; }
+.plugin-name span { color: #64748b; font-size: 12px; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
+.status-stack { display: grid; gap: 6px; }
+.status-stack span { display: flex; align-items: center; gap: 6px; }
+.status-stack em { min-width: 32px; color: #64748b; font-style: normal; font-size: 12px; }
+.config-status { display: flex; gap: 8px; flex-wrap: wrap; }
+.json-box { margin: 0; width: 100%; box-sizing: border-box; padding: 12px; border-radius: 12px; background: #0f172a; color: #dbeafe; overflow: auto; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 12px; line-height: 1.55; white-space: pre-wrap; }
+.json-box.compact { max-height: 180px; }
+.mb { margin-bottom: 12px; }
 </style>

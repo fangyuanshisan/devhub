@@ -37,9 +37,9 @@ Core 保留用户、认证、子站、板块、通用内容、评论、标签、
 - HookBus：Service 层已有最小内部 HookBus，当前调用点覆盖内容创建、更新、删除、评论、搜索、通知和 SEO 事件；Search / Notification / SEO 当前是最小事件派发，不做第三方动态执行。
 - 前台入口：子站插件公开接口会隐藏 `config_json` / `resolved_config` 等后台配置；子站板块导航会按子站插件状态过滤。
 - 后台入口：`/admin-next/plugins` 作为系统插件管理入口；插件业务页通过系统插件列表进入，默认不散落在后台左侧导航。
-- 最小体验闭环：
-  - 后台全局插件管理已支持查看插件列表、基础声明与全局启用/禁用。
-  - 后台子站插件配置已支持启用/禁用、`config_json` 编辑和数字排序保存。
+- 后台插件管理体验：
+  - 后台全局插件管理已支持说明卡片、插件状态 badge、内容类型 tag、权限 / 菜单 / schema 摘要、详情抽屉、tabs 分区展示、配置 schema / resolved config JSON 展示与复制、全局配置编辑、启用 / 禁用确认。
+  - 后台子站插件配置已支持双状态 badge、子站启用统计、全局禁用原因提示、启用 / 禁用确认、`config_json` 编辑、schema 参考、JSON 格式化、JSON 合法性拦截、数字排序和上移 / 下移后保存。
   - 前台子站页和发布页会按当前子站已启用插件收口入口与内容类型。
   - 版主工作台已补最小插件治理入口区，并按当前子站插件状态与权限过滤。
 - 审计：全局插件状态、子站插件状态、全局插件配置、子站插件配置和排序已接入 `admin_logs`，并为插件治理操作写入 `old_value`、`new_value`、`metadata_json` 结构化字段；`target` 文本摘要继续保留用于兼容展示。
@@ -50,7 +50,7 @@ Core 保留用户、认证、子站、板块、通用内容、评论、标签、
 
 ## 当前部分完成
 
-- 子站插件管理 UI：后台已具备最小配置闭环，包括启用 / 禁用、`config_json` 编辑、JSON 校验和数字排序；多浏览器矩阵、批量操作和更强可视化仍待后续专项验收。
+- 子站插件管理 UI：后台体验已从最小表格增强为更清晰的配置面板，包括全局 / 子站双状态、禁用原因、schema 参考、JSON 格式化、禁用影响提示和排序保存；多浏览器矩阵、批量操作和更强可视化仍待后续专项验收。
 - 插件权限：后台菜单和版主菜单已按权限过滤；发布链路已按内容类型做最小权限码校验：
   - `question -> qa.question.create`
   - `document -> docs.document.create`
@@ -150,7 +150,7 @@ P3：高级能力
 
 - 历史数据可能存在 `topics.plugin_code`、`categories.plugin_code`、`categories.allowed_content_types` 或 `community_plugins` 缺失 / 不一致，生产升级前需要迁移演练和抽样校验。
 - 子站插件禁用后已有内容应继续可读；后续改发布、列表或 SEO 时要避免把禁用插件误当作历史内容 404 条件。
-- API 和最小 UI 已注册不等于完整产品闭环；子站插件配置、排序和插件入口仍需继续做真实浏览器矩阵验收。
+- API 和后台 UI 已增强不等于完整产品闭环；子站插件配置、排序、插件详情抽屉和插件入口仍需继续做真实浏览器矩阵验收。
 - `/sitemap.xml` 当前仍是单文件动态输出，内容规模扩大后需要 sitemap index / 分片。
 - 用户提出的 `docs/BACKUP_ROLLBACK.md` 与仓库真实文件名不一致；当前真实文件是 `docs/BACKUP_AND_ROLLBACK.md`。
 
@@ -159,7 +159,7 @@ P3：高级能力
 1. P0：补 `config_schema` 基础校验，至少覆盖 `type`、`enum`、`required` 等最小规则。
 2. P0：补 HookBus 真实业务处理器和统一错误日志，优先覆盖 Search / Notification / SEO。
 3. P0：用真实 admin/user token 补测全局插件、子站插件、版主菜单和跨子站发布矩阵。
-4. P0：完成子站插件配置 UI 浏览器验收：`config_json`、排序、禁用影响提示、失败提示和保存后刷新。
+4. P0：完成后台插件管理 UI 浏览器验收：全局插件详情抽屉、全局启用 / 禁用确认、子站 `config_json`、排序、禁用影响提示、失败提示和保存后刷新。
 5. P0：补跑 `/topics/:id` SEO curl 检查，确认插件禁用后历史内容源码不退化。
 6. P1：细化插件权限矩阵，尤其是 Core 兼容类型 `article` / `news` 的权限码策略。
 7. P1：规划插件 SDK 文档和插件生成模板。
@@ -240,3 +240,59 @@ P3：高级能力
 1. P0：实现 `config_schema` 基础校验。
 2. P0：补 HookBus 业务处理器、统一错误日志和失败策略。
 3. P0：执行完整插件系统真实 token 验收矩阵。
+
+### 2026-05-10：后台插件管理界面体验增强
+
+修改范围：
+
+- 更新 `web/admin-app/src/views/Plugins.vue`。
+- 更新 `web/admin-app/src/views/Communities.vue`。
+- 更新 `docs/PROJECT_PROGRESS.md`、`docs/TESTING.md`、`docs/PLUGIN_ARCHITECTURE.md`、`docs/releases/v1.3.0.md`、`docs/releases/v1.3.1.md` 和 `CHANGELOG.md`。
+
+已完成事项：
+
+- 全局插件页新增插件系统说明卡片、状态 badge、内容类型 tag、权限 / 菜单 / schema 摘要和 loading / empty 状态。
+- 全局插件详情从简单弹窗升级为抽屉，并按“基础信息 / 内容类型 / 权限 / 菜单 / 配置 / 路由 / Hooks”分区展示。
+- 全局插件配置弹窗展示 `config_schema` 参考，支持 JSON 格式化、复制 schema，并继续在保存前校验 JSON 合法性。
+- 全局启用 / 禁用增加确认文案，明确禁用只影响新发布、导航、菜单和管理入口，不影响历史内容和 SEO。
+- 子站插件配置抽屉新增启用统计、全局 / 子站双状态 badge、全局禁用原因、子站未启用说明、schema 参考、JSON 格式化和更清晰的排序操作。
+- 修正子站插件上移 / 下移后未同步 `sort_order` 导致保存排序可能按旧数字排序的问题。
+- 版主插件菜单本轮未改代码；现有 `/moderator` 工作台已通过 `GET /api/v1/moderator/plugin-menus` 展示过滤后的插件治理入口。
+
+未完成事项：
+
+- 本轮未新增插件影响范围统计接口，因此 UI 不展示绑定子站数量、启用子站列表或受影响板块数量，避免伪造数据。
+- 本轮未引入自动浏览器测试；后台插件详情抽屉、子站配置抽屉、禁用确认、配置保存和排序仍需真实浏览器矩阵验收。
+- 本轮未做 `config_schema` 强校验或自动表单渲染，仍只校验 JSON 合法性。
+
+新发现风险：
+
+- 后台 UI 依赖现有插件接口字段；如果未来后端将 `config_json` 从字符串改为对象，页面已做基础兼容，但仍建议 API 文档保持字段类型稳定。
+
+已执行检查：
+
+- `gofmt -w internal/domain/models.go internal/service/service.go internal/store/mysql.go internal/store/schema.go internal/transport/httpapi/router.go internal/transport/httpapi/router_auth_test.go`：通过；这些 Go 文件为工作区既有改动，格式化后无报错。
+- `go test ./...`：通过。
+- `go build`：通过；构建产生的根目录临时二进制已清理。
+- `cd web/admin-app && npm run build`：宿主机缺少 `npm`，失败于 `npm: command not found`。
+- `docker run --rm -v "$PWD/web/admin-app":/app -w /app node:20-alpine sh -c "npm run build"`：通过；Vite 输出 chunk size warning，但构建成功。
+
+跳过项及原因：
+
+- 本轮未修改前台代码，跳过 `cd web/frontend-app && npm run build`。
+- 未执行真实浏览器矩阵：仓库当前没有自动浏览器测试 runner，需要后续手工验收或引入专项测试工具。
+
+影响范围：
+
+- API：未新增接口，继续使用现有全局插件、子站插件和版主菜单 API。
+- 数据库：无结构变更。
+- 权限：无后端权限逻辑变更，UI 继续依赖后端权限和菜单过滤。
+- SEO：无 SEO 行为变更，保留 disabled 插件不影响历史内容 SEO 的提示。
+- 插件系统：后台插件治理体验增强。
+- 前后台 UI：只修改后台全局插件管理和子站插件配置 UI。
+
+下一轮建议：
+
+1. 用真实 admin token 完成 `/admin-next/plugins` 和 `/admin-next/communities` 插件配置浏览器矩阵。
+2. 增加插件影响范围统计接口后，再在禁用确认中展示启用子站、绑定板块和可能受影响入口。
+3. 继续实现 P0 `config_schema` 基础校验。
