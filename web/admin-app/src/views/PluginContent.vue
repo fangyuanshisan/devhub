@@ -20,12 +20,12 @@
           <el-option label="hidden" value="hidden" />
           <el-option label="pending" value="pending" />
         </el-select>
-        <el-input v-model="keyword" placeholder="搜索标题 / 摘要" clearable class="search" @keyup.enter="load" />
+        <el-input v-model="keyword" placeholder="搜索标题 / 摘要" clearable class="search" data-testid="plugin-content-search" @keyup.enter="load" />
         <el-button data-testid="plugin-content-back" @click="backToPlugins">返回插件</el-button>
-        <el-button type="primary" @click="load">查询</el-button>
+        <el-button type="primary" data-testid="plugin-content-query" @click="load">查询</el-button>
       </div>
     </div>
-    <el-table :data="items" border stripe>
+    <el-table :data="items" border stripe data-testid="plugin-content-table">
       <el-table-column prop="id" label="ID" width="80" />
       <el-table-column prop="title" label="标题" min-width="260" />
       <el-table-column prop="site" label="子站" width="110" />

@@ -1,8 +1,8 @@
 <template>
-  <section class="filter-panel">
+  <section class="filter-panel" data-testid="admin-reports-page">
     <el-form :inline="true" :model="query">
       <el-form-item label="状态">
-        <el-select v-model="query.status" style="width: 150px">
+        <el-select v-model="query.status" style="width: 150px" data-testid="admin-report-status-filter">
           <el-option label="全部" value="all" />
           <el-option label="待处理" value="pending" />
           <el-option label="已接受" value="accepted" />
@@ -10,7 +10,7 @@
         </el-select>
       </el-form-item>
       <el-form-item label="对象">
-        <el-select v-model="query.target_type" style="width: 150px">
+        <el-select v-model="query.target_type" style="width: 150px" data-testid="admin-report-type-filter">
           <el-option label="全部" value="all" />
           <el-option label="主题" value="topic" />
           <el-option label="评论" value="comment" />
@@ -24,7 +24,7 @@
 
   <el-card shadow="never">
     <template #header><div class="card-head"><span>举报管理</span><div class="card-head-actions"><el-button size="small" :disabled="!selected.length" @click="openBatch('accepted')">批量接受</el-button><el-button size="small" :disabled="!selected.length" @click="openBatch('rejected')">批量驳回</el-button><el-tag type="warning">{{ total }} 条</el-tag></div></div></template>
-    <el-table :data="rows" stripe border @selection-change="selected = $event">
+    <el-table :data="rows" stripe border data-testid="admin-reports-table" @selection-change="selected = $event">
       <el-table-column type="selection" width="46" />
       <el-table-column prop="id" label="ID" width="80" sortable />
       <el-table-column label="对象" width="110"><template #default="{ row }"><el-tag>{{ typeName(row.target_type) }}</el-tag></template></el-table-column>
@@ -46,7 +46,7 @@
     <el-pagination v-model:current-page="query.page" v-model:page-size="query.page_size" class="pager" layout="total, sizes, prev, pager, next, jumper" :total="total" @change="load" />
   </el-card>
 
-  <el-dialog v-model="dialog" :title="handleForm.status === 'accepted' ? '接受举报' : '驳回举报'" width="420px">
+  <el-dialog v-model="dialog" :title="handleForm.status === 'accepted' ? '接受举报' : '驳回举报'" width="420px" data-testid="admin-report-handle-dialog">
     <el-input v-model="handleForm.handle_note" type="textarea" maxlength="500" show-word-limit placeholder="处理备注" />
     <template #footer>
       <el-button @click="dialog = false">取消</el-button>

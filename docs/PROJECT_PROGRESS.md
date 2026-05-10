@@ -189,6 +189,125 @@ P3：高级能力
 
 ## 最近任务记录
 
+### 2026-05-11：扩展 DevHub 第二阶段 E2E，覆盖前台真实业务流、插件联动、版主权限边界与后台细操作矩阵
+
+修改范围：
+
+- `web/frontend-app/tests/e2e/helpers/auth.js`
+- `web/frontend-app/tests/e2e/helpers/api.js`
+- `web/frontend-app/tests/e2e/interactions.spec.js`
+- `web/frontend-app/tests/e2e/publish.spec.js`
+- `web/frontend-app/tests/e2e/plugin-visibility.spec.js`
+- `web/frontend-app/tests/e2e/moderator.spec.js`
+- `web/admin-app/tests/e2e/helpers/api.js`
+- `web/admin-app/tests/e2e/helpers/selectors.js`
+- `web/admin-app/tests/e2e/reports.spec.js`
+- `web/admin-app/tests/e2e/moderators.spec.js`
+- `web/admin-app/tests/e2e/plugin-content.spec.js`
+- `web/admin-app/src/views/Reports.vue`
+- `web/admin-app/src/views/Moderators.vue`
+- `web/admin-app/src/views/PluginContent.vue`
+- `docs/TESTING.md`
+- `docs/PROJECT_PROGRESS.md`
+
+已完成事项：
+
+- 前台 E2E 从 6 条扩展到 14 条，新增登录互动、点赞、收藏、关注主题、评论、用户中心访问、登录发布成功、必填校验、插件禁用联动、强传禁用 / 非法 `content_type` 拦截、版主工作台权限边界和跨子站 API 越权拦截。
+- 后台 E2E 从 11 条扩展到 15 条，新增 reports 细操作、moderators 管理边界、qa/docs/wiki 通用插件内容页和插件内容治理代表链路。
+- 新增前台 E2E helper，集中维护普通用户、PHP 版主用户、API 请求、插件状态、板块状态、唯一标题和 SEO 基础断言。
+- 新增后台 E2E helper，集中维护 admin/user API 请求、测试 Topic、测试举报、页面 ready 断言和表格行查找。
+- 为 reports、moderators、PluginContent 补充少量稳定 `data-testid`，不改变现有 UI 结构或视觉。
+- 插件启停测试会在用例内恢复 `qa` 全局状态与 PHP QA 板块状态，避免污染后续 E2E。
+
+新发现风险：
+
+- 当前本地 PHP 子站只有 `community` 板块默认启用，其余 QA / Docs / Wiki / Projects / Jobs / AI Works 板块处于停用状态；涉及插件发布入口的 E2E 需要在测试内显式启用并恢复对应板块，不能假设所有 seed 板块都开启。
+- 后台 E2E 使用 Playwright 多 worker 并发运行；全局插件启停类测试可能与依赖对应插件状态的创建测试互相影响。当前已避免新增用例依赖并发中的 `qa` 创建，后续新增全局状态测试仍应 serial 或显式隔离。
+
+已执行检查：
+
+- `docker compose run --rm admin-e2e npm run build`：通过，Vite 仅输出 chunk size warning。
+- `docker compose run --rm frontend-e2e npm run build`：通过。
+- `docker compose run --rm frontend-e2e`：通过，14 个 Playwright 用例全部通过。
+- `docker compose run --rm admin-e2e`：通过，15 个 Playwright 用例全部通过。
+- `bash -n dev.sh`：通过。
+- `go test ./...`：通过。
+- `go build -o .devhub/devhub .`：通过。
+- `./scripts/check-frontend.sh --quick --target both`：通过，日志目录 `.devhub/checks/20260511-025032/`。
+- `./scripts/check-frontend.sh --admin-only`：通过，后台 build + 15 个 E2E 通过，日志目录 `.devhub/checks/20260511-025053/`。
+- `./scripts/check-frontend.sh --frontend-only`：通过，前台 build + 14 个 E2E 通过，日志目录 `.devhub/checks/20260511-025053/`。
+
+失败项或跳过项及原因：
+
+- 无最终失败项。
+- 本轮未新增插件、未修改 Docker runner / Dockerfile / compose / npm 依赖结构。
+- 后台版主管理“新增 / 编辑 / 停用”当前采用真实 API 操作 + UI 列表反映的组合覆盖；纯 Element Plus 表单 UI 操作仍作为后续更细 E2E。
+
+影响范围：
+
+- API：无新增或修改。
+- 数据库：无结构变更。
+- 权限：未改业务权限逻辑；新增 E2E 覆盖普通用户、版主、后台管理员边界。
+- SEO：未改 SEO 逻辑；新增 E2E 验证禁用 `qa` 后历史 `/topics/:id` SEO 仍可访问。
+- 插件系统：未改业务逻辑；新增插件启停、发布入口联动和强传拦截 E2E。
+- 前后台 UI：仅增加少量稳定 `data-testid`，无视觉或交互重构。
+
+未完成事项：
+
+- 跨子站插件矩阵仍需继续扩展：例如 PHP 禁用 QA、Go 仍启用 QA 时的双子站并行发布验证。
+- 版主管理纯 UI 表单新增 / 编辑 / 停用仍可继续补更细浏览器用例。
+- PluginContent 专属详情、审核按钮 UI 和更多插件业务状态操作仍待后续扩展。
+- MySQLStore 与老库迁移场景仍需单独跑同等 E2E / API 矩阵。
+
+下一轮建议：
+
+1. 将插件状态类 E2E 统一标记 serial 或按项目拆分，降低未来并发状态污染风险。
+2. 继续补前台多子站插件导航显示 / 隐藏矩阵，以及版主多账号多子站菜单过滤矩阵。
+3. 为后台 moderators 和 plugin content 补纯 UI 操作闭环，减少 API 辅助操作占比。
+
+### 2026-05-11：修复后台插件列表与插件详情抽屉显示问题
+
+修改范围：
+
+- `web/admin-app/src/views/Plugins.vue`
+- `web/admin-app/src/components/plugin/PluginDetailDrawer.vue`
+- `docs/PROJECT_PROGRESS.md`
+
+已完成事项：
+
+- 修复插件详情抽屉点击“详情”后内容区空白的问题：默认打开的 tab 从不存在的 `basic` 改为真实存在的 `overview`。
+- 优化 `/admin-next/plugins` 插件列表页显示密度，压缩统计卡片、筛选工具栏和表格行间距，减少首屏过度留白。
+- 优化插件详情抽屉内容区布局，为抽屉 body 增加可滚动区域和基础最小高度，避免内容区域视觉上像“空白页”。
+
+未完成事项：
+
+- 本轮只修复后台插件页面显示问题；未做新的插件治理能力、API、数据库或权限逻辑变更。
+- 真实浏览器截图级视觉验收可在后续 UI polish 或 E2E 视觉回归专项中继续补充。
+
+已执行检查：
+
+- `docker compose run --rm admin-e2e npm run build`：通过，Vite 仅输出 chunk size warning。
+- `docker compose run --rm admin-e2e`：通过，11 个 Playwright 用例全部通过。
+
+跳过项及原因：
+
+- 未执行 Go 检查：本轮没有后端代码变更。
+- 未执行前台构建 / E2E：本轮没有 `web/frontend-app` 变更。
+
+影响范围：
+
+- API：无新增或修改。
+- 数据库：无结构变更。
+- 权限：无业务权限逻辑变更。
+- SEO：无 SEO 行为变更。
+- 插件系统：仅修复后台插件治理中心展示层问题。
+- 前后台 UI：影响后台 `/admin-next/plugins` 插件列表与插件详情抽屉显示。
+
+下一轮建议：
+
+1. 如继续打磨后台插件治理中心，可补充浏览器截图对比或针对详情抽屉 tab 内容的更细 E2E 断言。
+2. 子站插件配置抽屉如存在同类密度或空白问题，可按同样方式做小范围 UI 修复。
+
 ### 2026-05-10：插件治理中心基础 UI + 依赖接入
 
 修改范围：
@@ -715,3 +834,63 @@ P3：高级能力
 
 1. 如团队需要更短命令，可新增轻量 Makefile alias：`make check-frontend`、`make check-frontend-quick`。
 2. 后续 CI 可直接调用 `./scripts/check-frontend.sh --target both --quiet` 或按阶段拆分 admin/frontend。
+
+### 2026-05-11：检查并修复本地 DevHub E2E 配置一致性，确保前后台 E2E 在本地代码中完整可运行
+
+修改范围：
+
+- 以当前本地工作区为准核对 `frontend-e2e`、`admin-e2e`、Playwright 配置、Dockerfile、docker compose、package scripts、lock 文件、entrypoint 和文档。
+- 使用 Docker 容器内 npm 校验 `web/frontend-app/package-lock.json` 与 `package.json` 一致。
+- 更新 `docs/TESTING.md` 与 `docs/PROJECT_PROGRESS.md`，记录本轮本地一致性验收结果。
+
+已完成事项：
+
+- `web/frontend-app/package.json` 已包含 `test:e2e` / `test:e2e:headed`，并声明 `@playwright/test: 1.59.1`。
+- `web/frontend-app/package-lock.json` 已包含 `@playwright/test` 与 `playwright 1.59.1`，并用 Docker 容器内 npm 校验为 up to date。
+- `docker-compose.yml` 已包含 `frontend-e2e` 服务，使用 `web/frontend-app/Dockerfile.e2e`、`DEVHUB_E2E_ORIGIN`、`host.docker.internal:host-gateway` 和 `frontend_e2e_node_modules` 命名卷。
+- `web/frontend-app/Dockerfile.e2e` 顺序符合缓存要求：先复制 package 文件并 `npm ci`，再复制源码；保留 npm retry / timeout 参数。
+- `web/frontend-app/docker/e2e-entrypoint.sh` 从 `/app/node_modules/.` 复制内容到 `./node_modules/`，不会产生 `node_modules/node_modules` 嵌套。
+- 后台 `admin-e2e` 配置未退化，已有插件治理 E2E 仍通过。
+
+修复事项：
+
+- 本轮未发现需要修改代码配置的 E2E 一致性问题；仅用容器内 npm 校验 lock 文件，并补充测试文档对 node_modules 命名卷与 entrypoint 复制策略的说明。
+
+已执行检查：
+
+- `docker run --rm -v /home/liuwei/code/sns/web/frontend-app:/app -w /app node:20-alpine sh -lc 'npm install --package-lock-only --ignore-scripts --no-audit --fund=false'`：通过，`up to date`。
+- `bash -n dev.sh`：通过。
+- `bash -n web/frontend-app/docker/e2e-entrypoint.sh`：通过。
+- `bash -n web/admin-app/docker/e2e-entrypoint.sh`：通过。
+- `bash -n scripts/check-frontend.sh`：通过。
+- `docker compose config`：通过。
+- `go test ./...`：通过。
+- `go build -o .devhub/devhub .`：通过。
+- `docker compose build admin-e2e`：通过。
+- `docker compose build frontend-e2e`：通过，依赖层命中缓存。
+- `docker compose run --rm admin-e2e npm run build`：通过，Vite 仅输出 chunk size warning。
+- `docker compose run --rm frontend-e2e npm run build`：通过。
+- `docker compose run --rm admin-e2e`：通过，11 个 Playwright 用例全部通过。
+- `docker compose run --rm frontend-e2e`：通过，6 个 Playwright 用例全部通过。
+- `./scripts/check-frontend.sh --help`：通过。
+- `./scripts/check-frontend.sh --quick --quiet`：通过，前后台 build 均 PASS。
+- `./scripts/check-frontend.sh --admin-only --quiet`：通过，后台 build + E2E 均 PASS。
+- `./scripts/check-frontend.sh --frontend-only --quiet`：通过，前台 build + E2E 均 PASS。
+
+跳过项及原因：
+
+- 未模拟 `frontend-e2e` 服务缺失时的 SKIP 场景：当前本地 compose 已完整包含 `frontend-e2e`，本轮以真实可运行为验收重点。
+
+影响范围：
+
+- API：无新增或修改。
+- 数据库：无结构变更。
+- 权限：无业务权限逻辑变更。
+- SEO：无 SEO 行为变更；前台 E2E 继续覆盖 `/topics/1/` 动态 SEO 冒烟。
+- 插件系统：无业务逻辑变更；后台 E2E 继续覆盖插件治理中心核心路径。
+- 前后台 UI：无页面视觉或交互变更。
+
+下一轮建议：
+
+1. 进入第二阶段 E2E 覆盖前，优先继续扩展登录用户互动、发布成功、插件启停联动和版主工作台矩阵。
+2. 如需 CI 收口，可直接接入 `./scripts/check-frontend.sh --target both --quiet`。

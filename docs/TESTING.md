@@ -189,11 +189,15 @@ docker compose run --rm admin-e2e
 - `/admin-next/communities` 子站管理打开与搜索。
 - `/admin-next/tags` 标签管理打开与搜索。
 - `/admin-next/audit-logs` 治理审计打开与动作筛选。
+- `/admin-next/reports` 举报管理打开、状态/对象筛选、测试举报处理和审计日志联动。
+- `/admin-next/moderators` 版主管理打开、列表展示、通过 API 验证新增/更新/停用版主并在 UI 列表中反映。
 - `/admin-next/plugins` 打开与搜索筛选。
 - 插件详情 Tabs、`config_schema` / `resolved_config` 展示和 schema 错误提示。
 - 全局禁用确认、impact 提示和全局 disabled 后子站启用限制。
 - 子站插件配置抽屉、JSON Editor 与 Ajv 错误提示。
 - 通用 `PluginContent` 页入口、子站筛选和状态筛选。
+- `/admin-next/qa`、`/admin-next/docs`、`/admin-next/wiki` 插件内容页打开、筛选和通用内容表展示。
+- 插件内容治理代表链路：通过后台 API 对已有插件内容执行隐藏 / 恢复，并在审计日志中验证记录。
 
 ## 前台 E2E Docker Runner
 
@@ -210,6 +214,8 @@ docker compose run --rm frontend-e2e
 - `frontend-e2e` 使用 `web/frontend-app/Dockerfile.e2e`，基础镜像固定为 `mcr.microsoft.com/playwright:v1.59.1-noble`。
 - 镜像构建阶段执行 `npm ci`；为适应慢网环境，Dockerfile 为 `npm ci` 增加了 fetch retry / timeout 参数。
 - 运行阶段通过 Docker volume 复用依赖，不把 `node_modules` 写入仓库。
+- `frontend_e2e_node_modules` 命名卷挂载到 `/workspace/web/frontend-app/node_modules`；`web/frontend-app/docker/e2e-entrypoint.sh` 只在卷缺少依赖时从镜像层复制 `/app/node_modules/.` 的内容，避免出现 `node_modules/node_modules` 嵌套。
+- “不依赖宿主机 Node/npm”指依赖安装、构建和测试均在 Docker 镜像或容器内完成；项目仍然通过 `package.json` / `package-lock.json` 声明 npm 依赖。
 - 默认测试目标是 `DEVHUB_E2E_ORIGIN=http://host.docker.internal:8090`，运行 E2E 前需要先启动 DevHub 后端服务。
 - E2E 前建议先执行 `docker compose run --rm frontend-e2e npm run build`，让 Go 服务读取最新 `web/frontend` 静态产物。
 
@@ -220,6 +226,11 @@ docker compose run --rm frontend-e2e
 - `/search/` 关键词搜索提交，结果区域可见。
 - `/topics/1/` 动态 Topic 详情打开，包含 h1、article 和 JSON-LD。
 - `/topics/new/` 未登录发布拦截，提交后提示登录。
+- 登录用户 Topic 详情互动：点赞、收藏、关注主题和发表评论。
+- 用户中心联动：`/notifications`、`/me/activities`、`/me/favorites`、`/me/follows` 登录态访问。
+- 登录发布流程：必填校验、发布 `article` 成功并打开新详情页。
+- 插件状态联动：临时启用 QA 板块后验证 `question` 可选；全局禁用 `qa` 后发布页隐藏入口，API 强传 `question` 被拒绝，非法 `content_type` 被拒绝，历史 `/topics/:id` SEO 仍可访问；测试结束恢复插件和板块状态。
+- 版主工作台边界：普通前台用户访问 `/moderator*` 无权限；PHP 版主可访问授权页面；API 强传 Go 子站 `community_id` 被 403 拦截。
 - `/tags/go/` 与 `/c/php/tags/laravel/` 标签页打开，并检查 canonical 基础 SEO 元素。
 
 ## 已实现但后续补测
@@ -227,11 +238,12 @@ docker compose run --rm frontend-e2e
 - 插件全局 `config_json` 和子站 `config_json` 接口已有自动化覆盖，仍需要真实 admin token 做联调补测。
 - 插件声明里的 `config_schema`、`dependencies`、`min_core_version` 和 `hooks` 已有结构测试，仍需要继续补测前后台展示或消费场景；`config_schema` 强校验当前不作为通过项。
 - 子站插件排序接口已有自动化覆盖，仍需要真实 admin token 和浏览器做联调补测。
-- 后台插件治理中心和核心后台页面已有 Docker 化 Playwright E2E runner；更大矩阵（多浏览器、多账号、多子站和视觉细节）仍需要按下方手工矩阵或后续扩展 E2E 补测。
-- 前台已有 Docker 化 Playwright 冒烟 E2E runner；登录互动、发布成功、插件启停联动、版主工作台、多账号权限边界仍待后续自动化。
-- 前台发布页按子站插件状态收口需要浏览器验收。
-- 子站导航按插件状态显示需要继续做多子站浏览器验收。
-- 版主菜单按子站插件状态和权限过滤需要多子站、多版主账号矩阵补测。
+- 后台插件治理中心和核心后台页面已有 Docker 化 Playwright E2E runner；仍需继续补多浏览器、更多真实 UI 操作、视觉细节和 MySQLStore 场景。
+- 后台版主管理新增 / 编辑 / 停用当前通过真实 API + UI 列表验证组合覆盖；Element Plus 表单纯 UI 操作仍可作为后续更细浏览器用例。
+- 后台插件内容页当前覆盖通用页打开、筛选和 API 治理代表链路；更完整的插件内容详情抽屉、审核按钮 UI 闭环仍待后续。
+- 前台发布页按全局插件状态和当前板块状态已有浏览器覆盖；仍需继续补“子站 A 禁用 / 子站 B 启用”的跨子站矩阵。
+- 子站导航按插件状态显示仍需继续做多子站浏览器验收。
+- 版主菜单按子站插件状态和权限过滤已有 PHP 版主基础覆盖；仍需继续补多版主账号、多子站插件启停组合和 UI 操作。
 - MySQL 老库执行 `db/mysql/migrations/004_community_plugins.sql` 后，需要补测历史板块与历史内容兼容。
 
 ## 待实现后补测

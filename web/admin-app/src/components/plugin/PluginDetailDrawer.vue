@@ -1,7 +1,8 @@
 <template>
-  <el-drawer v-model="visible" :title="title" size="920px" data-testid="plugin-detail-drawer">
+  <el-drawer v-model="visible" :title="title" size="920px" data-testid="plugin-detail-drawer" class="plugin-detail-drawer">
     <template v-if="plugin">
-      <div class="hero">
+      <div class="drawer-content">
+        <div class="hero">
         <div class="hero-left">
           <div class="hero-title">
             <h3>{{ plugin.name }}</h3>
@@ -20,9 +21,9 @@
           <div class="code-pill">{{ plugin.code }}</div>
           <div class="meta-line">version: {{ plugin.version }}</div>
         </div>
-      </div>
+        </div>
 
-      <el-tabs v-model="tab" class="tabs" data-testid="plugin-detail-tabs">
+        <el-tabs v-model="tab" class="tabs" data-testid="plugin-detail-tabs">
         <el-tab-pane label="概览" name="overview">
           <el-descriptions :column="2" border>
             <el-descriptions-item label="name">{{ plugin.name }}</el-descriptions-item>
@@ -217,7 +218,8 @@
             @change="loadAudit"
           />
         </el-tab-pane>
-      </el-tabs>
+        </el-tabs>
+      </div>
     </template>
   </el-drawer>
 </template>
@@ -446,6 +448,10 @@ async function saveConfig() {
   border-radius: 16px;
   background: linear-gradient(135deg, #f8fafc, #eef6ff);
 }
+.drawer-content {
+  min-height: calc(100vh - 96px);
+  padding-bottom: 24px;
+}
 .hero-title {
   display: flex;
   align-items: center;
@@ -483,6 +489,13 @@ async function saveConfig() {
 .tabs {
   margin-top: 16px;
 }
+.tabs :deep(.el-tabs__content) {
+  min-height: 420px;
+  padding-top: 4px;
+}
+.tabs :deep(.el-tab-pane) {
+  min-height: 360px;
+}
 .sub-toolbar {
   display: flex;
   justify-content: space-between;
@@ -518,5 +531,9 @@ async function saveConfig() {
   justify-content: flex-end;
   gap: 10px;
   margin-top: 10px;
+}
+:global(.plugin-detail-drawer .el-drawer__body) {
+  padding-top: 10px;
+  overflow: auto;
 }
 </style>

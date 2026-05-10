@@ -1,14 +1,14 @@
 <template>
-  <section class="filter-panel">
+  <section class="filter-panel" data-testid="admin-moderators-page">
     <el-form :inline="true" :model="query">
       <el-form-item label="子站">
-        <el-select v-model="query.community_slug" style="width: 180px">
+        <el-select v-model="query.community_slug" style="width: 180px" data-testid="admin-moderator-community-filter">
           <el-option label="全部子站" value="all" />
           <el-option v-for="site in siteList.filter((item) => item.key !== 'portal')" :key="site.key" :label="site.name" :value="site.key" />
         </el-select>
       </el-form-item>
       <el-form-item label="状态">
-        <el-select v-model="query.status" style="width: 130px"><el-option label="全部" value="all" /><el-option label="启用" value="1" /><el-option label="停用" value="0" /></el-select>
+        <el-select v-model="query.status" style="width: 130px" data-testid="admin-moderator-status-filter"><el-option label="全部" value="all" /><el-option label="启用" value="1" /><el-option label="停用" value="0" /></el-select>
       </el-form-item>
       <el-form-item><el-button type="primary" @click="load">查询</el-button><el-button @click="reset">重置</el-button></el-form-item>
     </el-form>
@@ -16,7 +16,7 @@
 
   <el-card shadow="never">
     <template #header><div class="card-head"><span>版主管理</span><el-button type="primary" @click="openCreate">新增版主</el-button></div></template>
-    <el-table :data="rows" stripe border>
+    <el-table :data="rows" stripe border data-testid="admin-moderators-table">
       <el-table-column prop="id" label="ID" width="80" />
       <el-table-column label="子站" min-width="150"><template #default="{ row }">{{ row.community_name || row.community_slug || row.community_id }}</template></el-table-column>
       <el-table-column label="用户" min-width="180"><template #default="{ row }">{{ row.user_nickname || row.user_name || row.user_id }} <span class="content-meta">UID {{ row.user_id }}</span></template></el-table-column>
@@ -30,7 +30,7 @@
     <el-pagination v-model:current-page="query.page" v-model:page-size="query.page_size" class="pager" layout="total, sizes, prev, pager, next, jumper" :total="total" @change="load" />
   </el-card>
 
-  <el-dialog v-model="dialog" :title="editing.id ? '编辑版主' : '新增版主'" width="460px">
+  <el-dialog v-model="dialog" :title="editing.id ? '编辑版主' : '新增版主'" width="460px" data-testid="admin-moderator-dialog">
     <el-form :model="form" label-width="92px">
       <el-form-item label="子站">
         <el-select v-model="form.community_slug" :disabled="Boolean(editing.id)">

@@ -233,7 +233,7 @@ function openPlugin(row) {
   router.push(target);
 }
 
-function openManifest(row, tab = 'basic') {
+function openManifest(row, tab = 'overview') {
   manifestTarget.value = row;
   manifestInitialTab.value = tab || 'overview';
   manifestDialog.value = true;
@@ -257,16 +257,16 @@ onMounted(load);
 </script>
 
 <style scoped>
-.page-card { display: grid; gap: 16px; }
-.toolbar { display: flex; justify-content: space-between; align-items: center; }
+.page-card { display: grid; gap: 12px; }
+.toolbar { display: flex; justify-content: space-between; align-items: flex-end; gap: 16px; }
 .tool-actions { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; justify-content: flex-end; }
 .toolbar h2 { margin: 0 0 6px; }
 .toolbar p { margin: 0; color: #64748b; }
 .intro-alert { border-radius: 12px; }
-.stats-grid { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 12px; }
-.stat-card { border: 1px solid #e2e8f0; border-radius: 14px; background: #fff; padding: 12px 14px; }
+.stats-grid { display: grid; grid-template-columns: repeat(5, minmax(150px, 1fr)); gap: 12px; }
+.stat-card { min-height: 76px; border: 1px solid #e2e8f0; border-radius: 14px; background: #fff; padding: 10px 14px; }
 .stat-k { color: #64748b; font-size: 12px; }
-.stat-v { color: #0f172a; font-size: 22px; font-weight: 700; margin-top: 6px; }
+.stat-v { color: #0f172a; font-size: 22px; font-weight: 700; margin-top: 4px; }
 .mr-6 { margin-right: 6px; }
 .mb { margin-bottom: 12px; }
 .muted { color: #64748b; }
@@ -274,6 +274,8 @@ onMounted(load);
 .plugin-title strong { color: #0f172a; }
 .plugin-title span { color: #64748b; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 12px; }
 .metric-line { display: flex; flex-wrap: wrap; gap: 6px; }
+.page-card :deep(.el-table__cell) { padding: 8px 0; }
+.page-card :deep(.el-table .cell) { line-height: 1.35; }
 .json-box { margin: 0; padding: 14px; border-radius: 12px; background: #0f172a; color: #dbeafe; max-height: 360px; overflow: auto; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 12px; line-height: 1.55; white-space: pre-wrap; }
 .json-box.compact { max-height: 180px; }
 </style>
