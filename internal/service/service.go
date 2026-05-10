@@ -32,7 +32,7 @@ type Repository interface {
 	Feed(site string, limit int) []domain.Post
 	TagStats(site string) []domain.TagStat
 	TagBySlug(site, slugOrName string) (domain.Tag, bool)
-	TagTopics(tagID int64, communityID int64, sort string, page, pageSize int) ([]domain.Topic, int)
+	TagTopics(tagID int64, communityID int64, contentType string, sort string, page, pageSize int) ([]domain.Topic, int)
 	TagSuggestions(site, q string, limit int) []domain.TagStat
 	AdminTags(site, q, status string) []domain.Tag
 	AdminTagTopics(id int64, page, pageSize int) ([]domain.Topic, int)
@@ -243,8 +243,8 @@ func (s *Service) TagBySlug(site, slugOrName string) (domain.Tag, bool) {
 }
 
 // TagTopics 返回标签关联内容。
-func (s *Service) TagTopics(tagID int64, communityID int64, sort string, page, pageSize int) ([]domain.Topic, int) {
-	return s.repo.TagTopics(tagID, communityID, sort, page, pageSize)
+func (s *Service) TagTopics(tagID int64, communityID int64, contentType string, sort string, page, pageSize int) ([]domain.Topic, int) {
+	return s.repo.TagTopics(tagID, communityID, contentType, sort, page, pageSize)
 }
 
 // TagSuggestions 返回发布页标签建议。

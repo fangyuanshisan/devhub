@@ -1,5 +1,40 @@
 # Changelog
 
+## v1.1.5
+
+DevHub v1.1.5 is the frontend UI polish release.
+
+### Changed
+
+- Unified frontend visual tokens for colors, typography, spacing, borders, shadows, radius, and responsive page width.
+- Polished the frontend header, site switcher, search box, logged-in user menu, publish button, and moderator workspace entry.
+- Improved homepage, community pages, topic cards, topic detail typography, search page, publish page, user-center pages, notification cards, empty states, and lightweight moderator workspace visuals.
+- Added responsive refinements for desktop, tablet, and mobile layouts.
+
+### Unchanged
+
+- No API, Store, database schema, route, auth, follow, publish, comment, moderator-permission, or admin-next business logic was changed.
+- `/topics/:id`, `/c/:slug`, and `/tags/:tag` remain Go-rendered SEO pages and were not converted to CSR shells.
+
+## v1.1.4
+
+DevHub v1.1.4 is the frontend login-state and permission-entry fix release.
+
+### Fixed
+
+- Frontend user login state is restored consistently across header, Go-rendered community pages, and Go-rendered topic pages.
+- Community follow, favorites, follows, activities, and notifications pages now send the frontend user token and no longer misreport logged-in users as unauthenticated.
+- Normal frontend users no longer see the full admin-next backend entry in the frontend user menu.
+- Community moderators see the `/moderator` workspace entry based on `is_moderator`.
+- Publishing `question` content now matches the question category instead of defaulting to an article category.
+- The admin-next menu now exposes only one community management entry.
+
+### Changed
+
+- `GET /api/v1/auth/me` now includes `is_moderator` and `moderated_communities`.
+- `/admin-next/sites` remains as a hidden compatibility route and redirects to `/admin-next/communities`.
+- Topic creation validation now prefers `categories.content_type` and falls back to legacy `categories.type`.
+
 ## v1.2.0
 
 DevHub v1.2.0 is the tag system enhancement release.
@@ -7,16 +42,18 @@ DevHub v1.2.0 is the tag system enhancement release.
 ### Added
 
 - Go-rendered Baidu-friendly tag aggregation SEO pages at `/tags/:tag/`.
+- Go-rendered community tag aggregation SEO pages at `/c/:communitySlug/tags/:tag/`.
 - Public tag detail, tag-topic aggregation, and tag suggestion APIs.
+- Public community tag detail and community tag-topic aggregation APIs.
 - Tag follow UX on the tag SEO page using existing `POST /api/v1/follows/toggle`.
 - Publish-page tag suggestions scoped to the selected community.
 - admin-next tag management at `/admin-next/tags`, including CRUD, enable/disable, SEO fields, and related-topic viewing.
 - MySQL schema and startup migration support for tag `follower_count`, SEO fields, and `enable/disable` status.
-- Dynamic sitemap entries for enabled tags.
+- Dynamic sitemap entries for enabled global tags and enabled community tag pages.
 
 ### Changed
 
-- Topic and community tag links now point to canonical tag pages instead of only search filters.
+- Topic and community tag links now point to canonical tag pages instead of only search filters; community context links use `/c/:communitySlug/tags/:tag/`.
 - Tags are first-class manageable records in MemoryStore and MySQLStore, while still preserving existing topic tag behavior.
 - `/topics/:id` and `/c/:slug` SEO output remains Go-rendered and unchanged in responsibility.
 

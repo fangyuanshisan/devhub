@@ -201,7 +201,7 @@ const sortTabs = [
 	        const site = siteMap.get(siteKey);
 	        const boardKey = typeToBoard[topic.content_type] || 'community';
 	        const board = boardMap.get(boardKey);
-	        const tags = (topic.tags || []).slice(0, 5).map((tag) => `<a href="/tags/${encodeURIComponent(String(tag).trim().toLowerCase().replace(/\s+/g, '-'))}/${siteKey === 'portal' ? '' : `?community_slug=${encodeURIComponent(siteKey)}`}">${escapeHTML(tag)}</a>`).join('');
+	        const tags = (topic.tags || []).slice(0, 5).map((tag) => `<a href="${siteKey === 'portal' ? `/tags/${encodeURIComponent(String(tag).trim().toLowerCase().replace(/\s+/g, '-'))}/` : `/c/${encodeURIComponent(siteKey)}/tags/${encodeURIComponent(String(tag).trim().toLowerCase().replace(/\s+/g, '-'))}/`}">${escapeHTML(tag)}</a>`).join('');
 	        const qaState = topic.content_type === 'question'
 	          ? (topic.is_solved ? '<span class="state-pill solved">已解决</span>' : '<span class="state-pill unsolved">未解决</span>')
 	          : '';

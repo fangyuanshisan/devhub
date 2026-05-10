@@ -47,6 +47,8 @@ import { devhubSites as sites } from '../../lib/sites';
       const count = document.querySelector('[data-activity-count]');
       const escapeHTML = (value) => String(value ?? '').replace(/[&<>"']/g, (char) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[char]));
       const actionText = { created_topic: '你发布了主题', commented: '你评论了主题', liked: '你点赞了主题', favorited: '你收藏了主题', followed: '你关注了', accepted_answer: '你采纳了回答' };
+      const token = () => localStorage.getItem('devhub_user_token') || localStorage.getItem('devhub_access_token') || '';
+      const authHeaders = () => token() ? { Authorization: `Bearer ${token()}` } : {};
       document.querySelectorAll('[data-action]').forEach((link) => link.classList.toggle('active', (link.dataset.action || '') === activeAction));
       const render = (item) => {
         const title = item.target_title || item.remark || `${item.target_type} #${item.target_id}`;
@@ -59,9 +61,14 @@ import { devhubSites as sites } from '../../lib/sites';
         </article>`;
       };
       function load() {
+        if (!token()) {
+          if (count) count.textContent = '未登录';
+          if (list) list.innerHTML = '<div class="empty-state">请先登录后查看我的动态。<a href="/#login">去登录</a></div>';
+          return;
+        }
         const query = new URLSearchParams({ page_size: '20' });
         if (activeAction) query.set('action', activeAction);
-        fetch(`/api/v1/me/activities?${query.toString()}`).then((response) => response.ok ? response.json() : Promise.reject()).then((data) => {
+        fetch(`/api/v1/me/activities?${query.toString()}`, { headers: authHeaders() }).then((response) => response.ok ? response.json() : Promise.reject()).then((data) => {
           const items = data.items || [];
           if (count) count.textContent = `${Number(data.total || items.length)} 条`;
           if (list) list.innerHTML = items.length ? items.map(render).join('') : '<div class="empty-state">还没有动态。<a href="/topics/new/">发布第一篇内容</a></div>';

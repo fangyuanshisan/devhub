@@ -93,8 +93,10 @@ const sortTabs = [
       const typeName = { article: '帖子', question: '问答', project: '项目', ai_work: 'AI作品', job: '招聘', wiki: 'Wiki', doc: '文档', news: '周刊' };
       const escapeHTML = (value) => String(value ?? '').replace(/[&<>"']/g, (char) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[char]));
       const getJSON = (url) => fetch(url).then((response) => response.ok ? response.json() : Promise.reject());
-      const postJSON = (url, body) => fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) }).then((response) => response.ok ? response.json() : response.json().then((data) => Promise.reject(data)));
-      const tagURL = (tag) => `/tags/${encodeURIComponent(String(tag).trim().toLowerCase().replace(/\s+/g, '-'))}/?community_slug=${encodeURIComponent(community)}`;
+      const token = () => localStorage.getItem('devhub_user_token') || localStorage.getItem('devhub_access_token') || '';
+      const authHeaders = (extra = {}) => token() ? { ...extra, Authorization: `Bearer ${token()}` } : extra;
+      const postJSON = (url, body) => fetch(url, { method: 'POST', headers: authHeaders({ 'Content-Type': 'application/json' }), body: JSON.stringify(body) }).then((response) => response.ok ? response.json() : response.json().then((data) => Promise.reject(data)));
+      const tagURL = (tag) => `/c/${encodeURIComponent(community)}/tags/${encodeURIComponent(String(tag).trim().toLowerCase().replace(/\s+/g, '-'))}/`;
       const buildURL = (next = {}) => {
         const search = new URLSearchParams();
         const type = next.content_type ?? activeType;
@@ -135,6 +137,10 @@ const sortTabs = [
         document.querySelector('[data-moderator-site]').textContent = site.name;
         const button = document.querySelector('[data-community-follow]');
         button?.addEventListener('click', () => {
+          if (!token()) {
+            button.textContent = '请先登录';
+            return;
+          }
           button.disabled = true;
           postJSON('/api/v1/follows/toggle', { target_type: 'community', target_id: Number(site.id) })
             .then((data) => { button.textContent = data.followed ? '已关注子站' : '关注子站'; })
@@ -169,7 +175,7 @@ const sortTabs = [
       getJSON(`/api/v1/communities/${encodeURIComponent(community)}/tags`).then((data) => {
         const cloud = document.querySelector('[data-community-tags]');
         const tags = data.items || [];
-        if (cloud) cloud.innerHTML = tags.length ? tags.map((tag) => `<a href="/tags/${encodeURIComponent(tag.slug || String(tag.name).trim().toLowerCase().replace(/\s+/g, '-'))}/?community_slug=${encodeURIComponent(community)}">${escapeHTML(tag.name)}<span>${Number(tag.count || tag.topic_count || 0)}</span></a>`).join('') : '<span>暂无标签</span>';
+        if (cloud) cloud.innerHTML = tags.length ? tags.map((tag) => `<a href="/c/${encodeURIComponent(community)}/tags/${encodeURIComponent(tag.slug || String(tag.name).trim().toLowerCase().replace(/\s+/g, '-'))}/">${escapeHTML(tag.name)}<span>${Number(tag.count || tag.topic_count || 0)}</span></a>`).join('') : '<span>暂无标签</span>';
       }).catch(() => {});
     })();
   </script>

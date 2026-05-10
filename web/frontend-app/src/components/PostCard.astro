@@ -22,7 +22,8 @@ const typeName = {
 }[post.content_type || 'article'] || '内容';
 const isQuestion = post.content_type === 'question';
 const commentLabel = isQuestion ? '回答' : '评论';
-const tagHref = (tag: string) => `/tags/${encodeURIComponent(tag.trim().toLowerCase().replace(/\s+/g, '-'))}/${post.site === 'portal' ? '' : `?community_slug=${encodeURIComponent(post.site)}`}`;
+const tagSegment = (tag: string) => encodeURIComponent(tag.trim().toLowerCase().replace(/\s+/g, '-'));
+const tagHref = (tag: string) => post.site === 'portal' ? `/tags/${tagSegment(tag)}/` : `/c/${encodeURIComponent(post.site)}/tags/${tagSegment(tag)}/`;
 ---
 <article class="post-card">
   <div class="post-card-top">

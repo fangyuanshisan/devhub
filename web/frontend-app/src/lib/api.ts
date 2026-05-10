@@ -224,7 +224,7 @@ export async function getCommunityTopics(slug: string, params: { board?: string;
 }
 
 export async function followCommunity(id: number): Promise<{ followed: boolean }> {
-  const response = await ofetch(endpoint('/follows/toggle'), {
+  const response = await authRequest(endpoint('/follows/toggle'), {
     method: 'POST',
     body: { target_type: 'community', target_id: id },
   });
@@ -289,18 +289,24 @@ export async function getTags(site = 'portal'): Promise<TagStat[]> {
 }
 
 export async function getTag(slug: string, communitySlug = '') {
+  if (communitySlug) {
+    return request(`/communities/${encodeURIComponent(communitySlug)}/tags/${encodeURIComponent(slug)}`, undefined, tagSchema.optional());
+  }
   const query = new URLSearchParams();
-  if (communitySlug) query.set('community_slug', communitySlug);
   return request(`/tags/${encodeURIComponent(slug)}${query.toString() ? `?${query}` : ''}`, undefined, tagSchema.optional());
 }
 
-export async function getTagTopics(slug: string, params: { community_slug?: string; sort?: string; page?: number; page_size?: number } = {}) {
+export async function getTagTopics(slug: string, params: { community_slug?: string; content_type?: string; sort?: string; page?: number; page_size?: number } = {}) {
   const query = new URLSearchParams();
-  if (params.community_slug) query.set('community_slug', params.community_slug);
+  const base = params.community_slug
+    ? `/communities/${encodeURIComponent(params.community_slug)}/tags/${encodeURIComponent(slug)}/topics`
+    : `/tags/${encodeURIComponent(slug)}/topics`;
+  if (params.community_slug && !base.startsWith('/communities/')) query.set('community_slug', params.community_slug);
+  if (params.content_type) query.set('content_type', params.content_type);
   if (params.sort) query.set('sort', params.sort);
   query.set('page', String(params.page || 1));
   query.set('page_size', String(params.page_size || 12));
-  const data = await request(`/tags/${encodeURIComponent(slug)}/topics?${query}`, { items: [], total: 0, page: 1, page_size: 12 }, z.object({ items: z.array(topicSchema), total: z.number().default(0), page: z.number().default(1), page_size: z.number().default(12) }));
+  const data = await request(`${base}?${query}`, { items: [], total: 0, page: 1, page_size: 12 }, z.object({ items: z.array(topicSchema), total: z.number().default(0), page: z.number().default(1), page_size: z.number().default(12) }));
   return { ...data, items: data.items.map(topicToPost) };
 }
 

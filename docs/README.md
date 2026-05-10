@@ -22,28 +22,34 @@ DevHub 文档已收敛为少量当前有效入口。日常优先看下面这些�
 6. [v1.2.0 Release Notes](releases/v1.2.0.md)
    - 标签系统增强版的标签页、API、关注、发布建议、后台管理、SEO、sitemap 和已知限制。
 
-7. [v1.1.3 Release Notes](releases/v1.1.3.md)
+7. [v1.1.5 Release Notes](releases/v1.1.5.md)
+   - 前台 UI 美化专项的全局样式、页面视觉、组件样式、响应式和 SEO 保护说明。
+
+8. [v1.1.4 Release Notes](releases/v1.1.4.md)
+   - 前台登录态、权限入口、子站关注、“我的”类页面、发布类型匹配和后台子站入口修复。
+
+9. [v1.1.3 Release Notes](releases/v1.1.3.md)
    - 独立版主工作台 MVP 的页面、API、权限边界、审计日志和已知限制。
 
-8. [v1.1.1 Release Notes](releases/v1.1.1.md)
+10. [v1.1.1 Release Notes](releases/v1.1.1.md)
    - 前后台身份边界整理版的身份模型、token 边界、middleware、审计 actor 和已知限制。
 
-9. [v1.1.0 Release Notes](releases/v1.1.0.md)
+11. [v1.1.0 Release Notes](releases/v1.1.0.md)
    - 子站模块增强版的版本定位、数据结构变化、API、SEO、后台、测试清单和已知限制。
 
-10. [测试文档](TESTING.md)
+12. [测试文档](TESTING.md)
    - 页面、接口、互动、SEO、memory / mysql 模式的手工验收清单。
 
-11. [部署启动文档](DEPLOYMENT.md)
+13. [部署启动文档](DEPLOYMENT.md)
    - 本地启动、构建行为、8090 端口排查、Go 模块网络和二进制排障启动。
 
-12. [备份与回滚文档](BACKUP_AND_ROLLBACK.md)
+14. [备份与回滚文档](BACKUP_AND_ROLLBACK.md)
    - v1.x 上线前后需要备份的内容、MySQL 备份恢复、二进制回滚、Git 回滚和紧急回滚流程。
 
-13. [v1.0.0 Release Notes](releases/v1.0.0.md)
+15. [v1.0.0 Release Notes](releases/v1.0.0.md)
    - 首个可运行大版本的版本定位、启动部署、测试清单、已知限制和下一版本规划。
 
-14. [需求原文](../更新.md)
+16. [需求原文](../更新.md)
    - 产品需求原始文档，用于核对目标和范围。
 
 ## 辅助文档

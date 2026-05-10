@@ -1293,13 +1293,14 @@ func (s *MemoryStore) TagSuggestions(site, q string, limit int) []domain.TagStat
 	return s.tagStatsLocked(site, q, "enable", limit)
 }
 
-func (s *MemoryStore) TagTopics(tagID int64, communityID int64, sortBy string, page, pageSize int) ([]domain.Topic, int) {
+func (s *MemoryStore) TagTopics(tagID int64, communityID int64, contentType string, sortBy string, page, pageSize int) ([]domain.Topic, int) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	tag, ok := s.tags[tagID]
 	if !ok || tag == nil || tag.Status != "enable" {
 		return []domain.Topic{}, 0
 	}
+	contentType = strings.TrimSpace(contentType)
 	topics := make([]domain.Topic, 0)
 	for _, post := range s.posts {
 		if !memoryPostVisible(post) {
@@ -1310,6 +1311,12 @@ func (s *MemoryStore) TagTopics(tagID int64, communityID int64, sortBy string, p
 			continue
 		}
 		if communityID > 0 && topic.CommunityID != communityID {
+			continue
+		}
+		if contentType != "" && contentType != "all" && topic.ContentType != contentType {
+			continue
+		}
+		if sortBy == "unsolved" && (topic.ContentType != "question" || topic.IsSolved) {
 			continue
 		}
 		if tag.Site != "" && tag.Site != "portal" && post.Site != tag.Site {
@@ -1337,7 +1344,7 @@ func (s *MemoryStore) AdminTagTopics(id int64, page, pageSize int) ([]domain.Top
 	}
 	tagID := tag.ID
 	s.mu.RUnlock()
-	return s.TagTopics(tagID, communityID, "latest", page, pageSize)
+	return s.TagTopics(tagID, communityID, "", "latest", page, pageSize)
 }
 
 // BoardCounts 统计站点内各板块帖子数量，可叠加关键词过滤。
@@ -2018,6 +2025,15 @@ func sortTopicsForSearch(topics []domain.Topic, sortBy string) {
 			}
 			return topics[i].UpdatedAt > topics[j].UpdatedAt
 		})
+	case "unsolved":
+		sort.Slice(topics, func(i, j int) bool {
+			left := firstNonEmptyString(topics[i].LastActiveAt, topics[i].UpdatedAt, topics[i].CreatedAt)
+			right := firstNonEmptyString(topics[j].LastActiveAt, topics[j].UpdatedAt, topics[j].CreatedAt)
+			if left == right {
+				return topics[i].ID > topics[j].ID
+			}
+			return left > right
+		})
 	default:
 		sort.Slice(topics, func(i, j int) bool {
 			if topics[i].IsPinned != topics[j].IsPinned {
@@ -2284,6 +2300,17 @@ func tagKey(site, slug string) string {
 	return strings.TrimSpace(site) + ":" + strings.TrimSpace(slug)
 }
 
+func tagURLForSlug(slug, communitySlug string) string {
+	slug = strings.TrimSpace(slug)
+	if slug == "" {
+		return "/tags/"
+	}
+	if communitySlug != "" && communitySlug != "portal" {
+		return "/c/" + communitySlug + "/tags/" + slug + "/"
+	}
+	return "/tags/" + slug + "/"
+}
+
 func (s *MemoryStore) findTagBySiteSlugLocked(site, slug string) (*domain.Tag, bool) {
 	site = strings.TrimSpace(site)
 	slug = strings.TrimSpace(slug)
@@ -2327,6 +2354,9 @@ func (s *MemoryStore) tagBySlugLocked(site, slugOrName string, enabledOnly bool)
 		matched := strings.EqualFold(tag.Slug, slugOrName) || strings.EqualFold(tag.Name, slugOrName) || (normalizedSlug != "" && strings.EqualFold(tag.Slug, normalizedSlug)) || strings.EqualFold(tag.Name, needle)
 		if !matched {
 			continue
+		}
+		if (site == "" || site == "portal") && tag.Site == "portal" {
+			return s.enrichTagLocked(*tag), true
 		}
 		if site != "" && site != "portal" && tag.Site != site {
 			continue
@@ -2642,7 +2672,7 @@ func (s *MemoryStore) followItemLocked(follow *domain.Follow) domain.FollowItem 
 			item.TargetName = cp.Name
 			item.TargetSlug = cp.Slug
 			item.Description = cp.Description
-			item.TargetURL = "/tags/" + cp.Slug + "/"
+			item.TargetURL = tagURLForSlug(cp.Slug, cp.CommunitySlug)
 			item.Community = s.communityByIDLocked(cp.CommunityID)
 		} else {
 			item.TargetSlug = fmt.Sprintf("%d", follow.TargetID)
@@ -2687,7 +2717,7 @@ func (s *MemoryStore) enrichActivityLocked(a *domain.Activity) {
 		if tag, ok := s.tags[a.TargetID]; ok && tag != nil {
 			cp := s.enrichTagLocked(*tag)
 			a.TargetTitle = cp.Name
-			a.TargetURL = "/tags/" + cp.Slug + "/"
+			a.TargetURL = tagURLForSlug(cp.Slug, cp.CommunitySlug)
 			if comm := s.communityByIDLocked(cp.CommunityID); comm.Name != "" {
 				a.Community = comm.Name
 				a.CommunityID = comm.ID
@@ -3360,6 +3390,9 @@ func (s *MemoryStore) TopicsByFilter(communityID, categoryID int64, contentType,
 		if sortBy == "featured" && !t.IsFeatured {
 			continue
 		}
+		if sortBy == "unsolved" && (t.ContentType != "question" || t.IsSolved) {
+			continue
+		}
 		if tag != "" && !hasTag(t.Tags, tag) {
 			continue
 		}
@@ -3385,7 +3418,7 @@ func (s *MemoryStore) TopicsByFilter(communityID, categoryID int64, contentType,
 			}
 			return filtered[i].ID > filtered[j].ID
 		})
-	case "active":
+	case "active", "unsolved":
 		sort.Slice(filtered, func(i, j int) bool {
 			left := firstNonEmptyString(filtered[i].LastActiveAt, filtered[i].UpdatedAt, filtered[i].CreatedAt)
 			right := firstNonEmptyString(filtered[j].LastActiveAt, filtered[j].UpdatedAt, filtered[j].CreatedAt)

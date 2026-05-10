@@ -21,6 +21,10 @@ DevHub 当前是 “Go API + Astro 前台 + Vue 后台” 的多子站社区 CMS
 
 当前版本为 `v1.2.0`，版本主题是“标签系统增强版”。本轮新增 Go 动态标签 SEO 页、标签详情 API、标签内容聚合、标签关注、发布页标签建议、后台标签 CRUD、标签启用 / 禁用、标签 SEO 字段、标签关联内容查看和 sitemap 标签收录。
 
+v1.1.4 补丁已并入当前分支，主题是“前台登录态与权限入口修复版”。本补丁统一前台 user token 的导航恢复、子站关注、“我的”类页面请求和版主入口展示；普通前台会员不再显示 `/admin-next` 总后台入口；发布页按 `categories.content_type` 自动匹配板块；后台子站管理主入口统一为 `/admin-next/communities`，`/admin-next/sites` 保留隐藏兼容重定向。
+
+v1.1.5 补丁已并入当前分支，主题是“前台 UI 美化专项”。本补丁只优化前台样式和响应式体验，统一全局颜色、字体层级、间距、卡片、按钮、标签、空状态、导航、首页、子站页、Topic 列表、Topic 详情、搜索页、发布页、“我的”页面和版主工作台入口视觉表现；不修改 API、Store、数据库、路由、鉴权、业务逻辑或 Go 动态 SEO 结构。
+
 ## 近期迭代摘要
 
 - 第一轮：同步通用社区 schema，补齐 PHP、Go、Java、AI、Frontend 五个子站 seed 数据。
@@ -37,21 +41,67 @@ DevHub 当前是 “Go API + Astro 前台 + Vue 后台” 的多子站社区 CMS
 - v1.1.0 子站模块增强：增强 `communities/categories` 模型，新增 `/c/:slug` Go 动态 SEO 子站页、子站统计、公开版主、子站后台配置、子站板块管理、子站公告、子站关注计数和 sitemap 子站收录。
 - v1.1.1 身份边界整理：前台登录发放 `token_type=user`，后台登录发放 `token_type=admin`；前台推荐 localStorage key 为 `devhub_user_token` / `devhub_user_refresh_token`，后台继续使用 sessionStorage `devhub_admin_token` / `devhub_admin_refresh_token`；`/api/v1/admin/*` 默认校验后台身份，子站版主 user token 只获得自己子站的治理类权限；`admin_logs` 增加并读写 `actor_type` / `actor_id`。
 - v1.1.3 独立版主工作台 MVP：新增 `/moderator`、`/moderator/reports`、`/moderator/topics`、`/moderator/comments`、`/moderator/audit-logs`；新增 `/api/v1/moderator/*` 专用 API，复用现有 reports/topics/comments 治理能力和 `admin_logs`，但强制使用前台 user token 与 `community_moderators` 子站 scope。
-- v1.2.0 标签系统增强：新增 `/tags/:tag/` Go 动态 SEO 标签页，公开标签详情 / 聚合 / 建议 API，发布页标签建议，标签关注，`/admin-next/tags` 后台标签 CRUD、启用 / 禁用、SEO 字段和关联内容查看，以及 sitemap 启用标签收录。
+- v1.1.4 前台登录态与权限入口修复：修复部分前台页面不显示登录状态、子站关注和“我的”类接口未携带 user token、普通会员看到总后台入口、版主入口不按身份展示、发布 question 默认板块不匹配，以及后台重复子站入口问题。
+- v1.1.5 前台 UI 美化专项：统一前台视觉 token、导航、卡片、表单、标签、空状态、Topic 列表 / 详情、搜索、发布、“我的”页面和移动端样式；未改接口、业务逻辑、数据库、路由或 SEO 主体结构。
+- v1.2.0 标签系统增强：新增 `/tags/:tag/` 全站标签 SEO 页和 `/c/:slug/tags/:tag/` 子站标签 SEO 页，公开标签详情 / 聚合 / 建议 API，发布页标签建议，标签关注，`/admin-next/tags` 后台标签 CRUD、启用 / 禁用、SEO 字段和关联内容查看，以及 sitemap 全站 / 子站标签收录。
+
+## v1.1.5 前台 UI 美化专项范围
+
+已完成能力：
+
+- 全局样式：统一前台 CSS 变量，覆盖主色、辅助色、成功 / 警告 / 危险色、背景、卡片、边框、阴影、圆角、页面宽度和响应式断点。
+- 顶部导航：优化 Logo、子站切换、搜索框、登录 / 注册、用户菜单、通知、发布按钮和版主工作台入口的视觉层级；普通会员不显示总后台入口的 v1.1.4 规则保持不变。
+- 首页：优化总站聚合 header、频道卡片、精选内容、子站推荐、最新内容、热门内容、热门标签和右侧信息栏样式。
+- 子站页：优化 `/c/:slug` 运行时前台页面的子站 header、主题色 accent、关注 / 发帖按钮、板块导航、排序 tab、Topic 列表、热门标签、公告和版主侧栏视觉表现。
+- Topic 列表：统一 Topic 卡片、内容类型徽章、子站 / 板块标识、标签、置顶 / 精华 / 已解决 / 未解决等状态徽章和统计信息样式。
+- Topic 详情：优化标题、面包屑、作者与元信息、正文排版、代码块、引用、表格、标签、互动按钮和评论区样式；未改变 Go 动态 SEO 输出结构。
+- 搜索页：优化搜索表单、筛选区、当前条件摘要、结果列表和分页样式。
+- 发布页：优化表单、输入框、下拉、标签选择、错误 / 成功提示、提交按钮和说明侧栏样式；未改变发布逻辑和 `content_type` 校验。
+- 我的页面：优化 `/me/favorites`、`/me/follows`、`/me/activities`、`/notifications` 的卡片、空状态、未读提示和快捷入口样式。
+- 移动端：补充 `1024px`、`760px`、`480px` 响应式规则，改善单列布局、导航换行、搜索表单、标签换行、Topic 卡片和发布页可用性。
+
+已知限制：
+
+- v1.1.5 不是完整设计系统重构，未新增组件库、主题后台或复杂动效。
+- 本轮只做 CSS / 视觉层级优化，不做 Playwright 全量视觉回归；完整桌面 / 移动端截图验收应作为后续验收任务。
+- 深色主题做基础适配，后续仍可单独做主题系统专项。
+
+未改变内容：
+
+- 未修改 API、Store、数据库 schema、鉴权、关注、发布、评论、版主权限或 admin-next 业务。
+- 未修改 `/topics/:id`、`/c/:slug`、`/tags/:tag` 的 Go 动态 SEO 主体结构。
+- `sites/posts` 兼容 API 继续保留。
+
+## v1.1.4 前台登录态与权限入口修复范围
+
+已完成能力：
+
+- 前台 Header 统一使用 `devhub_user_token` / `devhub_user_refresh_token`，兼容旧 token key，刷新页面后通过 `/api/v1/auth/me` 恢复用户状态。
+- `/api/v1/auth/me` 返回 `is_moderator` 和 `moderated_communities`，用于前台决定是否显示版主工作台入口。
+- 普通前台会员菜单不再显示 `/admin-next` 总后台入口；子站版主显示 `/moderator` 入口。
+- Go 动态 SEO 页 `/c/:slug` 和 `/topics/:id` 运行时 Header 增加前台 user token 恢复与版主入口展示，不改变 SEO 主体 HTML。
+- 子站关注、我的收藏、我的关注、我的动态和通知页面请求携带前台 user token，未登录时展示友好登录提示。
+- 发布页根据 `?type=` / `?content_type=` 和当前子站板块 `content_type` 自动选择匹配板块；后端校验使用 `category.content_type` 优先、旧 `type` 兜底。
+- 后台菜单只保留 `/admin-next/communities` 一个子站管理入口；`/admin-next/sites` 保留隐藏兼容并重定向到 `/admin-next/communities`。
+
+已知限制：
+
+- v1.1.4 不做复杂 RBAC、独立权限矩阵、OAuth / SSO 或完整认证系统重构。
+- 总后台入口仍需要用户主动访问 `/admin-next` 并通过后台 admin 登录态进入，不由前台会员菜单暴露。
 
 ## v1.2.0 标签系统增强范围
 
 已完成能力：
 
-- 标签页：`/tags/:tag/` 由 Go 动态输出 SEO HTML，包含 title、description、canonical、h1、说明、内容链接、相关标签和关注按钮。
-- 标签详情 API：`GET /api/v1/tags/:tag` 按 slug、名称或 ID 获取启用标签。
-- 标签内容聚合：`GET /api/v1/tags/:tag/topics` 支持 `community_slug`、`sort`、分页，返回真实 Topic 列表。
+- 标签页：`/tags/:tag/` 和 `/c/:slug/tags/:tag/` 由 Go 动态输出 SEO HTML，包含 title、description、canonical、h1、说明、内容链接、子站链接、相关标签和关注按钮。
+- 标签详情 API：`GET /api/v1/tags/:tag`、`GET /api/v1/tags/by-slug/:tag`、`GET /api/v1/communities/:slug/tags/:tag` 按 slug、名称或 ID 获取启用标签。
+- 标签内容聚合：`GET /api/v1/tags/:tag/topics` 和 `GET /api/v1/communities/:slug/tags/:tag/topics` 支持 `content_type`、`sort`、分页，返回真实 Topic 列表；`sort=unsolved` 可聚合未解决问答。
 - 标签关注：复用 `POST /api/v1/follows/toggle`，`target_type=tag`，MemoryStore / MySQLStore 都会维护 `follower_count`。
-- 发布页标签建议：`GET /api/v1/tags/suggestions` 按当前子站返回启用标签，发布页最多选择 5 个标签。
+- 发布页标签建议：`GET /api/v1/tags/suggestions` 和别名 `GET /api/v1/tags/suggest` 按当前子站返回启用标签，发布页最多选择 5 个标签。
 - 后台标签管理：`/admin-next/tags` 支持列表、筛选、新增、编辑、启用 / 禁用、SEO 字段、前台跳转和关联内容查看。
 - 标签 SEO 字段：`seo_title`、`seo_description`、`seo_keywords` 已进入 domain、MemoryStore、MySQLStore 和 schema。
-- sitemap：`/sitemap.xml` 追加启用标签 canonical `/tags/:slug/`，禁用标签不收录。
-- 链接调整：Topic、子站、首页、搜索和收藏列表中的标签链接指向 `/tags/:tag/`。
+- sitemap：`/sitemap.xml` 追加启用全站标签 canonical `/tags/:slug/` 和启用子站标签 canonical `/c/:slug/tags/:tag/`，禁用标签不收录。
+- 链接调整：Topic、子站、首页、搜索和收藏列表中的标签链接指向真实标签页；子站上下文优先 `/c/:slug/tags/:tag/`，总站上下文使用 `/tags/:tag/`。
 - SEO 保护：`/topics/:id` 和 `/c/:slug` 仍由 Go 动态输出 SEO HTML，未改成 CSR。
 
 已知限制：

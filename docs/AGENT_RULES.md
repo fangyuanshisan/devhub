@@ -26,6 +26,10 @@
 - 后台人员用于 `/admin-next` 登录、后台管理、系统配置、后台用户管理和全局审计。
 - 子站版主不是全局后台管理员；版主本质仍是 `users`，通过 `community_moderators` 获得指定子站治理权限。
 - 版主工作台使用 `users` 登录态和 `community_moderators` 授权关系，不是 `admin_users` 后台。
+- 前台会员导航不得默认暴露 `/admin-next` 总后台入口；子站版主只显示 `/moderator` 版主工作台入口。
+- 前台“我的”类页面和关注操作必须携带前台 user token，不能使用后台 admin token 或无 token 请求。
+- 发布页必须让 `content_type` 与当前子站 `categories.content_type` 保持一致，不能为绕过错误取消后端校验。
+- 后台子站管理主入口统一为 `/admin-next/communities`；`/admin-next/sites` 只能作为隐藏兼容入口或重定向。
 - 版主工作台必须由后端校验 `community_id` 范围，不能只靠前端隐藏按钮。
 - 版主工作台不能越权管理其他子站，不能管理后台人员、版主分配、全局子站配置或系统设置。
 - 复杂 RBAC、权限点矩阵、版主任期和绩效统计不属于当前阶段。

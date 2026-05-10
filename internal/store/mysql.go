@@ -1359,7 +1359,11 @@ func (s *MySQLStore) TagBySlug(site, slugOrName string) (domain.Tag, bool) {
 		query += ` AND site_key=?`
 		args = append(args, site)
 	}
-	query += ` ORDER BY use_count DESC,id LIMIT 1`
+	if site == "" || site == "portal" {
+		query += ` ORDER BY CASE WHEN site_key='portal' THEN 0 ELSE 1 END,use_count DESC,id LIMIT 1`
+	} else {
+		query += ` ORDER BY use_count DESC,id LIMIT 1`
+	}
 	var id int64
 	if err := s.db.QueryRow(query, args...).Scan(&id); err != nil {
 		return domain.Tag{}, false
@@ -2552,6 +2556,9 @@ func (s *MySQLStore) TopicsByFilter(communityID, categoryID int64, contentType, 
 	if sort == "featured" {
 		query += ` AND is_featured=1`
 	}
+	if sort == "unsolved" {
+		query += ` AND content_type='question' AND is_solved=0`
+	}
 
 	// 排序
 	switch sort {
@@ -2561,7 +2568,7 @@ func (s *MySQLStore) TopicsByFilter(communityID, categoryID int64, contentType, 
 		query += ` ORDER BY is_featured DESC, created_at DESC`
 	case "solved":
 		query += ` ORDER BY is_solved DESC, created_at DESC`
-	case "active":
+	case "active", "unsolved":
 		query += ` ORDER BY is_pinned DESC, last_active_at DESC`
 	default: // latest
 		query += ` ORDER BY is_pinned DESC, created_at DESC`
@@ -2604,7 +2611,7 @@ func (s *MySQLStore) TopicsByFilter(communityID, categoryID int64, contentType, 
 	return topics, total
 }
 
-func (s *MySQLStore) TagTopics(tagID int64, communityID int64, sort string, page, pageSize int) ([]domain.Topic, int) {
+func (s *MySQLStore) TagTopics(tagID int64, communityID int64, contentType string, sort string, page, pageSize int) ([]domain.Topic, int) {
 	tag, err := s.tagByID(tagID)
 	if err != nil || tag.Status != "enable" {
 		return []domain.Topic{}, 0
@@ -2616,6 +2623,10 @@ func (s *MySQLStore) TagTopics(tagID int64, communityID int64, sort string, page
 		where += ` AND t.community_id=?`
 		args = append(args, communityID)
 	}
+	if contentType = strings.TrimSpace(contentType); contentType != "" && contentType != "all" {
+		where += ` AND t.content_type=?`
+		args = append(args, contentType)
+	}
 	orderBy := ` ORDER BY t.created_at DESC`
 	switch strings.TrimSpace(sort) {
 	case "hot":
@@ -2625,6 +2636,9 @@ func (s *MySQLStore) TagTopics(tagID int64, communityID int64, sort string, page
 	case "featured":
 		where += ` AND t.is_featured=1`
 		orderBy = ` ORDER BY t.updated_at DESC,t.created_at DESC`
+	case "unsolved":
+		where += ` AND t.content_type='question' AND t.is_solved=0`
+		orderBy = ` ORDER BY COALESCE(t.last_active_at,t.updated_at,t.created_at) DESC,t.created_at DESC`
 	}
 	var total int
 	_ = s.db.QueryRow(`SELECT COUNT(*) FROM topics t JOIN topic_tags tt ON tt.topic_id=t.id`+where, args...).Scan(&total)
@@ -2655,7 +2669,7 @@ func (s *MySQLStore) AdminTagTopics(id int64, page, pageSize int) ([]domain.Topi
 	if tag.CommunityID > 0 {
 		communityID = tag.CommunityID
 	}
-	return s.TagTopics(id, communityID, "latest", page, pageSize)
+	return s.TagTopics(id, communityID, "", "latest", page, pageSize)
 }
 
 func (s *MySQLStore) TopicByID(id int64, increaseView bool) (*domain.Topic, error) {
@@ -4008,7 +4022,7 @@ func (s *MySQLStore) followItem(f domain.Follow) domain.FollowItem {
 			item.TargetName = tag.Name
 			item.TargetSlug = tag.Slug
 			item.Description = tag.Description
-			item.TargetURL = "/tags/" + tag.Slug + "/"
+			item.TargetURL = tagURLForSlug(tag.Slug, tag.CommunitySlug)
 			if tag.CommunityID > 0 {
 				if comm, ok := s.communityByID(tag.CommunityID); ok {
 					item.Community = comm
@@ -4086,7 +4100,7 @@ func (s *MySQLStore) enrichActivity(a *domain.Activity) {
 	if a.TargetType == "tag" {
 		if tag, err := s.tagByID(a.TargetID); err == nil {
 			a.TargetTitle = tag.Name
-			a.TargetURL = "/tags/" + tag.Slug + "/"
+			a.TargetURL = tagURLForSlug(tag.Slug, tag.CommunitySlug)
 			if tag.CommunityID > 0 {
 				if comm, ok := s.communityByID(tag.CommunityID); ok {
 					a.CommunityID = comm.ID

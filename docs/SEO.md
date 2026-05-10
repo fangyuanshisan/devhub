@@ -22,7 +22,8 @@ DevHub 当前 SEO 重点面向百度。核心原则是：动态 Topic 详情页�
 - 第八轮 admin-next 内容 CRUD、版主管理、批量治理和审计日志只改变后台 API / 页面；正常 Topic 详情 SEO 仍由 Go 动态输出。
 - v1.1.1 前后台身份边界整理只调整认证、token、权限和审计 actor，不改变 `/topics/:id` 或 `/c/:slug` 的 SEO 输出结构。
 - v1.1.3 独立版主工作台只新增 `/moderator` 运行时治理页面和 `/api/v1/moderator/*`，不改变 `/topics/:id` 或 `/c/:slug` 的 Go 动态 SEO 输出结构。
-- v1.2.0 起 `/tags/:tag` 和 `/tags/:tag/` 由 Go 的 `tagSEOPage` 动态输出标签聚合 SEO HTML。
+- v1.1.4 只修复前台登录态、关注请求、版主入口、后台菜单和发布类型匹配；`/topics/:id` 与 `/c/:slug` 的 SEO 主体仍由 Go 动态输出。
+- v1.2.0 起 `/tags/:tag`、`/tags/:tag/`、`/c/:slug/tags/:tag` 和 `/c/:slug/tags/:tag/` 由 Go 动态输出标签聚合 SEO HTML。
 - v1.0.0 归档后，任何上线前回归都必须把 `/topics/:id` SEO 源码检查作为阻塞项。
 - 隐藏 Topic 详情页由 Go 输出“内容已隐藏”HTML，并带 `meta name="robots" content="noindex,follow"`；隐藏页不输出原正文。
 
@@ -35,7 +36,7 @@ DevHub 当前 SEO 重点面向百度。核心原则是：动态 Topic 详情页�
 - `<h1>`：Topic 标题。
 - 子站名称：来自 `communities`。
 - 分类名称：来自 `categories` 或内容类型兜底文案。
-- 标签链接：当前指向 `/tags/:tag/?community_slug=:slug`。
+- 标签链接：子站 Topic 中的标签指向 `/c/:slug/tags/:tag/`，总站上下文中的标签指向 `/tags/:tag/`。
 - 发布时间：当前输出 `created_at`。
 - 正文摘要或正文：正文由 Go 转成段落 HTML。
 - Article JSON-LD：当前输出 `application/ld+json`。
@@ -53,7 +54,7 @@ v1.1.0 起，`/c/:slug` 是子站 canonical 地址，`/site/:slug` 只做兼容�
 - 子站简介或 slogan。
 - 子站板块链接：来自启用且可见的 `categories`。
 - 子站内容链接：置顶、精华、最新、热门和未解决问答中的真实 `<a href="/topics/:id/">`。
-- 热门标签链接：指向 `/tags/:tag/?community_slug=:slug`。
+- 热门标签链接：指向 `/c/:slug/tags/:tag/`。
 - 发帖入口链接：`/c/:slug/topics/new/`。
 - 版主列表和公告区域：有数据时输出。
 
@@ -61,18 +62,18 @@ v1.1.0 起，`/c/:slug` 是子站 canonical 地址，`/site/:slug` 只做兼容�
 
 ## 标签页源码要求
 
-v1.2.0 起，`/tags/:tag/` 是标签 canonical 地址，由 Go 动态输出。HTML 源码中应包含：
+v1.2.0 起，`/tags/:tag/` 是全站标签 canonical 地址，`/c/:slug/tags/:tag/` 是子站标签 canonical 地址，均由 Go 动态输出。HTML 源码中应包含：
 
 - `<title>`：来自 `tags.seo_title` 或“标签名 相关内容 - DevHub”。
 - `meta name="description"`：来自 `seo_description`、标签说明或默认标签聚合描述。
 - `meta name="keywords"`：来自 `seo_keywords`。
-- canonical：指向 `/tags/:slug/`。
+- canonical：全站标签指向 `/tags/:slug/`，子站标签指向 `/c/:communitySlug/tags/:slug/`。
 - `<h1>`：标签名称。
 - 标签说明。
 - 标签内容链接：真实 `<a href="/topics/:id/">`。
-- 相关标签链接：真实 `<a href="/tags/:tag/">`。
+- 相关标签链接：全站上下文使用 `/tags/:tag/`，子站上下文使用 `/c/:communitySlug/tags/:tag/`。
 - 所属子站链接：有子站时指向 `/c/:slug/`。
-- 发布入口链接：`/topics/new/`。
+- 发布入口链接：全站标签使用 `/topics/new/`，子站标签使用 `/c/:slug/topics/new/`。
 
 禁用标签返回不可用页面或 404，不进入 sitemap。标签页可以通过 JS 增强关注状态，但初始 SEO HTML 不依赖浏览器 JS。
 
@@ -96,9 +97,9 @@ v1.2.0 起，`/tags/:tag/` 是标签 canonical 地址，由 Go 动态输出。HT
 - 新发布 Topic 后，不需要重新 `npm run build`。
 - 新评论、回复、采纳最佳答案后，也不需要重新 `npm run build`；评论区由运行时 API 获取最新状态。
 - Go 会通过 API / Store 读取 Topic，并动态输出 `/topics/:id/`。
-- `/sitemap.xml` 由 Go 动态输出，包含启用状态子站、启用标签和已发布且 `status=1` 的 Topic。
+- `/sitemap.xml` 由 Go 动态输出，包含启用状态子站、启用全站标签、启用子站标签和已发布且 `status=1` 的 Topic。
 - 启用子站以 `/c/:slug/` 进入 sitemap，`/site/:slug` 不作为 canonical sitemap URL。
-- 启用标签以 `/tags/:slug/` 进入 sitemap。
+- 启用标签以 `/tags/:slug/` 进入 sitemap；有子站归属的启用标签同时以 `/c/:slug/tags/:tag/` 进入 sitemap。
 - 被隐藏的 `status=0` Topic 不进入 `/sitemap.xml`。
 - 当前 sitemap 最多输出 5000 条 Topic，内容量继续增长后需要拆分 sitemap index。
 
@@ -143,6 +144,7 @@ robots 不应屏蔽必要的 CSS、JS、图片资源。当前 Go 静态托管路
 - `/topics/:id`
 - `/c/:site`
 - `/tags/:tag`
+- `/c/:slug/tags/:tag`
 
 可以使用 Astro 静态壳 + 运行时 API：
 
@@ -159,9 +161,11 @@ robots 不应屏蔽必要的 CSS、JS、图片资源。当前 Go 静态托管路
 curl -s http://127.0.0.1:8090/topics/101/ | rg '<title>|description|<h1|article-tags|application/ld\\+json'
 curl -s http://127.0.0.1:8090/c/php/ | rg '<title>|description|canonical|<h1|/topics/|tag-cloud'
 curl -s http://127.0.0.1:8090/tags/laravel/ | rg '<title>|description|canonical|<h1|/topics/|tag-cloud'
+curl -s http://127.0.0.1:8090/c/php/tags/laravel/ | rg '<title>|description|canonical|<h1|/topics/|/c/php/'
 curl -s http://127.0.0.1:8090/sitemap.xml | rg '/topics/'
 curl -s http://127.0.0.1:8090/sitemap.xml | rg '/c/php/'
 curl -s http://127.0.0.1:8090/sitemap.xml | rg '/tags/'
+curl -s http://127.0.0.1:8090/sitemap.xml | rg '/c/php/tags/'
 curl -s http://127.0.0.1:8090/robots.txt
 ```
 

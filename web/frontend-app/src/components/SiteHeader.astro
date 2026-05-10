@@ -80,8 +80,7 @@ const boardHref = (board: keyof typeof boardTypes) => `/search/?${searchScope}&c
           <a href="/me/favorites">我的收藏</a>
           <a href="/me/follows">我的关注</a>
           <a href="/notifications">通知中心</a>
-          <a href="/moderator">版主工作台</a>
-          <a href="/admin-next">管理后台</a>
+          <a class="is-hidden" href="/moderator" data-moderator-entry>版主工作台</a>
           <a href="/search/?sort=featured">精华内容</a>
           <button type="button" data-logout>退出登录</button>
         </div>
@@ -150,6 +149,7 @@ const boardHref = (board: keyof typeof boardTypes) => `/search/?${searchScope}&c
       const userAvatar = document.querySelector('[data-user-avatar]');
       const logout = document.querySelector('[data-logout]');
       const noticeCount = document.querySelector('[data-notice-count]');
+      const moderatorEntry = document.querySelector('[data-moderator-entry]');
       const getStoredUser = () => {
         try {
           return JSON.parse(localStorage.getItem(userKey) || 'null');
@@ -181,11 +181,13 @@ const boardHref = (board: keyof typeof boardTypes) => `/search/?${searchScope}&c
         guestOnly.forEach((item) => item.classList.add('is-hidden'));
         if (userName) userName.textContent = name;
         if (userAvatar) userAvatar.textContent = name.slice(0, 1).toUpperCase();
+        moderatorEntry?.classList.toggle('is-hidden', !Boolean(user?.is_moderator));
         localStorage.setItem(userKey, JSON.stringify(user));
       };
       const setGuest = () => {
         authOnly.forEach((item) => item.classList.add('is-hidden'));
         guestOnly.forEach((item) => item.classList.remove('is-hidden'));
+        moderatorEntry?.classList.add('is-hidden');
       };
       const syncNoticeCount = () => {
         fetch('/api/v1/me/notifications?page_size=1', { headers: token() ? { Authorization: `Bearer ${token()}` } : {} })
@@ -239,7 +241,12 @@ const boardHref = (board: keyof typeof boardTypes) => `/search/?${searchScope}&c
       window.addEventListener('devhub:session-change', (event) => {
         const user = event.detail?.user || getStoredUser();
         if (event.detail?.token || token()) {
-          user ? setAuthed(user) : restore();
+          if (user) {
+            setAuthed(user);
+            if (user.is_moderator === undefined) fetchMe().catch(() => {});
+          } else {
+            restore();
+          }
           syncNoticeCount();
         } else {
           setGuest();

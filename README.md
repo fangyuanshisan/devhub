@@ -27,6 +27,8 @@ DevHub 是一个多子站技术社区 CMS。当前项目使用 Go + Gin 提供�
 - [备份与回滚](docs/BACKUP_AND_ROLLBACK.md)
 - [SEO 文档](docs/SEO.md)
 - [v1.2.0 Release Notes](docs/releases/v1.2.0.md)
+- [v1.1.5 Release Notes](docs/releases/v1.1.5.md)
+- [v1.1.4 Release Notes](docs/releases/v1.1.4.md)
 - [v1.1.3 Release Notes](docs/releases/v1.1.3.md)
 - [v1.1.1 Release Notes](docs/releases/v1.1.1.md)
 - [v1.1.0 Release Notes](docs/releases/v1.1.0.md)
@@ -52,9 +54,17 @@ DevHub 是一个多子站技术社区 CMS。当前项目使用 Go + Gin 提供�
 
 ## v1.2.0 定位
 
-DevHub v1.2.0 是“标签系统增强版”。本版本新增 `/tags/:tag/` Go 动态标签 SEO 页、标签详情 API、标签内容聚合、标签关注、发布页标签建议、后台标签 CRUD、标签启用 / 禁用、标签 SEO 字段、标签关联内容查看和 sitemap 标签收录。
+DevHub v1.2.0 是“标签系统增强版”。本版本新增 `/tags/:tag/` 全站标签 SEO 页、`/c/:communitySlug/tags/:tag/` 子站标签 SEO 页、标签详情 API、标签内容聚合、标签关注、发布页标签建议、后台标签 CRUD、标签启用 / 禁用、标签 SEO 字段、标签关联内容查看和 sitemap 标签收录。
 
 本版本不做标签合并、标签别名和标签趋势统计；这些能力留到后续版本。
+
+## v1.1.5 定位
+
+DevHub v1.1.5 是“前台 UI 美化专项”。本补丁已并入当前 v1.2.0 工作分支，只优化前台全局视觉、导航、首页、子站页、Topic 列表、Topic 详情、搜索页、发布页、“我的”页面、版主入口和移动端响应式样式；不修改 API、Store、数据库、路由、鉴权、业务逻辑或 Go 动态 SEO 结构。
+
+## v1.1.4 定位
+
+DevHub v1.1.4 是“前台登录态与权限入口修复版”。本补丁已并入当前 v1.2.0 工作分支，修复前台登录状态恢复、子站关注和“我的”类页面误判未登录、普通会员误见总后台入口、版主工作台入口、发布 `question` 板块匹配，以及后台子站入口重复问题。
 
 ## v1.1.3 定位
 
@@ -188,6 +198,7 @@ Database: devhub
 /topics/:id/            Topic 详情，Go 动态输出 SEO HTML
 /posts/:id/             兼容入口，301 跳转到 /topics/:id/
 /tags/:tag/             标签聚合页，Go 动态输出 SEO HTML
+/c/:site/tags/:tag/     子站标签聚合页，Go 动态输出 SEO HTML
 /me/favorites           我的收藏
 /me/follows             我的关注
 /me/activities          我的动态
@@ -279,8 +290,12 @@ POST   /api/v1/notifications/read-all
 GET    /api/v1/tags
 GET    /api/v1/tags/hot
 GET    /api/v1/tags/suggestions
+GET    /api/v1/tags/suggest
+GET    /api/v1/tags/by-slug/:tag
 GET    /api/v1/tags/:tag
 GET    /api/v1/tags/:tag/topics
+GET    /api/v1/communities/:slug/tags/:tag
+GET    /api/v1/communities/:slug/tags/:tag/topics
 ```
 
 说明：第五轮互动、第六轮评论 / 采纳、第七轮举报 / 治理接口的真实路径、响应字段和部分完成项以 [docs/API.md](docs/API.md) 为准。`GET /api/v1/search/topics?sort=unsolved` 当前只返回未解决问答，`sort=featured` 当前只返回精华内容。

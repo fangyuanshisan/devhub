@@ -38,12 +38,14 @@ import { devhubSites as sites } from '../../lib/sites';
       const count = document.querySelector('[data-favorite-count]');
       const communityIDToSite = { 1: 'php', 2: 'go', 3: 'java', 4: 'ai', 5: 'frontend' };
       const escapeHTML = (value) => String(value ?? '').replace(/[&<>"']/g, (char) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[char]));
-      const request = (url, options = {}) => fetch(url, options).then((response) => response.ok ? response.json() : response.json().then((data) => Promise.reject(data)));
+      const token = () => localStorage.getItem('devhub_user_token') || localStorage.getItem('devhub_access_token') || '';
+      const authHeaders = (extra = {}) => token() ? { ...extra, Authorization: `Bearer ${token()}` } : extra;
+      const request = (url, options = {}) => fetch(url, { ...options, headers: authHeaders(options.headers || {}) }).then((response) => response.ok ? response.json() : response.json().then((data) => Promise.reject(data)));
       const render = (item) => {
         const topic = item.topic || {};
         const community = item.community || {};
         const site = community.slug || communityIDToSite[topic.community_id] || 'portal';
-        const tags = (topic.tags || []).map((tag) => `<a href="/tags/${encodeURIComponent(String(tag).trim().toLowerCase().replace(/\s+/g, '-'))}/?community_slug=${encodeURIComponent(site)}">${escapeHTML(tag)}</a>`).join('');
+        const tags = (topic.tags || []).map((tag) => `<a href="/c/${encodeURIComponent(site)}/tags/${encodeURIComponent(String(tag).trim().toLowerCase().replace(/\s+/g, '-'))}/">${escapeHTML(tag)}</a>`).join('');
         return `<article class="post-card" data-favorite-item="${Number(item.target_id)}">
           <div class="post-card-top"><a class="site-pill" href="/c/${encodeURIComponent(site)}/">${escapeHTML(community.name || site)}</a><span>${escapeHTML(item.category?.name || topic.content_type || '内容')}</span><span>${escapeHTML(item.created_at || '')} 收藏</span></div>
           <h2><a href="/topics/${Number(topic.id || item.target_id)}/">${escapeHTML(topic.title || `主题 #${item.target_id}`)}</a></h2>
@@ -53,6 +55,11 @@ import { devhubSites as sites } from '../../lib/sites';
         </article>`;
       };
       function load() {
+        if (!token()) {
+          if (count) count.textContent = '未登录';
+          if (list) list.innerHTML = '<div class="empty-state">请先登录后查看我的收藏。<a href="/#login">去登录</a></div>';
+          return;
+        }
         request('/api/v1/me/favorites?page_size=20').then((data) => {
           const items = data.items || [];
           if (count) count.textContent = `${Number(data.total || items.length)} 条`;

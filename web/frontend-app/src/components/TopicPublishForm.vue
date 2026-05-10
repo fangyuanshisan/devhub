@@ -21,7 +21,7 @@
 
       <label>
         <span>内容类型</span>
-        <select v-model="form.content_type">
+        <select v-model="form.content_type" @change="selectCategoryForType(form.content_type)">
           <option v-for="item in contentTypes" :key="item.value" :value="item.value">{{ item.label }}</option>
         </select>
       </label>
@@ -80,7 +80,7 @@ import { authRequest, hasSession } from '../lib/session';
 const props = defineProps<{ defaultCommunity?: string }>();
 
 type Community = { id: number; name: string; slug: string; description: string };
-type Category = { id: number; name: string; slug: string; type: string };
+type Category = { id: number; name: string; slug: string; type?: string; content_type?: string; postable?: boolean; status?: number };
 type Tag = { id?: number; name: string; slug?: string; count: number; topic_count?: number; description?: string };
 
 const contentTypes = [
@@ -106,7 +106,7 @@ const messageType = ref<'error' | 'success'>('error');
 const form = reactive({
   community_slug: props.defaultCommunity || '',
   category_id: 0,
-  content_type: 'article',
+  content_type: initialContentType(),
   title: '',
   summary: '',
   content: '',
@@ -147,10 +147,7 @@ async function loadCommunityData() {
     ]);
     categories.value = categoryData.items || [];
     setTags(tagData.items || []);
-    if (categories.value[0]) {
-      form.category_id = categories.value[0].id;
-      syncCategoryType();
-    }
+    selectCategoryForType(form.content_type);
   } catch {
     setMessage('板块或标签加载失败，请切换子站后重试');
   }
@@ -183,7 +180,36 @@ function setTags(items: Tag[]) {
 
 function syncCategoryType() {
   const category = categories.value.find((item) => item.id === form.category_id);
-  if (category?.type) form.content_type = category.type;
+  const categoryType = categoryContentType(category);
+  if (categoryType) form.content_type = categoryType;
+}
+
+function initialContentType() {
+  if (typeof window === 'undefined') return 'article';
+  const value = new URLSearchParams(window.location.search).get('type') || new URLSearchParams(window.location.search).get('content_type') || 'article';
+  return contentTypes.some((item) => item.value === value) ? value : 'article';
+}
+
+function categoryContentType(category?: Category) {
+  return category?.content_type || category?.type || '';
+}
+
+function selectableCategories() {
+  return categories.value.filter((category) => category.status !== 0 && category.postable !== false);
+}
+
+function selectCategoryForType(contentType: string) {
+  const matched = selectableCategories().find((category) => categoryContentType(category) === contentType);
+  const fallback = selectableCategories()[0] || categories.value[0];
+  if (matched) {
+    form.category_id = matched.id;
+    form.content_type = categoryContentType(matched);
+    return;
+  }
+  if (fallback) {
+    form.category_id = fallback.id;
+    form.content_type = categoryContentType(fallback) || form.content_type;
+  }
 }
 
 function toggleTag(name: string) {
@@ -201,6 +227,13 @@ function toggleTag(name: string) {
 function validate() {
   if (!form.community_slug) return '请选择子站';
   if (!form.category_id) return '请选择板块';
+  const selectedCategory = categories.value.find((item) => item.id === form.category_id);
+  if (!selectedCategory) return '请选择当前子站下的板块';
+  const selectedType = categoryContentType(selectedCategory);
+  if (selectedType && selectedType !== form.content_type) {
+    const target = selectableCategories().find((category) => categoryContentType(category) === form.content_type);
+    return target ? `当前板块不支持该内容类型，请切换到「${target.name}」板块` : `当前子站未配置${contentTypes.find((item) => item.value === form.content_type)?.label || form.content_type}板块`;
+  }
   if (form.title.length < 4 || form.title.length > 120) return '标题长度需为 4 到 120 个字符';
   if (form.summary.length > 300) return '摘要最多 300 个字符';
   if (form.content.length < 10) return '正文至少 10 个字符';

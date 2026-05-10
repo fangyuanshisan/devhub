@@ -60,6 +60,9 @@ Token / storage 规则：
 - 后台 sessionStorage key：`devhub_admin_token`、`devhub_admin_refresh_token`、`devhub_admin_user`。
 - 前台 token 不能直接访问特权后台接口；后台 token 不能被 `/api/v1/auth/me` 或前台写接口当作 `users` 身份。
 - `/api/v1/moderator/*` 只接受前台 user token，并要求当前 `users.id` 在 `community_moderators` 中有启用授权；普通用户返回 403。
+- `/api/v1/auth/me` 返回前台用户身份，并补充 `is_moderator` 和 `moderated_communities`，供前台用户菜单决定是否显示 `/moderator` 入口。该接口不接受后台 admin token。
+- 子站关注、我的收藏、我的关注、我的动态、我的通知和通知已读接口都必须携带前台 user token；后台 admin token 不能作为这些接口的用户身份。
+- 普通前台会员不显示 `/admin-next` 总后台入口；总后台仍必须通过后台登录态进入。
 - MemoryStore 仍使用 demo seed 用户支持本地开发；该策略只作为开发兜底，不是生产权限规则。
 
 ## Communities / Categories / Tags / Topics
@@ -158,9 +161,13 @@ DELETE /api/v1/topics/:id
 GET /api/v1/tags
 GET /api/v1/tags/hot
 GET /api/v1/tags/suggestions
+GET /api/v1/tags/suggest
+GET /api/v1/tags/by-slug/:tag
 GET /api/v1/tags/:tag
 GET /api/v1/tags/:tag/topics
 GET /api/v1/communities/:slug/tags
+GET /api/v1/communities/:slug/tags/:tag
+GET /api/v1/communities/:slug/tags/:tag/topics
 ```
 
 说明：
@@ -195,17 +202,19 @@ GET /api/v1/communities/:slug/tags
 
 ```http
 GET /api/v1/tags/suggestions?community_slug=php&q=lar&limit=20
+GET /api/v1/tags/suggest?community_slug=php&q=lar&limit=20
 ```
 
-返回当前子站启用标签，用于发布页选择。发布 Topic 最多 5 个标签，后端会校验标签属于当前子站。
+返回当前子站启用标签，用于发布页选择。发布 Topic 最多 5 个标签，后端会校验标签属于当前子站。`/tags/suggest` 是同能力别名，便于前端按更短路径调用。
 
 标签内容聚合：
 
 ```http
-GET /api/v1/tags/laravel/topics?community_slug=php&sort=latest&page=1&page_size=12
+GET /api/v1/tags/laravel/topics?sort=latest&page=1&page_size=12
+GET /api/v1/communities/php/tags/laravel/topics?sort=latest&content_type=question&page=1&page_size=12
 ```
 
-`sort` 支持 `latest`、`hot`、`active`、`featured`。
+`sort` 支持 `latest`、`hot`、`active`、`featured`、`unsolved`；`content_type` 可筛选 `question/article/project/ai_work/job/wiki/doc/news` 等当前 Topic 类型。全站标签聚合使用 `/api/v1/tags/:tag/topics`，子站标签聚合优先使用 `/api/v1/communities/:slug/tags/:tag/topics`。
 
 ## v1.1.0 已完成子站接口
 
@@ -233,8 +242,9 @@ GET  /api/v1/auth/me
 
 - `/api/v1/auth/login` 校验 `users` 并返回前台 user token。
 - `/api/v1/auth/refresh` 只刷新 `token_type=user` 的 refresh token。
-- `/api/v1/auth/me` 只接受前台 user token。
+- `/api/v1/auth/me` 只接受前台 user token，响应包含 `is_moderator` 和 `moderated_communities`。
 - 前台写操作必须使用 users 身份，包括发帖、评论、点赞、收藏、关注、举报和我的通知已读。
+- 发布 Topic 时，后端会校验 `content_type` 与所选 `categories.content_type` 一致；旧数据使用 `categories.type` 兜底。前端发布页应自动选择匹配板块，例如 `question` 对应问答板块。
 
 ## Admin 基础接口
 
@@ -1067,6 +1077,8 @@ GET /site/:slug
 GET /site/:slug/
 GET /tags/:tag
 GET /tags/:tag/
+GET /c/:slug/tags/:tag
+GET /c/:slug/tags/:tag/
 GET /topics/:id
 GET /topics/:id/
 GET /posts/:id
@@ -1080,11 +1092,12 @@ GET /robots.txt
 - `/c/:slug` 和 `/c/:slug/` 由 Go 动态输出百度友好的子站 SEO HTML，包含 title、description、canonical、h1、子站简介、板块链接、Topic 链接、标签链接、版主和公告。
 - `/site/:slug` 和 `/site/:slug/` 301 跳转到 canonical `/c/:slug/`。
 - 禁用或归档子站返回带 `noindex,follow` 的不可用 HTML，不进入 sitemap。
-- `/tags/:tag` 和 `/tags/:tag/` 由 Go 动态输出百度友好的标签聚合 SEO HTML，包含 title、description、canonical、h1、标签说明、内容链接和相关标签链接。
+- `/tags/:tag` 和 `/tags/:tag/` 由 Go 动态输出百度友好的全站标签聚合 SEO HTML，canonical 指向 `/tags/:tag/`。
+- `/c/:slug/tags/:tag` 和 `/c/:slug/tags/:tag/` 由 Go 动态输出子站标签聚合 SEO HTML，canonical 指向 `/c/:slug/tags/:tag/`，并包含所属子站链接。
 - 禁用标签返回不可用页面，不进入 sitemap。
 - `/topics/:id` 和 `/topics/:id/` 由 Go 动态输出百度友好的 SEO HTML，不是纯 CSR 空壳。
 - `/posts/:id` 301 跳转到 `/topics/:id/`，保留旧入口兼容。
-- `/sitemap.xml` 输出启用子站、启用标签和已发布且未隐藏的 Topic；隐藏 Topic、禁用 / 归档子站、禁用标签不进入 sitemap。
+- `/sitemap.xml` 输出启用子站、启用全站标签、启用子站标签和已发布且未隐藏的 Topic；隐藏 Topic、禁用 / 归档子站、禁用标签不进入 sitemap。
 - `/robots.txt` 动态输出 sitemap 地址。
 
 ## 通知类型与动态类型

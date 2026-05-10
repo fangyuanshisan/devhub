@@ -185,8 +185,9 @@ async function disable(row) {
 
 function openFrontend(row) {
   const slug = row.slug || row.name;
-  const queryString = row.community_slug || (row.site && row.site !== 'portal' ? row.site : '');
-  window.open(`/tags/${encodeURIComponent(slug)}/${queryString ? `?community_slug=${encodeURIComponent(queryString)}` : ''}`, '_blank');
+  const communitySlug = row.community_slug || (row.site && row.site !== 'portal' ? row.site : '');
+  const path = communitySlug ? `/c/${encodeURIComponent(communitySlug)}/tags/${encodeURIComponent(slug)}/` : `/tags/${encodeURIComponent(slug)}/`;
+  window.open(path, '_blank');
 }
 
 async function openTopics(row) {

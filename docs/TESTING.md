@@ -222,11 +222,100 @@ curl "http://127.0.0.1:8090/api/v1/moderator/audit-logs?community_id=1" -H "Auth
 - audit logs `actor_type=moderator`。
 - audit logs `community_id` 正确。
 
+## v1.1.4 前台登录态与权限入口修复测试清单
+
+前台登录态：
+
+- 已登录前台用户在首页 `/` 显示登录状态。
+- 已登录前台用户在 `/c/php` 显示登录状态。
+- 已登录前台用户在 `/topics/:id` 显示登录状态。
+- 已登录前台用户在 `/search` 显示登录状态。
+- 未登录用户显示登录 / 注册入口。
+- 前台 user token 调用 `/api/v1/admin/*` 返回 401 / 403。
+
+“我的”类页面：
+
+- 已登录前台用户访问 `/me/activities` 不显示未登录。
+- 已登录前台用户访问 `/me/favorites` 不显示未登录。
+- 已登录前台用户访问 `/me/follows` 不显示未登录。
+- 已登录前台用户访问 `/notifications` 不显示未登录。
+- 未登录访问上述页面时显示友好登录提示。
+
+关注和版主入口：
+
+- 已登录用户可以在 `/c/php` 关注 / 取消关注子站。
+- 未登录用户关注子站时提示登录。
+- 普通前台用户不显示总后台入口。
+- 子站版主显示 `/moderator` 版主工作台入口。
+- 普通前台用户不显示版主工作台入口。
+- 版主工作台入口跳转正确。
+
+发布类型：
+
+- `/c/php/topics/new?type=question` 自动匹配问答板块。
+- `/topics/new?type=article` 自动匹配文章 / 社区板块。
+- 选择不匹配板块时前端有明确提示。
+- 后端 `content_type` 与 `category.content_type` 校验仍然生效。
+- 当前子站没有对应类型板块时，前端提示当前子站未配置该板块。
+
+后台子站入口：
+
+- 后台菜单只显示一个子站管理入口。
+- `/admin-next/communities` 可正常访问。
+- `/admin-next/sites` 如存在，不在菜单重复显示，并重定向或兼容到 `/admin-next/communities`。
+- sites/posts 兼容 API 保留。
+
+SEO 回归：
+
+- `/topics/:id` SEO 不受影响。
+- `/c/:slug` SEO 不受影响。
+
+## v1.1.5 前台 UI 美化专项测试清单
+
+视觉页面：
+
+- 首页 `/` 视觉检查：顶部导航、总站聚合区、频道卡片、精选内容、子站推荐、最新内容、右侧栏和空状态不重叠、不溢出。
+- 子站页 `/c/php` 视觉检查：子站 header、slogan、简介、关注按钮、发帖按钮、板块导航、排序 tab、Topic 列表、热门标签、公告和版主区域层级清晰。
+- 子站页 `/c/go`、`/c/java`、`/c/ai`、`/c/frontend` 使用各自内容和主题色，不展示成其他子站。
+- Topic 列表视觉检查：标题、摘要、标签、作者 / 时间、浏览 / 评论 / 点赞 / 收藏统计、置顶 / 精华 / 已解决 / 未解决状态徽章可读。
+- Topic 详情页 `/topics/:id` 视觉检查：标题、meta、正文、代码块、引用、表格、图片、标签、互动按钮和评论区排版清晰。
+- 搜索页 `/search` 视觉检查：搜索框、筛选、当前搜索条件、结果列表、空状态和分页样式统一。
+- 发布页 `/topics/new` 和 `/c/php/topics/new` 视觉检查：表单间距、输入框、板块 / 类型选择、标签选择、错误提示和提交按钮可用。
+- 我的收藏页 `/me/favorites` 视觉检查。
+- 我的关注页 `/me/follows` 视觉检查。
+- 我的动态页 `/me/activities` 视觉检查。
+- 通知页 `/notifications` 视觉检查，未读和已读状态有区分。
+- 登录态导航视觉检查：已登录用户菜单、通知、发布入口和版主入口样式正常。
+- 未登录导航视觉检查：登录 / 注册入口样式正常。
+- 版主入口视觉检查：版主用户可看到 `/moderator` 入口，普通会员不显示。
+- 普通会员不显示总后台入口。
+
+移动端：
+
+- 移动端首页检查：导航不横向溢出，首页模块单列展示。
+- 移动端子站页检查：子站 header、按钮、板块导航、Topic 卡片和侧栏下移正常。
+- 移动端 Topic 详情页检查：标题、正文、代码块、表格、标签和评论区不横向溢出。
+- 移动端发布页检查：表单单列展示，输入框、下拉、标签和提交按钮可点击。
+
+SEO 保护：
+
+- `/topics/:id` SEO 源码检查，仍包含 `<title>`、`meta name="description"`、canonical、`<h1>`、正文或摘要、标签链接和 Article 结构。
+- `/c/:slug` SEO 源码检查，仍包含 `<title>`、`meta name="description"`、canonical、`<h1>`、子站简介、Topic 链接、标签链接和板块链接。
+- `/tags/:tag` SEO 源码检查，仍包含 `<title>`、description、canonical、`<h1>`、Topic 链接和相关标签链接。
+
+不做项确认：
+
+- v1.1.5 不测试新 API，因为本轮不新增或修改 API。
+- v1.1.5 不测试数据库迁移，因为本轮不修改 schema。
+- v1.1.5 不测试后台 admin-next UI，因为本轮只优化前台样式。
+- v1.1.5 不测试标签合并、推荐算法、声望积分或复杂 RBAC。
+
 ## v1.2.0 标签系统测试清单
 
 页面：
 
 - `/tags/laravel/` 可访问，不是纯 CSR 空壳。
+- `/c/php/tags/laravel/` 可访问，不是纯 CSR 空壳。
 - `/tags/gin/` 可访问，不是纯 CSR 空壳。
 - 标签页显示名称、说明、内容数、关注数、所属子站、最新内容、热门内容、精华内容和相关标签。
 - 标签页关注按钮可点击；未登录时按当前前台登录规则返回提示或 401。
@@ -239,8 +328,12 @@ curl "http://127.0.0.1:8090/api/v1/moderator/audit-logs?community_id=1" -H "Auth
 curl "http://127.0.0.1:8090/api/v1/tags"
 curl "http://127.0.0.1:8090/api/v1/tags/hot"
 curl "http://127.0.0.1:8090/api/v1/tags/suggestions?community_slug=php&q=lar&limit=20"
+curl "http://127.0.0.1:8090/api/v1/tags/suggest?community_slug=php&q=lar&limit=20"
+curl "http://127.0.0.1:8090/api/v1/tags/by-slug/laravel"
 curl "http://127.0.0.1:8090/api/v1/tags/laravel?community_slug=php"
 curl "http://127.0.0.1:8090/api/v1/tags/laravel/topics?community_slug=php&sort=latest"
+curl "http://127.0.0.1:8090/api/v1/communities/php/tags/laravel"
+curl "http://127.0.0.1:8090/api/v1/communities/php/tags/laravel/topics?sort=unsolved&content_type=question"
 ```
 
 后台 API：
@@ -260,6 +353,12 @@ SEO：
 - `/tags/:tag/` 源码包含 canonical。
 - `/tags/:tag/` 源码包含 `<h1>`。
 - `/tags/:tag/` 源码包含标签说明、Topic 链接和相关标签链接。
+- `/c/:slug/tags/:tag/` 源码包含 `<title>`、`meta name="description"`、canonical、`<h1>`、所属子站链接、Topic 链接和相关标签链接。
+- Topic 详情页标签链接是真实 `<a href>`，子站上下文优先跳转 `/c/:slug/tags/:tag/`。
+- 首页、子站页、搜索结果和我的收藏中的标签链接可以打开真实标签页。
+- 发布页最多选择 5 个标签，不能重复选择，且只能选择当前子站启用标签。
+- 我的关注可以展示 `target_type=tag` 的关注对象并跳转到对应标签页。
+- 后台标签新增、编辑、启用 / 禁用和关联内容查看均可用；普通前台用户不能访问 `/api/v1/admin/tags`。
 - 禁用标签不进入 `/sitemap.xml`。
 - `/topics/:id` SEO 不受影响。
 - `/c/:slug` SEO 不受影响。
@@ -268,6 +367,7 @@ sitemap：
 
 ```bash
 curl -s "http://127.0.0.1:8090/sitemap.xml" | rg "/tags/"
+curl -s "http://127.0.0.1:8090/sitemap.xml" | rg "/c/php/tags/"
 ```
 
 不做项确认：

@@ -10,7 +10,6 @@ export const menuRoutes = [
   { path: '/audit-logs', name: 'auditLogs', component: () => import('@/views/AuditLogs.vue'), meta: { title: '治理审计', short: '审计', icon: 'Tickets', permission: 'log.read', keepAlive: true } },
   { path: '/tags', name: 'tags', component: () => import('@/views/Tags.vue'), meta: { title: '标签管理', short: '标签', icon: 'PriceTag', permission: 'post.read', keepAlive: true } },
   { path: '/communities', name: 'communities', component: () => import('@/views/Communities.vue'), meta: { title: '子站管理', short: '子站', icon: 'SetUp', permission: 'site.read', keepAlive: true } },
-  { path: '/sites', name: 'sites', component: () => import('@/views/Communities.vue'), meta: { title: '子站管理', short: '子站', icon: 'SetUp', permission: 'site.read', keepAlive: true } },
   { path: '/users', name: 'users', component: () => import('@/views/Users.vue'), meta: { title: '用户权限', short: '用户', icon: 'User', permission: 'user.read', keepAlive: true } },
   { path: '/operation', name: 'operation', component: () => import('@/views/Operation.vue'), meta: { title: '运营工具', short: '运营', icon: 'Promotion', permission: 'notification.write', keepAlive: true } },
   { path: '/statistics', name: 'statistics', component: () => import('@/views/Statistics.vue'), meta: { title: '数据统计', short: '数据', icon: 'TrendCharts', permission: 'dashboard.read', keepAlive: true } },
@@ -23,6 +22,7 @@ const router = createRouter({
     { path: '/', redirect: '/dashboard' },
     { path: '/login', name: 'login', component: () => import('@/views/Login.vue'), meta: { title: '登录' } },
     ...menuRoutes,
+    { path: '/sites', redirect: '/communities' },
     { path: '/:pathMatch(.*)*', redirect: '/dashboard' },
   ],
 });

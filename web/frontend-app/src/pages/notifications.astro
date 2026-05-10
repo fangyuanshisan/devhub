@@ -41,7 +41,9 @@ import { devhubSites as sites } from '../lib/sites';
       const unread = document.querySelector('[data-unread-count]');
       const readAll = document.querySelector('[data-read-all]');
       const escapeHTML = (value) => String(value ?? '').replace(/[&<>"']/g, (char) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[char]));
-      const request = (url, options = {}) => fetch(url, options).then((response) => response.ok ? response.json() : response.json().then((data) => Promise.reject(data)));
+      const token = () => localStorage.getItem('devhub_user_token') || localStorage.getItem('devhub_access_token') || '';
+      const authHeaders = (extra = {}) => token() ? { ...extra, Authorization: `Bearer ${token()}` } : extra;
+      const request = (url, options = {}) => fetch(url, { ...options, headers: authHeaders(options.headers || {}) }).then((response) => response.ok ? response.json() : response.json().then((data) => Promise.reject(data)));
       const render = (item) => {
         const href = item.target_url || (item.topic_id ? `/topics/${Number(item.topic_id)}/` : '#');
         const read = Boolean(item.is_read || item.read);
@@ -53,6 +55,11 @@ import { devhubSites as sites } from '../lib/sites';
         </article>`;
       };
       function load() {
+        if (!token()) {
+          if (unread) unread.textContent = '未登录';
+          if (list) list.innerHTML = '<div class="empty-state">请先登录后查看通知。<a href="/#login">去登录</a></div>';
+          return;
+        }
         const query = new URLSearchParams({ page_size: '20' });
         if (isRead !== null) query.set('is_read', isRead);
         request(`/api/v1/me/notifications?${query.toString()}`).then((data) => {

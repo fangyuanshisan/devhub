@@ -286,19 +286,21 @@ type AdminLoginUser struct {
 
 // AuthUser 是认证中间件解析出的当前用户上下文。
 type AuthUser struct {
-	ID          int64    `json:"id"`
-	Username    string   `json:"username"`
-	Nickname    string   `json:"nickname"`
-	Email       string   `json:"email,omitempty"`
-	Phone       string   `json:"phone,omitempty"`
-	Status      string   `json:"status"`
-	RoleCode    string   `json:"role_code"`
-	RoleName    string   `json:"role_name"`
-	Sites       []string `json:"sites"`
-	Permissions []string `json:"permissions"`
-	TokenType   string   `json:"token_type,omitempty"`
-	Audience    string   `json:"aud,omitempty"`
-	Identity    string   `json:"identity,omitempty"`
+	ID                   int64                `json:"id"`
+	Username             string               `json:"username"`
+	Nickname             string               `json:"nickname"`
+	Email                string               `json:"email,omitempty"`
+	Phone                string               `json:"phone,omitempty"`
+	Status               string               `json:"status"`
+	RoleCode             string               `json:"role_code"`
+	RoleName             string               `json:"role_name"`
+	Sites                []string             `json:"sites"`
+	Permissions          []string             `json:"permissions"`
+	IsModerator          bool                 `json:"is_moderator"`
+	ModeratedCommunities []CommunityModerator `json:"moderated_communities,omitempty"`
+	TokenType            string               `json:"token_type,omitempty"`
+	Audience             string               `json:"aud,omitempty"`
+	Identity             string               `json:"identity,omitempty"`
 }
 
 // AdminContext 表示后台请求解析后的权限上下文。

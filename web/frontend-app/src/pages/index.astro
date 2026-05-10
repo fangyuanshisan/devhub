@@ -113,7 +113,8 @@ const jsonLd = {
       const typeName = { article: '帖子', question: '问答', project: '项目', ai_work: 'AI作品', job: '招聘', wiki: 'Wiki', doc: '文档', news: '周刊' };
       const escapeHTML = (value) => String(value ?? '').replace(/[&<>"']/g, (char) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[char]));
       const topicSite = (topic) => communityIDToSite[topic.community_id] || 'portal';
-      const tagURL = (tag, site) => `/tags/${encodeURIComponent(String(tag).trim().toLowerCase().replace(/\s+/g, '-'))}/${site === 'portal' ? '' : `?community_slug=${encodeURIComponent(site)}`}`;
+      const tagSegment = (tag) => encodeURIComponent(String(tag).trim().toLowerCase().replace(/\s+/g, '-'));
+      const tagURL = (tag, site) => site === 'portal' ? `/tags/${tagSegment(tag)}/` : `/c/${encodeURIComponent(site)}/tags/${tagSegment(tag)}/`;
 	      const renderTopic = (topic) => {
 	        const site = topicSite(topic);
 	        const tags = (topic.tags || []).slice(0, 5).map((tag) => `<a href="${tagURL(tag, site)}">${escapeHTML(tag)}</a>`).join('');
@@ -170,7 +171,7 @@ const jsonLd = {
       getJSON('/api/v1/tags/hot').then((data) => {
         const cloud = document.querySelector('[data-home-tags]');
         const tags = data.items || [];
-        if (cloud) cloud.innerHTML = tags.length ? tags.map((tag) => `<a href="/tags/${encodeURIComponent(tag.slug || String(tag.name).trim().toLowerCase().replace(/\s+/g, '-'))}/${tag.community_slug ? `?community_slug=${encodeURIComponent(tag.community_slug)}` : ''}">${escapeHTML(tag.name)}<span>${Number(tag.topic_count || tag.count || 0)}</span></a>`).join('') : '<span>暂无标签</span>';
+        if (cloud) cloud.innerHTML = tags.length ? tags.map((tag) => `<a href="${tag.community_slug ? `/c/${encodeURIComponent(tag.community_slug)}/tags/${encodeURIComponent(tag.slug || String(tag.name).trim().toLowerCase().replace(/\s+/g, '-'))}/` : `/tags/${encodeURIComponent(tag.slug || String(tag.name).trim().toLowerCase().replace(/\s+/g, '-'))}/`}">${escapeHTML(tag.name)}<span>${Number(tag.topic_count || tag.count || 0)}</span></a>`).join('') : '<span>暂无标签</span>';
       }).catch(() => {});
     })();
   </script>
