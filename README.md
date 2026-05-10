@@ -1,6 +1,6 @@
 # DevHub
 
-DevHub 是一个多子站技术社区 CMS。当前项目使用 Go + Gin 提供后端 API 与静态资源托管，前台使用 Astro + Vue Islands，后台使用 Vue 3 + Element Plus。
+DevHub 是一个通用开源社区程序，默认演示为开发者社区，支持多子站、多板块、多内容类型，并逐步采用 Core + Plugins 架构。当前项目使用 Go + Gin 提供后端 API 与静态资源托管，前台使用 Astro + Vue Islands，后台使用 Vue 3 + Element Plus。
 
 当前版本：`v1.3.0`，版本主题为“Core + Plugins 架构拆分版”。
 
@@ -61,19 +61,15 @@ DevHub 是一个多子站技术社区 CMS。当前项目使用 Go + Gin 提供�
 
 DevHub v1.3.0 是“Core + Plugins 架构拆分版”。本版本新增 `plugins` 表、插件注册定义、插件状态 API 和后台插件入口；`topics` 作为兼容实现中的 Core 内容表新增 `plugin_code`，`categories` 作为 Core 板块表新增 `plugin_code` / `allowed_content_types`；问答、文档、Wiki 分别迁移为 `qa`、`docs`、`wiki` 内置系统插件。
 
-本版本不做插件市场、插件压缩包上传安装、远程更新或复杂动态模块加载。
+本版本范围和当前限制以 [v1.3.0 Release Notes](docs/releases/v1.3.0.md) 为准，长期滚动状态见 [项目进度](docs/PROJECT_PROGRESS.md)。
 
 ## v1.2.1 定位
 
 DevHub v1.2.1 是“标签合并、别名与统计重算版”。本版本在 v1.2.0 的标签页、标签 SEO、标签关注、后台标签 CRUD 和 sitemap 收录基础上，补齐标签别名、标签合并、标签统计重算、alias / merged SEO 处理、后台标签治理审计和 admin-next 标签治理入口。
 
-本版本暂不做标签趋势统计、标签运营分析看板、大规模异步统计任务和 AI 推荐标签。
-
 ## v1.2.0 定位
 
 DevHub v1.2.0 是“标签系统增强版”。本版本新增 `/tags/:tag/` 全站标签 SEO 页、`/c/:communitySlug/tags/:tag/` 子站标签 SEO 页、标签详情 API、标签内容聚合、标签关注、发布页标签建议、后台标签 CRUD、标签启用 / 禁用、标签 SEO 字段、标签关联内容查看和 sitemap 标签收录。
-
-本版本不做标签趋势统计、标签运营分析、大规模异步统计任务和 AI 推荐标签；这些能力留到后续版本。
 
 ## v1.1.5 定位
 
@@ -87,7 +83,7 @@ DevHub v1.1.4 是“前台登录态与权限入口修复版”。本补丁已并
 
 DevHub v1.1.3 是“独立版主工作台 MVP”。本版本新增 `/moderator`、`/moderator/reports`、`/moderator/topics`、`/moderator/comments`、`/moderator/audit-logs`，让子站版主使用前台 `users` 登录态和 `community_moderators` 授权关系治理自己负责的子站。
 
-版主工作台复用现有举报、Topic、Comment 治理能力和 `admin_logs`，但通过 `/api/v1/moderator/*` 做专用权限入口。普通用户不能访问，跨子站治理返回 403，复杂 RBAC 和版主任期 / 绩效统计留到后续。
+版主工作台复用现有举报、Topic、Comment 治理能力和 `admin_logs`，但通过 `/api/v1/moderator/*` 做专用权限入口。普通用户不能访问，跨子站治理返回 403。
 
 ## v1.1.1 定位
 
@@ -491,22 +487,6 @@ git push origin v1.3.0
 
 打 tag 前必须先确认工作区没有未审阅差异，且测试矩阵通过。
 
-## 已知限制
+## 项目状态
 
-- 子站自定义导航仍使用“启用板块生成默认导航”的方式，深度自定义导航留到后续版本。
-- 版主工作台是 MVP，不包含复杂 RBAC、权限点矩阵、版主任期或绩效统计。
-- MySQL refresh token 仍通过 `token_type` 区分前台用户和后台人员，并已移除单一 `users` 外键；后续生产化 migration 可进一步拆分字段命名。
-- 后台人员参与前台社区互动时仍应拥有独立 `users` 身份，admin-user 绑定关系留到后续。
-- 标签详情 SEO 页和标签后台管理已在 v1.2.0 完成；标签合并 / 别名和统计重算已在 v1.2.1 完成，趋势统计仍留到后续版本。
-- 评论点赞未纳入 v1.1.0 主线。
-- 问答支持采纳和更换最佳答案，暂不支持取消已解决状态。
-- 标签关注已在 v1.2.0 接入标签页；用户关注前台入口仍可继续增强，完整关注流留到后续版本。
-- `/sitemap.xml` 目前动态输出但未做大规模分片。
-- 生产部署仍需按实际环境配置进程守护、反向代理、HTTPS、日志轮转和定时备份。
-
-## Roadmap
-
-- v1.3.0：推荐、关注流和内容发现。
-- v1.4.0：用户成长、声望和个人主页。
-- v1.5.0：后台运营、治理和数据统计增强。
-- v1.6.0：生产化、migration、性能和 CI/CD。
+README 只保留项目定位、入口和当前能力概览；当前仍未完成项、风险和下一步统一维护在 [docs/PROJECT_PROGRESS.md](docs/PROJECT_PROGRESS.md)，版本范围限制见对应 release notes。

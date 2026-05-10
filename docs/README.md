@@ -70,7 +70,10 @@ DevHub 文档已收敛为少量当前有效入口。日常优先看下面这些�
 ## 维护规则
 
 - 当前状态变化后，优先更新 [项目进度](PROJECT_PROGRESS.md)。
+- 每轮遗留项统一沉淀到 [项目进度](PROJECT_PROGRESS.md) 的“已完成 / 部分完成 / 未完成 / 风险 / 下一步”；版本范围内的限制写入对应 Release Notes；测试缺口写入 [测试文档](TESTING.md)。
 - API 变化后，同步更新 [API 文档](API.md) 和 [项目总览](../README.md) 的 API 概览。
+- [API 文档](API.md) 以真实可用接口为主；未实现接口只能集中放在“规划 / 未完成”小节，不要按轮次堆散落清单。
+- [项目总览](../README.md) 只保留项目定位、入口和当前能力概览，不承载详细未完成问题。
 - 页面入口、启动方式变化后，同步更新 [项目总览](../README.md)、[部署启动文档](DEPLOYMENT.md) 和 [测试文档](TESTING.md)。
 - SEO 相关变化后，同步更新 [SEO 文档](SEO.md)。
 - 版本归档变化后，同步更新对应 [Release Notes](releases/v1.3.0.md)、[变更日志](../CHANGELOG.md) 和根目录 [VERSION](../VERSION)。

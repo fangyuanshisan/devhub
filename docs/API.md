@@ -210,12 +210,12 @@ PUT  /api/v1/admin/communities/:id/plugins/sort
 
 `GET /api/v1/admin/plugin-menus`：
 
-- 仅返回 `enabled` 插件的 `admin` 菜单。
+- 仅返回全局 `enabled` 插件的 `admin` 菜单。
 - 若菜单声明了 `permission`，则按当前后台用户权限过滤。
 
 `GET /api/v1/moderator/plugin-menus`：
 
-- 仅返回 `enabled` 插件的 `moderator` 菜单。
+- 仅返回全局 `enabled` 且在当前子站 `enabled` 的插件 `moderator` 菜单。
 - 若菜单声明了 `permission`，则按当前前台用户权限过滤。
 - 可选按 `community_slug` / `community_id` 参数筛选子站；不传时返回“当前版主可治理子站”范围内的可用插件菜单并做去重。
 
@@ -250,7 +250,7 @@ GET /api/v1/communities/:slug/tags/:tag/topics
 
 - 普通 Topic 列表和搜索默认过滤隐藏 / 删除内容。
 - `POST /api/v1/topics` 发布后，`/topics/:id` 可立即由 Go 动态 SEO 页面访问，不需要重新前端构建。
-- v1.2.0 已完成标签详情 SEO 页和后台标签管理；标签合并、标签别名和统计重算已在 v1.2.1 完成，标签趋势统计仍是后续规划。
+- v1.2.0 已完成标签详情 SEO 页和后台标签管理；标签合并、标签别名和统计重算已在 v1.2.1 完成。
 
 标签详情响应包含：
 
@@ -1014,7 +1014,7 @@ Authorization: Bearer <access_token>
 - 子站版主只能操作自己负责子站下 Topic 的评论。
 - `hide` 设置评论 `status=hidden`，`restore` 设置 `status=normal`。
 - 普通评论列表过滤 `hidden`、`deleted` 状态。
-- 当前版本禁止隐藏最佳答案评论；需要先更换最佳答案或后续治理轮次补取消采纳。
+- 当前版本禁止隐藏最佳答案评论；需要先更换最佳答案。
 - 批量 `action` 支持 `hide`、`restore`、`delete`，逐条返回成功或失败原因。
 - 批量请求体支持可选 `note`，会进入批量治理审计日志摘要。
 
@@ -1276,11 +1276,14 @@ GET /robots.txt
 - `404 {"error":"举报不存在"}`。
 - `404 {"error":"通知不存在"}`。
 
-## 部分完成 / 后续完善
+## 规划 / 未完成（集中记录）
+
+以下内容不是当前真实可用 API；后续若实现，应先补齐代码和测试，再把接口移入上方主体章节。
 
 - 评论点赞本轮未实现，仅保留 `comments.likes` / `like_count` 字段和旧 `POST /api/v1/comments/:id/like`。
-- 采纳支持更换最佳答案，暂不支持取消已解决状态。
+- 问答采纳支持更换最佳答案，暂不支持取消已解决状态；当前没有单独的“取消最佳答案”接口。
 - 最佳答案当前通过前端运行时展示，不强制进入 `/topics/:id` 初始 SEO HTML。
 - 标签关注已在 v1.2.0 标签页接入，使用 `target_type=tag`。
 - 版主工作台是 v1.1.3 MVP，不包含复杂 RBAC、权限点矩阵、版主任期或绩效统计。
-- 标签合并、标签别名和统计重算已在 v1.2.1 完成；标签趋势统计仍是后续增强。
+- 标签合并、标签别名和统计重算已在 v1.2.1 完成；标签趋势统计和运营分析当前没有 API。
+- 插件市场、插件包上传、远程插件安装和动态 Go 插件加载当前没有 API。

@@ -58,29 +58,35 @@ v1.1.5 补丁已并入当前分支，主题是“前台 UI 美化专项”。本
 
 - 内置系统插件定义：`qa` / `docs` / `wiki`（内容类型、菜单、权限、路由描述）。
 - 插件运行时状态：`plugins` 表 + `installed/enabled/disabled`，并提供启用/禁用 API 与后台入口。
+- 子站插件运行时状态：`community_plugins` 表 + 子站启用/禁用/配置/排序 API；插件需同时满足“全局 enabled + 子站 enabled”才可用于发布、导航和菜单。
 - Core 表字段增强：`topics.plugin_code`、`categories.plugin_code`、`categories.allowed_content_types`。
-- 发布校验：`POST /api/v1/topics` 对 `plugin_code`、插件状态、`allowed_content_types` 做一致性校验，并兼容 `doc/wiki -> document/wiki_page`。
+- 发布校验：`POST /api/v1/topics` 已统一走 `ValidateTopicPluginAccess`，对 `plugin_code`、全局插件状态、子站插件状态、板块绑定和 `allowed_content_types` 做一致性校验，并兼容 `doc/wiki -> document/wiki_page`。
 - 前台发布页：内容类型选择按“启用插件 + 板块 allowed_content_types”收口。
-- 子站插件：新增 `community_plugins`，支持每个子站独立启用/禁用插件；发布、板块绑定、导航与菜单展示均受子站插件状态影响。
+- 子站插件：发布、板块绑定、子站导航、公开插件列表和版主插件菜单均受子站插件状态影响。
+- Wiki schema：仅保留插件化 `wiki_spaces`、`wiki_pages`、`wiki_page_versions`，已清理旧预留 `wiki_revisions` 冲突。
 
 部分完成：
 
-- 插件菜单：已提供 `admin/plugin-menus`、`moderator/plugin-menus`，当前按启用状态与权限过滤；更精细的“按版主子站范围过滤插件菜单”仍需后续增强。
-- docs/wiki 专用编辑体验：已具备表结构与基础注册，但专用树/版本 UI 留到后续专项。
+- 子站插件管理 UI：后台已有子站插件启用/禁用入口；`config_json` 编辑和排序控件仍需继续补齐。
+- 插件权限：后台菜单和版主菜单已按权限过滤；发布时按 `qa.question.create`、`docs.document.create`、`wiki.page.create` 等权限码做细粒度拦截仍需继续接入。
+- docs/wiki 专用编辑体验：已具备表结构、注册定义和通用内容发布/展示能力；专用文档树、版本历史和回滚 UI 仍待专项增强。
 
 未完成：
 
-- 插件市场、压缩包上传安装、远程更新、动态运行时加载器。
-- 插件依赖管理与版本升级策略。
+- 子站插件 `config_json` 可视化编辑与排序 UI。
+- 发布链路的插件权限码细粒度校验。
+- Docs 文档树专用编辑 UI、Wiki 版本历史 / 回滚交互。
 
 风险：
 
 - 历史数据中可能存在 `categories.plugin_code/allowed_content_types` 为空或不一致的情况，依赖兼容分支推断为 `core`；建议生产升级时先执行迁移 SQL 并抽样校验板块配置。
+- 全量 Docker 启动、真实 admin/user token API、浏览器页面和 SEO curl 验收仍需按 `docs/TESTING.md` 继续补测。
 
 下一步：
 
-- 细化 moderator 菜单与治理页面的社区范围过滤策略（仅展示版主可治理子站相关入口）。
-- 为 docs/wiki 补齐最小可用的管理页筛选与内容字段展示（不做复杂编辑器）。
+- 补齐子站插件配置 UI 的 `config_json` 编辑和排序操作。
+- 将发布权限码检查并入统一插件校验，避免后台或前台绕过插件权限。
+- 按 `docs/TESTING.md` 补跑 v1.3.0 子站插件禁用、跨子站发布、迁移和 SEO 验收。
 
 ## v1.1.5 前台 UI 美化专项范围
 
@@ -481,24 +487,40 @@ v1.1.5 补丁已并入当前分支，主题是“前台 UI 美化专项”。本
 - `/admin-next/moderators` 提供版主管理 CRUD，删除为停用。
 - `/admin-next/audit-logs` 提供治理审计列表和筛选。
 
-## 部分完成 / 已预留
+## 当前仍未完成 / 风险 / 下一步
 
-- 评论点赞：部分完成。数据字段和旧评论点赞接口保留，本轮未把评论点赞接入详情页运行时评论区。
-- 取消已解决状态：已预留。当前支持采纳和更换最佳答案，暂不支持取消已解决。
-- 标签关注：已在 v1.2.0 标签页接入 `target_type=tag` 关注 / 取消关注；我的关注页可展示。
-- 用户关注：后端支持 `target_type=user` 并触发 `user_followed` 通知；前台作者信息区域的关注入口后续完善。
+已完成：
 
-## 已知风险
+- v1.3.0 插件全局状态、子站状态、发布校验、板块绑定、前台发布页和版主插件菜单已进入可运行闭环。
+- v1.2.1 标签别名、标签合并、统计重算、sitemap / SEO 治理和后台治理审计已完成。
+- v1.2.0 标签 SEO 页、标签关注、发布页标签建议和后台标签基础管理已完成。
+
+部分完成：
+
+- 评论点赞：数据字段和旧评论点赞接口保留，详情页运行时评论区尚未接入完整评论点赞体验。
+- 问答采纳：支持采纳和更换最佳答案，暂不支持取消已解决状态。
+- 用户关注：后端支持 `target_type=user` 并触发 `user_followed` 通知，前台作者信息区域的关注入口仍需继续增强。
+- 子站插件管理：API 和基础启用/禁用入口可用，`config_json` 可视化编辑与排序 UI 仍需补齐。
+- Docs / Wiki 插件：基础注册、表结构和通用内容发布可用，专用文档树、版本历史和回滚交互仍需后续专项。
+
+未完成：
+
+- 发布链路的插件权限码细粒度校验，例如 `qa.question.create`、`docs.document.create`、`wiki.page.create`。
+- 标签趋势统计、标签运营分析和大规模异步统计任务。
+- 复杂 RBAC、版主任期 / 绩效统计、推荐、关注流、admin-user 与 frontend-user 绑定关系和生产化 migration。
+
+风险：
 
 - 如果后端代码已修改但 `8090` 上已有服务正在运行，普通 `./dev.sh` 可能复用旧服务；应使用 `./dev.sh --restart`。
 - Docker Go / Docker Node 构建依赖本机 Docker 权限和网络。
+- 历史数据中 `categories.plugin_code/allowed_content_types` 或 `community_plugins` 可能需要生产升级前抽样校验。
 - `/sitemap.xml` 当前最多输出 5000 条 Topic；内容量上来后需要拆分 sitemap index。
 
-## 下一步
+下一步：
 
-1. 完成 v1.2.0 标签系统验收后，建议先检查 `git diff`，再按 release notes 归档。
-2. 后续标签增强：标签趋势统计、标签运营分析和更大规模的异步统计任务。
-3. 后续优化：评论点赞、取消已解决状态、通知跳转 comment anchor、推荐、关注流、admin-user 与 frontend-user 绑定关系和生产化 migration。
+1. 补齐子站插件配置 UI 的 `config_json` 编辑和排序操作。
+2. 将发布权限码检查并入统一插件校验，避免后台或前台绕过插件权限。
+3. 按 `docs/TESTING.md` 补跑 v1.3.0 子站插件禁用、跨子站发布、迁移和 SEO 验收。
 
 ## 验收清单
 

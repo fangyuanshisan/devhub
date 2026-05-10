@@ -36,10 +36,17 @@
 - `/admin-next/plugins` 可以查看插件状态。
 - `/admin-next/qa`、`/admin-next/docs`、`/admin-next/wiki` 需要插件启用且具备权限；页面入口通过“系统插件”列表进入（插件业务页默认不出现在左侧导航）。
 - 普通前台会员不能看到总后台入口。
-- 版主可以访问 `/moderator`，并可通过 `/api/v1/moderator/plugin-menus` 获取插件治理菜单（仅返回 enabled 插件菜单，并按当前用户权限过滤）。
+- 版主可以访问 `/moderator`，并可通过 `/api/v1/moderator/plugin-menus` 获取插件治理菜单（仅返回全局 enabled、子站 enabled 且当前用户有权限的插件菜单）。
 - 已有内容列表、搜索页和 `/topics/:id` 仍能正常展示。
 - `/topics/:id` SEO 源码不受插件拆分影响。
 - MemoryStore 与 MySQLStore 插件状态和发布校验行为一致。
+
+未覆盖 / 后续补测：
+
+- 子站插件 `config_json` 编辑和排序接口需要使用真实 admin token 补测；后台 UI 补齐控件后再做浏览器验收。
+- 发布时插件权限码细粒度拒绝场景需要后续补测，例如没有 `qa.question.create` 时不能发布 `question`。
+- 禁用插件后历史 `/topics/:id` SEO 源码需要继续用 `curl` 人工确认 title、description、h1、article、正文、标签链接和 Article JSON-LD。
+- MySQL 老库执行 `db/mysql/migrations/004_community_plugins.sql` 后，需要补测历史板块 `plugin_code/allowed_content_types` 与历史内容 `plugin_code` 兼容。
 
 ## v1.2.1 标签治理增强测试清单
 
