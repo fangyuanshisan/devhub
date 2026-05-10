@@ -2,7 +2,7 @@
 
 [返回文档大纲](README.md)
 
-更新时间：2026-05-09
+更新时间：2026-05-10
 
 DevHub 当前 SEO 重点面向百度。核心原则是：动态 Topic 详情页必须由 Go 输出可被搜索引擎直接读取的 HTML，互动功能只能作为运行时增强，不能破坏源码中的核心内容。
 
@@ -24,6 +24,7 @@ DevHub 当前 SEO 重点面向百度。核心原则是：动态 Topic 详情页�
 - v1.1.3 独立版主工作台只新增 `/moderator` 运行时治理页面和 `/api/v1/moderator/*`，不改变 `/topics/:id` 或 `/c/:slug` 的 Go 动态 SEO 输出结构。
 - v1.1.4 只修复前台登录态、关注请求、版主入口、后台菜单和发布类型匹配；`/topics/:id` 与 `/c/:slug` 的 SEO 主体仍由 Go 动态输出。
 - v1.2.0 起 `/tags/:tag`、`/tags/:tag/`、`/c/:slug/tags/:tag` 和 `/c/:slug/tags/:tag/` 由 Go 动态输出标签聚合 SEO HTML。
+- v1.2.1 起，alias URL 和 merged source URL 会优先 301 到 canonical 主标签 URL；disabled / merged / alias URL 不进入 sitemap。
 - v1.0.0 归档后，任何上线前回归都必须把 `/topics/:id` SEO 源码检查作为阻塞项。
 - 隐藏 Topic 详情页由 Go 输出“内容已隐藏”HTML，并带 `meta name="robots" content="noindex,follow"`；隐藏页不输出原正文。
 
@@ -75,7 +76,7 @@ v1.2.0 起，`/tags/:tag/` 是全站标签 canonical 地址，`/c/:slug/tags/:ta
 - 所属子站链接：有子站时指向 `/c/:slug/`。
 - 发布入口链接：全站标签使用 `/topics/new/`，子站标签使用 `/c/:slug/topics/new/`。
 
-禁用标签返回不可用页面或 404，不进入 sitemap。标签页可以通过 JS 增强关注状态，但初始 SEO HTML 不依赖浏览器 JS。
+禁用标签返回不可用页面或 404，不进入 sitemap。v1.2.1 起，alias URL 和 merged source URL 优先 301 到主标签 canonical URL，不作为独立 SEO 页。标签页可以通过 JS 增强关注状态，但初始 SEO HTML 不依赖浏览器 JS。
 
 ## 互动功能边界
 
@@ -100,6 +101,7 @@ v1.2.0 起，`/tags/:tag/` 是全站标签 canonical 地址，`/c/:slug/tags/:ta
 - `/sitemap.xml` 由 Go 动态输出，包含启用状态子站、启用全站标签、启用子站标签和已发布且 `status=1` 的 Topic。
 - 启用子站以 `/c/:slug/` 进入 sitemap，`/site/:slug` 不作为 canonical sitemap URL。
 - 启用标签以 `/tags/:slug/` 进入 sitemap；有子站归属的启用标签同时以 `/c/:slug/tags/:tag/` 进入 sitemap。
+- disabled 标签、merged 标签和 alias URL 不进入 sitemap。
 - 被隐藏的 `status=0` Topic 不进入 `/sitemap.xml`。
 - 当前 sitemap 最多输出 5000 条 Topic，内容量继续增长后需要拆分 sitemap index。
 
@@ -189,7 +191,6 @@ curl -s http://127.0.0.1:8090/sitemap.xml | rg "/topics/<新ID>/"
 
 ## 后续 SEO 规划
 
-- 标签别名 canonical。
-- 标签合并后的 301 重定向。
 - sitemap 分片和 sitemap index。
 - 更完整的列表页服务端摘要输出。
+- 标签趋势统计和运营分析页的 SEO 策略。

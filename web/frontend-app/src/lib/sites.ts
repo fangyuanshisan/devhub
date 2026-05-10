@@ -1,4 +1,5 @@
 import type { Site } from './types';
+import { defaultSiteKey } from './site-config';
 
 export const devhubSites: Site[] = [
   { key: 'portal', name: '总站', logo: 'DH', title: 'DevHub 开发者社区', sub: '多站点内容与社区 CMS', pub: '总站', description: '聚合 PHP、Go、Java、AI、Frontend 等技术子站的文章、问答、文档和开源项目。', color: '#2563eb', status: 'active', sort: 0 },
@@ -8,3 +9,11 @@ export const devhubSites: Site[] = [
   { key: 'ai', name: 'AI', logo: 'AI', title: 'AI 开发者站', sub: 'Agent、RAG、Prompt 与工作流实践', pub: 'AI 子站', description: 'AI 技术社区', color: '#7c3aed', status: 'active', sort: 4 },
   { key: 'frontend', name: 'Frontend', logo: 'FE', title: '前端开发者站', sub: 'Vue、React、TypeScript、性能与工程化', pub: '前端子站', description: '前端技术社区', color: '#16a34a', status: 'active', sort: 5 },
 ];
+
+export const portalSite = devhubSites.find((site) => site.key === defaultSiteKey) || devhubSites[0];
+export const communitySites = devhubSites.filter((site) => site.key !== defaultSiteKey);
+export const communitySiteKeys = communitySites.map((site) => site.key);
+
+export function findSiteByKey(key: string) {
+  return devhubSites.find((site) => site.key === key);
+}

@@ -167,10 +167,16 @@ func NewRouter(svc *service.Service) *gin.Engine {
 			protected.GET("/tags", srv.requirePermission("post.read"), srv.adminTags)
 			protected.GET("/tags/:id", srv.requirePermission("post.read"), srv.adminTag)
 			protected.GET("/tags/:id/topics", srv.requirePermission("post.read"), srv.adminTagTopics)
+			protected.GET("/tags/:id/aliases", srv.requirePermission("post.read"), srv.adminTagAliases)
 			protected.POST("/tags", srv.requirePermission("post.update"), srv.createAdminTag)
 			protected.PUT("/tags/:id", srv.requirePermission("post.update"), srv.updateAdminTag)
+			protected.POST("/tags/:id/aliases", srv.requirePermission("post.update"), srv.createAdminTagAlias)
+			protected.DELETE("/tags/:id/aliases/:aliasId", srv.requirePermission("post.update"), srv.deleteAdminTagAlias)
 			protected.POST("/tags/:id/enable", srv.requirePermission("post.update"), srv.enableAdminTag)
 			protected.POST("/tags/:id/disable", srv.requirePermission("post.update"), srv.disableAdminTag)
+			protected.POST("/tags/:id/merge", srv.requirePermission("post.update"), srv.mergeAdminTag)
+			protected.POST("/tags/:id/recalculate", srv.requirePermission("post.update"), srv.recalculateAdminTag)
+			protected.POST("/tags/recalculate-all", srv.requirePermission("post.update"), srv.recalculateAllAdminTags)
 			protected.GET("/comments", srv.requirePermission("comment.read"), srv.adminComments)
 			protected.PUT("/comments/:id/status", srv.requirePermission("comment.moderate"), srv.updateAdminCommentStatus)
 			protected.POST("/comments/:id/hide", srv.requirePermission("comment.moderate"), srv.hideAdminComment)
@@ -554,11 +560,16 @@ func (s *Server) tagSEOPage(c *gin.Context) {
 		return
 	}
 	site := strings.TrimSpace(c.Query("community_slug"))
-	tag, ok := s.tagBySlugForPage(site, raw)
-	if !ok || tag.ID == 0 || tag.Status != "enable" {
+	resolved, ok := s.resolveTagForPage(site, raw)
+	if !ok || resolved.Tag.ID == 0 || resolved.Tag.Status != "enable" {
 		c.Data(http.StatusNotFound, "text/html; charset=utf-8", []byte(s.tagNotFoundHTML()))
 		return
 	}
+	if resolved.RedirectURL != "" {
+		c.Redirect(http.StatusMovedPermanently, resolved.RedirectURL)
+		return
+	}
+	tag := resolved.Tag
 	if site == "" || site == "portal" {
 		c.Data(http.StatusOK, "text/html; charset=utf-8", []byte(s.renderGlobalTagHTML(c, tag)))
 		return
@@ -578,11 +589,16 @@ func (s *Server) communityTagSEOPage(c *gin.Context) {
 		c.Data(http.StatusNotFound, "text/html; charset=utf-8", []byte(s.tagNotFoundHTML()))
 		return
 	}
-	tag, ok := s.tagBySlugForPage(comm.Slug, raw)
-	if !ok || tag.ID == 0 || tag.Status != "enable" {
+	resolved, ok := s.resolveTagForPage(comm.Slug, raw)
+	if !ok || resolved.Tag.ID == 0 || resolved.Tag.Status != "enable" {
 		c.Data(http.StatusNotFound, "text/html; charset=utf-8", []byte(s.tagNotFoundHTML()))
 		return
 	}
+	if resolved.RedirectURL != "" {
+		c.Redirect(http.StatusMovedPermanently, resolved.RedirectURL)
+		return
+	}
+	tag := resolved.Tag
 	tag.CommunityID = comm.ID
 	tag.CommunitySlug = comm.Slug
 	tag.CommunityName = comm.Name
@@ -590,14 +606,31 @@ func (s *Server) communityTagSEOPage(c *gin.Context) {
 }
 
 func (s *Server) tagBySlugForPage(site, raw string) (domain.Tag, bool) {
-	tag, ok := s.svc.TagBySlug(site, raw)
+	resolved, ok := s.resolveTagForPage(site, raw)
+	if !ok {
+		return domain.Tag{}, false
+	}
+	return resolved.Tag, true
+}
+
+func (s *Server) resolveTagForPage(site, raw string) (domain.TagResolveResult, bool) {
+	resolved, ok := s.svc.ResolveTag(site, raw)
 	if ok {
-		return tag, true
+		segment := tagPathSegment(firstNonEmpty(resolved.Tag.Slug, resolved.Tag.Name))
+		canonical := tagHrefFromSegment(segment, "")
+		if site != "" && site != "portal" {
+			canonical = tagHrefFromSegment(segment, site)
+		}
+		resolved.RedirectURL = canonical
+		if resolved.ResolvedBy == "direct" && strings.EqualFold(strings.Trim(raw, "/"), segment) {
+			resolved.RedirectURL = ""
+		}
+		return resolved, true
 	}
 	if decoded, err := url.PathUnescape(raw); err == nil && decoded != raw {
-		return s.svc.TagBySlug(site, decoded)
+		return s.resolveTagForPage(site, decoded)
 	}
-	return domain.Tag{}, false
+	return domain.TagResolveResult{}, false
 }
 
 func (s *Server) tagNotFoundHTML() string {
@@ -1381,12 +1414,12 @@ func (s *Server) getTag(c *gin.Context) {
 		fail(c, http.StatusBadRequest, "无效子网站")
 		return
 	}
-	tag, ok := s.svc.TagBySlug(site, c.Param("tag"))
-	if !ok || tag.Status != "enable" {
+	resolved, ok := s.svc.ResolveTag(site, c.Param("tag"))
+	if !ok || resolved.Tag.Status != "enable" {
 		fail(c, http.StatusNotFound, "标签不存在")
 		return
 	}
-	c.JSON(http.StatusOK, tag)
+	c.JSON(http.StatusOK, resolved.Tag)
 }
 
 func (s *Server) getCommunityTag(c *gin.Context) {
@@ -1395,12 +1428,12 @@ func (s *Server) getCommunityTag(c *gin.Context) {
 		fail(c, http.StatusNotFound, "子站不存在")
 		return
 	}
-	tag, ok := s.tagBySlugForPage(site, c.Param("tag"))
-	if !ok || tag.Status != "enable" {
+	resolved, ok := s.svc.ResolveTag(site, c.Param("tag"))
+	if !ok || resolved.Tag.Status != "enable" {
 		fail(c, http.StatusNotFound, "标签不存在")
 		return
 	}
-	c.JSON(http.StatusOK, tag)
+	c.JSON(http.StatusOK, resolved.Tag)
 }
 
 func (s *Server) tagTopics(c *gin.Context) {
@@ -1409,11 +1442,12 @@ func (s *Server) tagTopics(c *gin.Context) {
 		fail(c, http.StatusBadRequest, "无效子网站")
 		return
 	}
-	tag, ok := s.svc.TagBySlug(site, c.Param("tag"))
-	if !ok || tag.Status != "enable" {
+	resolved, ok := s.svc.ResolveTag(site, c.Param("tag"))
+	if !ok || resolved.Tag.Status != "enable" {
 		fail(c, http.StatusNotFound, "标签不存在")
 		return
 	}
+	tag := resolved.Tag
 	page, pageSize := pagination(c)
 	sortBy := c.DefaultQuery("sort", "latest")
 	contentType := strings.TrimSpace(c.Query("content_type"))
@@ -1446,11 +1480,12 @@ func (s *Server) communityTagTopics(c *gin.Context) {
 		fail(c, http.StatusNotFound, "子站不存在")
 		return
 	}
-	tag, ok := s.tagBySlugForPage(site, c.Param("tag"))
-	if !ok || tag.Status != "enable" {
+	resolved, ok := s.svc.ResolveTag(site, c.Param("tag"))
+	if !ok || resolved.Tag.Status != "enable" {
 		fail(c, http.StatusNotFound, "标签不存在")
 		return
 	}
+	tag := resolved.Tag
 	page, pageSize := pagination(c)
 	sortBy := c.DefaultQuery("sort", "latest")
 	contentType := strings.TrimSpace(c.Query("content_type"))
@@ -2410,17 +2445,15 @@ func (s *Server) adminTag(c *gin.Context) {
 	if !ok {
 		return
 	}
-	for _, tag := range s.svc.AdminTags("", "", "all") {
-		if tag.ID != id {
-			continue
-		}
-		if tag.Site != "" && tag.Site != "portal" && !ensureSiteAllowed(c, tag.Site) {
-			return
-		}
-		c.JSON(http.StatusOK, gin.H{"item": tag, "tag": tag})
+	tag, ok := s.svc.AdminTagByID(id)
+	if !ok {
+		fail(c, http.StatusNotFound, "标签不存在")
 		return
 	}
-	fail(c, http.StatusNotFound, "标签不存在")
+	if tag.Site != "" && tag.Site != "portal" && !ensureSiteAllowed(c, tag.Site) {
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"item": tag, "tag": tag})
 }
 
 func (s *Server) adminTagTopics(c *gin.Context) {
@@ -2428,14 +2461,8 @@ func (s *Server) adminTagTopics(c *gin.Context) {
 	if !ok {
 		return
 	}
-	var found domain.Tag
-	for _, tag := range s.svc.AdminTags("", "", "all") {
-		if tag.ID == id {
-			found = tag
-			break
-		}
-	}
-	if found.ID == 0 {
+	found, ok := s.svc.AdminTagByID(id)
+	if !ok {
 		fail(c, http.StatusNotFound, "标签不存在")
 		return
 	}
@@ -2452,6 +2479,27 @@ func (s *Server) adminTagTopics(c *gin.Context) {
 		HasMore:  page*pageSize < total,
 		Filters:  gin.H{"tag_id": id, "site": found.Site},
 	})
+}
+
+func (s *Server) adminTagAliases(c *gin.Context) {
+	id, ok := idParam(c, "id")
+	if !ok {
+		return
+	}
+	tag, ok := s.svc.AdminTagByID(id)
+	if !ok {
+		fail(c, http.StatusNotFound, "标签不存在")
+		return
+	}
+	if tag.Site != "" && tag.Site != "portal" && !ensureSiteAllowed(c, tag.Site) {
+		return
+	}
+	items, err := s.svc.TagAliases(id)
+	if err != nil {
+		fail(c, http.StatusBadRequest, err.Error())
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"items": items})
 }
 
 func (s *Server) createAdminTag(c *gin.Context) {
@@ -2491,6 +2539,58 @@ func (s *Server) updateAdminTag(c *gin.Context) {
 	c.JSON(http.StatusOK, tag)
 }
 
+func (s *Server) createAdminTagAlias(c *gin.Context) {
+	id, ok := idParam(c, "id")
+	if !ok {
+		return
+	}
+	tag, ok := s.svc.AdminTagByID(id)
+	if !ok {
+		fail(c, http.StatusNotFound, "标签不存在")
+		return
+	}
+	if tag.Site != "" && tag.Site != "portal" && !ensureSiteAllowed(c, tag.Site) {
+		return
+	}
+	var req domain.TagAliasRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		fail(c, http.StatusBadRequest, err.Error())
+		return
+	}
+	item, err := s.svc.AddTagAlias(id, req.Alias)
+	if err != nil {
+		fail(c, http.StatusBadRequest, err.Error())
+		return
+	}
+	s.audit(c, "audit", "新增标签别名", fmt.Sprintf("tags#%d/aliases#%d", id, item.ID))
+	c.JSON(http.StatusCreated, item)
+}
+
+func (s *Server) deleteAdminTagAlias(c *gin.Context) {
+	id, ok := idParam(c, "id")
+	if !ok {
+		return
+	}
+	aliasID, ok := idParam(c, "aliasId")
+	if !ok {
+		return
+	}
+	tag, ok := s.svc.AdminTagByID(id)
+	if !ok {
+		fail(c, http.StatusNotFound, "标签不存在")
+		return
+	}
+	if tag.Site != "" && tag.Site != "portal" && !ensureSiteAllowed(c, tag.Site) {
+		return
+	}
+	if err := s.svc.DeleteTagAlias(id, aliasID); err != nil {
+		fail(c, http.StatusBadRequest, err.Error())
+		return
+	}
+	s.audit(c, "audit", "删除标签别名", fmt.Sprintf("tags#%d/aliases#%d", id, aliasID))
+	c.JSON(http.StatusOK, gin.H{"deleted": true})
+}
+
 func (s *Server) enableAdminTag(c *gin.Context) {
 	s.setAdminTagStatus(c, "enable")
 }
@@ -2504,14 +2604,8 @@ func (s *Server) setAdminTagStatus(c *gin.Context, status string) {
 	if !ok {
 		return
 	}
-	var found domain.Tag
-	for _, tag := range s.svc.AdminTags("", "", "all") {
-		if tag.ID == id {
-			found = tag
-			break
-		}
-	}
-	if found.ID == 0 {
+	found, ok := s.svc.AdminTagByID(id)
+	if !ok {
 		fail(c, http.StatusNotFound, "标签不存在")
 		return
 	}
@@ -2529,6 +2623,77 @@ func (s *Server) setAdminTagStatus(c *gin.Context, status string) {
 	}
 	s.audit(c, "operation", action, fmt.Sprintf("tags#%d", id))
 	c.JSON(http.StatusOK, tag)
+}
+
+func (s *Server) mergeAdminTag(c *gin.Context) {
+	id, ok := idParam(c, "id")
+	if !ok {
+		return
+	}
+	source, ok := s.svc.AdminTagByID(id)
+	if !ok {
+		fail(c, http.StatusNotFound, "标签不存在")
+		return
+	}
+	if source.Site != "" && source.Site != "portal" && !ensureSiteAllowed(c, source.Site) {
+		return
+	}
+	var req domain.TagMergeRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		fail(c, http.StatusBadRequest, err.Error())
+		return
+	}
+	target, ok := s.svc.AdminTagByID(req.TargetTagID)
+	if !ok {
+		fail(c, http.StatusBadRequest, "目标标签不存在")
+		return
+	}
+	if target.Site != "" && target.Site != "portal" && !ensureSiteAllowed(c, target.Site) {
+		return
+	}
+	tag, err := s.svc.MergeTag(id, req.TargetTagID)
+	if err != nil {
+		fail(c, http.StatusBadRequest, err.Error())
+		return
+	}
+	targetText := fmt.Sprintf("tags#%d->%d", id, req.TargetTagID)
+	if strings.TrimSpace(req.Note) != "" {
+		targetText += ":" + strings.TrimSpace(req.Note)
+	}
+	s.audit(c, "audit", "合并标签", targetText)
+	c.JSON(http.StatusOK, tag)
+}
+
+func (s *Server) recalculateAdminTag(c *gin.Context) {
+	id, ok := idParam(c, "id")
+	if !ok {
+		return
+	}
+	tag, ok := s.svc.AdminTagByID(id)
+	if !ok {
+		fail(c, http.StatusNotFound, "标签不存在")
+		return
+	}
+	if tag.Site != "" && tag.Site != "portal" && !ensureSiteAllowed(c, tag.Site) {
+		return
+	}
+	recalculated, err := s.svc.RecalculateTag(id)
+	if err != nil {
+		fail(c, http.StatusBadRequest, err.Error())
+		return
+	}
+	s.audit(c, "audit", "重算标签统计", fmt.Sprintf("tags#%d", id))
+	c.JSON(http.StatusOK, recalculated)
+}
+
+func (s *Server) recalculateAllAdminTags(c *gin.Context) {
+	updated, err := s.svc.RecalculateAllTags()
+	if err != nil {
+		fail(c, http.StatusBadRequest, err.Error())
+		return
+	}
+	s.audit(c, "audit", "批量重算标签统计", fmt.Sprintf("tags:%d", updated))
+	c.JSON(http.StatusOK, gin.H{"updated": updated})
 }
 
 func (s *Server) adminComments(c *gin.Context) {
@@ -4592,7 +4757,7 @@ func (s *Server) searchRequestFromQuery(c *gin.Context) domain.SearchRequest {
 		sortBy = "latest"
 	}
 
-	return domain.SearchRequest{
+	req := domain.SearchRequest{
 		Keyword:       strings.TrimSpace(firstQuery(c, "keyword", "q")),
 		Scope:         scope,
 		CommunitySlug: communitySlug,
@@ -4605,6 +4770,17 @@ func (s *Server) searchRequestFromQuery(c *gin.Context) domain.SearchRequest {
 		Page:          page,
 		PageSize:      pageSize,
 	}
+	if req.TagID == 0 && req.Tag != "" {
+		resolveSite := ""
+		if req.CommunitySlug != "" && req.CommunitySlug != "portal" && req.CommunitySlug != "all" {
+			resolveSite = req.CommunitySlug
+		}
+		if resolved, ok := s.svc.ResolveTag(resolveSite, req.Tag); ok {
+			req.TagID = resolved.Tag.ID
+			req.Tag = firstNonEmpty(resolved.Tag.Slug, resolved.Tag.Name)
+		}
+	}
+	return req
 }
 
 func (s *Server) applyTopicInteraction(c *gin.Context, topic *domain.Topic) {
@@ -5072,14 +5248,22 @@ func (s *Server) normalizeCreateTopicRequest(req *domain.CreateTopicRequest) err
 	}
 	if len(req.Tags) > 0 {
 		allowed := map[string]bool{}
+		site := slugByCommunityID(req.CommunityID)
 		for _, tag := range s.communityTagsForCreate(req.CommunityID) {
 			allowed[tag.Name] = true
 		}
+		normalized := make([]string, 0, len(req.Tags))
 		for _, name := range req.Tags {
+			name = strings.TrimSpace(name)
+			if resolved, ok := s.svc.ResolveTag(site, name); ok {
+				name = resolved.Tag.Name
+			}
 			if !allowed[name] {
 				return fmt.Errorf("标签不属于当前子站")
 			}
+			normalized = append(normalized, name)
 		}
+		req.Tags = uniqueStrings(normalized)
 	}
 	return nil
 }
@@ -5452,6 +5636,10 @@ func tagPathSegment(name string) string {
 
 func tagHref(tagName, communitySlug string) string {
 	return tagHrefFromSegment(tagPathSegment(tagName), communitySlug)
+}
+
+func tagCanonicalPath(tag domain.Tag) string {
+	return tagHrefFromSegment(tagPathSegment(firstNonEmpty(tag.Slug, tag.Name)), tag.CommunitySlug)
 }
 
 func tagHrefFromSegment(segment, communitySlug string) string {

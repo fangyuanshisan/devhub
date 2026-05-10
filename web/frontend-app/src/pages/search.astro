@@ -1,46 +1,31 @@
 ---
 import SiteHeader from '../components/SiteHeader.astro';
 import SeoLayout from '../layouts/SeoLayout.astro';
-
-const sites = [
-  { key: 'portal', name: '总站', logo: 'DH', title: 'DevHub 开发者社区', sub: '多站点内容与社区 CMS', pub: '总站', description: '聚合 PHP、Go、Java、AI、Frontend 等技术子站的文章、问答、文档和开源项目。', color: '#2563eb', status: 'active', sort: 0 },
-  { key: 'php', name: 'PHP', logo: 'PHP', title: 'PHP 开发者站', sub: '工程实践、框架生态、线上问题复盘', pub: 'PHP 子站', description: 'PHP 技术社区', color: '#6478c8', status: 'active', sort: 1 },
-  { key: 'go', name: 'Go', logo: 'GO', title: 'Go 开发者站', sub: '并发、服务端、云原生实践', pub: 'Go 子站', description: 'Go 技术社区', color: '#0891b2', status: 'active', sort: 2 },
-  { key: 'java', name: 'Java', logo: 'JAVA', title: 'Java 开发者站', sub: '后端架构、中间件、企业工程实践', pub: 'Java 子站', description: 'Java 技术社区', color: '#ea580c', status: 'active', sort: 3 },
-  { key: 'ai', name: 'AI', logo: 'AI', title: 'AI 开发者站', sub: 'Agent、RAG、Prompt 与工作流实践', pub: 'AI 子站', description: 'AI 技术社区', color: '#7c3aed', status: 'active', sort: 4 },
-  { key: 'frontend', name: 'Frontend', logo: 'FE', title: '前端开发者站', sub: 'Vue、React、TypeScript、性能与工程化', pub: '前端子站', description: '前端技术社区', color: '#16a34a', status: 'active', sort: 5 },
-];
+import { searchCategories as categories, sortTabs } from '../lib/site-config';
+import { devhubSites as sites } from '../lib/sites';
 
 const boards = [
   { key: 'community', name: '社区' },
   { key: 'qa', name: '问答中心' },
   { key: 'opensource', name: '开源项目' },
-  { key: 'ai', name: 'AI作品' },
+  { key: 'ai', name: '智能作品' },
   { key: 'jobs', name: '招聘内推' },
   { key: 'wiki', name: 'Wiki' },
   { key: 'docs', name: '文档' },
 ];
-
-const categories = [
-  { key: 'all', type: '', name: '全部' },
-  { key: 'community', type: 'article', name: '社区' },
-  { key: 'qa', type: 'question', name: '问答中心' },
-  { key: 'opensource', type: 'project', name: '开源项目' },
-  { key: 'ai', type: 'ai_work', name: 'AI作品' },
-  { key: 'jobs', type: 'job', name: '招聘内推' },
-  { key: 'wiki', type: 'wiki', name: 'Wiki' },
-  { key: 'docs', type: 'doc', name: '文档' },
-];
-
-const sortTabs = [
-  { key: 'latest', name: '最新' },
-  { key: 'active', name: '活跃' },
-  { key: 'hot', name: '热门' },
-  { key: 'featured', name: '精华' },
-  { key: 'unsolved', name: '未解决' },
-];
+const typeLabels = {
+  article: '社区',
+  question: '问答中心',
+  project: '开源项目',
+  ai_work: '智能作品',
+  job: '招聘内推',
+  wiki: 'Wiki',
+  doc: '文档',
+  news: '动态',
+};
+const typeToBoard = { article: 'community', question: 'qa', project: 'opensource', ai_work: 'ai', job: 'jobs', wiki: 'wiki', doc: 'docs', news: 'community' };
 ---
-<SeoLayout title="搜索 - DevHub" description="搜索 DevHub 开发者社区中的文章、问答、文档和项目内容。" canonical="/search/">
+<SeoLayout title="搜索 - DevHub" description="搜索 DevHub 开源社区中的文章、问答、文档和项目内容。" canonical="/search/">
   <SiteHeader sites={sites} activeSite="portal" />
   <main>
     <section class="search-panel">
@@ -100,11 +85,9 @@ const sortTabs = [
       </div>
     </section>
   </main>
-  <script define:vars={{ sites, boards, categories, sortTabs }}>
+  <script define:vars={{ sites, boards, categories, sortTabs, typeLabels, typeToBoard }}>
     (() => {
       const communityIDToSite = { 1: 'php', 2: 'go', 3: 'java', 4: 'ai', 5: 'frontend' };
-      const typeToBoard = { article: 'community', question: 'qa', project: 'opensource', ai_work: 'ai', job: 'jobs', wiki: 'wiki', doc: 'docs', news: 'community' };
-      const typeName = { article: '帖子', question: '问答', project: '项目', ai_work: 'AI作品', job: '招聘', wiki: 'Wiki', doc: '文档', news: '周刊' };
       const validScopes = new Set(['all', 'current', 'community']);
       const validSorts = new Set(sortTabs.map((item) => item.key));
       const siteMap = new Map(sites.map((site) => [site.key, site]));
@@ -201,14 +184,18 @@ const sortTabs = [
 	        const site = siteMap.get(siteKey);
 	        const boardKey = typeToBoard[topic.content_type] || 'community';
 	        const board = boardMap.get(boardKey);
-	        const tags = (topic.tags || []).slice(0, 5).map((tag) => `<a href="${siteKey === 'portal' ? `/tags/${encodeURIComponent(String(tag).trim().toLowerCase().replace(/\s+/g, '-'))}/` : `/c/${encodeURIComponent(siteKey)}/tags/${encodeURIComponent(String(tag).trim().toLowerCase().replace(/\s+/g, '-'))}/`}">${escapeHTML(tag)}</a>`).join('');
+	        const tags = (topic.tags || []).slice(0, 5).map((tag) => {
+	          const slug = encodeURIComponent(String(tag).trim().toLowerCase().replace(/\s+/g, '-'));
+	          const href = siteKey === 'portal' ? `/tags/${slug}/` : `/c/${encodeURIComponent(siteKey)}/tags/${slug}/`;
+	          return `<a href="${href}">${escapeHTML(tag)}</a>`;
+	        }).join('');
 	        const qaState = topic.content_type === 'question'
 	          ? (topic.is_solved ? '<span class="state-pill solved">已解决</span>' : '<span class="state-pill unsolved">未解决</span>')
 	          : '';
 	        const commentLabel = topic.content_type === 'question' ? '回答' : '评论';
 	        return `<article class="post-card">
 	          <div class="post-card-top">
-	            <span class="type-pill">${escapeHTML(typeName[topic.content_type] || '内容')}</span>
+	            <span class="type-pill">${escapeHTML(typeLabels[topic.content_type] || '内容')}</span>
 	            <a class="site-pill" href="/c/${encodeURIComponent(siteKey)}/">${escapeHTML(site?.name || siteKey)}</a>
 	            <span>${escapeHTML(board?.name || boardKey)}</span>
 	            ${topic.is_pinned ? '<span class="state-pill">置顶</span>' : ''}
@@ -219,7 +206,7 @@ const sortTabs = [
           <p>${escapeHTML(topic.summary || String(topic.content || '').slice(0, 120))}</p>
           ${tags ? `<div class="post-tags">${tags}</div>` : ''}
           <footer>
-            <span>DevHub 用户</span>
+            <span>社区用户</span>
             <span>${escapeHTML(topic.created_at || '刚刚')} 发布</span>
             <span>${escapeHTML(topic.last_active_at || topic.updated_at || topic.created_at || '刚刚')} 活跃</span>
             <span>${Number(topic.view_count || 0)} 浏览</span>

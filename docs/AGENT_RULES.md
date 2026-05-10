@@ -2,7 +2,7 @@
 
 [返回文档大纲](README.md)
 
-更新时间：2026-05-09
+更新时间：2026-05-10
 
 本文档是后续 DevHub 1.x 开发任务的固定协作规则。Codex / AI Agent 接到任务后，应先阅读并遵守本文档，再阅读 `docs/PROJECT_PROGRESS.md`、`docs/API.md`、`docs/SEO.md` 和对应 release 文档。
 
@@ -89,6 +89,7 @@ PORT=8090 CMS_STORE=memory ./.devhub/devhub
 - `v1.1.1` 主题是“前后台身份边界整理版”，目标是把 `users`、`admin_users`、`community_moderators` 的职责和鉴权边界固定下来。
 - `v1.1.3` 主题是“独立版主工作台 MVP”，目标是让子站版主通过 `/moderator` 处理自己子站的举报、内容、评论和审计。
 - `v1.2.0` 主题是“标签系统增强版”，目标是补齐标签页、标签详情 API、标签聚合、标签关注、发布建议、后台标签 CRUD、标签 SEO 字段和 sitemap 标签收录。
+- `v1.2.1` 主题是“标签合并、别名与统计重算版”，目标是补齐标签合并、标签别名、标签统计重算、merged/disabled 的 SEO 与 sitemap 行为、标签治理审计日志和后台标签管理增强。
 - 后续建议：
   - `v1.3.0`：推荐、关注流和内容发现。
   - `v1.4.0`：用户成长、声望和个人主页。

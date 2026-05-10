@@ -2,9 +2,49 @@
 
 [返回文档大纲](README.md)
 
-更新时间：2026-05-09
+更新时间：2026-05-10
 
 本文档用于当前真实实现的手工验收。完成代码变更后，优先执行自动检查，再按页面、接口、业务闭环、SEO 顺序回归。
+
+## v1.2.1 标签治理增强测试清单
+
+基础检查：
+
+- `./dev.sh --restart`
+- `CMS_STORE=memory ./dev.sh --restart`
+- `./dev.sh --mysql --restart`
+- `go test ./...`
+- `go build ./...`
+
+标签治理验收：
+
+- 后台可以为标签添加别名。
+- 后台可以删除标签别名。
+- 别名不能与已有标签 slug 冲突。
+- 别名不能重复。
+- 发布页搜索别名可以命中主标签。
+- `/tags/:aliasSlug` 可以跳转或 canonical 到主标签。
+- `/c/php/tags/:aliasSlug` 可以跳转或 canonical 到主标签。
+- 后台可以合并标签。
+- 合并后 `topic_tags` 迁移正确。
+- 合并后 `topic_tags` 不重复。
+- 合并后 `follows` 迁移正确。
+- 合并后 source_tag 不出现在热门标签。
+- 合并后 source_tag 不出现在发布页 suggest。
+- 合并后 source_tag 不进入 sitemap。
+- 合并后 target_tag 统计正确。
+- 单个标签统计重算可用。
+- 全量标签统计重算可用。
+- disabled 标签不进入 sitemap。
+- merged 标签不进入 sitemap。
+- alias URL 不进入 sitemap。
+- 标签合并操作写入 audit logs。
+- 标签别名操作写入 audit logs。
+- 标签统计重算操作写入 audit logs。
+- `/topics/:id` SEO 不受影响。
+- `/c/:slug` SEO 不受影响。
+- MemoryStore 行为正常。
+- MySQLStore 行为正常。
 
 ## v1.1.0 测试矩阵
 
@@ -966,7 +1006,7 @@ MySQL 模式应验证：
 - 评论点赞入口没有纳入第六轮，只保留旧 `POST /api/v1/comments/:id/like` 和字段。
 - 采纳支持更换最佳答案，暂不支持取消已解决状态。
 - 最佳答案当前通过详情页运行时评论区展示，不进入初始 SEO HTML。
-- 标签高级能力、标签后台和标签 SEO 聚合页不属于 v1.1.0 主线，计划放入 v1.2.0。
+- 标签高级能力、标签后台和标签 SEO 聚合页不属于 v1.1.0 主线；标签后台与 SEO 聚合页已在 v1.2.0 完成，标签别名/合并/统计重算已在 v1.2.1 完成。
 
 ## CI 回归
 

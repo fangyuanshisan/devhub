@@ -1,24 +1,17 @@
 ---
 import type { Site } from '../lib/types';
+import { communityNavItems, defaultSiteKey } from '../lib/site-config';
 
 type Props = {
   sites: Site[];
   activeSite?: string;
 };
 
-const { sites, activeSite = 'portal' } = Astro.props;
-const active = sites.find((site) => site.key === activeSite) || sites.find((site) => site.key === 'portal') || sites[0];
-const scopedSite = activeSite || 'portal';
+const { sites, activeSite = defaultSiteKey } = Astro.props;
+const active = sites.find((site) => site.key === activeSite) || sites.find((site) => site.key === defaultSiteKey) || sites[0];
+const scopedSite = activeSite || defaultSiteKey;
 const searchScope = scopedSite === 'portal' ? 'scope=all' : `scope=community&community_slug=${encodeURIComponent(scopedSite)}`;
-const boardTypes = {
-  community: 'article',
-  qa: 'question',
-  docs: 'doc',
-  wiki: 'wiki',
-  opensource: 'project',
-  ai: 'ai_work',
-};
-const boardHref = (board: keyof typeof boardTypes) => `/search/?${searchScope}&content_type=${boardTypes[board]}`;
+const navHref = (contentType: string) => `/search/?${searchScope}&content_type=${contentType}`;
 ---
 <header class="site-header">
   <div class="top-accent"></div>
@@ -30,8 +23,8 @@ const boardHref = (board: keyof typeof boardTypes) => `/search/?${searchScope}&c
       </a>
       <button class="nav-caret" type="button" aria-label="切换站点" aria-expanded="false" data-site-switcher-button>⌄</button>
       <div class="site-dropdown">
-        <a class={activeSite === 'portal' ? 'active' : ''} href="/">总站</a>
-        {sites.filter((site) => site.key !== 'portal').map((site) => (
+        <a class={activeSite === defaultSiteKey ? 'active' : ''} href="/">总站</a>
+        {sites.filter((site) => site.key !== defaultSiteKey).map((site) => (
           <a class={activeSite === site.key ? 'active' : ''} href={`/c/${site.key}/`}>
             <span style={`--site-color:${site.color}`}>{site.logo || site.name.slice(0, 2)}</span>
             {site.name}
@@ -41,29 +34,24 @@ const boardHref = (board: keyof typeof boardTypes) => `/search/?${searchScope}&c
     </div>
 
     <nav class="site-nav" aria-label="主导航">
-      <a href={boardHref('community')}>社区</a>
-      <a href={boardHref('qa')}>问答</a>
-      <a href={boardHref('docs')}>文档</a>
-      <a href={boardHref('wiki')}>Wiki</a>
-      <a href={boardHref('opensource')}>开源</a>
-      <a href={boardHref('ai')}>AI作品</a>
+      {communityNavItems.map((item) => <a href={navHref(item.contentType)}>{item.label}</a>)}
     </nav>
 
     <form class="header-search" action="/search/" method="get" role="search" data-header-search>
       <select name="community_slug" aria-label="搜索范围">
-        <option value="" selected={scopedSite === 'portal'}>全站</option>
-        {scopedSite !== 'portal' && <option value={scopedSite} selected>当前子站</option>}
-        {sites.filter((site) => site.key !== 'portal' && site.key !== scopedSite).map((site) => (
+        <option value="" selected={scopedSite === defaultSiteKey}>全站</option>
+        {scopedSite !== defaultSiteKey && <option value={scopedSite} selected>当前子站</option>}
+        {sites.filter((site) => site.key !== defaultSiteKey && site.key !== scopedSite).map((site) => (
           <option value={site.key}>{site.name}</option>
         ))}
       </select>
-      <input type="hidden" name="scope" value={scopedSite === 'portal' ? 'all' : 'community'} data-header-search-scope />
-      <input type="search" name="keyword" placeholder={scopedSite === 'portal' ? '搜索全站内容' : `搜索 ${active?.name || scopedSite} 内容`} />
+      <input type="hidden" name="scope" value={scopedSite === defaultSiteKey ? 'all' : 'community'} data-header-search-scope />
+      <input type="search" name="keyword" placeholder={scopedSite === defaultSiteKey ? '搜索全站内容' : `搜索 ${active?.name || scopedSite} 内容`} />
       <button type="submit" aria-label="搜索">⌕</button>
     </form>
 
     <div class="header-actions">
-      <a class="publish-link" href={scopedSite === 'portal' ? '/topics/new/' : `/c/${scopedSite}/topics/new/`}>发布内容</a>
+      <a class="publish-link" href={scopedSite === defaultSiteKey ? '/topics/new/' : `/c/${scopedSite}/topics/new/`}>发布内容</a>
       <a class="notice-link" href="/notifications" aria-label="通知" data-notice-count>0</a>
       <div class="auth-links" data-guest-only>
         <a href="/#login">登录</a>

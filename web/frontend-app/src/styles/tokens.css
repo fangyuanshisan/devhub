@@ -1,0 +1,71 @@
+:root {
+  color-scheme: light;
+  --theme-name: default-blue;
+
+  --font-family-base: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", "Microsoft YaHei", sans-serif;
+
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-5: 20px;
+  --space-6: 24px;
+  --space-8: 32px;
+
+  --radius-sm: 4px;
+  --radius-md: 6px;
+  --radius-lg: 12px;
+  --radius-pill: 999px;
+
+  --shadow-sm: 0 1px 4px rgba(20, 28, 40, 0.06);
+  --shadow-md: 0 12px 28px rgba(20, 28, 40, 0.14);
+
+  --layout-content-width: 1180px;
+
+  --color-bg-page: #f4f6f8;
+  --color-bg-panel: #ffffff;
+  --color-bg-soft: #fafafa;
+  --color-text-primary: #18202f;
+  --color-text-secondary: #687385;
+  --color-border-default: #e3e8ef;
+  --color-brand-primary: #2563eb;
+  --color-brand-soft: #eaf1ff;
+  --color-brand-hover: #1d4ed8;
+  --color-header-bg: rgba(255, 255, 255, 0.96);
+  --color-header-border: #d9dde4;
+  --color-danger: #ef4444;
+
+  --bg: var(--color-bg-page);
+  --panel: var(--color-bg-panel);
+  --text: var(--color-text-primary);
+  --muted: var(--color-text-secondary);
+  --line: var(--color-border-default);
+  --primary: var(--color-brand-primary);
+  --primary-soft: var(--color-brand-soft);
+  --primary-hover: var(--color-brand-hover);
+  --header-bg: var(--color-header-bg);
+  --header-line: var(--color-header-border);
+  --input-bg: var(--color-bg-soft);
+  --shadow: rgba(20, 28, 40, 0.14);
+  --danger: var(--color-danger);
+}
+
+:root[data-theme="dark"] {
+  color-scheme: dark;
+  --color-bg-page: #0f172a;
+  --color-bg-panel: #162033;
+  --color-bg-soft: #111b2d;
+  --color-text-primary: #e5edf8;
+  --color-text-secondary: #9aa8bd;
+  --color-border-default: #28364d;
+  --color-brand-primary: #60a5fa;
+  --color-brand-soft: #142642;
+  --color-brand-hover: #93c5fd;
+  --color-header-bg: rgba(15, 23, 42, 0.96);
+  --color-header-border: #253249;
+  --color-danger: #f87171;
+
+  --shadow-sm: 0 1px 4px rgba(0, 0, 0, 0.24);
+  --shadow-md: 0 12px 28px rgba(0, 0, 0, 0.34);
+  --shadow: rgba(0, 0, 0, 0.34);
+}

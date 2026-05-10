@@ -182,10 +182,27 @@ func (s *MySQLStore) migrateSiteScopedAudit() error {
 	_, _ = s.db.Exec(`ALTER TABLE tags MODIFY status VARCHAR(32) NOT NULL DEFAULT 'enable'`)
 	_, _ = s.db.Exec(`UPDATE tags SET status='enable' WHERE status IN ('1','enabled','')`)
 	_, _ = s.db.Exec(`UPDATE tags SET status='disable' WHERE status IN ('0','disabled')`)
+	_, _ = s.db.Exec(`UPDATE tags SET status='merged' WHERE status IN ('2','merged')`)
+	_, _ = s.db.Exec(`ALTER TABLE tags ADD COLUMN merged_to_id BIGINT UNSIGNED NULL AFTER status`)
 	_, _ = s.db.Exec(`ALTER TABLE tags ADD COLUMN follower_count INT UNSIGNED NOT NULL DEFAULT 0 AFTER use_count`)
+	_, _ = s.db.Exec(`ALTER TABLE tags ADD COLUMN hot_score INT UNSIGNED NOT NULL DEFAULT 0 AFTER follower_count`)
 	_, _ = s.db.Exec(`ALTER TABLE tags ADD COLUMN seo_title VARCHAR(255) NOT NULL DEFAULT '' AFTER follower_count`)
 	_, _ = s.db.Exec(`ALTER TABLE tags ADD COLUMN seo_description VARCHAR(500) NOT NULL DEFAULT '' AFTER seo_title`)
 	_, _ = s.db.Exec(`ALTER TABLE tags ADD COLUMN seo_keywords VARCHAR(500) NOT NULL DEFAULT '' AFTER seo_description`)
+	_, _ = s.db.Exec(`ALTER TABLE tags ADD KEY idx_tags_merged_to (merged_to_id)`)
+	_, _ = s.db.Exec(`CREATE TABLE IF NOT EXISTS tag_aliases (
+		id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+		tag_id BIGINT UNSIGNED NOT NULL,
+		site_key VARCHAR(64) NOT NULL DEFAULT 'portal',
+		alias VARCHAR(128) NOT NULL,
+		alias_slug VARCHAR(128) NOT NULL,
+		created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+		updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+		PRIMARY KEY (id),
+		UNIQUE KEY uk_tag_aliases_site_alias_slug (site_key, alias_slug),
+		KEY idx_tag_aliases_tag_id (tag_id),
+		CONSTRAINT fk_tag_aliases_tag FOREIGN KEY (tag_id) REFERENCES tags(id) ON DELETE CASCADE
+	) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci`)
 	return nil
 }
 
@@ -1251,22 +1268,26 @@ func (s *MySQLStore) AdminTags(site, q, status string) []domain.Tag {
 	site = strings.TrimSpace(site)
 	q = strings.ToLower(strings.TrimSpace(q))
 	status = strings.TrimSpace(status)
-	rows, err := s.db.Query(`SELECT id,site_key,name,slug,COALESCE(description,''),status,sort_order,use_count,COALESCE(follower_count,0),COALESCE(seo_title,''),COALESCE(seo_description,''),COALESCE(seo_keywords,''),DATE_FORMAT(created_at,'%Y-%m-%d %H:%i:%s'),DATE_FORMAT(updated_at,'%Y-%m-%d %H:%i:%s') FROM tags ORDER BY site_key,sort_order,use_count DESC,id`)
+	rows, err := s.db.Query(sqlTagSelect + ` ORDER BY site_key,sort_order,use_count DESC,id`)
 	if err != nil {
 		return []domain.Tag{}
 	}
 	defer rows.Close()
 	out := []domain.Tag{}
 	for rows.Next() {
-		var tag domain.Tag
-		if err := rows.Scan(&tag.ID, &tag.Site, &tag.Name, &tag.Slug, &tag.Description, &tag.Status, &tag.Sort, &tag.UseCount, &tag.FollowerCount, &tag.SEOTitle, &tag.SEODescription, &tag.SEOKeywords, &tag.CreatedAt, &tag.UpdatedAt); err != nil {
+		tag, err := scanSQLTag(rows)
+		if err != nil {
 			continue
 		}
 		tag = s.enrichSQLTag(tag)
 		if site != "" && site != "portal" && tag.Site != site {
 			continue
 		}
-		if status != "" && status != "all" && tag.Status != status {
+		if status == "" || status == "all" {
+			if tag.Status == "merged" {
+				continue
+			}
+		} else if tag.Status != status {
 			continue
 		}
 		if q != "" && !strings.Contains(strings.ToLower(tag.Name+" "+tag.Slug+" "+tag.Description), q) {
@@ -1275,6 +1296,11 @@ func (s *MySQLStore) AdminTags(site, q, status string) []domain.Tag {
 		out = append(out, tag)
 	}
 	return out
+}
+
+func (s *MySQLStore) AdminTagByID(id int64) (domain.Tag, bool) {
+	tag, err := s.tagByID(id)
+	return tag, err == nil
 }
 
 func (s *MySQLStore) CreateTag(req domain.Tag) (domain.Tag, error) {
@@ -1288,8 +1314,11 @@ func (s *MySQLStore) CreateTag(req domain.Tag) (domain.Tag, error) {
 	if tag.Site != "portal" && !s.ValidateSite(tag.Site) {
 		return domain.Tag{}, errors.New("无效子网站")
 	}
-	res, err := s.db.Exec(`INSERT INTO tags (site_key,name,slug,description,status,sort_order,use_count,follower_count,seo_title,seo_description,seo_keywords) VALUES (?,?,?,?,?,?,0,0,?,?,?)`,
-		tag.Site, tag.Name, tag.Slug, tag.Description, tag.Status, tag.Sort, tag.SEOTitle, tag.SEODescription, tag.SEOKeywords)
+	if _, ok := s.ResolveTag(tag.Site, tag.Slug); ok {
+		return domain.Tag{}, errors.New("标签 slug 已存在或与别名冲突")
+	}
+	res, err := s.db.Exec(`INSERT INTO tags (site_key,name,slug,description,status,merged_to_id,sort_order,use_count,follower_count,hot_score,seo_title,seo_description,seo_keywords) VALUES (?,?,?,?,?,?,?,0,0,0,?,?,?)`,
+		tag.Site, tag.Name, tag.Slug, tag.Description, tag.Status, nil, tag.Sort, tag.SEOTitle, tag.SEODescription, tag.SEOKeywords)
 	if err != nil {
 		return domain.Tag{}, err
 	}
@@ -1306,8 +1335,25 @@ func (s *MySQLStore) UpdateTag(id int64, req domain.Tag) (domain.Tag, bool) {
 	if tag.Site == "" {
 		tag.Site = "portal"
 	}
-	res, err := s.db.Exec(`UPDATE tags SET site_key=?,name=?,slug=?,description=?,status=?,sort_order=?,seo_title=?,seo_description=?,seo_keywords=? WHERE id=?`,
-		tag.Site, tag.Name, tag.Slug, tag.Description, tag.Status, tag.Sort, tag.SEOTitle, tag.SEODescription, tag.SEOKeywords, id)
+	current, err := s.tagByID(id)
+	if err != nil {
+		return domain.Tag{}, false
+	}
+	if current.MergedToID > 0 {
+		tag.MergedToID = current.MergedToID
+	}
+	var conflictID int64
+	_ = s.db.QueryRow(`SELECT id FROM tags WHERE site_key=? AND slug=? AND id<>? LIMIT 1`, tag.Site, tag.Slug, id).Scan(&conflictID)
+	if conflictID > 0 {
+		return domain.Tag{}, false
+	}
+	var aliasConflictID int64
+	_ = s.db.QueryRow(`SELECT id FROM tag_aliases WHERE site_key=? AND alias_slug=? AND tag_id<>? LIMIT 1`, tag.Site, tag.Slug, id).Scan(&aliasConflictID)
+	if aliasConflictID > 0 {
+		return domain.Tag{}, false
+	}
+	res, err := s.db.Exec(`UPDATE tags SET site_key=?,name=?,slug=?,description=?,status=?,merged_to_id=?,sort_order=?,seo_title=?,seo_description=?,seo_keywords=? WHERE id=?`,
+		tag.Site, tag.Name, tag.Slug, tag.Description, tag.Status, nullableMergedToID(tag.MergedToID), tag.Sort, tag.SEOTitle, tag.SEODescription, tag.SEOKeywords, id)
 	if err != nil {
 		return domain.Tag{}, false
 	}
@@ -1337,23 +1383,23 @@ func (s *MySQLStore) SetTagStatus(id int64, status string) (domain.Tag, bool) {
 	return tag, err == nil
 }
 
-func (s *MySQLStore) TagBySlug(site, slugOrName string) (domain.Tag, bool) {
+func (s *MySQLStore) ResolveTag(site, slugOrName string) (domain.TagResolveResult, bool) {
 	site = strings.TrimSpace(site)
 	slugOrName = strings.TrimSpace(slugOrName)
 	if slugOrName == "" {
-		return domain.Tag{}, false
+		return domain.TagResolveResult{}, false
 	}
 	if id, err := strconv.ParseInt(slugOrName, 10, 64); err == nil && id > 0 {
 		tag, err := s.tagByID(id)
 		if err == nil && tag.Status == "enable" && (site == "" || site == "portal" || tag.Site == site) {
-			return tag, true
+			return domain.TagResolveResult{Tag: tag, Requested: slugOrName, ResolvedBy: "direct"}, true
 		}
 	}
 	slug := normalizeSlug(slugOrName)
 	if slug == "" {
 		slug = strings.ToLower(strings.Join(strings.Fields(slugOrName), "-"))
 	}
-	query := `SELECT id FROM tags WHERE status='enable' AND (slug=? OR name=?)`
+	query := `SELECT id FROM tags WHERE (slug=? OR name=?)`
 	args := []any{slug, slugOrName}
 	if site != "" && site != "portal" {
 		query += ` AND site_key=?`
@@ -1364,12 +1410,245 @@ func (s *MySQLStore) TagBySlug(site, slugOrName string) (domain.Tag, bool) {
 	} else {
 		query += ` ORDER BY use_count DESC,id LIMIT 1`
 	}
-	var id int64
-	if err := s.db.QueryRow(query, args...).Scan(&id); err != nil {
+	var directID int64
+	if err := s.db.QueryRow(query, args...).Scan(&directID); err == nil && directID > 0 {
+		tag, err := s.tagByID(directID)
+		if err == nil {
+			if tag.Status == "merged" && tag.MergedToID > 0 {
+				target, err := s.tagByID(tag.MergedToID)
+				if err == nil && target.Status == "enable" {
+					return domain.TagResolveResult{Tag: target, Requested: slugOrName, ResolvedBy: "merged"}, true
+				}
+				return domain.TagResolveResult{}, false
+			}
+			if tag.Status == "enable" {
+				return domain.TagResolveResult{Tag: tag, Requested: slugOrName, ResolvedBy: "direct"}, true
+			}
+			return domain.TagResolveResult{}, false
+		}
+	}
+	aliasQuery := `SELECT id,tag_id,site_key,alias,alias_slug,DATE_FORMAT(created_at,'%Y-%m-%d %H:%i:%s'),DATE_FORMAT(updated_at,'%Y-%m-%d %H:%i:%s') FROM tag_aliases WHERE (alias_slug=? OR alias=?)`
+	aliasArgs := []any{slug, slugOrName}
+	if site != "" && site != "portal" {
+		aliasQuery += ` AND site_key=?`
+		aliasArgs = append(aliasArgs, site)
+	}
+	if site == "" || site == "portal" {
+		aliasQuery += ` ORDER BY CASE WHEN site_key='portal' THEN 0 ELSE 1 END,id LIMIT 1`
+	} else {
+		aliasQuery += ` ORDER BY id LIMIT 1`
+	}
+	var alias domain.TagAlias
+	err := s.db.QueryRow(aliasQuery, aliasArgs...).Scan(&alias.ID, &alias.TagID, &alias.Site, &alias.Alias, &alias.AliasSlug, &alias.CreatedAt, &alias.UpdatedAt)
+	if err != nil {
+		return domain.TagResolveResult{}, false
+	}
+	tag, err := s.tagByID(alias.TagID)
+	if err != nil {
+		return domain.TagResolveResult{}, false
+	}
+	if tag.Status == "merged" && tag.MergedToID > 0 {
+		target, err := s.tagByID(tag.MergedToID)
+		if err == nil && target.Status == "enable" {
+			return domain.TagResolveResult{Tag: target, MatchedAlias: alias.Alias, Requested: slugOrName, ResolvedBy: "alias"}, true
+		}
+		return domain.TagResolveResult{}, false
+	}
+	if tag.Status != "enable" {
+		return domain.TagResolveResult{}, false
+	}
+	return domain.TagResolveResult{Tag: tag, MatchedAlias: alias.Alias, Requested: slugOrName, ResolvedBy: "alias"}, true
+}
+
+func (s *MySQLStore) TagBySlug(site, slugOrName string) (domain.Tag, bool) {
+	result, ok := s.ResolveTag(site, slugOrName)
+	if !ok {
 		return domain.Tag{}, false
 	}
-	tag, err := s.tagByID(id)
-	return tag, err == nil
+	return result.Tag, true
+}
+
+func (s *MySQLStore) TagAliases(tagID int64) ([]domain.TagAlias, error) {
+	tag, err := s.tagByID(tagID)
+	if err != nil {
+		return nil, errors.New("标签不存在")
+	}
+	rows, err := s.db.Query(`SELECT id,tag_id,site_key,alias,alias_slug,DATE_FORMAT(created_at,'%Y-%m-%d %H:%i:%s'),DATE_FORMAT(updated_at,'%Y-%m-%d %H:%i:%s') FROM tag_aliases WHERE tag_id=? ORDER BY alias_slug,id`, tagID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := make([]domain.TagAlias, 0)
+	for rows.Next() {
+		var item domain.TagAlias
+		if err := rows.Scan(&item.ID, &item.TagID, &item.Site, &item.Alias, &item.AliasSlug, &item.CreatedAt, &item.UpdatedAt); err != nil {
+			continue
+		}
+		item.CommunitySlug = item.Site
+		item.CommunityID = tag.CommunityID
+		out = append(out, item)
+	}
+	return out, nil
+}
+
+func (s *MySQLStore) AddTagAlias(tagID int64, alias string) (domain.TagAlias, error) {
+	tag, err := s.tagByID(tagID)
+	if err != nil {
+		return domain.TagAlias{}, errors.New("标签不存在")
+	}
+	if tag.Status != "enable" {
+		return domain.TagAlias{}, errors.New("仅启用标签可添加别名")
+	}
+	alias = strings.TrimSpace(alias)
+	if alias == "" {
+		return domain.TagAlias{}, errors.New("别名不能为空")
+	}
+	if len([]rune(alias)) > 50 {
+		return domain.TagAlias{}, errors.New("别名长度不能超过 50 个字符")
+	}
+	aliasSlug := normalizeSlug(alias)
+	if aliasSlug == "" {
+		aliasSlug = strings.ToLower(strings.Join(strings.Fields(alias), "-"))
+	}
+	if aliasSlug == "" {
+		return domain.TagAlias{}, errors.New("别名 slug 不能为空")
+	}
+	var conflictID int64
+	_ = s.db.QueryRow(`SELECT id FROM tags WHERE site_key=? AND slug=? LIMIT 1`, tag.Site, aliasSlug).Scan(&conflictID)
+	if conflictID > 0 {
+		return domain.TagAlias{}, errors.New("别名 slug 与现有标签冲突")
+	}
+	_ = s.db.QueryRow(`SELECT id FROM tag_aliases WHERE site_key=? AND alias_slug=? LIMIT 1`, tag.Site, aliasSlug).Scan(&conflictID)
+	if conflictID > 0 {
+		return domain.TagAlias{}, errors.New("别名 slug 已存在")
+	}
+	res, err := s.db.Exec(`INSERT INTO tag_aliases (tag_id,site_key,alias,alias_slug,created_at,updated_at) VALUES (?,?,?,?,NOW(),NOW())`, tagID, tag.Site, alias, aliasSlug)
+	if err != nil {
+		return domain.TagAlias{}, err
+	}
+	id, _ := res.LastInsertId()
+	items, err := s.TagAliases(tagID)
+	if err != nil {
+		return domain.TagAlias{}, err
+	}
+	for _, item := range items {
+		if item.ID == id {
+			return item, nil
+		}
+	}
+	return domain.TagAlias{}, errors.New("标签别名创建失败")
+}
+
+func (s *MySQLStore) DeleteTagAlias(tagID, aliasID int64) error {
+	res, err := s.db.Exec(`DELETE FROM tag_aliases WHERE id=? AND tag_id=?`, aliasID, tagID)
+	if err != nil {
+		return err
+	}
+	if n, _ := res.RowsAffected(); n == 0 {
+		return errors.New("标签别名不存在")
+	}
+	return nil
+}
+
+func (s *MySQLStore) RecalculateTag(tagID int64) (domain.Tag, error) {
+	tag, err := s.tagByID(tagID)
+	if err != nil {
+		return domain.Tag{}, errors.New("标签不存在")
+	}
+	var topicCount int
+	_ = s.db.QueryRow(`SELECT COUNT(*) FROM topic_tags tt JOIN topics tp ON tp.id=tt.topic_id AND tp.deleted_at IS NULL AND tp.status=1 WHERE tt.tag_id=?`, tagID).Scan(&topicCount)
+	var followerCount int
+	_ = s.db.QueryRow(`SELECT COUNT(*) FROM follows WHERE target_type='tag' AND target_id=?`, tagID).Scan(&followerCount)
+	hotScore := topicCount*10 + followerCount*20
+	if tag.Status == "merged" {
+		topicCount = 0
+		followerCount = 0
+		hotScore = 0
+	}
+	if _, err := s.db.Exec(`UPDATE tags SET use_count=?,follower_count=?,hot_score=?,updated_at=NOW() WHERE id=?`, topicCount, followerCount, hotScore, tagID); err != nil {
+		return domain.Tag{}, err
+	}
+	return s.tagByID(tagID)
+}
+
+func (s *MySQLStore) RecalculateAllTags() (int, error) {
+	rows, err := s.db.Query(`SELECT id FROM tags`)
+	if err != nil {
+		return 0, err
+	}
+	defer rows.Close()
+	ids := make([]int64, 0)
+	for rows.Next() {
+		var id int64
+		if rows.Scan(&id) == nil {
+			ids = append(ids, id)
+		}
+	}
+	for _, id := range ids {
+		if _, err := s.RecalculateTag(id); err != nil {
+			return 0, err
+		}
+	}
+	return len(ids), nil
+}
+
+func (s *MySQLStore) MergeTag(sourceTagID, targetTagID int64) (domain.Tag, error) {
+	if sourceTagID <= 0 || targetTagID <= 0 || sourceTagID == targetTagID {
+		return domain.Tag{}, errors.New("源标签和目标标签不能相同")
+	}
+	source, err := s.tagByID(sourceTagID)
+	if err != nil {
+		return domain.Tag{}, errors.New("源标签不存在")
+	}
+	target, err := s.tagByID(targetTagID)
+	if err != nil {
+		return domain.Tag{}, errors.New("目标标签不存在")
+	}
+	if source.Status == "merged" {
+		return domain.Tag{}, errors.New("源标签已合并")
+	}
+	if target.Status != "enable" {
+		return domain.Tag{}, errors.New("目标标签必须为启用状态")
+	}
+	if source.Site != target.Site {
+		return domain.Tag{}, errors.New("仅支持同一子站范围合并")
+	}
+	tx, err := s.db.Begin()
+	if err != nil {
+		return domain.Tag{}, err
+	}
+	defer tx.Rollback()
+	if _, err := tx.Exec(`INSERT IGNORE INTO topic_tags (topic_id,tag_id) SELECT topic_id,? FROM topic_tags WHERE tag_id=?`, targetTagID, sourceTagID); err != nil {
+		return domain.Tag{}, err
+	}
+	if _, err := tx.Exec(`DELETE FROM topic_tags WHERE tag_id=?`, sourceTagID); err != nil {
+		return domain.Tag{}, err
+	}
+	if _, err := tx.Exec(`INSERT IGNORE INTO follows (user_id,target_type,target_id,created_at,updated_at) SELECT user_id,'tag',?,created_at,NOW() FROM follows WHERE target_type='tag' AND target_id=?`, targetTagID, sourceTagID); err != nil {
+		return domain.Tag{}, err
+	}
+	if _, err := tx.Exec(`DELETE FROM follows WHERE target_type='tag' AND target_id=?`, sourceTagID); err != nil {
+		return domain.Tag{}, err
+	}
+	if _, err := tx.Exec(`INSERT IGNORE INTO tag_aliases (tag_id,site_key,alias,alias_slug,created_at,updated_at) SELECT ?,site_key,alias,alias_slug,created_at,NOW() FROM tag_aliases WHERE tag_id=?`, targetTagID, sourceTagID); err != nil {
+		return domain.Tag{}, err
+	}
+	if _, err := tx.Exec(`DELETE FROM tag_aliases WHERE tag_id=?`, sourceTagID); err != nil {
+		return domain.Tag{}, err
+	}
+	if _, err := tx.Exec(`UPDATE tags SET status='merged',merged_to_id=?,use_count=0,follower_count=0,hot_score=0,updated_at=NOW() WHERE id=?`, targetTagID, sourceTagID); err != nil {
+		return domain.Tag{}, err
+	}
+	if _, err := tx.Exec(`UPDATE tags SET updated_at=NOW() WHERE id=?`, targetTagID); err != nil {
+		return domain.Tag{}, err
+	}
+	if err := tx.Commit(); err != nil {
+		return domain.Tag{}, err
+	}
+	if _, err := s.RecalculateTag(sourceTagID); err != nil {
+		return domain.Tag{}, err
+	}
+	return s.RecalculateTag(targetTagID)
 }
 
 func (s *MySQLStore) TagSuggestions(site, q string, limit int) []domain.TagStat {
@@ -1379,9 +1658,14 @@ func (s *MySQLStore) TagSuggestions(site, q string, limit int) []domain.TagStat 
 	if limit > 50 {
 		limit = 50
 	}
-	tags := s.AdminTags(site, q, "enable")
+	q = strings.TrimSpace(q)
+	tags := s.AdminTags(site, "", "enable")
 	out := make([]domain.TagStat, 0, len(tags))
+	seen := map[int64]bool{}
 	for _, tag := range tags {
+		if q != "" && !strings.Contains(strings.ToLower(tag.Name+" "+tag.Slug+" "+tag.Description), strings.ToLower(q)) {
+			continue
+		}
 		out = append(out, domain.TagStat{
 			ID:             tag.ID,
 			Name:           tag.Name,
@@ -1393,13 +1677,61 @@ func (s *MySQLStore) TagSuggestions(site, q string, limit int) []domain.TagStat 
 			TopicCount:     tag.TopicCount,
 			Count:          firstNonZero(tag.TopicCount, tag.UseCount),
 			FollowerCount:  tag.FollowerCount,
+			HotScore:       tag.HotScore,
 			Status:         tag.Status,
 			SEOTitle:       tag.SEOTitle,
 			SEODescription: tag.SEODescription,
 			SEOKeywords:    tag.SEOKeywords,
 		})
+		seen[tag.ID] = true
 		if len(out) >= limit {
 			break
+		}
+	}
+	if q != "" && len(out) < limit {
+		query := `SELECT id,tag_id,site_key,alias,alias_slug,DATE_FORMAT(created_at,'%Y-%m-%d %H:%i:%s'),DATE_FORMAT(updated_at,'%Y-%m-%d %H:%i:%s') FROM tag_aliases WHERE (alias LIKE ? OR alias_slug LIKE ?)`
+		args := []any{"%" + q + "%", "%" + normalizeSlug(q) + "%"}
+		if site != "" && site != "portal" {
+			query += ` AND site_key=?`
+			args = append(args, site)
+		}
+		query += ` ORDER BY alias_slug LIMIT ?`
+		args = append(args, limit)
+		rows, err := s.db.Query(query, args...)
+		if err == nil {
+			defer rows.Close()
+			for rows.Next() {
+				var alias domain.TagAlias
+				if err := rows.Scan(&alias.ID, &alias.TagID, &alias.Site, &alias.Alias, &alias.AliasSlug, &alias.CreatedAt, &alias.UpdatedAt); err != nil {
+					continue
+				}
+				tag, ok := s.AdminTagByID(alias.TagID)
+				if !ok || tag.Status != "enable" || seen[tag.ID] {
+					continue
+				}
+				out = append(out, domain.TagStat{
+					ID:             tag.ID,
+					Name:           tag.Name,
+					Slug:           tag.Slug,
+					Site:           tag.Site,
+					CommunityID:    tag.CommunityID,
+					CommunitySlug:  tag.CommunitySlug,
+					Description:    tag.Description,
+					TopicCount:     tag.TopicCount,
+					Count:          firstNonZero(tag.TopicCount, tag.UseCount),
+					FollowerCount:  tag.FollowerCount,
+					HotScore:       tag.HotScore,
+					Status:         tag.Status,
+					MatchedAlias:   alias.Alias,
+					SEOTitle:       tag.SEOTitle,
+					SEODescription: tag.SEODescription,
+					SEOKeywords:    tag.SEOKeywords,
+				})
+				seen[tag.ID] = true
+				if len(out) >= limit {
+					break
+				}
+			}
 		}
 	}
 	return out
@@ -2036,10 +2368,16 @@ func (s *MySQLStore) postByID(id int64) (*domain.Post, error) {
 	return scanPost(row)
 }
 
-func (s *MySQLStore) tagByID(id int64) (domain.Tag, error) {
+const sqlTagSelect = `SELECT id,site_key,name,slug,COALESCE(description,''),status,COALESCE(merged_to_id,0),sort_order,use_count,COALESCE(follower_count,0),COALESCE(hot_score,0),COALESCE(seo_title,''),COALESCE(seo_description,''),COALESCE(seo_keywords,''),DATE_FORMAT(created_at,'%Y-%m-%d %H:%i:%s'),DATE_FORMAT(updated_at,'%Y-%m-%d %H:%i:%s') FROM tags`
+
+func scanSQLTag(scanner scanner) (domain.Tag, error) {
 	var tag domain.Tag
-	err := s.db.QueryRow(`SELECT id,site_key,name,slug,COALESCE(description,''),status,sort_order,use_count,COALESCE(follower_count,0),COALESCE(seo_title,''),COALESCE(seo_description,''),COALESCE(seo_keywords,''),DATE_FORMAT(created_at,'%Y-%m-%d %H:%i:%s'),DATE_FORMAT(updated_at,'%Y-%m-%d %H:%i:%s') FROM tags WHERE id=?`, id).
-		Scan(&tag.ID, &tag.Site, &tag.Name, &tag.Slug, &tag.Description, &tag.Status, &tag.Sort, &tag.UseCount, &tag.FollowerCount, &tag.SEOTitle, &tag.SEODescription, &tag.SEOKeywords, &tag.CreatedAt, &tag.UpdatedAt)
+	err := scanner.Scan(&tag.ID, &tag.Site, &tag.Name, &tag.Slug, &tag.Description, &tag.Status, &tag.MergedToID, &tag.Sort, &tag.UseCount, &tag.FollowerCount, &tag.HotScore, &tag.SEOTitle, &tag.SEODescription, &tag.SEOKeywords, &tag.CreatedAt, &tag.UpdatedAt)
+	return tag, err
+}
+
+func (s *MySQLStore) tagByID(id int64) (domain.Tag, error) {
+	tag, err := scanSQLTag(s.db.QueryRow(sqlTagSelect+` WHERE id=?`, id))
 	if err != nil {
 		return tag, err
 	}
@@ -3773,7 +4111,14 @@ func (s *MySQLStore) enrichSQLTag(tag domain.Tag) domain.Tag {
 	_ = s.db.QueryRow(`SELECT COUNT(*) FROM topic_tags tt JOIN topics tp ON tp.id=tt.topic_id AND tp.deleted_at IS NULL AND tp.status=1 WHERE tt.tag_id=?`, tag.ID).Scan(&tag.TopicCount)
 	tag.UseCount = firstNonZero(tag.TopicCount, tag.UseCount)
 	_ = s.db.QueryRow(`SELECT COUNT(*) FROM follows WHERE target_type='tag' AND target_id=?`, tag.ID).Scan(&tag.FollowerCount)
-	_, _ = s.db.Exec(`UPDATE tags SET follower_count=?,use_count=? WHERE id=?`, tag.FollowerCount, tag.UseCount, tag.ID)
+	tag.HotScore = tag.TopicCount*10 + tag.FollowerCount*20
+	if tag.MergedToID > 0 {
+		if target, err := s.tagByID(tag.MergedToID); err == nil {
+			tag.MergedToName = target.Name
+			tag.MergedToSlug = target.Slug
+		}
+	}
+	_, _ = s.db.Exec(`UPDATE tags SET follower_count=?,use_count=?,hot_score=? WHERE id=?`, tag.FollowerCount, tag.UseCount, tag.HotScore, tag.ID)
 	return tag
 }
 
@@ -3787,17 +4132,20 @@ func (s *MySQLStore) getOrCreateTag(communityID int64, name string) (domain.Tag,
 	if comm, ok := s.communityByID(communityID); ok && comm.Slug != "" {
 		siteKey = comm.Slug
 	}
+	if resolved, ok := s.ResolveTag(siteKey, name); ok {
+		return resolved.Tag, nil
+	}
 
 	// 查找已有标签
 	var tag domain.Tag
-	err := s.db.QueryRow(`SELECT id,site_key,name,slug,description,status,sort_order,use_count,COALESCE(follower_count,0),COALESCE(seo_title,''),COALESCE(seo_description,''),COALESCE(seo_keywords,'') FROM tags WHERE site_key=? AND slug=?`, siteKey, slug).
-		Scan(&tag.ID, &tag.Site, &tag.Name, &tag.Slug, &tag.Description, &tag.Status, &tag.Sort, &tag.UseCount, &tag.FollowerCount, &tag.SEOTitle, &tag.SEODescription, &tag.SEOKeywords)
+	err := s.db.QueryRow(sqlTagSelect+` WHERE site_key=? AND slug=? AND status<>'merged'`, siteKey, slug).
+		Scan(&tag.ID, &tag.Site, &tag.Name, &tag.Slug, &tag.Description, &tag.Status, &tag.MergedToID, &tag.Sort, &tag.UseCount, &tag.FollowerCount, &tag.HotScore, &tag.SEOTitle, &tag.SEODescription, &tag.SEOKeywords, &tag.CreatedAt, &tag.UpdatedAt)
 	if err == nil {
 		return s.enrichSQLTag(tag), nil
 	}
 
 	// 创建新标签
-	_, err = s.db.Exec(`INSERT INTO tags (site_key,name,slug,status,use_count,seo_title,seo_description,seo_keywords) VALUES (?,?,?,?,1,?,?,?)`, siteKey, name, slug, "enable", name+" 相关内容", "DevHub "+name+" 标签聚合，汇总相关文章、问答、项目和文档。", name)
+	_, err = s.db.Exec(`INSERT INTO tags (site_key,name,slug,status,use_count,hot_score,seo_title,seo_description,seo_keywords) VALUES (?,?,?,?,1,0,?,?,?)`, siteKey, name, slug, "enable", name+" 相关内容", "DevHub "+name+" 标签聚合，汇总相关文章、问答、项目和文档。", name)
 	if err != nil {
 		return domain.Tag{}, err
 	}
@@ -4128,6 +4476,13 @@ func firstNonZero(values ...int) int {
 		}
 	}
 	return 0
+}
+
+func nullableMergedToID(id int64) any {
+	if id <= 0 {
+		return nil
+	}
+	return id
 }
 
 func normalizeMySQLCommunityRequest(req domain.CommunityRequest, current *domain.Community) (*domain.Community, error) {

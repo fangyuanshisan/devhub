@@ -1,36 +1,4 @@
-:root {
-  color-scheme: light;
-  --bg: #f4f6f8;
-  --panel: #ffffff;
-  --text: #18202f;
-  --muted: #687385;
-  --line: #e3e8ef;
-  --primary: #2563eb;
-  --primary-soft: #eaf1ff;
-  --primary-hover: #1d4ed8;
-  --header-bg: rgba(255, 255, 255, 0.96);
-  --header-line: #d9dde4;
-  --input-bg: #fafafa;
-  --shadow: rgba(20, 28, 40, 0.14);
-  --danger: #ef4444;
-}
-
-:root[data-theme="dark"] {
-  color-scheme: dark;
-  --bg: #0f172a;
-  --panel: #162033;
-  --text: #e5edf8;
-  --muted: #9aa8bd;
-  --line: #28364d;
-  --primary: #60a5fa;
-  --primary-soft: #142642;
-  --primary-hover: #93c5fd;
-  --header-bg: rgba(15, 23, 42, 0.96);
-  --header-line: #253249;
-  --input-bg: #111b2d;
-  --shadow: rgba(0, 0, 0, 0.34);
-  --danger: #f87171;
-}
+@import './tokens.css';
 
 * {
   box-sizing: border-box;
@@ -40,7 +8,7 @@ body {
   margin: 0;
   background: var(--bg);
   color: var(--text);
-  font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", "Microsoft YaHei", sans-serif;
+  font-family: var(--font-family-base);
 }
 
 a {
@@ -49,7 +17,7 @@ a {
 }
 
 main {
-  width: min(1180px, calc(100vw - 32px));
+  width: min(var(--layout-content-width), calc(100vw - 32px));
   margin: 0 auto;
 }
 
@@ -59,7 +27,7 @@ main {
   z-index: 20;
   border-bottom: 1px solid var(--header-line);
   background: var(--header-bg);
-  box-shadow: 0 1px 4px rgba(20, 28, 40, 0.06);
+  box-shadow: var(--shadow-sm);
   backdrop-filter: blur(10px);
 }
 
@@ -73,7 +41,7 @@ main {
   align-items: center;
   gap: 14px;
   height: 52px;
-  padding: 0 max(16px, calc((100vw - 1180px) / 2));
+  padding: 0 max(16px, calc((100vw - var(--layout-content-width)) / 2));
 }
 
 .brand,
@@ -109,7 +77,7 @@ main {
   width: 28px;
   height: 28px;
   place-items: center;
-  border-radius: 6px;
+  border-radius: var(--radius-md);
   color: #fff;
   background: var(--primary);
   font-size: 12px;
@@ -140,7 +108,7 @@ main {
 .site-nav a,
 .board-tabs a {
   padding: 8px 10px;
-  border-radius: 4px;
+  border-radius: var(--radius-sm);
   color: var(--text);
   font-size: 14px;
 }
@@ -159,9 +127,9 @@ main {
   top: calc(100% + 4px);
   min-width: 170px;
   border: 1px solid var(--line);
-  border-radius: 4px;
+  border-radius: var(--radius-sm);
   background: var(--panel);
-  box-shadow: 0 12px 28px var(--shadow);
+  box-shadow: var(--shadow-md);
   opacity: 0;
   pointer-events: none;
   transform: translateY(-4px);
@@ -221,7 +189,7 @@ main {
   width: 24px;
   height: 24px;
   place-items: center;
-  border-radius: 5px;
+  border-radius: var(--radius-sm);
   color: #fff;
   background: var(--site-color, var(--primary));
   font-size: 11px;

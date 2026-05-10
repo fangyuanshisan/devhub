@@ -2,7 +2,7 @@
 
 [返回文档大纲](README.md)
 
-更新时间：2026-05-09
+更新时间：2026-05-10
 
 本文档记录 DevHub 当前真实启动方式、端口约定和本地排障流程。项目名称保持 DevHub，正式本地入口保持：
 
@@ -174,6 +174,15 @@ web/frontend/moderator/audit-logs/index.html
 ## v1.2.0 标签系统升级说明
 
 v1.2.0 增强了 `tags` 表和标签相关页面 / API。新库可直接使用 `db/mysql/001_schema.sql` 初始化；旧库启动时由内置迁移辅助尽量补齐缺失字段。
+
+## v1.2.1 标签治理升级说明
+
+v1.2.1 在 v1.2.0 基础上继续增强标签治理能力：
+
+- `tags` 新增或确认 `merged_to_id`、`hot_score`，并增加 `status=merged` 语义。
+- 新增 `tag_aliases` 表，用于标签别名解析与治理。
+
+新库可直接使用 `db/mysql/001_schema.sql` 初始化；旧库升级时由内置迁移辅助尽量补齐缺失字段。建议升级前在预发环境验证 alias 冲突、merge 迁移与去重、统计重算与 sitemap 过滤。
 
 新增或确认的 `tags` 字段：
 

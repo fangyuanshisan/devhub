@@ -63,9 +63,9 @@
 
     <aside class="publish-help">
       <h2>发布说明</h2>
-      <p>请选择合适的子站和板块。问答、开源项目、AI 作品、招聘、Wiki 和文档都会统一进入 DevHub Topic 内容流。</p>
+      <p>请选择合适的子站和板块，让内容进入统一的社区内容流。</p>
       <h3>当前子站</h3>
-      <p>{{ currentCommunity?.description || '从总站发布时，需要先选择一个技术子站。' }}</p>
+      <p>{{ currentCommunity?.description || '从总站发布时，需要先选择一个社区子站。' }}</p>
       <h3>内容类型</h3>
       <p>{{ currentTypeDescription }}</p>
     </aside>
@@ -76,6 +76,7 @@
 import { computed, onMounted, reactive, ref } from 'vue';
 import { ofetch } from 'ofetch';
 import { authRequest, hasSession } from '../lib/session';
+import { contentTypeOptions } from '../lib/site-config';
 
 const props = defineProps<{ defaultCommunity?: string }>();
 
@@ -83,15 +84,7 @@ type Community = { id: number; name: string; slug: string; description: string }
 type Category = { id: number; name: string; slug: string; type?: string; content_type?: string; postable?: boolean; status?: number };
 type Tag = { id?: number; name: string; slug?: string; count: number; topic_count?: number; description?: string };
 
-const contentTypes = [
-  { value: 'article', label: '社区', desc: '适合分享经验、讨论方案和复盘实践。' },
-  { value: 'question', label: '问答中心', desc: '适合提出具体问题，后续可采纳答案。' },
-  { value: 'project', label: '开源项目', desc: '适合介绍项目、组件、工具和维护经验。' },
-  { value: 'ai_work', label: 'AI作品', desc: '适合发布 Agent、Prompt、RAG 和自动化工作流。' },
-  { value: 'job', label: '招聘内推', desc: '适合发布招聘、内推和团队岗位信息。' },
-  { value: 'wiki', label: 'Wiki', desc: '适合沉淀知识索引和可维护条目。' },
-  { value: 'doc', label: '文档', desc: '适合发布教程、手册和实践指南。' },
-];
+const contentTypes = [...contentTypeOptions];
 
 const communities = ref<Community[]>([]);
 const categories = ref<Category[]>([]);

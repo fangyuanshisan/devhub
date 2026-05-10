@@ -35,7 +35,9 @@ type TagStat struct {
 	TopicCount     int    `json:"topic_count,omitempty"`
 	Count          int    `json:"count"`
 	FollowerCount  int    `json:"follower_count,omitempty"`
+	HotScore       int    `json:"hot_score,omitempty"`
 	Status         string `json:"status,omitempty"`
+	MatchedAlias   string `json:"matched_alias,omitempty"`
 	SEOTitle       string `json:"seo_title,omitempty"`
 	SEODescription string `json:"seo_description,omitempty"`
 	SEOKeywords    string `json:"seo_keywords,omitempty"`
@@ -57,11 +59,38 @@ type Tag struct {
 	UseCount       int    `json:"use_count"`
 	TopicCount     int    `json:"topic_count,omitempty"`
 	FollowerCount  int    `json:"follower_count,omitempty"`
+	HotScore       int    `json:"hot_score,omitempty"`
+	MergedToID     int64  `json:"merged_to_id,omitempty"`
+	MergedToName   string `json:"merged_to_name,omitempty"`
+	MergedToSlug   string `json:"merged_to_slug,omitempty"`
 	SEOTitle       string `json:"seo_title,omitempty"`
 	SEODescription string `json:"seo_description,omitempty"`
 	SEOKeywords    string `json:"seo_keywords,omitempty"`
 	CreatedAt      string `json:"created_at,omitempty"`
 	UpdatedAt      string `json:"updated_at,omitempty"`
+}
+
+// TagAlias 表示标签别名。
+type TagAlias struct {
+	ID            int64  `json:"id"`
+	TagID         int64  `json:"tag_id"`
+	Site          string `json:"site"`
+	CommunityID   int64  `json:"community_id,omitempty"`
+	CommunitySlug string `json:"community_slug,omitempty"`
+	Alias         string `json:"alias"`
+	AliasSlug     string `json:"alias_slug"`
+	CreatedAt     string `json:"created_at,omitempty"`
+	UpdatedAt     string `json:"updated_at,omitempty"`
+}
+
+// TagResolveResult 表示标签 slug/别名/合并态解析结果。
+type TagResolveResult struct {
+	Tag          Tag    `json:"tag"`
+	MatchedAlias string `json:"matched_alias,omitempty"`
+	Requested    string `json:"requested,omitempty"`
+	CanonicalURL string `json:"canonical_url,omitempty"`
+	RedirectURL  string `json:"redirect_url,omitempty"`
+	ResolvedBy   string `json:"resolved_by,omitempty"`
 }
 
 // Post 表示社区帖子、文档、Wiki 等内容实体。
@@ -757,6 +786,17 @@ type CategoryRequest struct {
 // ReorderRequest 表示后台排序请求。
 type ReorderRequest struct {
 	IDs []int64 `json:"ids"`
+}
+
+// TagAliasRequest 是后台新增标签别名的请求体。
+type TagAliasRequest struct {
+	Alias string `json:"alias" binding:"required"`
+}
+
+// TagMergeRequest 是后台标签合并请求体。
+type TagMergeRequest struct {
+	TargetTagID int64  `json:"target_tag_id" binding:"required"`
+	Note        string `json:"note"`
 }
 
 // CommunityStats 表示子站统计信息。

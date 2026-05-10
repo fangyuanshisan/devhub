@@ -31,12 +31,14 @@ type MemoryStore struct {
 	nextCommunityID int64
 	nextCategoryID  int64
 	nextTagID       int64
+	nextTagAliasID  int64
 	nextUserID      int64
 	sites           map[string]domain.Site
 	boards          map[string]domain.Board
 	communities     map[int64]*domain.Community
 	categories      map[int64]*domain.Category
 	tags            map[int64]*domain.Tag
+	tagAliases      map[int64]*domain.TagAlias
 	boardOrder      []string
 	siteOrder       []string
 	posts           map[int64]*domain.Post
@@ -71,12 +73,14 @@ func NewMemoryStore() *MemoryStore {
 		nextCommunityID: 1,
 		nextCategoryID:  1,
 		nextTagID:       1,
+		nextTagAliasID:  1,
 		nextUserID:      1,
 		sites:           map[string]domain.Site{},
 		boards:          map[string]domain.Board{},
 		communities:     map[int64]*domain.Community{},
 		categories:      map[int64]*domain.Category{},
 		tags:            map[int64]*domain.Tag{},
+		tagAliases:      map[int64]*domain.TagAlias{},
 		boardOrder:      []string{"all", "community", "qa", "opensource", "ai", "jobs", "wiki", "docs"},
 		siteOrder:       []string{"php", "go", "java", "ai", "frontend"},
 		posts:           map[int64]*domain.Post{},
@@ -136,6 +140,7 @@ func (s *MemoryStore) Health() domain.HealthStatus {
 			"communities":   len(s.communities),
 			"categories":    len(s.categories),
 			"tags":          len(s.tags),
+			"tag_aliases":   len(s.tagAliases),
 		},
 	}
 }
@@ -1195,16 +1200,30 @@ func (s *MemoryStore) AdminTags(site, q, status string) []domain.Tag {
 		if site != "" && site != "portal" && cp.Site != site && cp.CommunitySlug != site {
 			continue
 		}
-		if q != "" && !strings.Contains(strings.ToLower(tag.Name+" "+tag.Slug), q) {
+		if q != "" && !strings.Contains(strings.ToLower(tag.Name+" "+tag.Slug+" "+tag.Description), q) {
 			continue
 		}
-		if status != "" && status != "all" && cp.Status != status {
+		if status == "" || status == "all" {
+			if cp.Status == "merged" {
+				continue
+			}
+		} else if cp.Status != status {
 			continue
 		}
 		out = append(out, cp)
 	}
 	sortTags(out)
 	return out
+}
+
+func (s *MemoryStore) AdminTagByID(id int64) (domain.Tag, bool) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	tag, ok := s.tags[id]
+	if !ok || tag == nil {
+		return domain.Tag{}, false
+	}
+	return s.enrichTagLocked(*tag), true
 }
 
 func (s *MemoryStore) CreateTag(req domain.Tag) (domain.Tag, error) {
@@ -1259,6 +1278,8 @@ func (s *MemoryStore) UpdateTag(id int64, req domain.Tag) (domain.Tag, bool) {
 	tag.UseCount = current.UseCount
 	tag.TopicCount = current.TopicCount
 	tag.FollowerCount = current.FollowerCount
+	tag.HotScore = current.HotScore
+	tag.MergedToID = current.MergedToID
 	*current = tag
 	s.appendLogLocked("operation", "admin", "更新标签", fmt.Sprintf("tags#%d", id), "127.0.0.1")
 	return s.enrichTagLocked(*current), true
@@ -1287,10 +1308,70 @@ func (s *MemoryStore) TagBySlug(site, slugOrName string) (domain.Tag, bool) {
 	return s.tagBySlugLocked(site, slugOrName, true)
 }
 
+func (s *MemoryStore) ResolveTag(site, slugOrName string) (domain.TagResolveResult, bool) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.resolveTagLocked(site, slugOrName, true)
+}
+
 func (s *MemoryStore) TagSuggestions(site, q string, limit int) []domain.TagStat {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
-	return s.tagStatsLocked(site, q, "enable", limit)
+	q = strings.TrimSpace(q)
+	items := s.tagStatsLocked(site, "", "enable", 0)
+	if q == "" {
+		if limit > 0 && len(items) > limit {
+			return items[:limit]
+		}
+		return items
+	}
+	matched := make([]domain.TagStat, 0, len(items))
+	seen := map[int64]bool{}
+	needle := strings.ToLower(q)
+	slugNeedle := normalizeSlug(q)
+	for _, item := range items {
+		if strings.Contains(strings.ToLower(item.Name+" "+item.Slug+" "+item.Description), needle) {
+			matched = append(matched, item)
+			seen[item.ID] = true
+		}
+	}
+	for _, alias := range s.tagAliases {
+		if alias == nil {
+			continue
+		}
+		if site != "" && site != "portal" && alias.Site != site {
+			continue
+		}
+		if !strings.Contains(strings.ToLower(alias.Alias+" "+alias.AliasSlug), needle) && (slugNeedle == "" || !strings.Contains(strings.ToLower(alias.AliasSlug), slugNeedle)) {
+			continue
+		}
+		tag, ok := s.tags[alias.TagID]
+		if !ok || tag == nil || tag.Status != "enable" {
+			continue
+		}
+		stat := memoryTagToStat(s.enrichTagLocked(*tag))
+		stat.MatchedAlias = alias.Alias
+		if !seen[stat.ID] {
+			matched = append(matched, stat)
+			seen[stat.ID] = true
+		}
+	}
+	sort.SliceStable(matched, func(i, j int) bool {
+		if matched[i].MatchedAlias == "" && matched[j].MatchedAlias != "" {
+			return false
+		}
+		if matched[i].MatchedAlias != "" && matched[j].MatchedAlias == "" {
+			return true
+		}
+		if matched[i].Count == matched[j].Count {
+			return matched[i].Name < matched[j].Name
+		}
+		return matched[i].Count > matched[j].Count
+	})
+	if limit > 0 && len(matched) > limit {
+		matched = matched[:limit]
+	}
+	return matched
 }
 
 func (s *MemoryStore) TagTopics(tagID int64, communityID int64, contentType string, sortBy string, page, pageSize int) ([]domain.Topic, int) {
@@ -1345,6 +1426,235 @@ func (s *MemoryStore) AdminTagTopics(id int64, page, pageSize int) ([]domain.Top
 	tagID := tag.ID
 	s.mu.RUnlock()
 	return s.TagTopics(tagID, communityID, "", "latest", page, pageSize)
+}
+
+func (s *MemoryStore) TagAliases(tagID int64) ([]domain.TagAlias, error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	if _, ok := s.tags[tagID]; !ok {
+		return nil, errors.New("标签不存在")
+	}
+	return s.tagAliasListLocked(tagID), nil
+}
+
+func (s *MemoryStore) AddTagAlias(tagID int64, alias string) (domain.TagAlias, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	tag, ok := s.tags[tagID]
+	if !ok || tag == nil {
+		return domain.TagAlias{}, errors.New("标签不存在")
+	}
+	if tag.Status != "enable" {
+		return domain.TagAlias{}, errors.New("仅启用标签可添加别名")
+	}
+	alias = strings.TrimSpace(alias)
+	if alias == "" {
+		return domain.TagAlias{}, errors.New("别名不能为空")
+	}
+	if len([]rune(alias)) > 50 {
+		return domain.TagAlias{}, errors.New("别名长度不能超过 50 个字符")
+	}
+	aliasSlug := normalizeSlug(alias)
+	if aliasSlug == "" {
+		aliasSlug = strings.ToLower(strings.Join(strings.Fields(alias), "-"))
+	}
+	if aliasSlug == "" {
+		return domain.TagAlias{}, errors.New("别名 slug 不能为空")
+	}
+	if _, ok := s.findTagBySiteSlugLocked(tag.Site, aliasSlug); ok {
+		return domain.TagAlias{}, errors.New("别名 slug 与现有标签冲突")
+	}
+	if _, ok := s.findTagAliasBySiteSlugLocked(tag.Site, aliasSlug); ok {
+		return domain.TagAlias{}, errors.New("别名 slug 已存在")
+	}
+	for _, item := range s.tagAliases {
+		if item == nil || item.TagID != tagID {
+			continue
+		}
+		if strings.EqualFold(item.AliasSlug, aliasSlug) {
+			return domain.TagAlias{}, errors.New("别名已存在")
+		}
+	}
+	now := Now()
+	item := domain.TagAlias{
+		ID:            s.nextTagAliasID,
+		TagID:         tagID,
+		Site:          tag.Site,
+		CommunityID:   s.communityIDBySlugLocked(tag.Site),
+		CommunitySlug: tag.Site,
+		Alias:         alias,
+		AliasSlug:     aliasSlug,
+		CreatedAt:     now,
+		UpdatedAt:     now,
+	}
+	s.nextTagAliasID++
+	cp := item
+	s.tagAliases[item.ID] = &cp
+	s.appendLogLocked("audit", "admin", "新增标签别名", fmt.Sprintf("tags#%d/aliases#%d", tagID, item.ID), "127.0.0.1")
+	return item, nil
+}
+
+func (s *MemoryStore) DeleteTagAlias(tagID, aliasID int64) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if _, ok := s.tags[tagID]; !ok {
+		return errors.New("标签不存在")
+	}
+	item, ok := s.tagAliases[aliasID]
+	if !ok || item == nil || item.TagID != tagID {
+		return errors.New("标签别名不存在")
+	}
+	delete(s.tagAliases, aliasID)
+	s.appendLogLocked("audit", "admin", "删除标签别名", fmt.Sprintf("tags#%d/aliases#%d", tagID, aliasID), "127.0.0.1")
+	return nil
+}
+
+func (s *MemoryStore) RecalculateTag(tagID int64) (domain.Tag, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	tag, ok := s.tags[tagID]
+	if !ok || tag == nil {
+		return domain.Tag{}, errors.New("标签不存在")
+	}
+	updated := s.enrichTagLocked(*tag)
+	tag.UseCount = updated.UseCount
+	tag.FollowerCount = updated.FollowerCount
+	tag.HotScore = updated.HotScore
+	tag.UpdatedAt = Now()
+	if tag.Status == "merged" {
+		tag.UseCount = 0
+		tag.TopicCount = 0
+		tag.FollowerCount = 0
+		tag.HotScore = 0
+	}
+	s.appendLogLocked("audit", "admin", "重算标签统计", fmt.Sprintf("tags#%d", tagID), "127.0.0.1")
+	return s.enrichTagLocked(*tag), nil
+}
+
+func (s *MemoryStore) RecalculateAllTags() (int, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	updated := 0
+	now := Now()
+	for _, tag := range s.tags {
+		if tag == nil {
+			continue
+		}
+		enriched := s.enrichTagLocked(*tag)
+		tag.UseCount = enriched.UseCount
+		tag.FollowerCount = enriched.FollowerCount
+		tag.HotScore = enriched.HotScore
+		if tag.Status == "merged" {
+			tag.UseCount = 0
+			tag.FollowerCount = 0
+			tag.HotScore = 0
+		}
+		tag.UpdatedAt = now
+		updated++
+	}
+	s.appendLogLocked("audit", "admin", "批量重算标签统计", fmt.Sprintf("tags:%d", updated), "127.0.0.1")
+	return updated, nil
+}
+
+func (s *MemoryStore) MergeTag(sourceTagID, targetTagID int64) (domain.Tag, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if sourceTagID <= 0 || targetTagID <= 0 || sourceTagID == targetTagID {
+		return domain.Tag{}, errors.New("源标签和目标标签不能相同")
+	}
+	source, ok := s.tags[sourceTagID]
+	if !ok || source == nil {
+		return domain.Tag{}, errors.New("源标签不存在")
+	}
+	target, ok := s.tags[targetTagID]
+	if !ok || target == nil {
+		return domain.Tag{}, errors.New("目标标签不存在")
+	}
+	if source.Status == "merged" {
+		return domain.Tag{}, errors.New("源标签已合并")
+	}
+	if target.Status != "enable" {
+		return domain.Tag{}, errors.New("目标标签必须为启用状态")
+	}
+	if source.Site != target.Site {
+		return domain.Tag{}, errors.New("仅支持同一子站范围合并")
+	}
+	names := []string{source.Name, source.Slug}
+	for _, alias := range s.tagAliasListLocked(sourceTagID) {
+		names = append(names, alias.Alias, alias.AliasSlug)
+	}
+	for _, post := range s.posts {
+		if post == nil || post.Site != source.Site {
+			continue
+		}
+		replaced := false
+		for _, item := range names {
+			if item == "" || !hasTagOrSlug(post.Tags, item, normalizeSlug(item)) {
+				continue
+			}
+			replaced = true
+			break
+		}
+		if replaced {
+			next := make([]string, 0, len(post.Tags)+1)
+			for _, tagName := range post.Tags {
+				keep := true
+				for _, item := range names {
+					if strings.EqualFold(strings.TrimSpace(tagName), strings.TrimSpace(item)) || normalizeSlug(tagName) == normalizeSlug(item) {
+						keep = false
+						break
+					}
+				}
+				if keep {
+					next = append(next, tagName)
+				}
+			}
+			next = append(next, target.Name)
+			post.Tags = uniqueTags(next)
+			post.UpdatedAt = Now()
+		}
+	}
+	for _, follow := range s.follows {
+		if follow == nil || follow.TargetType != "tag" || follow.TargetID != sourceTagID {
+			continue
+		}
+		key := followKey(follow.UserID, "tag", targetTagID)
+		if _, exists := s.follows[key]; !exists {
+			follow.TargetID = targetTagID
+			follow.UpdatedAt = Now()
+			s.follows[key] = follow
+		}
+		delete(s.follows, followKey(follow.UserID, "tag", sourceTagID))
+	}
+	for aliasID, alias := range s.tagAliases {
+		if alias == nil || alias.TagID != sourceTagID {
+			continue
+		}
+		if alias.AliasSlug == target.Slug {
+			delete(s.tagAliases, aliasID)
+			continue
+		}
+		if existing, ok := s.findTagAliasBySiteSlugLocked(target.Site, alias.AliasSlug); ok && existing.TagID != sourceTagID {
+			delete(s.tagAliases, aliasID)
+			continue
+		}
+		alias.TagID = targetTagID
+		alias.Site = target.Site
+		alias.UpdatedAt = Now()
+	}
+	source.Status = "merged"
+	source.MergedToID = targetTagID
+	source.UseCount = 0
+	source.FollowerCount = 0
+	source.HotScore = 0
+	source.UpdatedAt = Now()
+	target.UpdatedAt = Now()
+	enriched := s.enrichTagLocked(*target)
+	target.UseCount = enriched.UseCount
+	target.FollowerCount = enriched.FollowerCount
+	target.HotScore = enriched.HotScore
+	s.appendLogLocked("audit", "admin", "合并标签", fmt.Sprintf("tags#%d->%d", sourceTagID, targetTagID), "127.0.0.1")
+	return s.enrichTagLocked(*target), nil
 }
 
 // BoardCounts 统计站点内各板块帖子数量，可叠加关键词过滤。
@@ -2322,56 +2632,157 @@ func (s *MemoryStore) findTagBySiteSlugLocked(site, slug string) (*domain.Tag, b
 	return nil, false
 }
 
-func (s *MemoryStore) tagBySlugLocked(site, slugOrName string, enabledOnly bool) (domain.Tag, bool) {
+func (s *MemoryStore) findTagAliasBySiteSlugLocked(site, aliasSlug string) (*domain.TagAlias, bool) {
+	site = strings.TrimSpace(site)
+	aliasSlug = strings.TrimSpace(aliasSlug)
+	for _, item := range s.tagAliases {
+		if item != nil && item.Site == site && item.AliasSlug == aliasSlug {
+			return item, true
+		}
+	}
+	return nil, false
+}
+
+func (s *MemoryStore) tagAliasListLocked(tagID int64) []domain.TagAlias {
+	items := make([]domain.TagAlias, 0)
+	for _, item := range s.tagAliases {
+		if item == nil || item.TagID != tagID {
+			continue
+		}
+		cp := *item
+		cp.CommunityID = s.communityIDBySlugLocked(cp.Site)
+		cp.CommunitySlug = cp.Site
+		items = append(items, cp)
+	}
+	sort.Slice(items, func(i, j int) bool {
+		if items[i].AliasSlug == items[j].AliasSlug {
+			return items[i].ID < items[j].ID
+		}
+		return items[i].AliasSlug < items[j].AliasSlug
+	})
+	return items
+}
+
+func (s *MemoryStore) findMergeTargetLocked(tag *domain.Tag) (*domain.Tag, bool) {
+	if tag == nil || tag.MergedToID <= 0 {
+		return nil, false
+	}
+	target, ok := s.tags[tag.MergedToID]
+	if !ok || target == nil {
+		return nil, false
+	}
+	return target, true
+}
+
+func (s *MemoryStore) resolveTagLocked(site, slugOrName string, enabledOnly bool) (domain.TagResolveResult, bool) {
 	site = strings.TrimSpace(site)
 	slugOrName = strings.TrimSpace(slugOrName)
 	if slugOrName == "" {
-		return domain.Tag{}, false
+		return domain.TagResolveResult{}, false
 	}
-	if id, err := strconv.ParseInt(slugOrName, 10, 64); err == nil && id > 0 {
-		if tag, ok := s.tags[id]; ok && tag != nil {
-			if enabledOnly && tag.Status != "enable" {
-				return domain.Tag{}, false
-			}
-			if site == "" || site == "portal" || tag.Site == site {
-				return s.enrichTagLocked(*tag), true
-			}
-		}
-	}
-	needle := strings.ToLower(slugOrName)
 	normalizedSlug := normalizeSlug(slugOrName)
 	if normalizedSlug == "" {
 		normalizedSlug = strings.ToLower(strings.Join(strings.Fields(slugOrName), "-"))
 	}
-	var fallback *domain.Tag
-	for _, tag := range s.tags {
+	match := func(tag *domain.Tag) bool {
 		if tag == nil {
-			continue
-		}
-		if enabledOnly && tag.Status != "enable" {
-			continue
-		}
-		matched := strings.EqualFold(tag.Slug, slugOrName) || strings.EqualFold(tag.Name, slugOrName) || (normalizedSlug != "" && strings.EqualFold(tag.Slug, normalizedSlug)) || strings.EqualFold(tag.Name, needle)
-		if !matched {
-			continue
-		}
-		if (site == "" || site == "portal") && tag.Site == "portal" {
-			return s.enrichTagLocked(*tag), true
+			return false
 		}
 		if site != "" && site != "portal" && tag.Site != site {
+			return false
+		}
+		return strings.EqualFold(tag.Slug, slugOrName) || strings.EqualFold(tag.Name, slugOrName) || (normalizedSlug != "" && strings.EqualFold(tag.Slug, normalizedSlug))
+	}
+	var directPortal *domain.Tag
+	var directFallback *domain.Tag
+	for _, tag := range s.tags {
+		if !match(tag) {
 			continue
 		}
-		if tag.Site == site {
-			return s.enrichTagLocked(*tag), true
+		if site == "" || site == "portal" {
+			if tag.Site == "portal" {
+				directPortal = tag
+				break
+			}
+			if directFallback == nil {
+				directFallback = tag
+			}
+			continue
 		}
-		if fallback == nil {
-			fallback = tag
+		directFallback = tag
+		break
+	}
+	if directPortal != nil || directFallback != nil {
+		current := directPortal
+		if current == nil {
+			current = directFallback
+		}
+		if current != nil {
+			if current.Status == "merged" {
+				target, ok := s.findMergeTargetLocked(current)
+				if !ok {
+					return domain.TagResolveResult{}, false
+				}
+				if enabledOnly && target.Status != "enable" {
+					return domain.TagResolveResult{}, false
+				}
+				resolved := s.enrichTagLocked(*target)
+				return domain.TagResolveResult{Tag: resolved, Requested: slugOrName, ResolvedBy: "merged"}, true
+			}
+			if enabledOnly && current.Status != "enable" {
+				return domain.TagResolveResult{}, false
+			}
+			return domain.TagResolveResult{Tag: s.enrichTagLocked(*current), Requested: slugOrName, ResolvedBy: "direct"}, true
 		}
 	}
-	if fallback != nil {
-		return s.enrichTagLocked(*fallback), true
+	for _, item := range s.tagAliases {
+		if item == nil {
+			continue
+		}
+		if site != "" && site != "portal" && item.Site != site {
+			continue
+		}
+		if !strings.EqualFold(item.Alias, slugOrName) && !strings.EqualFold(item.AliasSlug, slugOrName) && (normalizedSlug == "" || !strings.EqualFold(item.AliasSlug, normalizedSlug)) {
+			continue
+		}
+		tag, ok := s.tags[item.TagID]
+		if !ok || tag == nil {
+			continue
+		}
+		if tag.Status == "merged" {
+			target, ok := s.findMergeTargetLocked(tag)
+			if !ok {
+				return domain.TagResolveResult{}, false
+			}
+			if enabledOnly && target.Status != "enable" {
+				return domain.TagResolveResult{}, false
+			}
+			return domain.TagResolveResult{
+				Tag:          s.enrichTagLocked(*target),
+				MatchedAlias: item.Alias,
+				Requested:    slugOrName,
+				ResolvedBy:   "alias",
+			}, true
+		}
+		if enabledOnly && tag.Status != "enable" {
+			return domain.TagResolveResult{}, false
+		}
+		return domain.TagResolveResult{
+			Tag:          s.enrichTagLocked(*tag),
+			MatchedAlias: item.Alias,
+			Requested:    slugOrName,
+			ResolvedBy:   "alias",
+		}, true
 	}
-	return domain.Tag{}, false
+	return domain.TagResolveResult{}, false
+}
+
+func (s *MemoryStore) tagBySlugLocked(site, slugOrName string, enabledOnly bool) (domain.Tag, bool) {
+	result, ok := s.resolveTagLocked(site, slugOrName, enabledOnly)
+	if !ok {
+		return domain.Tag{}, false
+	}
+	return result.Tag, true
 }
 
 func (s *MemoryStore) enrichTagLocked(tag domain.Tag) domain.Tag {
@@ -2386,6 +2797,11 @@ func (s *MemoryStore) enrichTagLocked(tag domain.Tag) domain.Tag {
 	tag.TopicCount = s.tagTopicCountLocked(tag)
 	tag.UseCount = tag.TopicCount
 	tag.FollowerCount = s.followCountLocked("tag", tag.ID)
+	tag.HotScore = tag.TopicCount*10 + tag.FollowerCount*20
+	if target, ok := s.findMergeTargetLocked(&tag); ok {
+		tag.MergedToName = target.Name
+		tag.MergedToSlug = target.Slug
+	}
 	return tag
 }
 
@@ -2756,6 +3172,9 @@ func normalizeTag(tag domain.Tag) domain.Tag {
 	if tag.Status == "0" || tag.Status == "disabled" {
 		tag.Status = "disable"
 	}
+	if tag.Status == "2" || tag.Status == "merged" {
+		tag.Status = "merged"
+	}
 	if tag.Slug == "" {
 		tag.Slug = normalizeSlug(tag.Name)
 		if tag.Slug == "" {
@@ -2780,8 +3199,30 @@ func normalizeTagStatus(status string) string {
 		return "enable"
 	case "disable", "disabled", "0", "false":
 		return "disable"
+	case "merged", "2":
+		return "merged"
 	default:
 		return ""
+	}
+}
+
+func memoryTagToStat(tag domain.Tag) domain.TagStat {
+	return domain.TagStat{
+		ID:             tag.ID,
+		Name:           tag.Name,
+		Slug:           tag.Slug,
+		Site:           tag.Site,
+		CommunityID:    tag.CommunityID,
+		CommunitySlug:  tag.CommunitySlug,
+		Description:    tag.Description,
+		TopicCount:     tag.TopicCount,
+		Count:          firstNonZero(tag.TopicCount, tag.UseCount),
+		FollowerCount:  tag.FollowerCount,
+		HotScore:       tag.HotScore,
+		Status:         tag.Status,
+		SEOTitle:       tag.SEOTitle,
+		SEODescription: tag.SEODescription,
+		SEOKeywords:    tag.SEOKeywords,
 	}
 }
 

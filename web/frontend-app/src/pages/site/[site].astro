@@ -1,28 +1,25 @@
 ---
 import SiteHeader from '../../components/SiteHeader.astro';
 import SeoLayout from '../../layouts/SeoLayout.astro';
+import { sortTabs } from '../../lib/site-config';
+import { communitySiteKeys, devhubSites as sites, findSiteByKey } from '../../lib/sites';
 
 export function getStaticPaths() {
-  return ['php', 'go', 'java', 'ai', 'frontend'].map((site) => ({ params: { site } }));
+  return communitySiteKeys.map((site) => ({ params: { site } }));
 }
 
 const siteKey = Astro.params.site || 'php';
-const sites = [
-  { key: 'portal', name: '总站', logo: 'DH', title: 'DevHub 开发者社区', sub: '多站点内容与社区 CMS', pub: '总站', description: '聚合 PHP、Go、Java、AI、Frontend 等技术子站的文章、问答、文档和开源项目。', color: '#2563eb', status: 'active', sort: 0 },
-  { key: 'php', name: 'PHP', logo: 'PHP', title: 'PHP 开发者站', sub: '工程实践、框架生态、线上问题复盘', pub: 'PHP 子站', description: 'PHP 技术社区', color: '#6478c8', status: 'active', sort: 1 },
-  { key: 'go', name: 'Go', logo: 'GO', title: 'Go 开发者站', sub: '并发、服务端、云原生实践', pub: 'Go 子站', description: 'Go 技术社区', color: '#0891b2', status: 'active', sort: 2 },
-  { key: 'java', name: 'Java', logo: 'JAVA', title: 'Java 开发者站', sub: '后端架构、中间件、企业工程实践', pub: 'Java 子站', description: 'Java 技术社区', color: '#ea580c', status: 'active', sort: 3 },
-  { key: 'ai', name: 'AI', logo: 'AI', title: 'AI 开发者站', sub: 'Agent、RAG、Prompt 与工作流实践', pub: 'AI 子站', description: 'AI 技术社区', color: '#7c3aed', status: 'active', sort: 4 },
-  { key: 'frontend', name: 'Frontend', logo: 'FE', title: '前端开发者站', sub: 'Vue、React、TypeScript、性能与工程化', pub: '前端子站', description: '前端技术社区', color: '#16a34a', status: 'active', sort: 5 },
-];
-const site = sites.find((item) => item.key === siteKey) || sites[1];
-const sortTabs = [
-  { key: 'latest', name: '最新' },
-  { key: 'active', name: '活跃' },
-  { key: 'hot', name: '热门' },
-  { key: 'featured', name: '精华' },
-  { key: 'unsolved', name: '未解决' },
-];
+const site = findSiteByKey(siteKey) || sites[1];
+const typeLabels = {
+  article: '社区',
+  question: '问答中心',
+  project: '开源项目',
+  ai_work: '智能作品',
+  job: '招聘内推',
+  wiki: 'Wiki',
+  doc: '文档',
+  news: '动态',
+};
 ---
 <SeoLayout title={`${site.title} - DevHub`} description={site.description} site={site} canonical={`/c/${site.key}/`}>
   <SiteHeader sites={sites} activeSite={site.key} />
@@ -74,23 +71,22 @@ const sortTabs = [
         </section>
         <section class="community-rules">
           <h2>社区规则</h2>
-          <p>围绕真实技术问题讨论，标题清晰，内容可复现。招聘、项目、Wiki、文档请发布到对应板块。</p>
+          <p>围绕真实社区问题和实践经验讨论，标题清晰，内容可复现。不同内容请发布到对应板块。</p>
         </section>
         <section class="community-rules">
           <h2>版主信息</h2>
-          <p>DevHub 运营团队 · <span data-moderator-site>{site.name}</span> 子站维护组</p>
+          <p>社区维护组 · <span data-moderator-site>{site.name}</span> 子站协作团队</p>
         </section>
       </aside>
     </section>
   </main>
-  <script is:inline>
+  <script define:vars={{ typeLabels }}>
     (() => {
       const pathMatch = window.location.pathname.match(/^\/(?:c|site)\/([^/]+)/);
       const community = pathMatch?.[1] || document.querySelector('[data-topic-list]')?.dataset.community || 'php';
       const params = new URLSearchParams(window.location.search);
       const activeType = params.get('content_type') || '';
       const activeSort = params.get('sort') || 'latest';
-      const typeName = { article: '帖子', question: '问答', project: '项目', ai_work: 'AI作品', job: '招聘', wiki: 'Wiki', doc: '文档', news: '周刊' };
       const escapeHTML = (value) => String(value ?? '').replace(/[&<>"']/g, (char) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[char]));
       const getJSON = (url) => fetch(url).then((response) => response.ok ? response.json() : Promise.reject());
       const token = () => localStorage.getItem('devhub_user_token') || localStorage.getItem('devhub_access_token') || '';
@@ -113,11 +109,11 @@ const sortTabs = [
 	          : '';
 	        const commentLabel = topic.content_type === 'question' ? '回答' : '评论';
 	        return `<article class="post-card">
-	          <div class="post-card-top"><span class="type-pill">${escapeHTML(typeName[topic.content_type] || '内容')}</span><a class="site-pill" href="/c/${encodeURIComponent(community)}/">${escapeHTML(community)}</a>${topic.is_pinned ? '<span class="state-pill">置顶</span>' : ''}${topic.is_featured ? '<span class="state-pill">精华</span>' : ''}${qaState}</div>
+	          <div class="post-card-top"><span class="type-pill">${escapeHTML(typeLabels[topic.content_type] || '内容')}</span><a class="site-pill" href="/c/${encodeURIComponent(community)}/">${escapeHTML(community)}</a>${topic.is_pinned ? '<span class="state-pill">置顶</span>' : ''}${topic.is_featured ? '<span class="state-pill">精华</span>' : ''}${qaState}</div>
 	          <h2><a href="/topics/${Number(topic.id)}/">${escapeHTML(topic.title)}</a></h2>
 	          <p>${escapeHTML(topic.summary || String(topic.content || '').slice(0, 120))}</p>
 	          ${tags ? `<div class="post-tags">${tags}</div>` : ''}
-	          <footer><span>DevHub 用户</span><span>${escapeHTML(topic.created_at || '刚刚')} 发布</span><span>${escapeHTML(topic.last_active_at || topic.updated_at || topic.created_at || '刚刚')} 活跃</span><span>${Number(topic.view_count || 0)} 浏览</span><span>${Number(topic.like_count || 0)} 赞</span><span>${Number(topic.comment_count || 0)} ${commentLabel}</span></footer>
+	          <footer><span>社区用户</span><span>${escapeHTML(topic.created_at || '刚刚')} 发布</span><span>${escapeHTML(topic.last_active_at || topic.updated_at || topic.created_at || '刚刚')} 活跃</span><span>${Number(topic.view_count || 0)} 浏览</span><span>${Number(topic.like_count || 0)} 赞</span><span>${Number(topic.comment_count || 0)} ${commentLabel}</span></footer>
 	        </article>`;
 	      };
 

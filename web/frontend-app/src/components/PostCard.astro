@@ -1,5 +1,6 @@
 ---
 import type { Board, Post, Site } from '../lib/types';
+import { contentTypeCommentLabel, contentTypeLabel, tagSegment } from '../lib/site-config';
 
 type Props = {
   post: Post;
@@ -10,24 +11,13 @@ type Props = {
 const { post, sites, boards } = Astro.props;
 const site = sites.find((item) => item.key === post.site);
 const board = boards.find((item) => item.key === post.board);
-const typeName = {
-  article: '帖子',
-  question: '问答',
-  project: '项目',
-  ai_work: 'AI作品',
-  job: '招聘',
-  wiki: 'Wiki',
-  doc: '文档',
-  news: '周刊',
-}[post.content_type || 'article'] || '内容';
 const isQuestion = post.content_type === 'question';
-const commentLabel = isQuestion ? '回答' : '评论';
-const tagSegment = (tag: string) => encodeURIComponent(tag.trim().toLowerCase().replace(/\s+/g, '-'));
+const commentLabel = contentTypeCommentLabel(post.content_type || 'article');
 const tagHref = (tag: string) => post.site === 'portal' ? `/tags/${tagSegment(tag)}/` : `/c/${encodeURIComponent(post.site)}/tags/${tagSegment(tag)}/`;
 ---
 <article class="post-card">
   <div class="post-card-top">
-    <span class="type-pill">{typeName}</span>
+    <span class="type-pill">{contentTypeLabel(post.content_type || 'article')}</span>
     <a class="site-pill" href={`/c/${post.site}/`}>{site?.name || post.site}</a>
     <span>{board?.name || post.board}</span>
     {post.pinned && <span class="state-pill">置顶</span>}

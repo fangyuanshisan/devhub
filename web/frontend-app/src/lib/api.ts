@@ -1,6 +1,7 @@
 import { ofetch } from 'ofetch';
 import { z } from 'zod';
 import { fallbackBoards, fallbackPosts, fallbackSites, fallbackTags } from './fallback';
+import { boardToContentType, contentTypeToBoard } from './site-config';
 import type { Board, CommentNode, CommunityStats, Post, Site, TagStat } from './types';
 import { authRequest } from './session';
 
@@ -388,30 +389,9 @@ function filterPosts(params: { site?: string; board?: string; tag?: string; q?: 
   });
 }
 
-function boardToContentType(board: string) {
-  return {
-    community: 'article',
-    qa: 'question',
-    opensource: 'project',
-    ai: 'ai_work',
-    jobs: 'job',
-    wiki: 'wiki',
-    docs: 'doc',
-  }[board] || '';
-}
-
 function topicToPost(topic: z.infer<typeof topicSchema>): Post {
   const site = { 1: 'php', 2: 'go', 3: 'java', 4: 'ai', 5: 'frontend' }[topic.community_id] || 'portal';
-  const board = {
-    article: 'community',
-    question: 'qa',
-    project: 'opensource',
-    ai_work: 'ai',
-    job: 'jobs',
-    wiki: 'wiki',
-    doc: 'docs',
-    news: 'community',
-  }[topic.content_type] || 'community';
+  const board = contentTypeToBoard(topic.content_type);
   return {
     id: topic.id,
     site,
@@ -419,7 +399,7 @@ function topicToPost(topic: z.infer<typeof topicSchema>): Post {
     title: topic.title,
     summary: topic.summary,
     content: topic.content,
-    author: 'DevHub 用户',
+    author: '社区用户',
     status: topic.status === 1 ? 'publish' : 'draft',
     pinned: topic.is_pinned,
     recommended: topic.is_featured,

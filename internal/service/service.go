@@ -32,13 +32,21 @@ type Repository interface {
 	Feed(site string, limit int) []domain.Post
 	TagStats(site string) []domain.TagStat
 	TagBySlug(site, slugOrName string) (domain.Tag, bool)
+	ResolveTag(site, slugOrName string) (domain.TagResolveResult, bool)
 	TagTopics(tagID int64, communityID int64, contentType string, sort string, page, pageSize int) ([]domain.Topic, int)
 	TagSuggestions(site, q string, limit int) []domain.TagStat
 	AdminTags(site, q, status string) []domain.Tag
+	AdminTagByID(id int64) (domain.Tag, bool)
 	AdminTagTopics(id int64, page, pageSize int) ([]domain.Topic, int)
 	CreateTag(req domain.Tag) (domain.Tag, error)
 	UpdateTag(id int64, req domain.Tag) (domain.Tag, bool)
 	SetTagStatus(id int64, status string) (domain.Tag, bool)
+	TagAliases(tagID int64) ([]domain.TagAlias, error)
+	AddTagAlias(tagID int64, alias string) (domain.TagAlias, error)
+	DeleteTagAlias(tagID, aliasID int64) error
+	MergeTag(sourceTagID, targetTagID int64) (domain.Tag, error)
+	RecalculateTag(tagID int64) (domain.Tag, error)
+	RecalculateAllTags() (int, error)
 	BoardCounts(site, q string) map[string]int
 	PostStats(site string) domain.PostStats
 	CommentsTree(postID int64) []*domain.Comment
@@ -242,6 +250,11 @@ func (s *Service) TagBySlug(site, slugOrName string) (domain.Tag, bool) {
 	return s.repo.TagBySlug(site, slugOrName)
 }
 
+// ResolveTag 按 slug、别名或合并关系解析标签。
+func (s *Service) ResolveTag(site, slugOrName string) (domain.TagResolveResult, bool) {
+	return s.repo.ResolveTag(site, slugOrName)
+}
+
 // TagTopics 返回标签关联内容。
 func (s *Service) TagTopics(tagID int64, communityID int64, contentType string, sort string, page, pageSize int) ([]domain.Topic, int) {
 	return s.repo.TagTopics(tagID, communityID, contentType, sort, page, pageSize)
@@ -257,6 +270,9 @@ func (s *Service) AdminTags(site, q, status string) []domain.Tag {
 	return s.repo.AdminTags(site, q, status)
 }
 
+// AdminTagByID 返回后台标签详情。
+func (s *Service) AdminTagByID(id int64) (domain.Tag, bool) { return s.repo.AdminTagByID(id) }
+
 // AdminTagTopics 返回后台标签关联内容。
 func (s *Service) AdminTagTopics(id int64, page, pageSize int) ([]domain.Topic, int) {
 	return s.repo.AdminTagTopics(id, page, pageSize)
@@ -269,6 +285,32 @@ func (s *Service) CreateTag(req domain.Tag) (domain.Tag, error) { return s.repo.
 func (s *Service) UpdateTag(id int64, req domain.Tag) (domain.Tag, bool) {
 	return s.repo.UpdateTag(id, req)
 }
+
+// TagAliases 返回标签别名列表。
+func (s *Service) TagAliases(tagID int64) ([]domain.TagAlias, error) { return s.repo.TagAliases(tagID) }
+
+// AddTagAlias 新增标签别名。
+func (s *Service) AddTagAlias(tagID int64, alias string) (domain.TagAlias, error) {
+	return s.repo.AddTagAlias(tagID, alias)
+}
+
+// DeleteTagAlias 删除标签别名。
+func (s *Service) DeleteTagAlias(tagID, aliasID int64) error {
+	return s.repo.DeleteTagAlias(tagID, aliasID)
+}
+
+// MergeTag 合并标签。
+func (s *Service) MergeTag(sourceTagID, targetTagID int64) (domain.Tag, error) {
+	return s.repo.MergeTag(sourceTagID, targetTagID)
+}
+
+// RecalculateTag 重算单个标签统计。
+func (s *Service) RecalculateTag(tagID int64) (domain.Tag, error) {
+	return s.repo.RecalculateTag(tagID)
+}
+
+// RecalculateAllTags 重算全部标签统计。
+func (s *Service) RecalculateAllTags() (int, error) { return s.repo.RecalculateAllTags() }
 
 // SetTagStatus 启用或禁用标签。
 func (s *Service) SetTagStatus(id int64, status string) (domain.Tag, bool) {

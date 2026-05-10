@@ -45,9 +45,11 @@ CREATE TABLE IF NOT EXISTS tags (
   slug VARCHAR(128) NOT NULL,
   description TEXT NULL,
   status VARCHAR(32) NOT NULL DEFAULT 'enable',
+  merged_to_id BIGINT UNSIGNED NULL,
   sort_order INT NOT NULL DEFAULT 0,
   use_count INT UNSIGNED NOT NULL DEFAULT 0,
   follower_count INT UNSIGNED NOT NULL DEFAULT 0,
+  hot_score INT UNSIGNED NOT NULL DEFAULT 0,
   seo_title VARCHAR(255) NOT NULL DEFAULT '',
   seo_description VARCHAR(500) NOT NULL DEFAULT '',
   seo_keywords VARCHAR(500) NOT NULL DEFAULT '',
@@ -56,7 +58,22 @@ CREATE TABLE IF NOT EXISTS tags (
   PRIMARY KEY (id),
   UNIQUE KEY uk_tags_site_slug (site_key, slug),
   KEY idx_tags_site_status_sort (site_key, status, sort_order),
-  KEY idx_tags_use_count (use_count)
+  KEY idx_tags_use_count (use_count),
+  KEY idx_tags_merged_to (merged_to_id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE IF NOT EXISTS tag_aliases (
+  id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+  tag_id BIGINT UNSIGNED NOT NULL,
+  site_key VARCHAR(64) NOT NULL DEFAULT 'portal',
+  alias VARCHAR(128) NOT NULL,
+  alias_slug VARCHAR(128) NOT NULL,
+  created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  PRIMARY KEY (id),
+  UNIQUE KEY uk_tag_aliases_site_alias_slug (site_key, alias_slug),
+  KEY idx_tag_aliases_tag_id (tag_id),
+  CONSTRAINT fk_tag_aliases_tag FOREIGN KEY (tag_id) REFERENCES tags(id) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 CREATE TABLE IF NOT EXISTS posts (

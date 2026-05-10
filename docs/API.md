@@ -2,11 +2,15 @@
 
 [返回文档大纲](README.md)
 
-更新时间：2026-05-09
+更新时间：2026-05-10
 
 本文档记录当前仓库真实实现。若需求描述与代码不一致，以本文档中的实际路径、字段和完成度为准。
 
 后续 Codex / AI Agent 更新 API 前，应先阅读 `docs/AGENT_RULES.md`，再核对 `internal/transport/httpapi/router.go`。接口存在但字段尚未展开时，可以标注“待补充字段细节”；不要把计划中的接口写成已完成。
+
+## v1.2.1 API 范围
+
+v1.2.1 在 v1.2.0 标签系统增强版基础上，补充标签 alias 解析、标签 merge、标签统计重算和后台标签治理 API。当前真实实现继续沿用 `tags.site_key` 作为标签的子站范围字段；alias 的唯一约束也按 `site_key` 生效。
 
 ## v1.2.0 API 范围
 
@@ -174,7 +178,7 @@ GET /api/v1/communities/:slug/tags/:tag/topics
 
 - 普通 Topic 列表和搜索默认过滤隐藏 / 删除内容。
 - `POST /api/v1/topics` 发布后，`/topics/:id` 可立即由 Go 动态 SEO 页面访问，不需要重新前端构建。
-- v1.2.0 已完成标签详情 SEO 页和后台标签管理；标签合并、标签别名和标签趋势统计仍是后续规划。
+- v1.2.0 已完成标签详情 SEO 页和后台标签管理；标签合并、标签别名和统计重算已在 v1.2.1 完成，标签趋势统计仍是后续规划。
 
 标签详情响应包含：
 
@@ -205,7 +209,7 @@ GET /api/v1/tags/suggestions?community_slug=php&q=lar&limit=20
 GET /api/v1/tags/suggest?community_slug=php&q=lar&limit=20
 ```
 
-返回当前子站启用标签，用于发布页选择。发布 Topic 最多 5 个标签，后端会校验标签属于当前子站。`/tags/suggest` 是同能力别名，便于前端按更短路径调用。
+返回当前子站启用标签，用于发布页选择。发布 Topic 最多 5 个标签，后端会校验标签属于当前子站。`/tags/suggest` 是同能力别名，便于前端按更短路径调用。v1.2.1 起，标签建议支持 alias 匹配主标签；当命中 alias 时，响应可包含 `matched_alias`。
 
 标签内容聚合：
 
@@ -215,6 +219,21 @@ GET /api/v1/communities/php/tags/laravel/topics?sort=latest&content_type=questio
 ```
 
 `sort` 支持 `latest`、`hot`、`active`、`featured`、`unsolved`；`content_type` 可筛选 `question/article/project/ai_work/job/wiki/doc/news` 等当前 Topic 类型。全站标签聚合使用 `/api/v1/tags/:tag/topics`，子站标签聚合优先使用 `/api/v1/communities/:slug/tags/:tag/topics`。
+
+v1.2.1 标签解析规则：
+
+- `GET /api/v1/tags/:tag`
+- `GET /api/v1/tags/by-slug/:tag`
+- `GET /api/v1/communities/:slug/tags/:tag`
+
+以上接口都支持：
+
+- 主标签 slug
+- 标签名称
+- alias slug
+- alias 名称
+
+如果请求命中 merged source tag 或 alias，接口返回 canonical 主标签实体；disabled 标签不返回公开结果。
 
 ## v1.1.0 已完成子站接口
 
@@ -277,10 +296,16 @@ GET  /api/v1/admin/permissions
 GET  /api/v1/admin/tags
 GET  /api/v1/admin/tags/:id
 GET  /api/v1/admin/tags/:id/topics
+GET  /api/v1/admin/tags/:id/aliases
 POST /api/v1/admin/tags
 PUT  /api/v1/admin/tags/:id
+POST /api/v1/admin/tags/:id/aliases
+DELETE /api/v1/admin/tags/:id/aliases/:aliasId
 POST /api/v1/admin/tags/:id/enable
 POST /api/v1/admin/tags/:id/disable
+POST /api/v1/admin/tags/:id/merge
+POST /api/v1/admin/tags/:id/recalculate
+POST /api/v1/admin/tags/recalculate-all
 GET  /api/v1/admin/settings
 PUT  /api/v1/admin/settings
 GET  /api/v1/admin/logs
@@ -306,8 +331,14 @@ POST /api/v1/admin/tags
 GET  /api/v1/admin/tags/:id
 PUT  /api/v1/admin/tags/:id
 GET  /api/v1/admin/tags/:id/topics
+GET  /api/v1/admin/tags/:id/aliases
+POST /api/v1/admin/tags/:id/aliases
+DELETE /api/v1/admin/tags/:id/aliases/:aliasId
 POST /api/v1/admin/tags/:id/enable
 POST /api/v1/admin/tags/:id/disable
+POST /api/v1/admin/tags/:id/merge
+POST /api/v1/admin/tags/:id/recalculate
+POST /api/v1/admin/tags/recalculate-all
 ```
 
 新增 / 更新请求体：
@@ -329,10 +360,14 @@ POST /api/v1/admin/tags/:id/disable
 规则：
 
 - `site` 使用子站 slug；`portal` 表示总站标签。
-- `status=enable` 启用，`status=disable` 禁用。
-- 禁用标签不能被公开详情 API 读取，不进入 sitemap。
+- `status=enable` 启用，`status=disable` 禁用，`status=merged` 表示已合并到目标标签。
+- 禁用和 merged 标签不能被公开详情 API 当作独立可用标签读取，不进入 sitemap。
 - `GET /api/v1/admin/tags/:id/topics` 返回该标签关联的 Topic，用于后台查看标签关联内容。
-- 新增、更新、启用和禁用标签写入 `admin_logs`。
+- `GET /api/v1/admin/tags/:id/aliases` 返回当前标签别名列表。
+- `POST /api/v1/admin/tags/:id/aliases` 请求体为 `{"alias":"JS"}`；alias_slug 在同 `site_key` 范围内唯一，且不能与 `tags.slug` 冲突。
+- `POST /api/v1/admin/tags/:id/merge` 请求体为 `{"target_tag_id":2,"note":"重复标签合并"}`；仅允许同一 `site_key` 范围内合并。
+- `POST /api/v1/admin/tags/:id/recalculate` 重算单个标签统计；`POST /api/v1/admin/tags/recalculate-all` 批量重算全部标签。
+- 别名管理、标签合并和统计重算均写入 `admin_logs`。
 
 ### Admin Communities
 
@@ -1176,4 +1211,4 @@ GET /robots.txt
 - 最佳答案当前通过前端运行时展示，不强制进入 `/topics/:id` 初始 SEO HTML。
 - 标签关注已在 v1.2.0 标签页接入，使用 `target_type=tag`。
 - 版主工作台是 v1.1.3 MVP，不包含复杂 RBAC、权限点矩阵、版主任期或绩效统计。
-- 标签合并、标签别名和标签趋势统计仍是后续增强，v1.2.0 未实现。
+- 标签合并、标签别名和统计重算已在 v1.2.1 完成；标签趋势统计仍是后续增强。

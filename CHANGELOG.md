@@ -1,5 +1,28 @@
 # Changelog
 
+## v1.2.1
+
+DevHub v1.2.1 is the tag governance enhancement release.
+
+### Added
+
+- Tag aliases with admin CRUD APIs, alias-based suggestion matching, alias URL resolution, and audit-log writes.
+- Tag merge APIs and admin-next merge UI, including topic-tag migration, follow deduplication, merged status, and merged-target tracking.
+- Tag statistic recalculation for single-tag and all-tag operations in MemoryStore and MySQLStore.
+- MySQL schema support for `tags.merged_to_id`, `tags.hot_score`, and the `tag_aliases` table.
+
+### Changed
+
+- Public tag resolution now normalizes direct slug, alias slug, and merged source tags to the canonical target tag.
+- Merged and disabled tags no longer enter sitemap, and alias URLs are not emitted as sitemap entries.
+- Tag SEO pages prefer 301 redirects to canonical target URLs for alias and merged-source access.
+- admin-next tag management now exposes alias management, merged status, merge target selection, and statistic recalculation.
+
+### Known Limitations
+
+- Tag trend analytics, operator dashboards, and large-scale async recalculation jobs are still out of scope.
+- AI-assisted tag recommendations remain planned for a later release.
+
 ## v1.1.5
 
 DevHub v1.1.5 is the frontend UI polish release.
@@ -137,7 +160,7 @@ DevHub v1.1.0 is the sub-site module enhancement release. It upgrades communitie
 ### Known Limitations
 
 - v1.1.0 uses enabled categories as the default community navigation; deeper custom navigation is left for a later release.
-- Advanced tag features such as aliases, merging, trend statistics, and tag admin remain planned for v1.2.0.
+- Advanced tag features such as aliases, merging, and tag admin were planned for v1.2.0 and are now delivered in v1.2.0–v1.2.1; tag trend statistics remains out of scope.
 - A complete followed-community feed remains planned for v1.3.0; this release completes follow state, follower count, activities, and "my follows" visibility.
 - Comment likes, canceling solved status, recommendation algorithms, reputation, and complex analytics are outside this release.
 - Sitemap output is still single-file dynamic output and is not yet sharded for very large installations.
@@ -170,7 +193,7 @@ DevHub v1.0.0 is the first runnable archive release of the project.
 
 ### Known Limitations
 
-- Advanced tag features are planned for v1.2.0, including tag detail SEO pages, tag admin, aliases, merging, and trends.
+- Advanced tag features were planned for v1.2.0; tag detail SEO pages and tag admin landed in v1.2.0, while aliases/merging/recalculation landed in v1.2.1. Tag trend statistics remains out of scope.
 - Runtime comment likes are not part of v1.0.0.
 - Accepted questions support changing the best answer, but do not yet support canceling solved status.
 - Tag-follow and user-follow backend support exists, while richer frontend entry points remain future work.
