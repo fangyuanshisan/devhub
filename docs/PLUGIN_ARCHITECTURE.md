@@ -6,7 +6,11 @@
 
 ## 版本定位
 
-`v1.3.1` 是 Core + Plugins 架构拆分后的技术债收口版。问答、文档、Wiki 不再作为 Core 硬编码业务类型描述，而是由 `qa`、`docs`、`wiki` 三个内置系统插件注册内容类型、菜单、权限和路由描述；本版本进一步封口旧写入口，并补强后台内容创建 / 更新时的插件权限边界。
+`v1.3.x` 是 Core + Plugins 架构拆分与插件平台收口阶段。问答、文档、Wiki 不再作为 Core 硬编码业务类型描述，而是由 `qa`、`docs`、`wiki` 三个内置系统插件注册内容类型、菜单、权限和路由描述；`v1.3.1` 进一步封口旧写入口，并补强后台内容创建 / 更新时的插件权限边界。
+
+DevHub 的长期目标不是只支持内置 `qa/docs/wiki`，而是形成完整插件平台。Core 只提供通用社区底座，业务能力都应通过插件声明、插件状态、插件权限、插件菜单、插件配置、插件 Hook、插件 migration、插件 API、插件 SEO、插件通知和插件搜索扩展。
+
+完整插件系统是当前最高优先级长期主线。插件市场、插件包、远程安装、在线更新和动态加载不在当前代码实现范围内，但不再作为永久排除项；它们进入后续阶段路线，并必须在安全边界和 SEO 红线内推进。
 
 ## Core 边界
 
@@ -22,6 +26,69 @@ Core 只保留通用社区能力：
 
 - `topics` 是当前通用内容表，对应目标架构中的 `contents`。
 - `categories` 是当前通用板块表，对应目标架构中的 `channels`。
+
+## 完整插件系统路线
+
+P0：插件平台收口
+
+- Manifest 契约稳定。
+- Registry 稳定。
+- ActorContext 稳定。
+- 权限码平台化。
+- 全局插件状态。
+- 子站插件状态。
+- 板块绑定。
+- 发布校验。
+- 菜单过滤。
+- `config_json`。
+- `config_schema` 基础校验。
+- HookBus 全调用点。
+- `admin_logs` 结构化审计。
+- migration 边界。
+- 测试矩阵。
+
+P1：插件平台增强
+
+- schema 自动表单。
+- 插件 SDK 文档。
+- 插件生成模板。
+- 插件依赖检查。
+- 插件版本兼容检查。
+- 插件事件和通知模板。
+- 插件搜索索引扩展。
+- 插件 SEO 扩展。
+
+P2：插件分发能力
+
+- 本地插件包。
+- 插件安装。
+- 插件升级。
+- 插件禁用。
+- soft uninstall。
+- 插件 migration runner。
+- 插件包签名校验。
+- 插件市场雏形。
+
+P3：高级能力
+
+- 远程插件市场。
+- 在线更新。
+- 动态加载能力评估。
+- 插件沙箱。
+- 插件权限隔离。
+
+安全红线：
+
+- 禁用插件不能影响历史内容访问。
+- 禁用插件不能破坏 `/topics/:id` SEO 动态 HTML。
+- Core 表不能被插件随意破坏。
+- 插件写操作必须走权限校验。
+- ActorContext 必须由服务端生成，不能由客户端伪造。
+- 前台 user token、后台 admin token、版主 user token + scope 不能混用。
+- 插件配置必须至少保证 JSON 合法。
+- 插件 migration 必须有备份和回滚说明。
+- 未实现能力不能写成已完成。
+- 预留、部分完成、待验收能力必须明确标注。
 
 ## 内置系统插件
 
@@ -144,9 +211,9 @@ scope 语义当前约定为：
 - 后台左侧导航只保留“系统插件”入口
 - 插件业务菜单通过系统插件列表或版主插件菜单返回
 
-## HookBus 与 Hook 预留
+## HookBus 与 Hook
 
-当前只定义内置插件扩展点，不做第三方动态执行机制，也不做 Go 动态插件加载。
+HookBus 完整化属于插件平台 P0 收口任务。当前只服务内置系统插件扩展点，不承载第三方动态执行；第三方插件执行、沙箱和动态加载进入 P3 评估，不是当前代码实现范围。
 
 建议 Hook 名称统一为：
 
@@ -164,14 +231,15 @@ scope 语义当前约定为：
 当前状态：
 
 - `HookDefinition` 是 manifest 声明层，描述插件希望参与的扩展点。
-- `Service` 已有最小内部 `HookBus`，当前调用点包括 `BeforeCreateContent`、`AfterCreateContent` 和 `AfterCreateComment`。
+- `Service` 已有最小内部 `HookBus`，当前调用点覆盖 `BeforeCreateContent`、`AfterCreateContent`、`BeforeUpdateContent`、`AfterUpdateContent`、`BeforeDeleteContent`、`AfterDeleteContent`、`AfterCreateComment`、`OnSearchIndex`、`OnNotificationBuild` 和 `OnSEOBuild`。
 - 当前没有第三方动态注册，也没有插件包运行时加载；HookBus 仅服务内置系统插件和后续 Core 内部扩展。
-- 目前尚未接入搜索索引、通知构建和 SEO 构建的完整 Hook 调度。
+- 搜索、通知和 SEO 当前是最小调用点：已能派发事件，但还没有复杂索引、通知模板或结构化数据插件处理器。
+- 完整插件业务处理器、统一失败日志、重试策略和跨 Store 事务边界属于 P0/P1 继续收口项，不能降级为低优先级优化。
 
 失败策略约定：
 
-- 关键 Hook：失败应阻断主流程并由调用方回滚，例如创建前/更新前校验类 Hook。
-- 非关键 Hook：失败记录日志，不阻断主流程，例如 SEO、搜索索引、通知构建类 Hook。
+- 关键 Hook：`BeforeCreateContent`、`BeforeUpdateContent`、`BeforeDeleteContent` 失败会阻断当前操作；当前没有跨 Store 事务回滚封装，后续如 Hook 写外部资源需单独设计事务边界。
+- 非关键 Hook：`AfterCreateContent`、`AfterUpdateContent`、`AfterDeleteContent`、`AfterCreateComment`、`OnSearchIndex`、`OnNotificationBuild`、`OnSEOBuild` 当前不阻断主流程；后续需要补统一日志和重试策略。
 
 ## 配置优先级
 
@@ -188,7 +256,7 @@ scope 语义当前约定为：
 - `plugins.config_json` 已落库，并可通过后台插件页和 `PUT /api/v1/admin/plugins/:code/config` 管理。
 - `community_plugins.config_json` 已落地，并可通过后台子站插件配置和 `PUT /api/v1/admin/communities/:id/plugins/:code/config` 管理。
 - API 返回的 `resolved_config` 以 `default`、`global`、`community`、`effective` 四段表达当前合并视图。
-- 当前只校验 JSON 格式，暂不做 `config_schema` 强校验。
+- 当前已完成 JSON 合法性校验；`config_schema` 基础校验是 P0 任务，后台表单自动渲染是 P1 任务。
 
 ## 两层插件状态
 
@@ -322,15 +390,13 @@ v1.3.1 采用稳妥策略：后台编辑已存在内容时禁止修改归属和�
 - 插件业务管理页通过系统插件列表进入，避免 qa / docs / wiki 直接散落到左侧导航。
 - 版主插件菜单必须同时满足全局 enabled、子站 enabled、当前用户是该子站版主、当前用户具备菜单权限。
 
-## 当前限制
+## 当前限制与阶段边界
 
-- 当前阶段不做插件市场。
-- 当前阶段不做插件包上传。
-- 当前阶段不做远程插件下载或在线更新。
-- 当前阶段不做 Go 动态插件加载。
-- 插件路由当前是注册描述 + Core 分发，不是真正动态运行时路由加载。
+- 插件市场、插件包上传、本地/远程安装、在线更新和 Go 动态插件加载不是当前 P0 代码实现范围；它们分别进入 P2 / P3 路线，后续推进时必须满足安全红线、权限隔离、migration 备份回滚和 SEO 不退化。
+- 插件路由当前是注册描述 + Core 分发；动态路由加载和动态执行环境进入 P2 / P3 路线评估。
 - Docs / Wiki 的专用编辑体验仍是部分完成。
 - 子站插件配置和排序已有 API 与最小后台 UI，但仍需继续做浏览器矩阵验收。
-- 插件治理审计当前通过 `admin_logs.target` 记录 `plugin_code`、`community_id` 与 old/new 摘要；尚未拆出独立 JSON diff 字段。
-- `plugins.config_json` 与 `community_plugins.config_json` 已可写，但当前仅做 JSON 格式校验，尚未做 schema 强校验。
-- HookBus 当前是最小内部调度器；尚未覆盖 Update/Delete/Search/Notification/SEO 等完整调用点，也尚未形成独立结构化日志策略。
+- 插件治理审计已新增 `admin_logs.old_value`、`admin_logs.new_value` 和 `admin_logs.metadata_json` 结构化字段，同时保留 `target` 文本摘要兼容旧展示；非插件历史日志可能仍没有结构化 diff。
+- 新装库已在 `db/mysql/001_schema.sql` 和 `internal/store/schema.go` 包含结构化审计字段；老库升级使用 `db/mysql/migrations/007_admin_logs_structured_plugin_audit.sql`，启动迁移辅助也会尝试补齐这些列。
+- `plugins.config_json` 与 `community_plugins.config_json` 已可写，但当前仅做 JSON 格式校验；`config_schema` 基础校验属于 P0，自动表单渲染属于 P1。
+- HookBus 当前是最小内部调度器；调用点已覆盖内容创建、更新、删除、评论、搜索、通知和 SEO，但搜索 / 通知 / SEO 仍是预留级事件派发，完整业务处理器和日志策略属于 P0/P1。

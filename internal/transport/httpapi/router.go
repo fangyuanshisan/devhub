@@ -1936,7 +1936,10 @@ func (s *Server) setAdminPluginStatus(c *gin.Context, status string) {
 		fail(c, http.StatusBadRequest, err.Error())
 		return
 	}
-	s.audit(c, "system", "更新插件状态", fmt.Sprintf("plugins#%s global_status:%s->%s", plugin.Code, before.Status, plugin.Status))
+	s.auditStructured(c, "system", "更新插件状态", fmt.Sprintf("plugins#%s", plugin.Code),
+		gin.H{"status": before.Status},
+		gin.H{"status": plugin.Status},
+		gin.H{"scope": "global", "plugin_code": plugin.Code, "operation": "plugin_status"})
 	c.JSON(http.StatusOK, plugin)
 }
 
@@ -1964,7 +1967,10 @@ func (s *Server) updateAdminPluginConfig(c *gin.Context) {
 		fail(c, http.StatusBadRequest, err.Error())
 		return
 	}
-	s.audit(c, "system", "更新插件全局配置", fmt.Sprintf("plugins#%s config_json:%q->%q", plugin.Code, before.ConfigJSON, plugin.ConfigJSON))
+	s.auditStructured(c, "system", "更新插件全局配置", fmt.Sprintf("plugins#%s", plugin.Code),
+		gin.H{"config_json": jsonAuditValue(before.ConfigJSON)},
+		gin.H{"config_json": jsonAuditValue(plugin.ConfigJSON)},
+		gin.H{"scope": "global", "plugin_code": plugin.Code, "operation": "plugin_config"})
 	c.JSON(http.StatusOK, plugin)
 }
 
@@ -2091,6 +2097,7 @@ func (s *Server) createAdminPost(c *gin.Context) {
 			featured := true
 			updateReq.IsFeatured = &featured
 		}
+		updateReq.ActorContext = s.actorContext(c)
 		if updated, err := s.svc.UpdateTopic(topic.ID, updateReq); err == nil {
 			topic = updated
 		}
@@ -2129,6 +2136,7 @@ func (s *Server) updateAdminPost(c *gin.Context) {
 		fail(c, http.StatusBadRequest, err.Error())
 		return
 	}
+	updateReq.ActorContext = s.actorContext(c)
 	updated, err := s.svc.UpdateTopic(id, updateReq)
 	if err != nil {
 		fail(c, http.StatusBadRequest, err.Error())
@@ -2393,7 +2401,10 @@ func (s *Server) setAdminCommunityPluginStatus(c *gin.Context, status string) {
 		fail(c, http.StatusBadRequest, err.Error())
 		return
 	}
-	s.audit(c, "system", "更新子站插件状态", fmt.Sprintf("community_plugins#%d:%s community_status:%s->%s", id, plugin.Code, beforeStatus, plugin.CommunityStatus))
+	s.auditStructured(c, "system", "更新子站插件状态", fmt.Sprintf("community_plugins#%d:%s", id, plugin.Code),
+		gin.H{"community_status": beforeStatus},
+		gin.H{"community_status": plugin.CommunityStatus},
+		gin.H{"scope": "community", "community_id": id, "plugin_code": plugin.Code, "operation": "community_plugin_status"})
 	c.JSON(http.StatusOK, plugin)
 }
 
@@ -2435,7 +2446,10 @@ func (s *Server) updateAdminCommunityPluginConfig(c *gin.Context) {
 		fail(c, http.StatusBadRequest, err.Error())
 		return
 	}
-	s.audit(c, "system", "更新子站插件配置", fmt.Sprintf("community_plugins#%d:%s config_json:%q->%q", id, plugin.Code, beforeConfig, plugin.ConfigJSON))
+	s.auditStructured(c, "system", "更新子站插件配置", fmt.Sprintf("community_plugins#%d:%s", id, plugin.Code),
+		gin.H{"config_json": jsonAuditValue(beforeConfig)},
+		gin.H{"config_json": jsonAuditValue(plugin.ConfigJSON)},
+		gin.H{"scope": "community", "community_id": id, "plugin_code": plugin.Code, "operation": "community_plugin_config"})
 	c.JSON(http.StatusOK, plugin)
 }
 
@@ -2464,7 +2478,11 @@ func (s *Server) reorderAdminCommunityPlugins(c *gin.Context) {
 		fail(c, http.StatusBadRequest, err.Error())
 		return
 	}
-	s.audit(c, "system", "子站插件排序", fmt.Sprintf("community_plugins#%d sort_order:%v->%v updated:%d", id, beforeCodes, uniqueStrings(req.Codes), updated))
+	afterCodes := uniqueStrings(req.Codes)
+	s.auditStructured(c, "system", "子站插件排序", fmt.Sprintf("community_plugins#%d", id),
+		gin.H{"codes": beforeCodes},
+		gin.H{"codes": afterCodes},
+		gin.H{"scope": "community", "community_id": id, "operation": "community_plugin_sort", "updated": updated})
 	c.JSON(http.StatusOK, gin.H{"updated": updated})
 }
 
@@ -3607,6 +3625,10 @@ func currentAdminContext(c *gin.Context) (domain.AdminContext, bool) {
 }
 
 func (s *Server) audit(c *gin.Context, logType, action, target string) {
+	s.auditStructured(c, logType, action, target, nil, nil, nil)
+}
+
+func (s *Server) auditStructured(c *gin.Context, logType, action, target string, oldValue, newValue, metadata any) {
 	adminCtx, ok := currentAdminContext(c)
 	if !ok {
 		return
@@ -3633,8 +3655,45 @@ func (s *Server) audit(c *gin.Context, logType, action, target string) {
 		Role:        adminCtx.CurrentUser.RoleCode,
 		Action:      action,
 		Target:      target,
+		OldValue:    auditJSON(oldValue),
+		NewValue:    auditJSON(newValue),
+		Metadata:    auditJSON(metadata),
 		IP:          c.ClientIP(),
 	})
+}
+
+func auditJSON(value any) string {
+	if value == nil {
+		return ""
+	}
+	if raw, ok := value.(string); ok {
+		raw = strings.TrimSpace(raw)
+		if raw == "" {
+			return ""
+		}
+		if json.Valid([]byte(raw)) {
+			return raw
+		}
+	}
+	buf, err := json.Marshal(value)
+	if err != nil {
+		return ""
+	}
+	return string(buf)
+}
+
+func jsonAuditValue(raw string) any {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return nil
+	}
+	if json.Valid([]byte(raw)) {
+		var value any
+		if err := json.Unmarshal([]byte(raw), &value); err == nil {
+			return value
+		}
+	}
+	return raw
 }
 
 func (s *Server) moderatorUserForAdmin(user domain.AuthUser) (domain.AuthUser, bool) {
@@ -5040,6 +5099,7 @@ func (s *Server) updateTopic(c *gin.Context) {
 		return
 	}
 
+	req.ActorContext = s.actorContext(c)
 	topic, err = s.svc.UpdateTopic(id, req)
 	if err != nil {
 		fail(c, http.StatusBadRequest, err.Error())

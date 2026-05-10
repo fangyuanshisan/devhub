@@ -45,16 +45,19 @@ DevHub 是一个面向多子站场景的通用开源社区程序，采用 Core +
 
 DevHub v1.3.1 是“插件化关键入口封口与权限校验补强版”。本版本基于 v1.3.0 Core + Plugins 架构，重点收口旧 `posts` 写入口、后台内容创建的插件 create 权限、后台内容更新的归属变更边界，以及 `post.create` 到 `core.topic.create` 的兼容说明。
 
+完整插件系统是当前最高优先级长期主线。Core 只保留通用社区底座，业务能力逐步通过插件声明、状态、权限、菜单、配置、Hook、migration、API、SEO、通知、搜索和测试矩阵扩展；插件包、插件市场、远程安装和动态加载进入后续阶段路线，但不是当前已实现能力。
+
 本版本范围和当前限制以 [v1.3.1 Release Notes](docs/releases/v1.3.1.md) 为准，长期滚动状态见 [项目进度](docs/PROJECT_PROGRESS.md)。
 
 历史版本说明见 `docs/README.md` 的“历史版本归档”。
 
 ## Roadmap
 
-- v1.3.x：插件系统验收、子站插件配置 UI 浏览器矩阵、细粒度插件权限矩阵
-- v1.4.0：Docs/Wiki 专用体验
-- v1.5.0：开源项目、招聘、AI 作品专属业务闭环
-- v1.6.0：生产化、migration、性能和 CI/CD
+- v1.3.x / P0：插件平台收口，包括 Manifest、Registry、ActorContext、权限码、两层插件状态、板块绑定、发布校验、菜单过滤、config_json、config_schema 基础校验、HookBus、结构化审计、migration 边界和测试矩阵。
+- v1.4.x / P1：插件平台增强，包括 schema 自动表单、插件 SDK 文档、插件生成模板、依赖和版本兼容检查、插件事件 / 通知模板、搜索索引和 SEO 扩展。
+- v1.5.x / P2：插件分发能力，包括本地插件包、安装、升级、soft uninstall、插件 migration runner、签名校验和插件市场雏形。
+- v2.x / P3：高级能力，包括远程插件市场、在线更新、动态加载能力评估、插件沙箱和插件权限隔离。
+- 业务插件专项：Docs/Wiki 专用体验、开源项目、招聘、AI 作品专属业务闭环在插件平台底座稳定后推进。
 
 ## 目录结构
 

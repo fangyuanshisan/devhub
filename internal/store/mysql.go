@@ -158,6 +158,9 @@ func (s *MySQLStore) migrateSiteScopedAudit() error {
 	_, _ = s.db.Exec(`ALTER TABLE activities ADD COLUMN metadata TEXT NULL AFTER remark`)
 	_, _ = s.db.Exec(`ALTER TABLE admin_logs ADD COLUMN site_key VARCHAR(64) NOT NULL DEFAULT 'portal' AFTER id`)
 	_, _ = s.db.Exec(`ALTER TABLE admin_logs ADD COLUMN role_code VARCHAR(64) NOT NULL DEFAULT '' AFTER actor`)
+	_, _ = s.db.Exec(`ALTER TABLE admin_logs ADD COLUMN old_value JSON NULL AFTER target`)
+	_, _ = s.db.Exec(`ALTER TABLE admin_logs ADD COLUMN new_value JSON NULL AFTER old_value`)
+	_, _ = s.db.Exec(`ALTER TABLE admin_logs ADD COLUMN metadata_json JSON NULL AFTER new_value`)
 	_, _ = s.db.Exec(`ALTER TABLE admin_logs ADD KEY idx_admin_logs_site_created (site_key, created_at)`)
 	_, _ = s.db.Exec(`UPDATE notifications SET site_key=scope WHERE scope NOT IN ('','all','portal') AND site_key='portal'`)
 	_, _ = s.db.Exec(`ALTER TABLE categories DROP INDEX uk_categories_slug`)
@@ -2594,7 +2597,7 @@ func (s *MySQLStore) UpdateAdminSettings(req domain.AdminSettings) domain.AdminS
 
 func (s *MySQLStore) AdminLogs(site string) []domain.AdminLog {
 	site = strings.TrimSpace(site)
-	query := `SELECT id,site_key,log_type,actor,actor_type,actor_id,role_code,action,target,ip,DATE_FORMAT(created_at,'%Y-%m-%d %H:%i:%s') FROM admin_logs`
+	query := `SELECT id,site_key,log_type,actor,actor_type,actor_id,role_code,action,target,COALESCE(CAST(old_value AS CHAR),''),COALESCE(CAST(new_value AS CHAR),''),COALESCE(CAST(metadata_json AS CHAR),''),ip,DATE_FORMAT(created_at,'%Y-%m-%d %H:%i:%s') FROM admin_logs`
 	args := []any{}
 	if site != "" && site != "portal" {
 		query += ` WHERE site_key=?`
@@ -2610,7 +2613,7 @@ func (s *MySQLStore) AdminLogs(site string) []domain.AdminLog {
 	users := s.AdminUsers()
 	for rows.Next() {
 		var l domain.AdminLog
-		if err := rows.Scan(&l.ID, &l.Site, &l.Type, &l.Actor, &l.ActorType, &l.ActorID, &l.Role, &l.Action, &l.Target, &l.IP, &l.CreatedAt); err == nil {
+		if err := rows.Scan(&l.ID, &l.Site, &l.Type, &l.Actor, &l.ActorType, &l.ActorID, &l.Role, &l.Action, &l.Target, &l.OldValue, &l.NewValue, &l.Metadata, &l.IP, &l.CreatedAt); err == nil {
 			out = append(out, enrichAdminLog(l, users))
 		}
 	}
@@ -2670,7 +2673,7 @@ func (s *MySQLStore) AdminLogsByFilter(filter domain.AdminLogFilter) ([]domain.A
 	_ = s.db.QueryRow(`SELECT COUNT(*) FROM admin_logs`+where, args...).Scan(&total)
 	page, pageSize := normalizePage(filter.Page, filter.PageSize)
 	offset := (page - 1) * pageSize
-	rows, err := s.db.Query(`SELECT id,site_key,log_type,actor,actor_type,actor_id,role_code,action,target,ip,DATE_FORMAT(created_at,'%Y-%m-%d %H:%i:%s') FROM admin_logs`+where+` ORDER BY id DESC LIMIT ? OFFSET ?`, append(append([]any{}, args...), pageSize, offset)...)
+	rows, err := s.db.Query(`SELECT id,site_key,log_type,actor,actor_type,actor_id,role_code,action,target,COALESCE(CAST(old_value AS CHAR),''),COALESCE(CAST(new_value AS CHAR),''),COALESCE(CAST(metadata_json AS CHAR),''),ip,DATE_FORMAT(created_at,'%Y-%m-%d %H:%i:%s') FROM admin_logs`+where+` ORDER BY id DESC LIMIT ? OFFSET ?`, append(append([]any{}, args...), pageSize, offset)...)
 	if err != nil {
 		return []domain.AdminLog{}, 0
 	}
@@ -2678,7 +2681,7 @@ func (s *MySQLStore) AdminLogsByFilter(filter domain.AdminLogFilter) ([]domain.A
 	out := []domain.AdminLog{}
 	for rows.Next() {
 		var l domain.AdminLog
-		if err := rows.Scan(&l.ID, &l.Site, &l.Type, &l.Actor, &l.ActorType, &l.ActorID, &l.Role, &l.Action, &l.Target, &l.IP, &l.CreatedAt); err == nil {
+		if err := rows.Scan(&l.ID, &l.Site, &l.Type, &l.Actor, &l.ActorType, &l.ActorID, &l.Role, &l.Action, &l.Target, &l.OldValue, &l.NewValue, &l.Metadata, &l.IP, &l.CreatedAt); err == nil {
 			out = append(out, enrichAdminLog(l, users))
 		}
 	}
@@ -2940,15 +2943,30 @@ func (s *MySQLStore) appendLogForSite(site, logType, actor, role, action, target
 		Target: target,
 		IP:     ip,
 	}, s.AdminUsers())
-	_, _ = s.db.Exec(`INSERT INTO admin_logs (site_key,log_type,actor,actor_type,actor_id,role_code,action,target,ip,created_at) VALUES (?,?,?,?,?,?,?,?,?,NOW())`,
-		log.Site, log.Type, log.Actor, log.ActorType, log.ActorID, log.Role, log.Action, log.Target, log.IP)
+	_, _ = s.db.Exec(`INSERT INTO admin_logs (site_key,log_type,actor,actor_type,actor_id,role_code,action,target,old_value,new_value,metadata_json,ip,created_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,NOW())`,
+		log.Site, log.Type, log.Actor, log.ActorType, log.ActorID, log.Role, log.Action, log.Target, mysqlJSONArg(log.OldValue), mysqlJSONArg(log.NewValue), mysqlJSONArg(log.Metadata), log.IP)
 }
 
 func (s *MySQLStore) AppendAdminLog(log domain.AdminLog) {
 	log.Site = normalizeSiteScope(log.Site)
 	log = enrichAdminLog(log, s.AdminUsers())
-	_, _ = s.db.Exec(`INSERT INTO admin_logs (site_key,log_type,actor,actor_type,actor_id,role_code,action,target,ip,created_at) VALUES (?,?,?,?,?,?,?,?,?,NOW())`,
-		log.Site, log.Type, log.Actor, log.ActorType, log.ActorID, log.Role, log.Action, log.Target, log.IP)
+	_, _ = s.db.Exec(`INSERT INTO admin_logs (site_key,log_type,actor,actor_type,actor_id,role_code,action,target,old_value,new_value,metadata_json,ip,created_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,NOW())`,
+		log.Site, log.Type, log.Actor, log.ActorType, log.ActorID, log.Role, log.Action, log.Target, mysqlJSONArg(log.OldValue), mysqlJSONArg(log.NewValue), mysqlJSONArg(log.Metadata), log.IP)
+}
+
+func mysqlJSONArg(raw string) any {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return nil
+	}
+	if json.Valid([]byte(raw)) {
+		return json.RawMessage(raw)
+	}
+	encoded, err := json.Marshal(raw)
+	if err != nil {
+		return nil
+	}
+	return json.RawMessage(encoded)
 }
 
 type scanner interface {

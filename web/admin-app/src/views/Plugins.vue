@@ -50,8 +50,9 @@
       <el-descriptions-item label="content_types">{{ (manifestTarget?.content_types || []).join(', ') || '-' }}</el-descriptions-item>
       <el-descriptions-item label="permissions">{{ (manifestTarget?.permissions || []).map((item) => item.code).join(', ') || '-' }}</el-descriptions-item>
     </el-descriptions>
+    <el-alert title="config_schema 当前用于声明展示和后续表单生成；保存配置时仅校验 JSON 格式，暂不做 schema 强校验。" type="info" show-icon :closable="false" class="mb" />
     <el-form label-width="110px" class="manifest-form">
-      <el-form-item label="config_schema">
+      <el-form-item label="config_schema（展示）">
         <el-input :model-value="formatJSON(manifestTarget?.config_schema)" type="textarea" :rows="8" readonly />
       </el-form-item>
       <el-form-item label="resolved_config">
@@ -70,7 +71,7 @@
   </el-dialog>
 
   <el-dialog v-model="configDialog" :title="`${configTarget?.name || ''} 全局配置`" width="640px">
-    <el-alert title="全局配置会作为默认配置和子站配置之间的中间层，子站 config_json 优先级更高。" type="info" show-icon :closable="false" class="mb" />
+    <el-alert title="全局配置会作为默认配置和子站配置之间的中间层，子站 config_json 优先级更高；当前仅校验 JSON 格式，暂不做 config_schema 强校验。" type="info" show-icon :closable="false" class="mb" />
     <el-input v-model="configText" type="textarea" :rows="10" placeholder="{}" />
     <template #footer>
       <el-button @click="configDialog = false">取消</el-button>

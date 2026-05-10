@@ -149,6 +149,7 @@
 
   <el-dialog v-model="pluginConfigDialog" :title="`${pluginConfigTarget?.name || ''} 配置`" width="640px">
     <el-form label-width="110px">
+      <el-alert title="当前 config_schema 仅用于声明展示；这里保存时只校验 config_json 是合法 JSON，暂不做 schema 强校验。" type="info" show-icon :closable="false" class="mb" />
       <el-form-item label="config_json">
         <el-input v-model="pluginConfigText" type="textarea" :rows="10" placeholder="{}" />
       </el-form-item>

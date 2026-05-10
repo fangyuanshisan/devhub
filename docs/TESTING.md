@@ -23,6 +23,7 @@
 - `GET /api/v1/plugins` 和 `GET /api/v1/communities/:slug/plugins` 不暴露 `config_json` / `resolved_config`。
 - `GET /api/v1/admin/plugins` 返回 `qa`、`docs`、`wiki` 的全局状态。
 - `PUT /api/v1/admin/plugins/:code/config` 可以保存合法 JSON，非法 JSON 应返回 400，并写入审计日志。
+- 插件启停、全局配置、子站启停、子站配置和子站排序审计日志应包含 `old_value`、`new_value`、`metadata_json` 结构化字段。
 - `POST /api/v1/admin/plugins/:code/disable` 可以禁用全局插件，并写入审计日志。
 - `POST /api/v1/admin/plugins/:code/enable` 可以启用全局插件，并写入审计日志。
 - `GET /api/v1/communities/:slug/plugins` 只返回该子站全局 enabled 且子站 enabled 的插件。
@@ -93,9 +94,17 @@
 后台与版主体验：
 
 - `/admin-next/plugins` 可查看插件 code/name/version/status/content_types/permissions。
-- `/admin-next/plugins` 支持查看插件声明与 `config_schema`。
+- `/admin-next/plugins` 支持查看插件声明与 `config_schema`，并明确提示当前 `config_schema` 仅展示 / 预留，保存配置时只做 JSON 合法性校验。
 - `/admin-next/communities` 的插件配置抽屉支持启用 / 禁用、`config_json` 编辑和数字排序。
 - `/moderator` 可按当前子站显示插件治理入口；全局 disabled 或子站 disabled 插件不显示。
+
+HookBus 最小检查：
+
+- 创建 Topic 时触发 `BeforeCreateContent` 和 `AfterCreateContent`。
+- 更新 Topic、置顶、精选、隐藏 / 恢复、评论锁时触发 `BeforeUpdateContent` 和 `AfterUpdateContent`。
+- 删除 Topic 时触发 `BeforeDeleteContent` 和 `AfterDeleteContent`。
+- 创建评论时触发 `AfterCreateComment`。
+- 搜索、通知、Topic SEO 读取分别触发 `OnSearchIndex`、`OnNotificationBuild`、`OnSEOBuild`；当前只要求事件可派发，不要求存在复杂插件处理器。
 
 SEO 源码检查：
 
@@ -108,9 +117,9 @@ curl -s http://127.0.0.1:8090/robots.txt
 ## 已实现但后续补测
 
 - 插件全局 `config_json` 和子站 `config_json` 接口已有自动化覆盖，仍需要真实 admin token 做联调补测。
-- 插件声明里的 `config_schema`、`dependencies`、`min_core_version` 和 `hooks` 已有结构测试，仍需要继续补测前后台展示或消费场景。
+- 插件声明里的 `config_schema`、`dependencies`、`min_core_version` 和 `hooks` 已有结构测试，仍需要继续补测前后台展示或消费场景；`config_schema` 强校验当前不作为通过项。
 - 子站插件排序接口已有自动化覆盖，仍需要真实 admin token 和浏览器做联调补测。
-- 后台子站插件配置 UI 的 `config_json` 编辑、JSON 校验、数字排序、禁用确认和保存后刷新已经有最小实现，需要继续做浏览器矩阵验收。
+- 后台子站插件配置 UI 的 `config_json` 编辑、JSON 校验、数字排序、禁用确认和保存后刷新已经有最小实现；本仓库当前未引入自动浏览器测试，需要按下方手工矩阵继续验收。
 - 前台发布页按子站插件状态收口需要浏览器验收。
 - 子站导航按插件状态显示需要继续做多子站浏览器验收。
 - 版主菜单按子站插件状态和权限过滤需要多子站、多版主账号矩阵补测。
@@ -120,11 +129,43 @@ curl -s http://127.0.0.1:8090/robots.txt
 
 - 更细粒度的权限体系补测：例如 Core 兼容类型 `article` / `news` 的细分权限码、按子站/板块维度配置权限矩阵与更明确的错误码（当前发布链路已实现最小权限码校验）。
 - Projects / Jobs / AI Works 的专属扩展表、专属管理页和完整业务流程。
-- HookBus 的完整调用点：Update/Delete/Search/Notification/SEO，以及关键 Hook 回滚 / 非关键 Hook 记录日志的完整执行策略。
-- `config_schema` 强校验和配置表单自动渲染。
+- P0：HookBus 的完整业务处理器、关键 Hook 事务回滚、非关键 Hook 统一错误日志和重试策略。
+- P0：`config_schema` 基础强校验。
+- P1：`config_schema` 配置表单自动渲染。
 - Docs 文档树专用编辑 UI、拖拽排序和批量排序。
 - Wiki 版本回滚和协作编辑交互。
 - QA 取消采纳最佳答案。
+
+## 完整插件系统平台验收矩阵
+
+P0 已实现或必测：
+
+- Manifest 字段一致性：`code/name/version/is_system/content_types/permissions/menus/routes/config_schema/min_core_version/hooks`。
+- `content_type -> plugin_code` 映射：`question/docs/wiki_page/project/job/ai_work` 均映射到对应插件，`doc/wiki` 能归一。
+- 插件全局 enabled / disabled：全局 disabled 后不能新发布对应内容，历史详情仍可访问。
+- 子站 enabled / disabled：子站 disabled 后仅该子站不能新发布对应内容，其他子站不受影响。
+- 板块绑定：`categories.plugin_code` 与 `allowed_content_types` 不匹配时拒绝发布。
+- 权限码校验：发布时使用 ContentTypeDefinition 中的 create_permission。
+- ActorContext 来源可信：由服务端 token / admin / moderator scope 计算，客户端请求体不能伪造。
+- 菜单过滤：前台、后台、版主菜单按全局状态、子站状态、权限和 scope 过滤。
+- `config_json` 合法性：非法 JSON 保存失败。
+- `admin_logs` old/new/metadata：插件启停、配置、排序写入 `old_value`、`new_value`、`metadata_json`。
+- disabled 插件历史内容访问：`/topics/:id` 不返回 404。
+- `/topics/:id` SEO 动态 HTML：title、description、h1、article、标签、JSON-LD 不丢失。
+- migration 新装 / 老库升级：`001_schema.sql`、`internal/store/schema.go` 和 migrations 字段口径一致。
+
+P0 待实现 / 待补测：
+
+- `config_schema` 基础校验：至少覆盖 `type`、`enum`、`required`。
+- HookBus 业务处理器：Create / Update / Delete / Search / Notification / SEO 不仅能派发事件，还要具备插件处理器、错误日志和失败策略验收。
+- 插件 migration runner：当前只有 SQL 文件和启动辅助，尚未形成完整 runner。
+- 完整真实 token 验收矩阵：全局禁用、子站禁用、跨子站发布、版主菜单、历史 SEO。
+
+P1 / P2 / P3 后续验收：
+
+- P1：schema 自动表单、插件 SDK 文档、插件生成模板、依赖检查、版本兼容检查、插件搜索 / 通知 / SEO 扩展。
+- P2：本地插件包、插件安装、插件升级、soft uninstall、插件 migration runner、插件包签名校验、插件市场雏形。
+- P3：远程插件市场、在线更新、动态加载能力评估、插件沙箱、插件权限隔离。
 
 ## 必要历史回归
 
@@ -135,3 +176,16 @@ curl -s http://127.0.0.1:8090/robots.txt
 - disabled / merged 标签不进入 sitemap。
 - `sites/posts` 兼容 API 继续可用。
 - 隐藏 Topic 不进入 sitemap，隐藏详情页带 `noindex,follow`。
+
+## 子站插件配置 UI 手工验收矩阵
+
+当前没有自动浏览器测试 runner，以下步骤需要在 `/admin-next/communities` 手工执行，并把结果回填到当前任务验收记录：
+
+1. 使用后台管理员登录 `/admin-next`，进入“子站管理”。
+2. 打开任一子站的“插件管理 / 插件配置”抽屉，确认列表展示 `code`、名称、全局状态、子站状态、内容类型和 `sort_order`。
+3. 禁用 `qa`，确认出现“只影响新发布、导航、菜单和管理入口，不影响历史内容访问”的确认文案，保存后刷新列表仍为 disabled。
+4. 启用 `qa`，确认全局 enabled 时可恢复子站 enabled；若先在全局插件页禁用 `qa`，再回到子站启用应失败。
+5. 打开“配置”，输入合法 JSON，例如 `{"mode":"test"}`，保存后刷新列表，确认 `config_json` 持久化。
+6. 再次打开“配置”，输入非法 JSON，例如 `{bad`，确认前端阻止保存并提示 `config_json 不是合法 JSON`。
+7. 修改数字排序或使用上移 / 下移，点击“保存排序”，刷新后确认顺序保持。
+8. 到对应子站前台和发布页确认禁用插件入口不展示；直接强传对应 `content_type` 发布应由接口拒绝。

@@ -513,6 +513,9 @@ type AdminLog struct {
 	TargetType  string `json:"target_type"`
 	TargetID    int64  `json:"target_id"`
 	CommunityID int64  `json:"community_id"`
+	OldValue    string `json:"old_value,omitempty"`
+	NewValue    string `json:"new_value,omitempty"`
+	Metadata    string `json:"metadata_json,omitempty"`
 	IP          string `json:"ip"`
 	CreatedAt   string `json:"created_at"`
 }
@@ -1116,6 +1119,8 @@ type UpdateTopicRequest struct {
 	IsSolved      *bool     `json:"is_solved"`
 	CommentLocked *bool     `json:"comment_locked"`
 	Tags          *[]string `json:"tags"`
+
+	ActorContext ActorContext `json:"-"`
 }
 
 // ToggleReactionRequest 是切换点赞/收藏/关注的请求体。

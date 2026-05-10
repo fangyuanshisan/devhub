@@ -65,7 +65,7 @@
 - 影响：禁用全局插件后，所有子站都不能继续发布该插件内容；已有内容详情不应受影响。
 - 返回：更新后的插件对象。
 - 审计：写入插件状态变更审计日志。
-  当前通过 `admin_logs.target` 记录 `plugin_code` 与 old/new 状态摘要。
+  当前同时写入 `admin_logs.target` 文本摘要和 `old_value` / `new_value` / `metadata_json` 结构化字段。
 
 常见错误：
 
@@ -91,7 +91,7 @@
 - 返回：更新后的插件对象，包含 `config_json` 和 `resolved_config`。
 - 校验：当前只校验 `config_json` 是合法 JSON，暂不做 `config_schema` 强校验。
 - 审计：写入插件全局配置审计日志。
-  当前通过 `admin_logs.target` 记录 `plugin_code` 与 old/new 配置摘要。
+  当前同时写入 `admin_logs.target` 文本摘要和 `old_value` / `new_value` / `metadata_json` 结构化字段。
 
 常见错误：
 
@@ -130,7 +130,7 @@
 - 规则：全局 disabled 插件不能被子站启用。
 - 返回：更新后的插件对象。
 - 审计：写入子站插件状态变更审计日志。
-  当前通过 `admin_logs.target` 记录 `community_id`、`plugin_code` 与 old/new 状态摘要。
+  当前同时写入 `admin_logs.target` 文本摘要和 `old_value` / `new_value` / `metadata_json` 结构化字段。
 
 `POST /api/v1/admin/communities/:id/plugins/:code/disable`
 
@@ -139,7 +139,7 @@
 - 影响：只影响该子站的新发布、导航、菜单和管理入口，不影响历史内容访问。
 - 返回：更新后的插件对象。
 - 审计：写入子站插件状态变更审计日志。
-  当前通过 `admin_logs.target` 记录 `community_id`、`plugin_code` 与 old/new 状态摘要。
+  当前同时写入 `admin_logs.target` 文本摘要和 `old_value` / `new_value` / `metadata_json` 结构化字段。
 
 `PUT /api/v1/admin/communities/:id/plugins/:code/config`
 
@@ -156,8 +156,9 @@
 ```
 
 - 返回：更新后的插件对象。
+- 校验：当前只校验 `config_json` 是合法 JSON，暂不做 `config_schema` 强校验。
 - 审计：写入子站插件配置审计日志。
-  当前通过 `admin_logs.target` 记录 `community_id`、`plugin_code` 与 old/new 配置摘要。
+  当前同时写入 `admin_logs.target` 文本摘要和 `old_value` / `new_value` / `metadata_json` 结构化字段。
 
 `PUT /api/v1/admin/communities/:id/plugins/sort`
 
@@ -180,7 +181,7 @@
 ```
 
 - 审计：写入子站插件排序审计日志。
-  当前通过 `admin_logs.target` 记录 `community_id` 与排序前后摘要。
+  当前同时写入 `admin_logs.target` 文本摘要和 `old_value` / `new_value` / `metadata_json` 结构化字段。
 
 常见错误：
 
@@ -311,10 +312,11 @@
 
 当前说明：
 
-- 这是内置系统插件规范，不是插件市场，也不是第三方动态插件机制。
-- `HookDefinition` 当前是扩展点声明；`Service` 已有最小内部 HookBus，当前调用点覆盖 `BeforeCreateContent`、`AfterCreateContent` 和 `AfterCreateComment`，尚未覆盖 Update/Delete/Search/Notification/SEO 全链路。
+- 这是当前内置系统插件规范；完整插件系统是最高优先级长期主线。插件市场、插件包、远程安装、在线更新和动态加载进入 P2 / P3 路线，但不是当前真实 API。
+- `HookDefinition` 当前是扩展点声明；`Service` 已有最小内部 HookBus，当前调用点覆盖 `BeforeCreateContent`、`AfterCreateContent`、`BeforeUpdateContent`、`AfterUpdateContent`、`BeforeDeleteContent`、`AfterDeleteContent`、`AfterCreateComment`、`OnSearchIndex`、`OnNotificationBuild` 和 `OnSEOBuild`。
+- Search / Notification / SEO 当前只是最小事件派发，尚未实现复杂索引、通知模板或结构化 SEO 插件处理器。
 - 配置优先级按“默认配置 -> `plugins.config_json` -> `community_plugins.config_json`”合并；API 用 `resolved_config.default/global/community/effective` 表达合并视图。
-- 当前配置只校验 JSON 格式，暂不做 `config_schema` 强校验。
+- 当前配置已完成 JSON 合法性校验；`config_schema` 基础校验是 P0 插件平台任务，后台自动表单渲染是 P1 插件平台任务。
 
 ## 当前真实 API 索引
 
@@ -439,6 +441,14 @@ POST /api/v1/admin/comments/batch
 GET  /api/v1/admin/audit-logs
 ```
 
+`GET /api/v1/admin/audit-logs` 返回的插件治理日志会包含结构化字段：
+
+- `old_value`：操作前 JSON diff，例如旧状态或旧配置。
+- `new_value`：操作后 JSON diff，例如新状态或新配置。
+- `metadata_json`：操作上下文，例如 `plugin_code`、`community_id`、`operation`。
+
+说明：非插件历史日志可能仍只有 `target` 文本摘要。
+
 版主工作台：
 
 ```http
@@ -493,7 +503,11 @@ GET /robots.txt
 
 以下内容不是当前真实可用 API：
 
-- 插件市场、插件包上传、远程插件安装、在线更新和 Go 动态插件加载。
+- P0：`config_schema` 基础校验 API / 错误结构。
+- P0/P1：HookBus 业务处理器、统一错误日志、插件搜索 / 通知 / SEO 扩展 API。
+- P1：插件 SDK / 开发规范、插件生成模板、插件依赖检查、插件版本兼容检查。
+- P2：本地插件包、插件安装、插件升级、soft uninstall、插件 migration runner、插件包签名校验和插件市场雏形。
+- P3：远程插件市场、在线更新、动态加载能力评估、插件沙箱和插件权限隔离。
 - 插件权限配置 API、按子站 / 板块维护细粒度权限矩阵，以及 Core 兼容类型 `article/news` 的长期权限收口。
 - Docs 文档树专用编辑 API 的完整形态。
 - Wiki 版本历史、版本对比和回滚 API 的完整形态。

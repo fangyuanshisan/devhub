@@ -158,11 +158,18 @@ func New(repo Repository) *Service {
 
 // HookEvent 表示内置插件 HookBus 的运行时事件。
 type HookEvent struct {
-	Name       string
-	PluginCode string
-	Topic      *domain.Topic
-	Request    *domain.CreateTopicRequest
-	Actor      domain.ActorContext
+	Name          string
+	PluginCode    string
+	Topic         *domain.Topic
+	PreviousTopic *domain.Topic
+	Request       *domain.CreateTopicRequest
+	UpdateRequest *domain.UpdateTopicRequest
+	Comment       *domain.Comment
+	SearchRequest *domain.SearchRequest
+	SearchResults []domain.Topic
+	Notification  *domain.Notification
+	SEOHTML       string
+	Actor         domain.ActorContext
 }
 
 // HookHandler 是内置插件 HookBus 的处理函数。
@@ -724,7 +731,11 @@ func (s *Service) AppendAdminLog(log domain.AdminLog) { s.repo.AppendAdminLog(lo
 
 // PushNotification 创建一条站内通知。
 func (s *Service) PushNotification(req domain.PushNotificationRequest) *domain.Notification {
-	return s.repo.PushNotification(req)
+	notice := s.repo.PushNotification(req)
+	if notice != nil {
+		_ = s.hooks.Dispatch(HookEvent{Name: "OnNotificationBuild", Notification: notice})
+	}
+	return notice
 }
 
 // Notices 返回当前用户的通知列表。
@@ -805,7 +816,11 @@ func (s *Service) TopicsByFilter(communityID, categoryID int64, contentType, sor
 
 // TopicByID 获取主题详情。
 func (s *Service) TopicByID(id int64, increaseView bool) (*domain.Topic, error) {
-	return s.repo.TopicByID(id, increaseView)
+	topic, err := s.repo.TopicByID(id, increaseView)
+	if err == nil && topic != nil {
+		_ = s.hooks.Dispatch(HookEvent{Name: "OnSEOBuild", PluginCode: topic.PluginCode, Topic: topic})
+	}
+	return topic, err
 }
 
 // CreateTopic 创建主题。
@@ -840,17 +855,44 @@ func (s *Service) CreateTopic(req domain.CreateTopicRequest) (*domain.Topic, err
 
 // UpdateTopic 更新主题。
 func (s *Service) UpdateTopic(id int64, req domain.UpdateTopicRequest) (*domain.Topic, error) {
-	return s.repo.UpdateTopic(id, req)
+	before, _ := s.repo.TopicByID(id, false)
+	pluginCode := ""
+	if before != nil {
+		pluginCode = before.PluginCode
+	}
+	if err := s.hooks.Dispatch(HookEvent{Name: "BeforeUpdateContent", PluginCode: pluginCode, PreviousTopic: before, UpdateRequest: &req, Actor: req.ActorContext}); err != nil {
+		return nil, err
+	}
+	topic, err := s.repo.UpdateTopic(id, req)
+	if err != nil {
+		return nil, err
+	}
+	_ = s.hooks.Dispatch(HookEvent{Name: "AfterUpdateContent", PluginCode: topic.PluginCode, Topic: topic, PreviousTopic: before, Actor: req.ActorContext})
+	return topic, nil
 }
 
 // DeleteTopic 删除主题。
 func (s *Service) DeleteTopic(id int64) bool {
-	return s.repo.DeleteTopic(id)
+	before, _ := s.repo.TopicByID(id, false)
+	pluginCode := ""
+	if before != nil {
+		pluginCode = before.PluginCode
+	}
+	if err := s.hooks.Dispatch(HookEvent{Name: "BeforeDeleteContent", PluginCode: pluginCode, PreviousTopic: before}); err != nil {
+		return false
+	}
+	deleted := s.repo.DeleteTopic(id)
+	if deleted {
+		_ = s.hooks.Dispatch(HookEvent{Name: "AfterDeleteContent", PluginCode: pluginCode, PreviousTopic: before})
+	}
+	return deleted
 }
 
 // SearchTopics 搜索主题。
 func (s *Service) SearchTopics(req domain.SearchRequest) ([]domain.Topic, int) {
-	return s.repo.SearchTopics(req)
+	topics, total := s.repo.SearchTopics(req)
+	_ = s.hooks.Dispatch(HookEvent{Name: "OnSearchIndex", SearchRequest: &req, SearchResults: topics})
+	return topics, total
 }
 
 // ToggleReaction 切换点赞。
@@ -970,19 +1012,71 @@ func (s *Service) DeleteCommunityModerator(id int64) bool {
 }
 
 func (s *Service) SetTopicFeatured(id int64, featured bool) (*domain.Topic, error) {
-	return s.repo.SetTopicFeatured(id, featured)
+	before, _ := s.repo.TopicByID(id, false)
+	pluginCode := ""
+	if before != nil {
+		pluginCode = before.PluginCode
+	}
+	if err := s.hooks.Dispatch(HookEvent{Name: "BeforeUpdateContent", PluginCode: pluginCode, PreviousTopic: before}); err != nil {
+		return nil, err
+	}
+	topic, err := s.repo.SetTopicFeatured(id, featured)
+	if err != nil {
+		return nil, err
+	}
+	_ = s.hooks.Dispatch(HookEvent{Name: "AfterUpdateContent", PluginCode: topic.PluginCode, Topic: topic, PreviousTopic: before})
+	return topic, nil
 }
 
 func (s *Service) SetTopicPinned(id int64, pinned bool) (*domain.Topic, error) {
-	return s.repo.SetTopicPinned(id, pinned)
+	before, _ := s.repo.TopicByID(id, false)
+	pluginCode := ""
+	if before != nil {
+		pluginCode = before.PluginCode
+	}
+	if err := s.hooks.Dispatch(HookEvent{Name: "BeforeUpdateContent", PluginCode: pluginCode, PreviousTopic: before}); err != nil {
+		return nil, err
+	}
+	topic, err := s.repo.SetTopicPinned(id, pinned)
+	if err != nil {
+		return nil, err
+	}
+	_ = s.hooks.Dispatch(HookEvent{Name: "AfterUpdateContent", PluginCode: topic.PluginCode, Topic: topic, PreviousTopic: before})
+	return topic, nil
 }
 
 func (s *Service) SetTopicStatus(id int64, status int) (*domain.Topic, error) {
-	return s.repo.SetTopicStatus(id, status)
+	before, _ := s.repo.TopicByID(id, false)
+	pluginCode := ""
+	if before != nil {
+		pluginCode = before.PluginCode
+	}
+	if err := s.hooks.Dispatch(HookEvent{Name: "BeforeUpdateContent", PluginCode: pluginCode, PreviousTopic: before}); err != nil {
+		return nil, err
+	}
+	topic, err := s.repo.SetTopicStatus(id, status)
+	if err != nil {
+		return nil, err
+	}
+	_ = s.hooks.Dispatch(HookEvent{Name: "AfterUpdateContent", PluginCode: topic.PluginCode, Topic: topic, PreviousTopic: before})
+	return topic, nil
 }
 
 func (s *Service) SetTopicCommentLocked(id int64, locked bool) (*domain.Topic, error) {
-	return s.repo.SetTopicCommentLocked(id, locked)
+	before, _ := s.repo.TopicByID(id, false)
+	pluginCode := ""
+	if before != nil {
+		pluginCode = before.PluginCode
+	}
+	if err := s.hooks.Dispatch(HookEvent{Name: "BeforeUpdateContent", PluginCode: pluginCode, PreviousTopic: before}); err != nil {
+		return nil, err
+	}
+	topic, err := s.repo.SetTopicCommentLocked(id, locked)
+	if err != nil {
+		return nil, err
+	}
+	_ = s.hooks.Dispatch(HookEvent{Name: "AfterUpdateContent", PluginCode: topic.PluginCode, Topic: topic, PreviousTopic: before})
+	return topic, nil
 }
 
 func (s *Service) SetCommentStatus(id int64, status string) (*domain.Comment, error) {
@@ -1004,6 +1098,6 @@ func (s *Service) CreateCommentWithRequest(topicID int64, req domain.CreateComme
 	if err != nil {
 		return nil, err
 	}
-	_ = s.hooks.Dispatch(HookEvent{Name: "AfterCreateComment", Topic: &domain.Topic{ID: topicID}})
+	_ = s.hooks.Dispatch(HookEvent{Name: "AfterCreateComment", Topic: &domain.Topic{ID: topicID}, Comment: comment})
 	return comment, nil
 }

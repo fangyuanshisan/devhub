@@ -6,6 +6,7 @@ DevHub v1.3.1 is the plugin-entry hardening and permission-boundary release.
 
 ### Changed
 
+- Reframed the complete plugin system as the highest-priority long-term roadmap, split into P0 platform closure, P1 platform enhancements, P2 plugin distribution, and P3 advanced runtime capabilities.
 - Sealed `Service.CreatePost` as a legacy/deprecated business entry so normal writes must go through `Service.CreateTopic` and plugin publishing validation.
 - Kept `/api/v1/posts` write endpoints deprecated with `410 Gone`; read compatibility remains.
 - Hardened `POST /api/v1/admin/posts` with dynamic plugin create permission checks on top of the legacy base `post.create` gate.
@@ -15,17 +16,19 @@ DevHub v1.3.1 is the plugin-entry hardening and permission-boundary release.
 - Standardized plugin platform contracts with manifest/content-type/permission/menu/route/hook structure tests.
 - Added trusted server-side `ActorContext` injection for topic creation instead of trusting request-body permissions.
 - Added writable global `plugins.config_json`, admin config API, config merge view, and public API config scrubbing.
-- Added a minimal internal HookBus with create-content and create-comment call points for built-in plugin extensions.
+- Expanded the minimal internal HookBus call points to content create/update/delete, comment creation, search, notification, and SEO events.
+- Added structured plugin audit fields (`old_value`, `new_value`, `metadata_json`) and writes for plugin status/config/sort governance actions.
 - Made the admin plugin page consume manifest-declared admin menu paths instead of hardcoded plugin route maps.
 - Added tests for plugin mappings, config JSON validation, public config hiding, plugin audit logs, and moderator plugin-menu scope filtering.
 
 ### Known Limitations
 
 - `post.create` remains a compatibility bridge for `core.topic.create`; it is not the long-term primary permission.
-- HookBus is still minimal and does not yet cover update/delete/search/notification/SEO extension points.
+- HookBus is still minimal: search/notification/SEO currently dispatch events but do not yet have full plugin business handlers, retry, or unified error logging.
 - `plugins.config_json` and `community_plugins.config_json` validate JSON syntax only; `config_schema` enforcement remains follow-up work.
-- Plugin audit old/new diffs are still summarized in `admin_logs.target` text, not structured metadata.
+- Non-plugin historical audit logs may still only have `admin_logs.target` text summaries.
 - `project`, `job`, and `ai_work` are plugin-owned but still lack dedicated extension tables and full business workflows.
+- Plugin packages, marketplace, remote install/update, and dynamic loading are not implemented in v1.3.1; they are staged as P2/P3 plugin-platform roadmap items rather than permanent exclusions.
 
 ## v1.3.0
 
@@ -52,8 +55,8 @@ Current status: v1.3.0 is code-level integrated for built-in `qa`, `docs`, `wiki
 
 ### Known Limitations
 
-- Plugin marketplace, package upload, and remote update are still out of scope.
-- Plugin route loading is currently registry metadata plus Core dispatch, not a dynamic module loader.
+- Plugin marketplace, package upload, remote update, and dynamic loading are not v1.3.0 implementation scope; they are staged in the longer plugin-platform roadmap.
+- Plugin route loading is currently registry metadata plus Core dispatch; dynamic route/runtime loading is a later-stage platform capability.
 - Dedicated Docs tree editing UI and Wiki collaboration / rollback UI remain follow-up work.
 - Community plugin `config_json` and sort have a minimal admin UI, but still need full browser matrix acceptance and stronger product polish.
 - Publishing currently enforces minimal permission-code checks for plugin-owned types. Core-compatible `article` and `news` still use a coarse permission (`core.topic.create`, compatible with legacy `post.create`) and do not yet support fine-grained per-type permission matrices.

@@ -14,6 +14,8 @@ Core 保留用户、认证、子站、板块、通用内容、评论、标签、
 
 当前实现仍保留历史表名以保证兼容：`topics` 是当前通用内容表，`categories` 是当前通用板块表。
 
+当前最高优先级长期主线是完成完整插件系统。DevHub 的长期目标不是只支持内置 `qa/docs/wiki`，而是形成完整插件平台：Core 只提供通用社区底座，业务能力通过插件声明、插件状态、插件权限、插件菜单、插件配置、插件 Hook、插件 migration、插件 API、插件 SEO、插件通知、插件搜索和插件测试矩阵扩展。
+
 ## 当前已完成
 
 - 插件注册：`internal/plugins/registry.go` 和 `internal/plugins/qa|docs|wiki|projects|jobs|aiworks` 提供内置插件定义、内容类型映射、菜单、权限和路由描述。
@@ -32,7 +34,7 @@ Core 保留用户、认证、子站、板块、通用内容、评论、标签、
 - `project` / `job` / `ai_work` 已完成插件归属迁移：`projects -> project`、`jobs -> job`、`ai_works -> ai_work`，发布校验、权限码、菜单声明和历史 `plugin_code` 迁移口径已接入；专属扩展表和完整业务闭环尚未完成。
 - 权限上下文：`CreateTopicRequest.ActorPermissions` / `ActorContext` 均由服务端从 token、后台身份和版主 scope 计算，客户端请求体不能覆盖。
 - 配置合并：`plugins.config_json` 与 `community_plugins.config_json` 已落库并可写，返回 `resolved_config.default/global/community/effective` 合并视图。
-- HookBus：Service 层已有最小内部 HookBus，当前调用点覆盖 `BeforeCreateContent`、`AfterCreateContent` 和 `AfterCreateComment`，不做第三方动态执行。
+- HookBus：Service 层已有最小内部 HookBus，当前调用点覆盖内容创建、更新、删除、评论、搜索、通知和 SEO 事件；Search / Notification / SEO 当前是最小事件派发，不做第三方动态执行。
 - 前台入口：子站插件公开接口会隐藏 `config_json` / `resolved_config` 等后台配置；子站板块导航会按子站插件状态过滤。
 - 后台入口：`/admin-next/plugins` 作为系统插件管理入口；插件业务页通过系统插件列表进入，默认不散落在后台左侧导航。
 - 最小体验闭环：
@@ -40,7 +42,7 @@ Core 保留用户、认证、子站、板块、通用内容、评论、标签、
   - 后台子站插件配置已支持启用/禁用、`config_json` 编辑和数字排序保存。
   - 前台子站页和发布页会按当前子站已启用插件收口入口与内容类型。
   - 版主工作台已补最小插件治理入口区，并按当前子站插件状态与权限过滤。
-- 审计：全局插件状态、子站插件状态、子站插件配置和排序已接入 `admin_logs`；当前 old/new 以 `target` 文本摘要形式记录。
+- 审计：全局插件状态、子站插件状态、全局插件配置、子站插件配置和排序已接入 `admin_logs`，并为插件治理操作写入 `old_value`、`new_value`、`metadata_json` 结构化字段；`target` 文本摘要继续保留用于兼容展示。
 - Wiki schema：当前只保留插件化 `wiki_spaces`、`wiki_pages`、`wiki_page_versions` 语义，旧 `wiki_revisions` 预留冲突已清理。
 - SEO 保护：`/topics/:id` 仍由 Go 动态输出 SEO HTML，插件禁用不影响历史内容详情访问。
 - 技术债收口：`Service.CreatePost` 已封口，不再作为业务写入口；`/api/v1/posts` 写接口继续废弃；后台 `admin/posts` 创建入口在兼容 `post.create` 基础权限之外，叠加真实内容类型对应的插件 create 权限。
@@ -61,7 +63,7 @@ Core 保留用户、认证、子站、板块、通用内容、评论、标签、
 - Docs / Wiki 业务体验：当前已具备基础空间、文档树读取、版本列表等最小闭环；拖拽排序、完整回滚 UI、协作锁和专用编辑体验仍待后续。
 - Projects / Jobs / AI Works 业务体验：当前完成插件归属、发布校验、权限码和菜单声明；专属扩展表、专属管理页和完整业务流程仍待后续。
 - 插件路由：当前是注册描述 + Core 分发，不是真正动态运行时加载器。
-- Hook 机制：当前已有最小内部 HookBus，但只覆盖创建内容与创建评论相关调用点；Update/Delete/Search/Notification/SEO Hook 调度仍待完善。
+- Hook 机制：当前已有最小内部 HookBus，并覆盖创建、更新、删除、评论、搜索、通知和 SEO 调用点；Search / Notification / SEO 仍是预留级事件派发，尚未形成完整插件业务处理器、统一错误日志和重试策略。
 - 配置校验：当前已完成默认配置、全局配置、子站配置三层合并和 JSON 格式校验；`config_schema` 强校验仍待后续。
 - 验收覆盖：已做文档与路由核对；完整 Docker 启动、真实 token API、浏览器页面和 SEO curl 矩阵仍需按测试文档继续补测。
 
@@ -69,15 +71,80 @@ Core 保留用户、认证、子站、板块、通用内容、评论、标签、
 
 - 子站插件配置 UI 的完整浏览器验收矩阵，包括多子站、禁用提示、保存失败提示和排序持久化回归。
 - 更细粒度的权限体系：例如 Core 兼容类型 `article` / `news` 的细分权限码、按子站/板块维度配置权限矩阵、以及更明确的错误码与权限配置 API（当前仍为最小校验闭环）。
-- HookBus 的完整调用点：`BeforeUpdateContent`、`AfterUpdateContent`、`BeforeDeleteContent`、`AfterDeleteContent`、`OnSearchIndex`、`OnNotificationBuild`、`OnSEOBuild`。
-- `config_schema` 强校验和更友好的配置表单渲染。
-- `admin_logs` 的 old/new diff 结构化字段；当前插件治理 diff 仍主要以 `target` 文本摘要记录。
+- P0 插件平台收口：HookBus 的完整业务处理器与日志策略。Search / Notification / SEO 目前已有调用点，但缺少实际插件处理器、统一失败日志和重试策略。
+- P0 插件平台收口：`config_schema` 基础校验。
+- P1 插件平台增强：`config_schema` 后台自动表单渲染。
+- 非插件历史审计日志的结构化 diff：插件治理已写入 `old_value`、`new_value`、`metadata_json`，其他旧审计仍可能只有 `target` 文本。
 - `qa` 取消采纳最佳答案。
 - Docs 文档树专用编辑 UI。
 - Docs 文档树拖拽、批量排序和更完整的空间管理体验。
 - Wiki 版本回滚接口与协作编辑交互。
-- Projects / Jobs / AI Works 的专属扩展表和完整业务闭环。
-- 插件市场、插件包上传、远程插件安装、在线更新和 Go 动态插件加载均不属于当前阶段。
+- Projects / Jobs / AI Works 的专属扩展表、专属管理页、专属搜索、通知、SEO 和完整业务闭环。
+- P2 插件分发能力：本地插件包、插件安装、插件升级、soft uninstall、插件 migration runner、插件包签名校验和插件市场雏形。
+- P3 高级能力：远程插件市场、在线更新、动态加载能力评估、插件沙箱和插件权限隔离。
+
+## 完整插件系统路线
+
+P0：插件平台收口
+
+- Manifest 契约稳定。
+- Registry 稳定。
+- ActorContext 稳定。
+- 权限码平台化。
+- 全局插件状态。
+- 子站插件状态。
+- 板块绑定。
+- 发布校验。
+- 菜单过滤。
+- `config_json`。
+- `config_schema` 基础校验。
+- HookBus 全调用点和业务处理器。
+- `admin_logs` 结构化审计。
+- migration 边界。
+- 测试矩阵。
+
+P1：插件平台增强
+
+- schema 自动表单。
+- 插件 SDK 文档。
+- 插件生成模板。
+- 插件依赖检查。
+- 插件版本兼容检查。
+- 插件事件和通知模板。
+- 插件搜索索引扩展。
+- 插件 SEO 扩展。
+
+P2：插件分发能力
+
+- 本地插件包。
+- 插件安装。
+- 插件升级。
+- 插件禁用。
+- soft uninstall。
+- 插件 migration runner。
+- 插件包签名校验。
+- 插件市场雏形。
+
+P3：高级能力
+
+- 远程插件市场。
+- 在线更新。
+- 动态加载能力评估。
+- 插件沙箱。
+- 插件权限隔离。
+
+安全红线：
+
+- 禁用插件不能影响历史内容访问。
+- 禁用插件不能破坏 `/topics/:id` SEO 动态 HTML。
+- Core 表不能被插件随意破坏。
+- 插件写操作必须走权限校验。
+- ActorContext 必须由服务端生成，不能由客户端伪造。
+- 前台 user token、后台 admin token、版主 user token + scope 不能混用。
+- 插件配置必须至少保证 JSON 合法。
+- 插件 migration 必须有备份和回滚说明。
+- 未实现能力不能写成已完成。
+- 预留、部分完成、待验收能力必须明确标注。
 
 ## 当前风险
 
@@ -89,12 +156,14 @@ Core 保留用户、认证、子站、板块、通用内容、评论、标签、
 
 ## 下一步任务
 
-1. 用真实 admin/user token 补测全局插件、子站插件、版主菜单和跨子站发布矩阵。
-2. 完成子站插件配置 UI 浏览器验收：`config_json`、排序、禁用影响提示、失败提示和保存后刷新。
-3. 细化插件权限矩阵，尤其是 Core 兼容类型 `article` / `news` 的权限码策略。
-4. 补跑 `/topics/:id` SEO curl 检查，确认插件禁用后历史内容源码不退化。
-5. 为 Docs / Wiki 规划最小可用专用管理体验，但不引入复杂编辑器或协作系统。
-6. 如需要后台迁移内容子站、板块或类型，设计单独迁移 API，并逐条校验插件状态、子站插件状态、板块绑定、allowed_content_types 和权限码。
+1. P0：补 `config_schema` 基础校验，至少覆盖 `type`、`enum`、`required` 等最小规则。
+2. P0：补 HookBus 真实业务处理器和统一错误日志，优先覆盖 Search / Notification / SEO。
+3. P0：用真实 admin/user token 补测全局插件、子站插件、版主菜单和跨子站发布矩阵。
+4. P0：完成子站插件配置 UI 浏览器验收：`config_json`、排序、禁用影响提示、失败提示和保存后刷新。
+5. P0：补跑 `/topics/:id` SEO curl 检查，确认插件禁用后历史内容源码不退化。
+6. P1：细化插件权限矩阵，尤其是 Core 兼容类型 `article` / `news` 的权限码策略。
+7. P1：规划插件 SDK 文档和插件生成模板。
+8. 如需要后台迁移内容子站、板块或类型，设计单独迁移 API，并逐条校验插件状态、子站插件状态、板块绑定、allowed_content_types 和权限码。
 
 ## 当前验收清单
 
@@ -118,3 +187,56 @@ Core 保留用户、认证、子站、板块、通用内容、评论、标签、
 - [ ] `POST/PUT/DELETE /api/v1/posts*` 写接口返回 `410 Gone` 或明确废弃。
 - [ ] `POST /api/v1/admin/posts` 创建 `question/document/wiki_page` 时分别需要 `qa.question.create`、`docs.document.create`、`wiki.page.create`。
 - [ ] 后台编辑内容不能修改子站、板块、`content_type` 或 `plugin_code`。
+
+## 最近任务记录
+
+### 2026-05-10：完整插件系统优先级与文档口径校准
+
+修改范围：
+
+- 更新 `docs/AGENT_RULES.md`，新增“任务结果记录规则”。
+- 更新 `docs/PLUGIN_ARCHITECTURE.md` 和本文件，将“完整插件系统”登记为 P0 最高优先级长期主线，并补充 P0/P1/P2/P3 阶段路线。
+- 更新 `README.md`、`CHANGELOG.md`、`docs/API.md`、`docs/TESTING.md`、`docs/releases/v1.3.0.md`、`docs/releases/v1.3.1.md` 的插件平台口径。
+
+已完成事项：
+
+- 将“当前阶段不做插件市场 / 插件包 / 远程安装 / 在线更新 / 动态加载”的口径改为“P2/P3 阶段能力，当前未实现”。
+- 将 HookBus 业务处理器、config_schema 基础校验和插件平台测试矩阵标为 P0 收口任务。
+- 将 config_schema 自动表单、SDK、模板、依赖和版本检查、搜索 / 通知 / SEO 扩展标为 P1。
+- 将插件包、安装、升级、soft uninstall、migration runner、签名校验、市场雏形标为 P2。
+- 将远程市场、在线更新、动态加载能力评估、沙箱和权限隔离标为 P3。
+- 校准 `projects/jobs/ai_works` 状态：已接入插件平台治理和声明，不是 Core 兼容类型，也不是完整业务插件。
+
+未完成事项：
+
+- 本轮不实现插件市场、插件包、远程安装、动态加载或新增插件。
+- 本轮不补 QA / Docs / Wiki / Projects / Jobs / AI Works 的专属业务功能。
+- P0 中 `config_schema` 基础校验、HookBus 业务处理器、完整真实 token 验收矩阵仍待代码专项。
+
+新发现风险：
+
+- 旧文档中的“当前阶段不做”容易被后续任务误读为永久排除；已在当前主文档中改为分阶段路线，历史 Release Notes 保持归档属性。
+
+已执行检查：
+
+- `rg` 搜索限制性表述和插件相关口径，确认当前主文档已改为阶段路线。
+
+跳过项及原因：
+
+- 未执行 `go test ./...` / `go build`：本轮只调整文档口径和 Roadmap，没有修改 Go 代码结构。
+- 未执行前后台构建：本轮没有修改前后台源码。
+
+影响范围：
+
+- API：仅文档口径更新，未新增真实接口。
+- 数据库：无结构变更。
+- 权限：无代码变更，文档明确 ActorContext 和插件写操作安全红线。
+- SEO：无代码变更，保留 `/topics/:id` 动态 SEO 红线。
+- 插件系统：提升为最高优先级长期主线，并补充 P0-P3 路线。
+- 前后台 UI：无代码变更。
+
+下一轮建议：
+
+1. P0：实现 `config_schema` 基础校验。
+2. P0：补 HookBus 业务处理器、统一错误日志和失败策略。
+3. P0：执行完整插件系统真实 token 验收矩阵。
