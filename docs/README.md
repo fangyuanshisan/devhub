@@ -1,6 +1,6 @@
 # DevHub 文档入口
 
-DevHub 当前文档只围绕 v1.3.0 真实状态维护。历史版本 Release Notes 只作追溯依据，不作为当前 Codex 必读主列表。
+DevHub 当前文档只围绕 v1.3.1 真实状态维护。历史版本 Release Notes 只作追溯依据，不作为当前 Codex 必读主列表。
 
 ## 当前有效文档
 
@@ -25,8 +25,8 @@ DevHub 当前文档只围绕 v1.3.0 真实状态维护。历史版本 Release No
 7. [测试文档](TESTING.md)
    - 已实现必测项、后续补测项、必要历史回归和 SEO 回归命令。
 
-8. [v1.3.0 Release Notes](releases/v1.3.0.md)
-   - Core + Plugins 架构拆分版的真实完成情况、部分完成项、当前限制和验收未覆盖项。
+8. [v1.3.1 Release Notes](releases/v1.3.1.md)
+   - 插件化关键入口封口、权限校验补强、后台更新边界和当前限制。
 
 9. [部署启动文档](DEPLOYMENT.md)
    - 本地启动、构建行为、8090 端口排查、Go 模块网络和二进制排障启动。
@@ -44,6 +44,7 @@ DevHub 当前文档只围绕 v1.3.0 真实状态维护。历史版本 Release No
 - [v1.1.5 Release Notes](releases/v1.1.5.md)
 - [v1.2.0 Release Notes](releases/v1.2.0.md)
 - [v1.2.1 Release Notes](releases/v1.2.1.md)
+- [v1.3.0 Release Notes](releases/v1.3.0.md)
 
 ## 辅助文档
 

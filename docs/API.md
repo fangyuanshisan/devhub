@@ -25,6 +25,7 @@
 - 返回：只返回全局 `enabled` 插件。
 - 用途：前台判断系统可用插件能力。
 - 说明：当前返回的是内置系统插件统一 manifest 视图，包括内容类型、权限、菜单、路由声明与 `config_schema` 预留字段。
+- 安全处理：公共接口不返回 `config_json` 和 `resolved_config`。
 
 响应示例：
 
@@ -47,7 +48,7 @@
 
 - 认证：后台 admin token。
 - 权限：`plugin.read`。
-- 返回：全部注册插件，包括 `installed`、`enabled`、`disabled`。
+- 返回：全部注册插件，包括 `installed`、`enabled`、`disabled`、`config_schema`、`config_json` 和 `resolved_config`。
 
 `POST /api/v1/admin/plugins/:code/enable`
 
@@ -73,6 +74,32 @@
 - `401 {"error":"未登录"}`
 - `403 {"error":"无权限"}`
 
+`PUT /api/v1/admin/plugins/:code/config`
+
+- 认证：后台 admin token。
+- 权限：`plugin.write`。
+- 请求：
+
+```json
+{
+  "config_json": {
+    "example": true
+  }
+}
+```
+
+- 返回：更新后的插件对象，包含 `config_json` 和 `resolved_config`。
+- 校验：当前只校验 `config_json` 是合法 JSON，暂不做 `config_schema` 强校验。
+- 审计：写入插件全局配置审计日志。
+  当前通过 `admin_logs.target` 记录 `plugin_code` 与 old/new 配置摘要。
+
+常见错误：
+
+- `400 {"error":"插件不存在"}`
+- `400 {"error":"config_json 必须是合法 JSON"}`
+- `401 {"error":"未登录"}`
+- `403 {"error":"无权限"}`
+
 ### 前台子站插件展示 API
 
 `GET /api/v1/communities/:slug/plugins`
@@ -94,7 +121,7 @@
 
 - 认证：后台 admin token。
 - 权限：`site.read`，并经过子站管理范围校验。
-- 返回：某个子站的插件列表，包含全局状态叠加后的子站状态、内容类型、菜单、权限、`config_json`。
+- 返回：某个子站的插件列表，包含全局状态叠加后的子站状态、内容类型、菜单、权限、`config_json` 和 `resolved_config`。
 
 `POST /api/v1/admin/communities/:id/plugins/:code/enable`
 
@@ -228,6 +255,49 @@
 - 当前内容类型权限码来自统一 `ContentTypeDefinition` 声明，而不是散落在各个 handler 中。
 - `projects/jobs/ai_works` 当前已完成插件归属、发布校验、权限码和菜单声明；专属扩展表与完整业务流程仍是后续任务。
 
+`POST /api/v1/admin/posts`
+
+- 认证：后台 admin token。
+- 基础权限：`post.create`，作为历史后台内容创建兼容权限。
+- 动态权限：接口会先将请求转换为 Topic 创建请求，归一 `content_type` 并推断 `plugin_code`，再叠加校验真实内容类型对应的插件 create 权限。
+- 写入链路：内部调用 `Service.CreateTopic`，继续执行全局插件状态、子站插件状态、板块绑定、`allowed_content_types` 和发布权限码校验。
+
+动态 create 权限：
+
+- `question -> qa.question.create`
+- `document -> docs.document.create`
+- `wiki_page -> wiki.page.create`
+- `project -> projects.project.create`
+- `job -> jobs.job.create`
+- `ai_work -> ai_works.work.create`
+- `article/news -> core.topic.create`，并兼容旧 `post.create`
+
+常见错误：
+
+- `403 {"error":"缺少权限 qa.question.create，不能创建该类型内容"}`
+- `403 {"error":"缺少权限 docs.document.create，不能创建该类型内容"}`
+- `403 {"error":"缺少权限 wiki.page.create，不能创建该类型内容"}`
+- `400 {"error":"插件全局未启用"}`
+- `400 {"error":"当前子站未启用该插件"}`
+- `400 {"error":"内容类型与板块不匹配"}`
+
+说明：`admin/posts` 是后台兼容入口，不是绕过插件体系的独立写入口。`post.create` 只是第一层兼容基础权限，真实内容类型权限由插件权限码决定。
+
+`PUT /api/v1/admin/posts/:id`
+
+- 认证：后台 admin token。
+- 权限：`post.update`，并经过当前后台用户的子站治理范围校验。
+- 当前策略：禁止修改内容归属和内容类型。
+- 允许更新：标题、摘要、正文、标签、状态、置顶、精华等非归属字段。
+- 禁止更新：`site/community_id`、`board/category_id`、`content_type`、`plugin_code`。
+
+常见错误：
+
+- `400 {"error":"后台编辑不允许修改内容归属子站，请通过迁移专项处理"}`
+- `400 {"error":"后台编辑不允许修改内容板块或内容类型，请通过迁移专项处理"}`
+
+说明：如果后续需要后台迁移内容子站、板块或插件类型，应新增迁移专项接口，并逐条校验插件全局状态、子站插件状态、板块绑定、`allowed_content_types` 和对应插件权限码。
+
 ## 插件声明约定
 
 当前内置插件统一按 manifest 风格组织：
@@ -242,8 +312,9 @@
 当前说明：
 
 - 这是内置系统插件规范，不是插件市场，也不是第三方动态插件机制。
-- `HookDefinition` 当前主要作为扩展点声明，不代表已经存在通用运行时 Hook 执行器。
-- 配置优先级按“默认配置 -> 全局插件配置预留 -> 子站插件配置”约定，其中 v1.3.x 当前真实可写的是 `community_plugins.config_json`。
+- `HookDefinition` 当前是扩展点声明；`Service` 已有最小内部 HookBus，当前调用点覆盖 `BeforeCreateContent`、`AfterCreateContent` 和 `AfterCreateComment`，尚未覆盖 Update/Delete/Search/Notification/SEO 全链路。
+- 配置优先级按“默认配置 -> `plugins.config_json` -> `community_plugins.config_json`”合并；API 用 `resolved_config.default/global/community/effective` 表达合并视图。
+- 当前配置只校验 JSON 格式，暂不做 `config_schema` 强校验。
 
 ## 当前真实 API 索引
 
@@ -405,6 +476,7 @@ GET    /api/v1/posts/:id
 说明：
 
 - `POST/PUT/DELETE /api/v1/posts*` 写接口已废弃，当前返回 `410 Gone`，请使用 `/api/v1/topics`。
+- `Service.CreatePost` 已在业务层封口，不再直接调用仓储裸写入；`repo.CreatePost` 仅作为 legacy / seed / migration 或兼容层内部能力保留，不作为业务写入口。
 
 SEO 端点：
 
@@ -422,7 +494,7 @@ GET /robots.txt
 以下内容不是当前真实可用 API：
 
 - 插件市场、插件包上传、远程插件安装、在线更新和 Go 动态插件加载。
-- 发布时按插件权限码做细粒度拒绝的独立错误码和权限配置 API。
+- 插件权限配置 API、按子站 / 板块维护细粒度权限矩阵，以及 Core 兼容类型 `article/news` 的长期权限收口。
 - Docs 文档树专用编辑 API 的完整形态。
 - Wiki 版本历史、版本对比和回滚 API 的完整形态。
 - 取消最佳答案 / 取消已解决状态接口。

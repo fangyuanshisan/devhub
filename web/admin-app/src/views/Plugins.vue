@@ -34,6 +34,7 @@
         <template #default="{ row }">
           <el-button v-if="canOpen(row)" link type="primary" @click="openPlugin(row)">进入管理</el-button>
           <el-button link type="info" @click="openManifest(row)">查看声明</el-button>
+          <el-button link type="primary" @click="openConfig(row)">配置</el-button>
           <el-button v-if="row.status !== 'enabled'" link type="success" @click="setStatus(row, 'enabled')">启用</el-button>
           <el-button v-if="row.status === 'enabled'" link type="warning" @click="setStatus(row, 'disabled')">禁用</el-button>
         </template>
@@ -53,6 +54,9 @@
       <el-form-item label="config_schema">
         <el-input :model-value="formatJSON(manifestTarget?.config_schema)" type="textarea" :rows="8" readonly />
       </el-form-item>
+      <el-form-item label="resolved_config">
+        <el-input :model-value="formatJSON(manifestTarget?.resolved_config)" type="textarea" :rows="6" readonly />
+      </el-form-item>
       <el-form-item label="routes">
         <el-input :model-value="formatJSON(manifestTarget?.routes || [])" type="textarea" :rows="8" readonly />
       </el-form-item>
@@ -64,13 +68,22 @@
       <el-button @click="manifestDialog = false">关闭</el-button>
     </template>
   </el-dialog>
+
+  <el-dialog v-model="configDialog" :title="`${configTarget?.name || ''} 全局配置`" width="640px">
+    <el-alert title="全局配置会作为默认配置和子站配置之间的中间层，子站 config_json 优先级更高。" type="info" show-icon :closable="false" class="mb" />
+    <el-input v-model="configText" type="textarea" :rows="10" placeholder="{}" />
+    <template #footer>
+      <el-button @click="configDialog = false">取消</el-button>
+      <el-button type="primary" @click="saveConfig">保存</el-button>
+    </template>
+  </el-dialog>
 </template>
 
 <script setup>
 import { onMounted, ref } from 'vue';
 import { ElMessage, ElMessageBox } from 'element-plus';
 import { useRouter } from 'vue-router';
-import { disablePlugin, enablePlugin, plugins } from '@/api/admin';
+import { disablePlugin, enablePlugin, plugins, updatePluginConfig } from '@/api/admin';
 import { useAuthStore } from '@/stores/auth';
 
 const auth = useAuthStore();
@@ -78,14 +91,9 @@ const router = useRouter();
 const items = ref([]);
 const manifestDialog = ref(false);
 const manifestTarget = ref(null);
-const routeMap = {
-  qa: '/qa',
-  docs: '/docs',
-  wiki: '/wiki',
-  projects: '/projects',
-  jobs: '/jobs',
-  ai_works: '/ai-works',
-};
+const configDialog = ref(false);
+const configTarget = ref(null);
+const configText = ref('{}');
 
 async function load() {
   const data = await plugins();
@@ -107,17 +115,21 @@ async function setStatus(row, status) {
 }
 
 function canOpen(row) {
-  const target = routeMap[row.code];
+  const target = adminMenu(row)?.path;
   return Boolean(target && row.status === 'enabled' && hasPermission(row));
 }
 
 function hasPermission(row) {
-  const required = row.menus?.find((item) => item.area === 'admin')?.permission || row.permissions?.[0]?.code || '';
+  const required = adminMenu(row)?.permission || row.permissions?.[0]?.code || '';
   return !required || auth.can(required);
 }
 
+function adminMenu(row) {
+  return (row.menus || []).find((item) => (item.area || item.location) === 'admin');
+}
+
 function openPlugin(row) {
-  const target = routeMap[row.code];
+  const target = adminMenu(row)?.path;
   if (!target) return;
   router.push(target);
 }
@@ -125,6 +137,30 @@ function openPlugin(row) {
 function openManifest(row) {
   manifestTarget.value = row;
   manifestDialog.value = true;
+}
+
+function openConfig(row) {
+  configTarget.value = row;
+  configText.value = row.config_json && row.config_json.trim() ? row.config_json : '{}';
+  configDialog.value = true;
+}
+
+async function saveConfig() {
+  const row = configTarget.value;
+  if (!row) return;
+  const raw = (configText.value || '').trim();
+  try {
+    await updatePluginConfig(row.code, { config_json: raw ? JSON.parse(raw) : {} });
+  } catch (err) {
+    if (err instanceof SyntaxError) {
+      ElMessage.error('config_json 不是合法 JSON');
+      return;
+    }
+    throw err;
+  }
+  ElMessage.success('插件全局配置已保存');
+  configDialog.value = false;
+  await load();
 }
 
 function formatJSON(value) {
@@ -144,6 +180,7 @@ onMounted(load);
 .toolbar h2 { margin: 0 0 6px; }
 .toolbar p { margin: 0; color: #64748b; }
 .mr-6 { margin-right: 6px; }
+.mb { margin-bottom: 12px; }
 .muted { color: #64748b; }
 .manifest-form { margin-top: 16px; }
 </style>

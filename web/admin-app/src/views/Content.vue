@@ -72,8 +72,8 @@
     <el-steps :active="step" finish-status="success" simple class="mb"><el-step title="基础信息" /><el-step title="正文编辑" /><el-step title="发布设置" /></el-steps>
     <el-form ref="formRef" :model="form" :rules="rules" label-width="88px">
       <template v-if="step === 0">
-        <el-form-item label="站点" prop="site"><el-select v-model="form.site"><el-option v-for="s in siteList.filter((s) => s.key !== 'portal')" :key="s.key" :label="s.name" :value="s.key" /></el-select></el-form-item>
-        <el-form-item label="板块" prop="board"><el-select v-model="form.board"><el-option v-for="b in boardList.filter((b) => b.key !== 'all')" :key="b.key" :label="b.name" :value="b.key" /></el-select></el-form-item>
+        <el-form-item label="站点" prop="site"><el-select v-model="form.site" :disabled="Boolean(editing.id)"><el-option v-for="s in siteList.filter((s) => s.key !== 'portal')" :key="s.key" :label="s.name" :value="s.key" /></el-select></el-form-item>
+        <el-form-item label="板块" prop="board"><el-select v-model="form.board" :disabled="Boolean(editing.id)"><el-option v-for="b in boardList.filter((b) => b.key !== 'all')" :key="b.key" :label="b.name" :value="b.key" /></el-select></el-form-item>
         <el-form-item label="标题" prop="title"><el-input v-model="form.title" /></el-form-item>
         <el-form-item label="摘要"><el-input v-model="form.summary" type="textarea" /></el-form-item>
       </template>

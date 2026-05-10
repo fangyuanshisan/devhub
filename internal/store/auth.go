@@ -182,6 +182,16 @@ func normalizeSiteScope(site string) string {
 	return site
 }
 
+func firstNonEmptyString(values ...string) string {
+	for _, value := range values {
+		value = strings.TrimSpace(value)
+		if value != "" {
+			return value
+		}
+	}
+	return ""
+}
+
 func notificationInSite(n domain.Notification, site string) bool {
 	site = normalizeSiteScope(site)
 	return site == "portal" || normalizeSiteScope(n.Site) == site || normalizeSiteScope(n.Site) == "portal"

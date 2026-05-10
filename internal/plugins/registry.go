@@ -1,6 +1,7 @@
 package plugins
 
 import (
+	"encoding/json"
 	"sort"
 	"strings"
 
@@ -193,19 +194,57 @@ func HookDefinitions(code string) []domain.HookDefinition {
 }
 
 // ResolvePluginConfig merges default config schema, global config placeholder and community config placeholder.
-// v1.3.x only persists community config_json; plugins.config_json remains a planned extension point.
 func ResolvePluginConfig(def domain.Plugin, globalConfigJSON, communityConfigJSON string) map[string]any {
 	out := map[string]any{}
 	if schema, ok := def.ConfigSchema.(map[string]any); ok {
 		out["default"] = schema
 	}
-	if strings.TrimSpace(globalConfigJSON) != "" {
-		out["global_config_json"] = strings.TrimSpace(globalConfigJSON)
+	global, hasGlobal := parseConfigJSON(globalConfigJSON)
+	community, hasCommunity := parseConfigJSON(communityConfigJSON)
+	if hasGlobal {
+		out["global"] = global
 	}
-	if strings.TrimSpace(communityConfigJSON) != "" {
-		out["community_config_json"] = strings.TrimSpace(communityConfigJSON)
+	if hasCommunity {
+		out["community"] = community
 	}
+	out["effective"] = mergeConfigValues(global, hasGlobal, community, hasCommunity)
 	return out
+}
+
+func parseConfigJSON(raw string) (any, bool) {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return nil, false
+	}
+	var out any
+	if err := json.Unmarshal([]byte(raw), &out); err != nil {
+		return raw, true
+	}
+	return out, true
+}
+
+func mergeConfigValues(global any, hasGlobal bool, community any, hasCommunity bool) any {
+	merged := map[string]any{}
+	if g, ok := global.(map[string]any); ok {
+		for key, value := range g {
+			merged[key] = value
+		}
+	}
+	if c, ok := community.(map[string]any); ok {
+		for key, value := range c {
+			merged[key] = value
+		}
+	}
+	if len(merged) > 0 {
+		return merged
+	}
+	if hasCommunity {
+		return community
+	}
+	if hasGlobal {
+		return global
+	}
+	return map[string]any{}
 }
 
 func firstNonBlank(items ...string) string {

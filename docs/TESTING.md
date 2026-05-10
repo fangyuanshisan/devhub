@@ -4,7 +4,7 @@
 
 更新时间：2026-05-10
 
-本文档只记录当前 v1.3.0 必测项和后续补测项。历史版本测试只保留必要回归，不再展开旧版本完整矩阵。
+本文档只记录当前 v1.3.x 必测项和后续补测项。历史版本测试只保留必要回归，不再展开旧版本完整矩阵。
 
 ## 已实现必测
 
@@ -20,18 +20,27 @@
 
 - `GET /api/v1/plugins` 只返回全局 enabled 插件。
 - `GET /api/v1/plugins` 返回统一 manifest 风格的插件声明结构，包括内容类型、权限、菜单、路由和 `config_schema` 预留字段。
+- `GET /api/v1/plugins` 和 `GET /api/v1/communities/:slug/plugins` 不暴露 `config_json` / `resolved_config`。
 - `GET /api/v1/admin/plugins` 返回 `qa`、`docs`、`wiki` 的全局状态。
+- `PUT /api/v1/admin/plugins/:code/config` 可以保存合法 JSON，非法 JSON 应返回 400，并写入审计日志。
 - `POST /api/v1/admin/plugins/:code/disable` 可以禁用全局插件，并写入审计日志。
 - `POST /api/v1/admin/plugins/:code/enable` 可以启用全局插件，并写入审计日志。
 - `GET /api/v1/communities/:slug/plugins` 只返回该子站全局 enabled 且子站 enabled 的插件。
 - `GET /api/v1/admin/communities/:id/plugins` 返回某个子站的插件状态列表。
 - `POST /api/v1/admin/communities/:id/plugins/:code/disable` 可以禁用某个子站插件。
 - `POST /api/v1/admin/communities/:id/plugins/:code/enable` 可以启用某个子站插件。
+- `PUT /api/v1/admin/communities/:id/plugins/:code/config` 可以保存合法 JSON，非法 JSON 应返回 400，并写入审计日志。
+- `PUT /api/v1/admin/communities/:id/plugins/sort` 可以调整排序，并写入审计日志。
 - 全局 disabled 插件不能被子站启用。
 - `GET /api/v1/moderator/plugin-menus` 只返回全局 enabled、子站 enabled 且当前用户有权限的插件菜单。
+- 插件 manifest 结构一致性测试覆盖 `code/name/version/is_system/content_types/permissions/menus/routes/config_schema/min_core_version`。
+- `doc -> document`、`wiki -> wiki_page` 和 `content_type -> plugin_code` 映射测试应通过。
+- 插件配置合并测试覆盖默认配置、全局配置、子站配置和 `effective` 生效值。
 
 发布与板块：
 
+- `Service.CreatePost` 不再能绕过插件校验；业务创建必须走 `Service.CreateTopic`。
+- `POST /api/v1/posts`、`PUT /api/v1/posts/:id`、`DELETE /api/v1/posts/:id` 写接口返回 `410 Gone` 或明确废弃。
 - `POST /api/v1/topics` 写入归一后的 `content_type` 和 `plugin_code`。
 - `doc` 参数保存为 `document`，`wiki` 参数保存为 `wiki_page`。
 - 发布 `question` 后可通过 `GET /api/v1/topics/:id/qa` 看到 `qa_questions` 扩展状态。
@@ -54,6 +63,20 @@
 - `content_type` 不在 `category.allowed_content_types` 内时拒绝发布。
 - 采纳回答后，`GET /api/v1/topics/:id/qa` 中的 `is_resolved`、`accepted_answer_id` 和回答接受状态会更新。
 - 编辑 `wiki_page` 后，`GET /api/v1/topics/:id/wiki/versions` 返回的版本数应增加。
+
+后台兼容入口：
+
+- `POST /api/v1/admin/posts` 创建 `question` 时需要 `qa.question.create`。
+- `POST /api/v1/admin/posts` 创建 `document` 时需要 `docs.document.create`。
+- `POST /api/v1/admin/posts` 创建 `wiki_page` 时需要 `wiki.page.create`。
+- 缺少对应插件权限时返回 `403`。
+- 禁用 `qa` 后，`POST /api/v1/admin/posts` 不能创建 `question`。
+- 禁用 `docs` 后，`POST /api/v1/admin/posts` 不能创建 `document`。
+- 禁用 `wiki` 后，`POST /api/v1/admin/posts` 不能创建 `wiki_page`。
+- 后台编辑内容不能绕过 `allowed_content_types`。
+- 后台编辑内容不能绕过插件 enabled 状态。
+- v1.3.1 当前禁止后台普通编辑修改内容归属：修改 `site`、`board`、`content_type` 或 `plugin_code` 应失败。
+- 已有内容列表、详情、评论、标签、收藏和关注不受影响。
 
 页面与 SEO：
 
@@ -84,9 +107,9 @@ curl -s http://127.0.0.1:8090/robots.txt
 
 ## 已实现但后续补测
 
-- 子站插件 `config_json` 接口需要使用真实 admin token 补测。
-- 插件声明里的 `config_schema`、`dependencies`、`min_core_version` 和 `hooks` 当前主要是元数据预留，需要继续补测前后台展示或消费场景。
-- 子站插件排序接口需要使用真实 admin token 补测。
+- 插件全局 `config_json` 和子站 `config_json` 接口已有自动化覆盖，仍需要真实 admin token 做联调补测。
+- 插件声明里的 `config_schema`、`dependencies`、`min_core_version` 和 `hooks` 已有结构测试，仍需要继续补测前后台展示或消费场景。
+- 子站插件排序接口已有自动化覆盖，仍需要真实 admin token 和浏览器做联调补测。
 - 后台子站插件配置 UI 的 `config_json` 编辑、JSON 校验、数字排序、禁用确认和保存后刷新已经有最小实现，需要继续做浏览器矩阵验收。
 - 前台发布页按子站插件状态收口需要浏览器验收。
 - 子站导航按插件状态显示需要继续做多子站浏览器验收。
@@ -97,7 +120,8 @@ curl -s http://127.0.0.1:8090/robots.txt
 
 - 更细粒度的权限体系补测：例如 Core 兼容类型 `article` / `news` 的细分权限码、按子站/板块维度配置权限矩阵与更明确的错误码（当前发布链路已实现最小权限码校验）。
 - Projects / Jobs / AI Works 的专属扩展表、专属管理页和完整业务流程。
-- 通用运行时 Hook 调度器，以及关键 Hook 回滚 / 非关键 Hook 记录日志的执行策略。
+- HookBus 的完整调用点：Update/Delete/Search/Notification/SEO，以及关键 Hook 回滚 / 非关键 Hook 记录日志的完整执行策略。
+- `config_schema` 强校验和配置表单自动渲染。
 - Docs 文档树专用编辑 UI、拖拽排序和批量排序。
 - Wiki 版本回滚和协作编辑交互。
 - QA 取消采纳最佳答案。

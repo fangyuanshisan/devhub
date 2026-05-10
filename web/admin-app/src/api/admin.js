@@ -9,6 +9,7 @@ export const plugins = () => http.get('/admin/plugins');
 export const pluginMenus = () => http.get('/admin/plugin-menus');
 export const enablePlugin = (code) => http.post(`/admin/plugins/${code}/enable`);
 export const disablePlugin = (code) => http.post(`/admin/plugins/${code}/disable`);
+export const updatePluginConfig = (code, payload) => http.put(`/admin/plugins/${code}/config`, payload);
 export const adminCommunities = (params) => http.get('/admin/communities', { params });
 export const createCommunity = (payload) => http.post('/admin/communities', payload);
 export const adminCommunity = (id) => http.get(`/admin/communities/${id}`);

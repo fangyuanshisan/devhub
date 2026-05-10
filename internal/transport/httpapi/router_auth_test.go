@@ -30,6 +30,187 @@ func TestAuthRequiredForWriteAPI(t *testing.T) {
 	}
 }
 
+func TestLegacyPostsWriteReturnsGoneWhenAuthenticated(t *testing.T) {
+	router := NewRouter(service.New(store.NewMemoryStore()))
+	token := userToken(t, router, "admin")
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/posts", bytes.NewBufferString(`{"site":"php","board":"community","title":"legacy","content":"legacy content body"}`))
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Authorization", "Bearer "+token)
+	w := httptest.NewRecorder()
+
+	router.ServeHTTP(w, req)
+
+	if w.Code != http.StatusGone {
+		t.Fatalf("expected 410 for deprecated posts write, got %d: %s", w.Code, w.Body.String())
+	}
+}
+
+func TestAdminPostCreateRespectsGlobalPluginStatus(t *testing.T) {
+	router := NewRouter(service.New(store.NewMemoryStore()))
+	token := adminToken(t, router)
+
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/admin/plugins/qa/disable", nil)
+	req.Header.Set("Authorization", "Bearer "+token)
+	w := httptest.NewRecorder()
+	router.ServeHTTP(w, req)
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected qa disable success, got %d: %s", w.Code, w.Body.String())
+	}
+
+	payload := `{"site":"php","board":"qa","title":"disabled qa check","summary":"check","content":"this content is long enough for validation"}`
+	req = httptest.NewRequest(http.MethodPost, "/api/v1/admin/posts", bytes.NewBufferString(payload))
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Authorization", "Bearer "+token)
+	w = httptest.NewRecorder()
+	router.ServeHTTP(w, req)
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400 when qa is disabled, got %d: %s", w.Code, w.Body.String())
+	}
+	if !bytes.Contains(w.Body.Bytes(), []byte("插件未启用")) {
+		t.Fatalf("expected plugin disabled error, got %s", w.Body.String())
+	}
+}
+
+func TestAdminPostUpdateRejectsOwnershipChange(t *testing.T) {
+	router := NewRouter(service.New(store.NewMemoryStore()))
+	token := adminToken(t, router)
+	req := httptest.NewRequest(http.MethodPut, "/api/v1/admin/posts/1", bytes.NewBufferString(`{"board":"qa","title":"try move qa"}`))
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Authorization", "Bearer "+token)
+	w := httptest.NewRecorder()
+
+	router.ServeHTTP(w, req)
+
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400 for admin ownership change, got %d: %s", w.Code, w.Body.String())
+	}
+	if !bytes.Contains(w.Body.Bytes(), []byte("不允许修改内容板块或内容类型")) {
+		t.Fatalf("expected ownership change error, got %s", w.Body.String())
+	}
+}
+
+func TestPublicPluginAPIsHideConfig(t *testing.T) {
+	router := NewRouter(service.New(store.NewMemoryStore()))
+	admin := adminToken(t, router)
+
+	req := httptest.NewRequest(http.MethodPut, "/api/v1/admin/plugins/qa/config", bytes.NewBufferString(`{"config_json":{"secret":"hidden"}}`))
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Authorization", "Bearer "+admin)
+	w := httptest.NewRecorder()
+	router.ServeHTTP(w, req)
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected plugin config update success, got %d: %s", w.Code, w.Body.String())
+	}
+
+	req = httptest.NewRequest(http.MethodPut, "/api/v1/admin/communities/1/plugins/qa/config", bytes.NewBufferString(`{"config_json":{"community_secret":"hidden"}}`))
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Authorization", "Bearer "+admin)
+	w = httptest.NewRecorder()
+	router.ServeHTTP(w, req)
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected community plugin config update success, got %d: %s", w.Code, w.Body.String())
+	}
+
+	for _, path := range []string{"/api/v1/plugins", "/api/v1/communities/php/plugins"} {
+		req = httptest.NewRequest(http.MethodGet, path, nil)
+		w = httptest.NewRecorder()
+		router.ServeHTTP(w, req)
+		if w.Code != http.StatusOK {
+			t.Fatalf("%s expected 200, got %d: %s", path, w.Code, w.Body.String())
+		}
+		if bytes.Contains(w.Body.Bytes(), []byte("hidden")) || bytes.Contains(w.Body.Bytes(), []byte("config_json")) || bytes.Contains(w.Body.Bytes(), []byte("resolved_config")) {
+			t.Fatalf("%s should not expose runtime config, got %s", path, w.Body.String())
+		}
+	}
+}
+
+func TestPluginConfigAuditAndInvalidJSON(t *testing.T) {
+	router := NewRouter(service.New(store.NewMemoryStore()))
+	token := adminToken(t, router)
+
+	req := httptest.NewRequest(http.MethodPut, "/api/v1/admin/plugins/qa/config", bytes.NewBufferString(`{"config_json":{"limit":5}}`))
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Authorization", "Bearer "+token)
+	w := httptest.NewRecorder()
+	router.ServeHTTP(w, req)
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected global plugin config success, got %d: %s", w.Code, w.Body.String())
+	}
+
+	req = httptest.NewRequest(http.MethodPut, "/api/v1/admin/plugins/qa/config", bytes.NewBufferString(`{"config_json":`))
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Authorization", "Bearer "+token)
+	w = httptest.NewRecorder()
+	router.ServeHTTP(w, req)
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("expected invalid json to fail, got %d: %s", w.Code, w.Body.String())
+	}
+
+	req = httptest.NewRequest(http.MethodPut, "/api/v1/admin/communities/1/plugins/qa/config", bytes.NewBufferString(`{"config_json":{"enabled":true}}`))
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Authorization", "Bearer "+token)
+	w = httptest.NewRecorder()
+	router.ServeHTTP(w, req)
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected community plugin config success, got %d: %s", w.Code, w.Body.String())
+	}
+
+	req = httptest.NewRequest(http.MethodPut, "/api/v1/admin/communities/1/plugins/sort", bytes.NewBufferString(`{"codes":["docs","qa","wiki"]}`))
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Authorization", "Bearer "+token)
+	w = httptest.NewRecorder()
+	router.ServeHTTP(w, req)
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected community plugin sort success, got %d: %s", w.Code, w.Body.String())
+	}
+
+	req = httptest.NewRequest(http.MethodGet, "/api/v1/admin/audit-logs", nil)
+	req.Header.Set("Authorization", "Bearer "+token)
+	w = httptest.NewRecorder()
+	router.ServeHTTP(w, req)
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected audit logs, got %d: %s", w.Code, w.Body.String())
+	}
+	for _, want := range [][]byte{[]byte("更新插件全局配置"), []byte("更新子站插件配置"), []byte("子站插件排序")} {
+		if !bytes.Contains(w.Body.Bytes(), want) {
+			t.Fatalf("expected audit log %q in %s", want, w.Body.String())
+		}
+	}
+}
+
+func TestModeratorPluginMenusRespectCommunityScopeAndPluginStatus(t *testing.T) {
+	router := NewRouter(service.New(store.NewMemoryStore()))
+	admin := adminToken(t, router)
+	moderator := userToken(t, router, "operator")
+
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/admin/communities/1/plugins/qa/disable", nil)
+	req.Header.Set("Authorization", "Bearer "+admin)
+	w := httptest.NewRecorder()
+	router.ServeHTTP(w, req)
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected qa community disable success, got %d: %s", w.Code, w.Body.String())
+	}
+
+	req = httptest.NewRequest(http.MethodGet, "/api/v1/moderator/plugin-menus?community_slug=php", nil)
+	req.Header.Set("Authorization", "Bearer "+moderator)
+	w = httptest.NewRecorder()
+	router.ServeHTTP(w, req)
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected moderator plugin menus, got %d: %s", w.Code, w.Body.String())
+	}
+	if bytes.Contains(w.Body.Bytes(), []byte("qa-moderator")) {
+		t.Fatalf("qa moderator menu should be hidden after community disable: %s", w.Body.String())
+	}
+
+	req = httptest.NewRequest(http.MethodGet, "/api/v1/moderator/plugin-menus?community_slug=go", nil)
+	req.Header.Set("Authorization", "Bearer "+moderator)
+	w = httptest.NewRecorder()
+	router.ServeHTTP(w, req)
+	if w.Code != http.StatusForbidden {
+		t.Fatalf("expected cross-community moderator menu request to fail, got %d: %s", w.Code, w.Body.String())
+	}
+}
+
 func TestAdminLoginReturnsTokenPair(t *testing.T) {
 	router := NewRouter(service.New(store.NewMemoryStore()))
 	req := httptest.NewRequest(http.MethodPost, "/api/v1/admin/login", bytes.NewBufferString(`{"account":"admin","password":"admin123"}`))

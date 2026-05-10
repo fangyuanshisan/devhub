@@ -149,6 +149,7 @@ func NewRouter(svc *service.Service) *gin.Engine {
 			protected.GET("/plugin-menus", srv.adminPluginMenus)
 			protected.POST("/plugins/:code/enable", srv.requirePermission("plugin.write"), srv.enableAdminPlugin)
 			protected.POST("/plugins/:code/disable", srv.requirePermission("plugin.write"), srv.disableAdminPlugin)
+			protected.PUT("/plugins/:code/config", srv.requirePermission("plugin.write"), srv.updateAdminPluginConfig)
 			protected.GET("/overview", srv.requirePermission("dashboard.read"), srv.adminOverview)
 			protected.GET("/communities", srv.requirePermission("site.read"), srv.adminCommunities)
 			protected.POST("/communities", srv.requirePermission("site.write"), srv.createAdminCommunity)
@@ -1374,6 +1375,8 @@ func (s *Server) plugins(c *gin.Context) {
 	items := []domain.Plugin{}
 	for _, plugin := range s.svc.Plugins() {
 		if plugin.Status == pluginregistry.StatusEnabled {
+			plugin.ConfigJSON = ""
+			plugin.ResolvedConfig = nil
 			items = append(items, plugin)
 		}
 	}
@@ -1902,21 +1905,18 @@ func (s *Server) adminPlugins(c *gin.Context) {
 }
 
 func (s *Server) adminPluginMenus(c *gin.Context) {
-	user, _ := currentUser(c)
-	menus := []domain.PluginMenu{}
-	for _, plugin := range s.svc.Plugins() {
-		if plugin.Status != pluginregistry.StatusEnabled {
-			continue
-		}
-		for _, menu := range plugin.Menus {
-			if menu.Area != "" && menu.Area != "admin" {
-				continue
-			}
-			if menu.Permission == "" || hasPermission(user.Permissions, menu.Permission) {
-				menus = append(menus, menu)
-			}
+	ctx := s.actorContext(c)
+	if user, ok := currentUser(c); ok {
+		ctx.Permissions = user.Permissions
+		ctx.TokenType = user.TokenType
+		ctx.RoleCode = user.RoleCode
+		ctx.IsAdmin = user.TokenType == "admin"
+		if ctx.IsAdmin {
+			ctx.AdminID = user.ID
+			ctx.UserID = 0
 		}
 	}
+	menus := s.filteredPluginMenus(ctx, 0, "admin")
 	c.JSON(http.StatusOK, gin.H{"items": menus})
 }
 
@@ -1937,6 +1937,34 @@ func (s *Server) setAdminPluginStatus(c *gin.Context, status string) {
 		return
 	}
 	s.audit(c, "system", "更新插件状态", fmt.Sprintf("plugins#%s global_status:%s->%s", plugin.Code, before.Status, plugin.Status))
+	c.JSON(http.StatusOK, plugin)
+}
+
+func (s *Server) updateAdminPluginConfig(c *gin.Context) {
+	code := strings.TrimSpace(c.Param("code"))
+	before, _ := s.svc.PluginByCode(code)
+	var req struct {
+		ConfigJSON any `json:"config_json"`
+	}
+	if err := c.ShouldBindJSON(&req); err != nil {
+		fail(c, http.StatusBadRequest, err.Error())
+		return
+	}
+	payload := ""
+	if req.ConfigJSON != nil {
+		raw, err := json.Marshal(req.ConfigJSON)
+		if err != nil || !json.Valid(raw) {
+			fail(c, http.StatusBadRequest, "config_json 必须是合法 JSON")
+			return
+		}
+		payload = string(raw)
+	}
+	plugin, err := s.svc.SetPluginConfig(code, payload)
+	if err != nil {
+		fail(c, http.StatusBadRequest, err.Error())
+		return
+	}
+	s.audit(c, "system", "更新插件全局配置", fmt.Sprintf("plugins#%s config_json:%q->%q", plugin.Code, before.ConfigJSON, plugin.ConfigJSON))
 	c.JSON(http.StatusOK, plugin)
 }
 
@@ -2032,6 +2060,7 @@ func (s *Server) createAdminPost(c *gin.Context) {
 			topicReq.UserID = currentDemoUserID()
 		}
 		topicReq.ActorPermissions = user.Permissions
+		topicReq.ActorContext = s.actorContext(c)
 	} else {
 		topicReq.UserID = currentDemoUserID()
 	}
@@ -2040,6 +2069,11 @@ func (s *Server) createAdminPost(c *gin.Context) {
 	}
 	if err := s.normalizeCreateTopicRequest(&topicReq); err != nil {
 		fail(c, http.StatusBadRequest, err.Error())
+		return
+	}
+	permission := service.CreatePermissionForContentType(topicReq.ContentType, topicReq.PluginCode)
+	if permission != "" && !service.HasPermission(topicReq.ActorPermissions, permission) {
+		fail(c, http.StatusForbidden, fmt.Sprintf("缺少权限 %s，不能创建该类型内容", permission))
 		return
 	}
 	topic, err := s.svc.CreateTopic(topicReq)
@@ -2389,9 +2423,12 @@ func (s *Server) updateAdminCommunityPluginConfig(c *gin.Context) {
 	}
 	payload := ""
 	if req.ConfigJSON != nil {
-		if raw, err := json.Marshal(req.ConfigJSON); err == nil {
-			payload = string(raw)
+		raw, err := json.Marshal(req.ConfigJSON)
+		if err != nil || !json.Valid(raw) {
+			fail(c, http.StatusBadRequest, "config_json 必须是合法 JSON")
+			return
 		}
+		payload = string(raw)
 	}
 	plugin, err := s.svc.SetCommunityPluginConfig(id, code, payload)
 	if err != nil {
@@ -2955,7 +2992,6 @@ func (s *Server) moderatorCommunities(c *gin.Context) {
 }
 
 func (s *Server) moderatorPluginMenus(c *gin.Context) {
-	user, _ := currentUser(c)
 	communityID := int64(0)
 	if slug := strings.TrimSpace(firstQuery(c, "community_slug", "community", "site")); slug != "" {
 		if comm, ok := s.svc.CommunityBySlug(slug); ok {
@@ -2970,32 +3006,26 @@ func (s *Server) moderatorPluginMenus(c *gin.Context) {
 		return
 	}
 	moderated := s.moderatorCommunitiesForCurrentUser(c)
+	scopes := make([]int64, 0, len(moderated))
+	for _, comm := range moderated {
+		scopes = append(scopes, comm.ID)
+	}
+	ctx := s.actorContext(c)
+	ctx.IsModerator = true
+	ctx.CommunityScopes = uniqueInt64s(scopes)
 	menus := []domain.PluginMenu{}
-	for _, plugin := range s.svc.Plugins() {
-		if plugin.Status != pluginregistry.StatusEnabled {
-			continue
-		}
-		if communityID > 0 {
-			if !s.svc.IsPluginEnabledForCommunity(communityID, plugin.Code) {
-				continue
-			}
-		} else if len(moderated) > 0 {
-			ok := false
-			for _, comm := range moderated {
-				if s.svc.IsPluginEnabledForCommunity(comm.ID, plugin.Code) {
-					ok = true
-					break
+	if communityID > 0 {
+		menus = s.filteredPluginMenus(ctx, communityID, "moderator")
+	} else {
+		seen := map[string]bool{}
+		for _, comm := range moderated {
+			for _, menu := range s.filteredPluginMenus(ctx, comm.ID, "moderator") {
+				key := firstNonEmpty(menu.Code, menu.Key, menu.Path)
+				if seen[key] {
+					continue
 				}
-			}
-			if !ok {
-				continue
-			}
-		}
-		for _, menu := range plugin.Menus {
-			if menu.Area == "moderator" {
-				if menu.Permission == "" || hasPermission(user.Permissions, menu.Permission) {
-					menus = append(menus, menu)
-				}
+				seen[key] = true
+				menus = append(menus, menu)
 			}
 		}
 	}
@@ -3665,6 +3695,69 @@ func hasPermission(perms []string, permission string) bool {
 			return true
 		}
 		if strings.HasSuffix(p, ".*") && strings.HasPrefix(permission, strings.TrimSuffix(p, "*")) {
+			return true
+		}
+	}
+	return false
+}
+
+func ctxHasPermission(ctx domain.ActorContext, permission string) bool {
+	return permission == "" || hasPermission(ctx.Permissions, permission)
+}
+
+func (s *Server) actorContext(c *gin.Context) domain.ActorContext {
+	user, _ := currentUser(c)
+	scopes := []int64{}
+	if user.TokenType == "user" {
+		for _, item := range s.moderatorCommunitiesForCurrentUser(c) {
+			scopes = append(scopes, item.ID)
+		}
+	}
+	ctx := service.ActorContextFromAuthUser(user, scopes)
+	if user.TokenType == "user" && len(scopes) > 0 {
+		ctx.IsModerator = true
+	}
+	return ctx
+}
+
+func (s *Server) pluginsForMenuScope(communityID int64) []domain.Plugin {
+	if communityID > 0 {
+		items, err := s.svc.CommunityPlugins(communityID)
+		if err == nil {
+			return items
+		}
+	}
+	return s.svc.Plugins()
+}
+
+func (s *Server) filteredPluginMenus(ctx domain.ActorContext, communityID int64, area string) []domain.PluginMenu {
+	menus := []domain.PluginMenu{}
+	for _, plugin := range s.pluginsForMenuScope(communityID) {
+		if plugin.Status != pluginregistry.StatusEnabled {
+			continue
+		}
+		if communityID > 0 && !s.svc.IsPluginEnabledForCommunity(communityID, plugin.Code) {
+			continue
+		}
+		if area == "moderator" && communityID > 0 && !int64In(ctx.CommunityScopes, communityID) {
+			continue
+		}
+		for _, menu := range plugin.Menus {
+			menuArea := strings.TrimSpace(firstNonEmpty(menu.Area, menu.Location))
+			if menuArea != area {
+				continue
+			}
+			if ctxHasPermission(ctx, menu.Permission) {
+				menus = append(menus, menu)
+			}
+		}
+	}
+	return menus
+}
+
+func int64In(items []int64, want int64) bool {
+	for _, item := range items {
+		if item == want {
 			return true
 		}
 	}
@@ -4538,6 +4631,7 @@ func (s *Server) communityPlugins(c *gin.Context) {
 			plugin.GlobalStatus = ""
 			plugin.CommunityStatus = ""
 			plugin.ConfigJSON = ""
+			plugin.ResolvedConfig = nil
 			enabled = append(enabled, plugin)
 		}
 	}
@@ -4904,7 +4998,8 @@ func (s *Server) createTopic(c *gin.Context) {
 		return
 	}
 	req.UserID = user.ID
-	req.ActorPermissions = user.Permissions
+	req.ActorContext = s.actorContext(c)
+	req.ActorPermissions = req.ActorContext.Permissions
 	topic, err := s.svc.CreateTopic(req)
 	if err != nil {
 		fail(c, http.StatusBadRequest, err.Error())
@@ -5321,25 +5416,20 @@ func (s *Server) createPostToTopicRequest(req domain.CreatePostRequest) (domain.
 func (s *Server) updatePostToTopicRequest(req domain.UpdatePostRequest, topic *domain.Topic) (domain.UpdateTopicRequest, error) {
 	out := domain.UpdateTopicRequest{}
 	if req.Site != nil {
-		communityID := communityIDBySlug(strings.TrimSpace(*req.Site))
-		if communityID <= 0 {
-			return out, fmt.Errorf("子站不存在")
+		if strings.TrimSpace(*req.Site) != slugByCommunityID(topic.CommunityID) {
+			return out, fmt.Errorf("后台编辑不允许修改内容归属子站，请通过迁移专项处理")
 		}
-		out.CommunityID = &communityID
 	}
 	if req.Board != nil {
 		board := strings.TrimSpace(*req.Board)
 		if board == "" || board == "all" {
 			return out, fmt.Errorf("请选择具体板块")
 		}
-		communityID := topic.CommunityID
-		if out.CommunityID != nil {
-			communityID = *out.CommunityID
-		}
-		categoryID := categoryIDByBoard(communityID, board)
 		contentType := adminContentTypeByBoard(board)
-		out.CategoryID = &categoryID
-		out.ContentType = &contentType
+		categoryID := categoryIDByBoard(topic.CommunityID, board)
+		if categoryID != topic.CategoryID || pluginregistry.NormalizeContentType(contentType) != pluginregistry.NormalizeContentType(topic.ContentType) {
+			return out, fmt.Errorf("后台编辑不允许修改内容板块或内容类型，请通过迁移专项处理")
+		}
 	}
 	if req.Title != nil {
 		title := strings.TrimSpace(*req.Title)

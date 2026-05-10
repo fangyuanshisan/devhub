@@ -1,5 +1,32 @@
 # Changelog
 
+## v1.3.1
+
+DevHub v1.3.1 is the plugin-entry hardening and permission-boundary release.
+
+### Changed
+
+- Sealed `Service.CreatePost` as a legacy/deprecated business entry so normal writes must go through `Service.CreateTopic` and plugin publishing validation.
+- Kept `/api/v1/posts` write endpoints deprecated with `410 Gone`; read compatibility remains.
+- Hardened `POST /api/v1/admin/posts` with dynamic plugin create permission checks on top of the legacy base `post.create` gate.
+- Forbid normal admin content editing from changing site/community, board/category, `content_type`, or `plugin_code`; ownership/type migration must be handled by a future migration-specific workflow.
+- Disabled site and board selectors in the admin content edit form to match the backend ownership-change policy.
+- Added plugin create permissions to demo site-admin role seeds for MemoryStore and MySQLStore.
+- Standardized plugin platform contracts with manifest/content-type/permission/menu/route/hook structure tests.
+- Added trusted server-side `ActorContext` injection for topic creation instead of trusting request-body permissions.
+- Added writable global `plugins.config_json`, admin config API, config merge view, and public API config scrubbing.
+- Added a minimal internal HookBus with create-content and create-comment call points for built-in plugin extensions.
+- Made the admin plugin page consume manifest-declared admin menu paths instead of hardcoded plugin route maps.
+- Added tests for plugin mappings, config JSON validation, public config hiding, plugin audit logs, and moderator plugin-menu scope filtering.
+
+### Known Limitations
+
+- `post.create` remains a compatibility bridge for `core.topic.create`; it is not the long-term primary permission.
+- HookBus is still minimal and does not yet cover update/delete/search/notification/SEO extension points.
+- `plugins.config_json` and `community_plugins.config_json` validate JSON syntax only; `config_schema` enforcement remains follow-up work.
+- Plugin audit old/new diffs are still summarized in `admin_logs.target` text, not structured metadata.
+- `project`, `job`, and `ai_work` are plugin-owned but still lack dedicated extension tables and full business workflows.
+
 ## v1.3.0
 
 DevHub v1.3.0 is the Core + Plugins architecture split release.

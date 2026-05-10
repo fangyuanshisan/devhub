@@ -182,6 +182,7 @@ func (s *MySQLStore) migrateSiteScopedAudit() error {
 	_, _ = s.db.Exec(`ALTER TABLE categories ADD COLUMN plugin_code VARCHAR(64) NOT NULL DEFAULT 'core' AFTER type`)
 	_, _ = s.db.Exec(`ALTER TABLE categories ADD COLUMN allowed_content_types JSON NULL AFTER plugin_code`)
 	_, _ = s.db.Exec(`ALTER TABLE categories ADD KEY idx_categories_plugin_status (plugin_code, status)`)
+	_, _ = s.db.Exec(`ALTER TABLE plugins ADD COLUMN config_json JSON NULL AFTER description`)
 	_, _ = s.db.Exec(`UPDATE categories SET nav_visible=visible WHERE nav_visible=1`)
 	_, _ = s.db.Exec(`UPDATE categories SET type='document', plugin_code='docs', allowed_content_types=JSON_ARRAY('document','doc') WHERE type='doc' OR slug='docs'`)
 	_, _ = s.db.Exec(`UPDATE categories SET type='wiki_page', plugin_code='wiki', allowed_content_types=JSON_ARRAY('wiki_page','wiki') WHERE type='wiki' OR slug='wiki'`)
@@ -609,7 +610,7 @@ func (s *MySQLStore) seedAuthData() error {
 		Permissions []string
 	}{
 		{1, "super_admin", "超级管理员", "拥有全部站点和全部权限", []string{"*"}},
-		{2, "site_admin", "站点管理员", "管理被授权站点", []string{"dashboard.read", "site.read", "site.write", "board.read", "board.write", "post.read", "post.create", "post.update", "post.delete", "topic.moderate", "comment.read", "comment.moderate", "report.read", "report.handle", "moderator.read", "user.read", "setting.read", "notification.write", "log.read", "plugin.read", "qa.question.audit", "docs.document.audit", "docs.space.manage", "wiki.page.audit", "wiki.page.version.rollback", "projects.project.audit", "jobs.job.audit", "ai_works.work.audit"}},
+		{2, "site_admin", "站点管理员", "管理被授权站点", []string{"dashboard.read", "site.read", "site.write", "board.read", "board.write", "post.read", "post.create", "post.update", "post.delete", "topic.moderate", "comment.read", "comment.moderate", "report.read", "report.handle", "moderator.read", "user.read", "setting.read", "notification.write", "log.read", "plugin.read", "qa.question.create", "qa.question.audit", "docs.document.create", "docs.document.audit", "docs.space.manage", "wiki.page.create", "wiki.page.audit", "wiki.page.version.rollback", "projects.project.create", "projects.project.audit", "jobs.job.create", "jobs.job.audit", "ai_works.work.create", "ai_works.work.audit"}},
 		{3, "editor", "编辑", "创建和编辑内容", []string{"dashboard.read", "post.read", "post.create", "post.update", "comment.read", "projects.project.create", "jobs.job.create", "ai_works.work.create"}},
 		{4, "moderator", "审核员", "审核内容和评论", []string{"dashboard.read", "post.read", "post.update", "topic.moderate", "comment.read", "comment.moderate", "report.read", "report.handle", "plugin.read", "qa.question.audit", "docs.document.audit", "wiki.page.audit", "projects.project.audit", "jobs.job.audit", "ai_works.work.audit"}},
 		{5, "user", "普通用户", "前台登录用户", []string{"post.create", "comment.read", "qa.question.create", "qa.answer.create", "docs.document.create", "wiki.page.create", "projects.project.create", "jobs.job.create", "ai_works.work.create"}},
@@ -669,7 +670,7 @@ func (s *MySQLStore) seedAuthData() error {
 
 func (s *MySQLStore) seedPlugins() error {
 	for _, def := range pluginregistry.Definitions() {
-		if _, err := s.db.Exec(`INSERT INTO plugins (plugin_code,name,version,status,description,created_at,updated_at) VALUES (?,?,?,?,?,NOW(),NOW()) ON DUPLICATE KEY UPDATE name=VALUES(name),version=VALUES(version),description=VALUES(description),updated_at=updated_at`,
+		if _, err := s.db.Exec(`INSERT INTO plugins (plugin_code,name,version,status,description,config_json,created_at,updated_at) VALUES (?,?,?,?,?,NULL,NOW(),NOW()) ON DUPLICATE KEY UPDATE name=VALUES(name),version=VALUES(version),description=VALUES(description),updated_at=updated_at`,
 			def.Code, def.Name, def.Version, def.Status, def.Description); err != nil {
 			return err
 		}
@@ -1172,7 +1173,7 @@ func (s *MySQLStore) UpdateBoard(key string, req domain.Board) (domain.Board, bo
 }
 
 func (s *MySQLStore) Plugins() []domain.Plugin {
-	rows, err := s.db.Query(`SELECT plugin_code,name,version,status,COALESCE(description,''),DATE_FORMAT(created_at,'%Y-%m-%d %H:%i:%s'),DATE_FORMAT(updated_at,'%Y-%m-%d %H:%i:%s') FROM plugins ORDER BY plugin_code`)
+	rows, err := s.db.Query(`SELECT plugin_code,name,version,status,COALESCE(description,''),COALESCE(CAST(config_json AS CHAR),''),DATE_FORMAT(created_at,'%Y-%m-%d %H:%i:%s'),DATE_FORMAT(updated_at,'%Y-%m-%d %H:%i:%s') FROM plugins ORDER BY plugin_code`)
 	if err != nil {
 		return pluginregistry.Definitions()
 	}
@@ -1180,7 +1181,7 @@ func (s *MySQLStore) Plugins() []domain.Plugin {
 	runtime := map[string]domain.Plugin{}
 	for rows.Next() {
 		var p domain.Plugin
-		if err := rows.Scan(&p.Code, &p.Name, &p.Version, &p.Status, &p.Description, &p.CreatedAt, &p.UpdatedAt); err == nil {
+		if err := rows.Scan(&p.Code, &p.Name, &p.Version, &p.Status, &p.Description, &p.ConfigJSON, &p.CreatedAt, &p.UpdatedAt); err == nil {
 			p.PluginCode = p.Code
 			runtime[p.Code] = p
 		}
@@ -1188,9 +1189,12 @@ func (s *MySQLStore) Plugins() []domain.Plugin {
 	out := make([]domain.Plugin, 0, len(pluginregistry.Definitions()))
 	for _, def := range pluginregistry.Definitions() {
 		if item, ok := runtime[def.Code]; ok {
-			out = append(out, pluginregistry.MergeRuntimeState(def, item))
+			merged := pluginregistry.MergeRuntimeState(def, item)
+			merged.ResolvedConfig = pluginregistry.ResolvePluginConfig(merged, item.ConfigJSON, "")
+			out = append(out, merged)
 			continue
 		}
+		def.ResolvedConfig = pluginregistry.ResolvePluginConfig(def, "", "")
 		out = append(out, def)
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i].Code < out[j].Code })
@@ -1203,13 +1207,15 @@ func (s *MySQLStore) PluginByCode(code string) (domain.Plugin, bool) {
 		return domain.Plugin{}, false
 	}
 	var runtime domain.Plugin
-	err := s.db.QueryRow(`SELECT plugin_code,name,version,status,COALESCE(description,''),DATE_FORMAT(created_at,'%Y-%m-%d %H:%i:%s'),DATE_FORMAT(updated_at,'%Y-%m-%d %H:%i:%s') FROM plugins WHERE plugin_code=?`, def.Code).
-		Scan(&runtime.Code, &runtime.Name, &runtime.Version, &runtime.Status, &runtime.Description, &runtime.CreatedAt, &runtime.UpdatedAt)
+	err := s.db.QueryRow(`SELECT plugin_code,name,version,status,COALESCE(description,''),COALESCE(CAST(config_json AS CHAR),''),DATE_FORMAT(created_at,'%Y-%m-%d %H:%i:%s'),DATE_FORMAT(updated_at,'%Y-%m-%d %H:%i:%s') FROM plugins WHERE plugin_code=?`, def.Code).
+		Scan(&runtime.Code, &runtime.Name, &runtime.Version, &runtime.Status, &runtime.Description, &runtime.ConfigJSON, &runtime.CreatedAt, &runtime.UpdatedAt)
 	if err != nil {
 		return def, true
 	}
 	runtime.PluginCode = runtime.Code
-	return pluginregistry.MergeRuntimeState(def, runtime), true
+	merged := pluginregistry.MergeRuntimeState(def, runtime)
+	merged.ResolvedConfig = pluginregistry.ResolvePluginConfig(merged, runtime.ConfigJSON, "")
+	return merged, true
 }
 
 func (s *MySQLStore) SetPluginStatus(code, status string) (domain.Plugin, error) {
@@ -1221,8 +1227,30 @@ func (s *MySQLStore) SetPluginStatus(code, status string) (domain.Plugin, error)
 	if !ok {
 		return domain.Plugin{}, errors.New("插件不存在")
 	}
-	if _, err := s.db.Exec(`INSERT INTO plugins (plugin_code,name,version,status,description,created_at,updated_at) VALUES (?,?,?,?,?,NOW(),NOW()) ON DUPLICATE KEY UPDATE status=VALUES(status),updated_at=NOW()`,
+	if _, err := s.db.Exec(`INSERT INTO plugins (plugin_code,name,version,status,description,config_json,created_at,updated_at) VALUES (?,?,?,?,?,NULL,NOW(),NOW()) ON DUPLICATE KEY UPDATE status=VALUES(status),updated_at=NOW()`,
 		def.Code, def.Name, def.Version, status, def.Description); err != nil {
+		return domain.Plugin{}, err
+	}
+	plugin, _ := s.PluginByCode(def.Code)
+	return plugin, nil
+}
+
+func (s *MySQLStore) SetPluginConfig(code, configJSON string) (domain.Plugin, error) {
+	def, ok := pluginregistry.DefinitionByCode(code)
+	if !ok {
+		return domain.Plugin{}, errors.New("插件不存在")
+	}
+	configJSON = strings.TrimSpace(configJSON)
+	var config any = nil
+	if configJSON != "" {
+		if !json.Valid([]byte(configJSON)) {
+			return domain.Plugin{}, errors.New("config_json 必须是合法 JSON")
+		}
+		config = json.RawMessage(configJSON)
+	}
+	if _, err := s.db.Exec(`INSERT INTO plugins (plugin_code,name,version,status,description,config_json,created_at,updated_at)
+		VALUES (?,?,?,?,?,?,NOW(),NOW())
+		ON DUPLICATE KEY UPDATE config_json=VALUES(config_json),updated_at=NOW()`, def.Code, def.Name, def.Version, def.Status, def.Description, config); err != nil {
 		return domain.Plugin{}, err
 	}
 	plugin, _ := s.PluginByCode(def.Code)
@@ -1264,8 +1292,11 @@ func (s *MySQLStore) CommunityPlugins(communityID int64) ([]domain.Plugin, error
 		item.CommunityStatus = pluginregistry.StatusDisabled
 		if rt, ok := runtime[item.Code]; ok {
 			item.CommunityStatus = rt.status
-			item.ConfigJSON = rt.config
 			item.SortOrder = rt.sortOrder
+			item.ResolvedConfig = pluginregistry.ResolvePluginConfig(item, item.ConfigJSON, rt.config)
+			item.ConfigJSON = strings.TrimSpace(firstNonEmptyString(rt.config, item.ConfigJSON))
+		} else {
+			item.ResolvedConfig = pluginregistry.ResolvePluginConfig(item, item.ConfigJSON, "")
 		}
 		if item.GlobalStatus == pluginregistry.StatusEnabled && item.CommunityStatus == pluginregistry.StatusEnabled {
 			item.Status = pluginregistry.StatusEnabled

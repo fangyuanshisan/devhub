@@ -1,6 +1,7 @@
 package store
 
 import (
+	"encoding/json"
 	"errors"
 	"fmt"
 	"sort"
@@ -381,7 +382,7 @@ func (s *MemoryStore) seed() {
 	}
 
 	s.roles[1] = domain.AdminRole{ID: 1, Name: "超级管理员", Builtin: true, Description: "拥有所有模块操作权限", Permissions: []string{"*"}, UserCount: 1}
-	s.roles[2] = domain.AdminRole{ID: 2, Name: "站点管理员", Builtin: true, Description: "负责授权子站的内容和举报治理", Permissions: []string{"dashboard.read", "site.read", "site.write", "board.read", "board.write", "post.read", "post.create", "post.update", "post.delete", "topic.moderate", "comment.read", "comment.moderate", "report.read", "report.handle", "moderator.read", "notification.write", "log.read", "plugin.read", "qa.question.audit", "docs.document.audit", "docs.space.manage", "wiki.page.audit", "wiki.page.version.rollback"}, UserCount: 1}
+	s.roles[2] = domain.AdminRole{ID: 2, Name: "站点管理员", Builtin: true, Description: "负责授权子站的内容和举报治理", Permissions: []string{"dashboard.read", "site.read", "site.write", "board.read", "board.write", "post.read", "post.create", "post.update", "post.delete", "topic.moderate", "comment.read", "comment.moderate", "report.read", "report.handle", "moderator.read", "notification.write", "log.read", "plugin.read", "qa.question.create", "qa.question.audit", "docs.document.create", "docs.document.audit", "docs.space.manage", "wiki.page.create", "wiki.page.audit", "wiki.page.version.rollback", "projects.project.create", "projects.project.audit", "jobs.job.create", "jobs.job.audit", "ai_works.work.create", "ai_works.work.audit"}, UserCount: 1}
 	s.roles[3] = domain.AdminRole{ID: 3, Name: "内容审核员", Builtin: true, Description: "负责授权子站的内容审核和评论治理", Permissions: []string{"dashboard.read", "post.read", "post.update", "topic.moderate", "comment.read", "comment.moderate", "report.read", "report.handle", "plugin.read", "qa.question.audit", "docs.document.audit", "wiki.page.audit"}, UserCount: 1}
 	defaultPassword, _ := hashPassword("admin123")
 	s.users[1] = &domain.AdminUser{ID: 1, Username: "admin", Nickname: "超级管理员", Avatar: "", Phone: "13800000001", Email: "admin@devhub.local", PasswordHash: defaultPassword, Status: "normal", RoleID: 1, RoleName: "超级管理员", CreatedAt: "2026-04-01 09:00:00", LastLoginAt: "2026-05-06 09:30:00"}
@@ -1164,10 +1165,11 @@ func (s *MemoryStore) Plugins() []domain.Plugin {
 	out := make([]domain.Plugin, 0, len(pluginregistry.Definitions()))
 	for _, def := range pluginregistry.Definitions() {
 		if runtime, ok := s.plugins[def.Code]; ok {
-			out = append(out, pluginregistry.MergeRuntimeState(def, *runtime))
+			plugin := pluginregistry.MergeRuntimeState(def, *runtime)
+			out = append(out, withResolvedPluginConfig(plugin, runtime.ConfigJSON, ""))
 			continue
 		}
-		out = append(out, def)
+		out = append(out, withResolvedPluginConfig(def, "", ""))
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i].Code < out[j].Code })
 	return out
@@ -1182,9 +1184,16 @@ func (s *MemoryStore) PluginByCode(code string) (domain.Plugin, bool) {
 		return domain.Plugin{}, false
 	}
 	if runtime, ok := s.plugins[def.Code]; ok {
-		return pluginregistry.MergeRuntimeState(def, *runtime), true
+		plugin := pluginregistry.MergeRuntimeState(def, *runtime)
+		return withResolvedPluginConfig(plugin, runtime.ConfigJSON, ""), true
 	}
-	return def, true
+	return withResolvedPluginConfig(def, "", ""), true
+}
+
+func withResolvedPluginConfig(plugin domain.Plugin, globalConfigJSON, communityConfigJSON string) domain.Plugin {
+	plugin.ConfigJSON = strings.TrimSpace(firstNonEmptyString(communityConfigJSON, globalConfigJSON))
+	plugin.ResolvedConfig = pluginregistry.ResolvePluginConfig(plugin, globalConfigJSON, communityConfigJSON)
+	return plugin
 }
 
 // SetPluginStatus 设置插件运行状态。
@@ -1207,7 +1216,31 @@ func (s *MemoryStore) SetPluginStatus(code, status string) (domain.Plugin, error
 	}
 	runtime.Status = status
 	runtime.UpdatedAt = Now()
-	return pluginregistry.MergeRuntimeState(def, *runtime), nil
+	plugin := pluginregistry.MergeRuntimeState(def, *runtime)
+	return withResolvedPluginConfig(plugin, runtime.ConfigJSON, ""), nil
+}
+
+func (s *MemoryStore) SetPluginConfig(code, configJSON string) (domain.Plugin, error) {
+	configJSON = strings.TrimSpace(configJSON)
+	if configJSON != "" && !json.Valid([]byte(configJSON)) {
+		return domain.Plugin{}, errors.New("config_json 必须是合法 JSON")
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	def, ok := pluginregistry.DefinitionByCode(code)
+	if !ok {
+		return domain.Plugin{}, errors.New("插件不存在")
+	}
+	runtime, ok := s.plugins[def.Code]
+	if !ok {
+		cp := def
+		runtime = &cp
+		s.plugins[def.Code] = runtime
+	}
+	runtime.ConfigJSON = configJSON
+	runtime.UpdatedAt = Now()
+	plugin := pluginregistry.MergeRuntimeState(def, *runtime)
+	return withResolvedPluginConfig(plugin, runtime.ConfigJSON, ""), nil
 }
 
 func (s *MemoryStore) CommunityPlugins(communityID int64) ([]domain.Plugin, error) {
@@ -1227,8 +1260,10 @@ func (s *MemoryStore) CommunityPlugins(communityID int64) ([]domain.Plugin, erro
 		merged.CommunityStatus = pluginregistry.StatusDisabled
 		if cp, ok := runtime[def.Code]; ok && cp != nil {
 			merged.CommunityStatus = cp.Status
-			merged.ConfigJSON = cp.ConfigJSON
 			merged.SortOrder = cp.SortOrder
+			merged = withResolvedPluginConfig(merged, merged.ConfigJSON, cp.ConfigJSON)
+		} else {
+			merged = withResolvedPluginConfig(merged, merged.ConfigJSON, "")
 		}
 		if merged.GlobalStatus == pluginregistry.StatusEnabled && merged.CommunityStatus == pluginregistry.StatusEnabled {
 			merged.Status = pluginregistry.StatusEnabled
@@ -1280,7 +1315,7 @@ func (s *MemoryStore) SetCommunityPluginStatus(communityID int64, code, status s
 	plugin := pluginregistry.MergeRuntimeState(def, *global)
 	plugin.GlobalStatus = global.Status
 	plugin.CommunityStatus = cp.Status
-	plugin.ConfigJSON = cp.ConfigJSON
+	plugin = withResolvedPluginConfig(plugin, global.ConfigJSON, cp.ConfigJSON)
 	if plugin.GlobalStatus == pluginregistry.StatusEnabled && plugin.CommunityStatus == pluginregistry.StatusEnabled {
 		plugin.Status = pluginregistry.StatusEnabled
 	} else {
@@ -1290,6 +1325,10 @@ func (s *MemoryStore) SetCommunityPluginStatus(communityID int64, code, status s
 }
 
 func (s *MemoryStore) SetCommunityPluginConfig(communityID int64, code, configJSON string) (domain.Plugin, error) {
+	configJSON = strings.TrimSpace(configJSON)
+	if configJSON != "" && !json.Valid([]byte(configJSON)) {
+		return domain.Plugin{}, errors.New("config_json 必须是合法 JSON")
+	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if _, ok := s.communities[communityID]; !ok {
@@ -1311,12 +1350,12 @@ func (s *MemoryStore) SetCommunityPluginConfig(communityID int64, code, configJS
 		cp = &domain.CommunityPlugin{CommunityID: communityID, PluginCode: def.Code, Status: pluginregistry.StatusDisabled, CreatedAt: Now()}
 		s.communityPlugins[communityID][def.Code] = cp
 	}
-	cp.ConfigJSON = strings.TrimSpace(configJSON)
+	cp.ConfigJSON = configJSON
 	cp.UpdatedAt = Now()
 	plugin := pluginregistry.MergeRuntimeState(def, *global)
 	plugin.GlobalStatus = global.Status
 	plugin.CommunityStatus = cp.Status
-	plugin.ConfigJSON = cp.ConfigJSON
+	plugin = withResolvedPluginConfig(plugin, global.ConfigJSON, cp.ConfigJSON)
 	if plugin.GlobalStatus == pluginregistry.StatusEnabled && plugin.CommunityStatus == pluginregistry.StatusEnabled {
 		plugin.Status = pluginregistry.StatusEnabled
 	} else {
@@ -3513,15 +3552,6 @@ func (s *MemoryStore) enrichActivityLocked(a *domain.Activity) {
 	if a.Remark == "" {
 		a.Remark = a.TargetTitle
 	}
-}
-
-func firstNonEmptyString(values ...string) string {
-	for _, value := range values {
-		if strings.TrimSpace(value) != "" {
-			return strings.TrimSpace(value)
-		}
-	}
-	return ""
 }
 
 func normalizeTag(tag domain.Tag) domain.Tag {

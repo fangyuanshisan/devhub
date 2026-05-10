@@ -6,7 +6,7 @@
 
 ## 版本定位
 
-`v1.3.0` 是 Core + Plugins 架构拆分版。问答、文档、Wiki 不再作为 Core 硬编码业务类型描述，而是由 `qa`、`docs`、`wiki` 三个内置系统插件注册内容类型、菜单、权限和路由描述。
+`v1.3.1` 是 Core + Plugins 架构拆分后的技术债收口版。问答、文档、Wiki 不再作为 Core 硬编码业务类型描述，而是由 `qa`、`docs`、`wiki` 三个内置系统插件注册内容类型、菜单、权限和路由描述；本版本进一步封口旧写入口，并补强后台内容创建 / 更新时的插件权限边界。
 
 ## Core 边界
 
@@ -62,7 +62,7 @@ Core 只保留通用社区能力：
 
 - manifest 只描述能力和元数据，不直接承载业务执行流程。
 - `qa/docs/wiki/projects/jobs/ai_works` 当前都通过统一 registry 返回相同结构。
-- `config_schema` 当前是预留元数据，方便后续为 `community_plugins.config_json` 增加更稳定的校验与 UI。
+- `config_schema` 当前是预留元数据，方便后续为 `plugins.config_json` 和 `community_plugins.config_json` 增加更稳定的 schema 校验与表单 UI。
 
 ## 内容类型声明
 
@@ -144,7 +144,7 @@ scope 语义当前约定为：
 - 后台左侧导航只保留“系统插件”入口
 - 插件业务菜单通过系统插件列表或版主插件菜单返回
 
-## Hook 预留
+## HookBus 与 Hook 预留
 
 当前只定义内置插件扩展点，不做第三方动态执行机制，也不做 Go 动态插件加载。
 
@@ -163,13 +163,14 @@ scope 语义当前约定为：
 
 当前状态：
 
-- Hook 主要作为 manifest 声明层预留。
-- 部分内置插件已声明典型 Hook，用于表达后续扩展方向。
-- 当前并未引入真正的运行时 Hook 调度器。
+- `HookDefinition` 是 manifest 声明层，描述插件希望参与的扩展点。
+- `Service` 已有最小内部 `HookBus`，当前调用点包括 `BeforeCreateContent`、`AfterCreateContent` 和 `AfterCreateComment`。
+- 当前没有第三方动态注册，也没有插件包运行时加载；HookBus 仅服务内置系统插件和后续 Core 内部扩展。
+- 目前尚未接入搜索索引、通知构建和 SEO 构建的完整 Hook 调度。
 
 失败策略约定：
 
-- 关键 Hook：失败应回滚主流程，例如创建前/更新前校验类 Hook。
+- 关键 Hook：失败应阻断主流程并由调用方回滚，例如创建前/更新前校验类 Hook。
 - 非关键 Hook：失败记录日志，不阻断主流程，例如 SEO、搜索索引、通知构建类 Hook。
 
 ## 配置优先级
@@ -177,16 +178,17 @@ scope 语义当前约定为：
 插件配置优先级当前定义为：
 
 1. 默认配置 / `config_schema` 约定
-2. `plugins.config_json` 预留全局配置
+2. `plugins.config_json` 全局配置
 3. `community_plugins.config_json` 子站配置
 
 子站配置优先级最高。
 
 当前真实实现说明：
 
-- `community_plugins.config_json` 已落地并可通过后台 API 管理。
-- `plugins.config_json` 目前仍是预留扩展点，尚未落库。
-- 因此 v1.3.x 当前主要使用“默认配置 + 子站配置”两层。
+- `plugins.config_json` 已落库，并可通过后台插件页和 `PUT /api/v1/admin/plugins/:code/config` 管理。
+- `community_plugins.config_json` 已落地，并可通过后台子站插件配置和 `PUT /api/v1/admin/communities/:id/plugins/:code/config` 管理。
+- API 返回的 `resolved_config` 以 `default`、`global`、`community`、`effective` 四段表达当前合并视图。
+- 当前只校验 JSON 格式，暂不做 `config_schema` 强校验。
 
 ## 两层插件状态
 
@@ -243,6 +245,38 @@ scope 语义当前约定为：
   - `job -> jobs.job.create`
   - `ai_work -> ai_works.work.create`
   - Core 兼容类型 `article`、`news` 当前仍为粗粒度 `core.topic.create`（兼容旧 `post.create`）。
+- `Service.CreateTopic` 是业务创建安全入口；`Service.CreatePost` 已封口，不再允许旧 posts 业务链路绕过插件校验。
+- `repo.CreateTopic` / `repo.CreatePost` 属于仓储层裸写入或兼容能力，可以保留防御性归一，但不应被 HTTP / Service 常规业务链路当作权限入口。
+
+## 后台内容更新边界
+
+v1.3.1 采用稳妥策略：后台编辑已存在内容时禁止修改归属和内容类型。
+
+禁止修改：
+
+- `community_id` / `site`
+- `category_id` / `board`
+- `content_type`
+- `plugin_code`
+
+允许修改：
+
+- 标题、摘要、正文、标签、状态、置顶、精华和 SEO 等非归属字段。
+
+原因：
+
+- 跨子站、跨板块或跨插件迁移需要同时校验目标子站、目标板块、全局插件状态、子站插件状态、`allowed_content_types`、当前用户权限和历史扩展表一致性。
+- 当前后台编辑不承担迁移职责；后续如需要，应新增迁移专项 API，而不是复用普通编辑接口。
+
+## 兼容权限桥
+
+`core.topic.create` 是 Core 兼容内容类型的当前创建权限。为了兼容历史后台和老角色配置，当前 `post.create` 仍可作为 `core.topic.create` 的过渡兼容权限。
+
+当前口径：
+
+- `post.create` 不是长期主权限。
+- 插件内容类型必须使用自己的 create 权限，例如 `qa.question.create`、`docs.document.create`、`wiki.page.create`。
+- `article` / `news` 后续要么明确作为 Core 内容定义继续存在，要么拆为插件，再逐步移除 `post.create` 兼容桥。
 
 ## 数据结构
 
@@ -273,6 +307,7 @@ scope 语义当前约定为：
 - `GET /api/v1/admin/plugins`
 - `POST /api/v1/admin/plugins/:code/enable`
 - `POST /api/v1/admin/plugins/:code/disable`
+- `PUT /api/v1/admin/plugins/:code/config`
 - `GET /api/v1/admin/plugin-menus`
 - `GET /api/v1/admin/communities/:id/plugins`
 - `POST /api/v1/admin/communities/:id/plugins/:code/enable`
@@ -295,5 +330,7 @@ scope 语义当前约定为：
 - 当前阶段不做 Go 动态插件加载。
 - 插件路由当前是注册描述 + Core 分发，不是真正动态运行时路由加载。
 - Docs / Wiki 的专用编辑体验仍是部分完成。
-- 子站插件配置和排序已有 API，但后台 UI 仍需继续完善和验收。
+- 子站插件配置和排序已有 API 与最小后台 UI，但仍需继续做浏览器矩阵验收。
 - 插件治理审计当前通过 `admin_logs.target` 记录 `plugin_code`、`community_id` 与 old/new 摘要；尚未拆出独立 JSON diff 字段。
+- `plugins.config_json` 与 `community_plugins.config_json` 已可写，但当前仅做 JSON 格式校验，尚未做 schema 强校验。
+- HookBus 当前是最小内部调度器；尚未覆盖 Update/Delete/Search/Notification/SEO 等完整调用点，也尚未形成独立结构化日志策略。

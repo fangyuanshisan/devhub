@@ -109,6 +109,7 @@ type Plugin struct {
 	CommunityStatus string `json:"community_status,omitempty"`
 	SortOrder       int    `json:"sort_order,omitempty"`
 	ConfigJSON      string `json:"config_json,omitempty"`
+	ResolvedConfig  any    `json:"resolved_config,omitempty"`
 	CreatedAt       string `json:"created_at,omitempty"`
 	UpdatedAt       string `json:"updated_at,omitempty"`
 }
@@ -441,6 +442,20 @@ type AuthUser struct {
 	TokenType            string               `json:"token_type,omitempty"`
 	Audience             string               `json:"aud,omitempty"`
 	Identity             string               `json:"identity,omitempty"`
+}
+
+// ActorContext 是服务端从 token / admin / moderator scope 计算出的可信权限上下文。
+// 客户端请求体不能覆盖该结构。
+type ActorContext struct {
+	UserID          int64    `json:"user_id,omitempty"`
+	AdminID         int64    `json:"admin_id,omitempty"`
+	IsAdmin         bool     `json:"is_admin"`
+	IsModerator     bool     `json:"is_moderator"`
+	CommunityScopes []int64  `json:"community_scopes,omitempty"`
+	Sites           []string `json:"sites,omitempty"`
+	Permissions     []string `json:"permissions,omitempty"`
+	TokenType       string   `json:"token_type,omitempty"`
+	RoleCode        string   `json:"role_code,omitempty"`
 }
 
 // AdminContext 表示后台请求解析后的权限上下文。
@@ -1081,7 +1096,8 @@ type CreateTopicRequest struct {
 
 	// ActorPermissions is derived from the authenticated user context.
 	// It is not part of the public API payload.
-	ActorPermissions []string `json:"-"`
+	ActorPermissions []string     `json:"-"`
+	ActorContext     ActorContext `json:"-"`
 }
 
 // UpdateTopicRequest 是更新主题的请求体。

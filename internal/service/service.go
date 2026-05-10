@@ -2,6 +2,7 @@ package service
 
 import (
 	"errors"
+	"fmt"
 	"strings"
 
 	"devhub-gin-backend/internal/domain"
@@ -31,6 +32,7 @@ type Repository interface {
 	Plugins() []domain.Plugin
 	PluginByCode(code string) (domain.Plugin, bool)
 	SetPluginStatus(code, status string) (domain.Plugin, error)
+	SetPluginConfig(code, configJSON string) (domain.Plugin, error)
 	CommunityPlugins(communityID int64) ([]domain.Plugin, error)
 	SetCommunityPluginStatus(communityID int64, code, status string) (domain.Plugin, error)
 	SetCommunityPluginConfig(communityID int64, code, configJSON string) (domain.Plugin, error)
@@ -145,12 +147,89 @@ type Repository interface {
 
 // Service 封装业务入口，向 HTTP 层提供稳定的调用接口。
 type Service struct {
-	repo Repository
+	repo  Repository
+	hooks *HookBus
 }
 
 // New 创建业务服务实例。
 func New(repo Repository) *Service {
-	return &Service{repo: repo}
+	return &Service{repo: repo, hooks: NewHookBus()}
+}
+
+// HookEvent 表示内置插件 HookBus 的运行时事件。
+type HookEvent struct {
+	Name       string
+	PluginCode string
+	Topic      *domain.Topic
+	Request    *domain.CreateTopicRequest
+	Actor      domain.ActorContext
+}
+
+// HookHandler 是内置插件 HookBus 的处理函数。
+type HookHandler func(HookEvent) error
+
+// HookBus 提供内置插件扩展点调度，不承载第三方动态插件执行。
+type HookBus struct {
+	handlers map[string][]HookHandler
+}
+
+// NewHookBus 创建空 HookBus；当前内置插件业务仍由 Store 保持兼容写入。
+func NewHookBus() *HookBus {
+	return &HookBus{handlers: map[string][]HookHandler{}}
+}
+
+// Register 注册内置 Hook 处理器。
+func (b *HookBus) Register(name string, handler HookHandler) {
+	name = strings.TrimSpace(name)
+	if b == nil || name == "" || handler == nil {
+		return
+	}
+	b.handlers[name] = append(b.handlers[name], handler)
+}
+
+// Dispatch 执行 Hook。关键 Hook 的错误会向上返回；非关键 Hook 错误由调用方决定是否记录。
+func (b *HookBus) Dispatch(event HookEvent) error {
+	if b == nil {
+		return nil
+	}
+	for _, handler := range b.handlers[strings.TrimSpace(event.Name)] {
+		if err := handler(event); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// ActorContextFromAuthUser converts server-authenticated identity into a trusted actor context.
+func ActorContextFromAuthUser(user domain.AuthUser, communityScopes []int64) domain.ActorContext {
+	ctx := domain.ActorContext{
+		UserID:          user.ID,
+		IsAdmin:         user.TokenType == "admin",
+		IsModerator:     user.IsModerator || user.RoleCode == "moderator",
+		CommunityScopes: uniquePositiveInt64s(communityScopes),
+		Sites:           append([]string{}, user.Sites...),
+		Permissions:     append([]string{}, user.Permissions...),
+		TokenType:       user.TokenType,
+		RoleCode:        user.RoleCode,
+	}
+	if ctx.IsAdmin {
+		ctx.AdminID = user.ID
+		ctx.UserID = 0
+	}
+	return ctx
+}
+
+func uniquePositiveInt64s(items []int64) []int64 {
+	seen := map[int64]bool{}
+	out := []int64{}
+	for _, item := range items {
+		if item <= 0 || seen[item] {
+			continue
+		}
+		seen[item] = true
+		out = append(out, item)
+	}
+	return out
 }
 
 // Health 返回服务及当前数据源状态。
@@ -410,9 +489,33 @@ func hasPermission(perms []string, permission string) bool {
 	return false
 }
 
+// HasPermission applies service-level permission compatibility rules.
+func HasPermission(perms []string, permission string) bool {
+	return hasPermission(perms, permission)
+}
+
+// CreatePermissionForContentType resolves the create permission for a content type.
+func CreatePermissionForContentType(contentType, pluginCode string) string {
+	return requiredCreatePermission(contentType, pluginCode)
+}
+
+// RequireCreatePermission checks whether an actor can create a given content type.
+func RequireCreatePermission(perms []string, contentType, pluginCode string) error {
+	permission := requiredCreatePermission(contentType, pluginCode)
+	if permission == "" || hasPermission(perms, permission) {
+		return nil
+	}
+	return fmt.Errorf("缺少权限 %s，不能创建该类型内容", permission)
+}
+
 // SetPluginStatus 更新插件状态。
 func (s *Service) SetPluginStatus(code, status string) (domain.Plugin, error) {
 	return s.repo.SetPluginStatus(code, status)
+}
+
+// SetPluginConfig updates global plugin config_json.
+func (s *Service) SetPluginConfig(code, configJSON string) (domain.Plugin, error) {
+	return s.repo.SetPluginConfig(code, configJSON)
 }
 
 // ListPosts 按站点、板块、关键词和标签筛选帖子列表。
@@ -425,9 +528,10 @@ func (s *Service) GetPost(id int64, increaseView bool) (*domain.Post, bool) {
 	return s.repo.GetPost(id, increaseView)
 }
 
-// CreatePost 创建帖子。
+// CreatePost is no longer a business write entry after v1.3.1.
+// Keep it only to satisfy the legacy repository contract; callers must use CreateTopic.
 func (s *Service) CreatePost(req domain.CreatePostRequest) (*domain.Post, error) {
-	return s.repo.CreatePost(req)
+	return nil, errors.New("posts 写接口已废弃，请使用 CreateTopic")
 }
 
 // UpdatePost 更新帖子。
@@ -712,13 +816,26 @@ func (s *Service) CreateTopic(req domain.CreateTopicRequest) (*domain.Topic, err
 	}
 	req.ContentType = normalizedType
 	req.PluginCode = pluginCode
+	if len(req.ActorContext.Permissions) > 0 {
+		req.ActorPermissions = append([]string{}, req.ActorContext.Permissions...)
+	}
 
 	if perm := requiredCreatePermission(normalizedType, pluginCode); perm != "" {
 		if !hasPermission(req.ActorPermissions, perm) {
 			return nil, errors.New("无权发布该类型内容")
 		}
 	}
-	return s.repo.CreateTopic(req)
+	if err := s.hooks.Dispatch(HookEvent{Name: "BeforeCreateContent", PluginCode: pluginCode, Request: &req, Actor: req.ActorContext}); err != nil {
+		return nil, err
+	}
+	topic, err := s.repo.CreateTopic(req)
+	if err != nil {
+		return nil, err
+	}
+	if err := s.hooks.Dispatch(HookEvent{Name: "AfterCreateContent", PluginCode: pluginCode, Topic: topic, Actor: req.ActorContext}); err != nil {
+		return nil, err
+	}
+	return topic, nil
 }
 
 // UpdateTopic 更新主题。
@@ -883,5 +1000,10 @@ func (s *Service) CreateComment(topicID int64, author string, text string, paren
 
 // CreateCommentWithRequest 创建评论。
 func (s *Service) CreateCommentWithRequest(topicID int64, req domain.CreateCommentRequest) (*domain.Comment, error) {
-	return s.repo.CreateCommentWithRequest(topicID, req)
+	comment, err := s.repo.CreateCommentWithRequest(topicID, req)
+	if err != nil {
+		return nil, err
+	}
+	_ = s.hooks.Dispatch(HookEvent{Name: "AfterCreateComment", Topic: &domain.Topic{ID: topicID}})
+	return comment, nil
 }

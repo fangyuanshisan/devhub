@@ -8,7 +8,7 @@
 
 ## 当前版本结论
 
-当前版本为 `v1.3.0`，主题是“Core + Plugins 架构拆分版”。DevHub 当前定位为多子站通用开源社区程序，默认演示为开发者社区。
+当前版本为 `v1.3.1`，主题是“插件化关键入口封口与权限校验补强版”。DevHub 当前定位为多子站通用开源社区程序，默认演示为开发者社区。
 
 Core 保留用户、认证、子站、板块、通用内容、评论、标签、搜索、通知、SEO、权限、审计、插件注册和分发能力。问答、文档、Wiki、项目、招聘、AI 作品已按内置系统插件建模：`qa -> question`、`docs -> document`、`wiki -> wiki_page`、`projects -> project`、`jobs -> job`、`ai_works -> ai_work`。
 
@@ -17,7 +17,7 @@ Core 保留用户、认证、子站、板块、通用内容、评论、标签、
 ## 当前已完成
 
 - 插件注册：`internal/plugins/registry.go` 和 `internal/plugins/qa|docs|wiki|projects|jobs|aiworks` 提供内置插件定义、内容类型映射、菜单、权限和路由描述。
-- 插件声明规范：当前已统一到 manifest 风格声明，包含插件本体、内容类型定义、权限定义、菜单定义、路由定义、`config_schema` 预留字段和 Hook 声明预留。
+- 插件声明规范：当前已统一到 manifest 风格声明，包含插件本体、内容类型定义、权限定义、菜单定义、路由定义、`config_schema`、依赖、最小 Core 版本和 Hook 声明。
 - 全局插件状态：`plugins` 表和 MemoryStore / MySQLStore 均支持 `installed`、`enabled`、`disabled`，并提供全局插件列表、启用和禁用 API。
 - 子站插件状态：`community_plugins` 表和 MemoryStore / MySQLStore 均支持按子站启用 / 禁用、配置和排序插件。
 - 两层状态判断：插件在某个子站可用需要同时满足 `plugins.status=enabled` 和 `community_plugins.status=enabled`；`core` 作为兼容内置能力在 Service 层特殊视为可用。
@@ -30,7 +30,10 @@ Core 保留用户、认证、子站、板块、通用内容、评论、标签、
   - `docs`：发布 `document` 时写入 `docs_documents`，并支持基础文档树读取。
   - `wiki`：发布 `wiki_page` 时写入 `wiki_pages` 和初始 `wiki_page_versions`；编辑时新增版本记录。
 - `project` / `job` / `ai_work` 已完成插件归属迁移：`projects -> project`、`jobs -> job`、`ai_works -> ai_work`，发布校验、权限码、菜单声明和历史 `plugin_code` 迁移口径已接入；专属扩展表和完整业务闭环尚未完成。
-- 前台入口：子站插件公开接口会隐藏 `config_json` 等后台配置；子站板块导航会按子站插件状态过滤。
+- 权限上下文：`CreateTopicRequest.ActorPermissions` / `ActorContext` 均由服务端从 token、后台身份和版主 scope 计算，客户端请求体不能覆盖。
+- 配置合并：`plugins.config_json` 与 `community_plugins.config_json` 已落库并可写，返回 `resolved_config.default/global/community/effective` 合并视图。
+- HookBus：Service 层已有最小内部 HookBus，当前调用点覆盖 `BeforeCreateContent`、`AfterCreateContent` 和 `AfterCreateComment`，不做第三方动态执行。
+- 前台入口：子站插件公开接口会隐藏 `config_json` / `resolved_config` 等后台配置；子站板块导航会按子站插件状态过滤。
 - 后台入口：`/admin-next/plugins` 作为系统插件管理入口；插件业务页通过系统插件列表进入，默认不散落在后台左侧导航。
 - 最小体验闭环：
   - 后台全局插件管理已支持查看插件列表、基础声明与全局启用/禁用。
@@ -40,6 +43,8 @@ Core 保留用户、认证、子站、板块、通用内容、评论、标签、
 - 审计：全局插件状态、子站插件状态、子站插件配置和排序已接入 `admin_logs`；当前 old/new 以 `target` 文本摘要形式记录。
 - Wiki schema：当前只保留插件化 `wiki_spaces`、`wiki_pages`、`wiki_page_versions` 语义，旧 `wiki_revisions` 预留冲突已清理。
 - SEO 保护：`/topics/:id` 仍由 Go 动态输出 SEO HTML，插件禁用不影响历史内容详情访问。
+- 技术债收口：`Service.CreatePost` 已封口，不再作为业务写入口；`/api/v1/posts` 写接口继续废弃；后台 `admin/posts` 创建入口在兼容 `post.create` 基础权限之外，叠加真实内容类型对应的插件 create 权限。
+- 后台编辑边界：后台内容编辑已禁止修改子站、板块、`content_type` 和 `plugin_code` 归属字段；如后续需要迁移归属，必须走单独迁移专项和完整插件校验。
 
 ## 当前部分完成
 
@@ -52,19 +57,21 @@ Core 保留用户、认证、子站、板块、通用内容、评论、标签、
   - `job -> jobs.job.create`
   - `ai_work -> ai_works.work.create`
   - Core 兼容类型 `article`、`news` 当前仍为粗粒度 `core.topic.create`（兼容旧 `post.create`，后续可按内容类型细化）。
+- 权限兼容桥：`post.create` 仍作为 `core.topic.create` 的过渡兼容权限存在；它不是长期主权限，后续需要随 Core 内容定义或 article/news 插件化一起收口。
 - Docs / Wiki 业务体验：当前已具备基础空间、文档树读取、版本列表等最小闭环；拖拽排序、完整回滚 UI、协作锁和专用编辑体验仍待后续。
 - Projects / Jobs / AI Works 业务体验：当前完成插件归属、发布校验、权限码和菜单声明；专属扩展表、专属管理页和完整业务流程仍待后续。
 - 插件路由：当前是注册描述 + Core 分发，不是真正动态运行时加载器。
-- Hook 机制：当前只完成声明层预留，还没有通用运行时 Hook 调度器。
-- 配置合并：当前已明确“默认配置 + 子站配置”的优先级；全局插件配置层仍是预留扩展点。
+- Hook 机制：当前已有最小内部 HookBus，但只覆盖创建内容与创建评论相关调用点；Update/Delete/Search/Notification/SEO Hook 调度仍待完善。
+- 配置校验：当前已完成默认配置、全局配置、子站配置三层合并和 JSON 格式校验；`config_schema` 强校验仍待后续。
 - 验收覆盖：已做文档与路由核对；完整 Docker 启动、真实 token API、浏览器页面和 SEO curl 矩阵仍需按测试文档继续补测。
 
 ## 当前未完成
 
 - 子站插件配置 UI 的完整浏览器验收矩阵，包括多子站、禁用提示、保存失败提示和排序持久化回归。
 - 更细粒度的权限体系：例如 Core 兼容类型 `article` / `news` 的细分权限码、按子站/板块维度配置权限矩阵、以及更明确的错误码与权限配置 API（当前仍为最小校验闭环）。
-- 通用运行时 Hook 调度器与关键/非关键 Hook 的统一执行编排。
-- `plugins.config_json` 全局插件配置落库与合并实现。
+- HookBus 的完整调用点：`BeforeUpdateContent`、`AfterUpdateContent`、`BeforeDeleteContent`、`AfterDeleteContent`、`OnSearchIndex`、`OnNotificationBuild`、`OnSEOBuild`。
+- `config_schema` 强校验和更友好的配置表单渲染。
+- `admin_logs` 的 old/new diff 结构化字段；当前插件治理 diff 仍主要以 `target` 文本摘要记录。
 - `qa` 取消采纳最佳答案。
 - Docs 文档树专用编辑 UI。
 - Docs 文档树拖拽、批量排序和更完整的空间管理体验。
@@ -87,6 +94,7 @@ Core 保留用户、认证、子站、板块、通用内容、评论、标签、
 3. 细化插件权限矩阵，尤其是 Core 兼容类型 `article` / `news` 的权限码策略。
 4. 补跑 `/topics/:id` SEO curl 检查，确认插件禁用后历史内容源码不退化。
 5. 为 Docs / Wiki 规划最小可用专用管理体验，但不引入复杂编辑器或协作系统。
+6. 如需要后台迁移内容子站、板块或类型，设计单独迁移 API，并逐条校验插件状态、子站插件状态、板块绑定、allowed_content_types 和权限码。
 
 ## 当前验收清单
 
@@ -106,3 +114,7 @@ Core 保留用户、认证、子站、板块、通用内容、评论、标签、
 - [ ] 版主插件菜单只返回全局 enabled、子站 enabled 且当前用户有权限的插件菜单。
 - [ ] 禁用插件后，已有 `/topics/:id` 详情页仍可访问并保留 SEO HTML。
 - [ ] `/sitemap.xml` 和 `/robots.txt` 正常返回。
+- [ ] `Service.CreatePost` 不能绕过插件发布校验。
+- [ ] `POST/PUT/DELETE /api/v1/posts*` 写接口返回 `410 Gone` 或明确废弃。
+- [ ] `POST /api/v1/admin/posts` 创建 `question/document/wiki_page` 时分别需要 `qa.question.create`、`docs.document.create`、`wiki.page.create`。
+- [ ] 后台编辑内容不能修改子站、板块、`content_type` 或 `plugin_code`。
