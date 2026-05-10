@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"devhub-gin-backend/internal/domain"
+	pluginregistry "devhub-gin-backend/internal/plugins"
 	"devhub-gin-backend/internal/service"
 
 	"github.com/gin-gonic/gin"
@@ -44,6 +45,7 @@ func NewRouter(svc *service.Service) *gin.Engine {
 		api.GET("/sites/:site", srv.getSite)
 		api.GET("/sites/:site/overview", srv.siteOverview)
 		api.GET("/boards", srv.listBoards)
+		api.GET("/plugins", srv.plugins)
 		api.GET("/stats", srv.stats)
 		api.GET("/tags", srv.tags)
 		api.GET("/tags/hot", srv.hotTags)
@@ -112,6 +114,7 @@ func NewRouter(svc *service.Service) *gin.Engine {
 		moderator := api.Group("/moderator", srv.moderatorAuthRequired())
 		{
 			moderator.GET("/communities", srv.moderatorCommunities)
+			moderator.GET("/plugin-menus", srv.moderatorPluginMenus)
 			moderator.GET("/dashboard", srv.moderatorDashboard)
 			moderator.GET("/reports", srv.moderatorReports)
 			moderator.POST("/reports/:id/handle", srv.handleModeratorReport)
@@ -137,6 +140,10 @@ func NewRouter(svc *service.Service) *gin.Engine {
 			admin.POST("/logout", srv.logout)
 			protected := admin.Group("", srv.adminAuthRequired(), srv.adminContext())
 			protected.GET("/me", srv.adminMe)
+			protected.GET("/plugins", srv.requirePermission("plugin.read"), srv.adminPlugins)
+			protected.GET("/plugin-menus", srv.adminPluginMenus)
+			protected.POST("/plugins/:code/enable", srv.requirePermission("plugin.write"), srv.enableAdminPlugin)
+			protected.POST("/plugins/:code/disable", srv.requirePermission("plugin.write"), srv.disableAdminPlugin)
 			protected.GET("/overview", srv.requirePermission("dashboard.read"), srv.adminOverview)
 			protected.GET("/communities", srv.requirePermission("site.read"), srv.adminCommunities)
 			protected.POST("/communities", srv.requirePermission("site.write"), srv.createAdminCommunity)
@@ -1353,6 +1360,16 @@ func (s *Server) listBoards(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"items": s.svc.ListBoards()})
 }
 
+func (s *Server) plugins(c *gin.Context) {
+	items := []domain.Plugin{}
+	for _, plugin := range s.svc.Plugins() {
+		if plugin.Status == pluginregistry.StatusEnabled {
+			items = append(items, plugin)
+		}
+	}
+	c.JSON(http.StatusOK, gin.H{"items": items})
+}
+
 func (s *Server) stats(c *gin.Context) {
 	site := c.DefaultQuery("site", "portal")
 	if !s.svc.ValidateSite(site) {
@@ -1450,7 +1467,7 @@ func (s *Server) tagTopics(c *gin.Context) {
 	tag := resolved.Tag
 	page, pageSize := pagination(c)
 	sortBy := c.DefaultQuery("sort", "latest")
-	contentType := strings.TrimSpace(c.Query("content_type"))
+	contentType := pluginregistry.NormalizeContentType(c.Query("content_type"))
 	var topics []domain.Topic
 	var total int
 	if site == "" || site == "portal" {
@@ -1488,7 +1505,7 @@ func (s *Server) communityTagTopics(c *gin.Context) {
 	tag := resolved.Tag
 	page, pageSize := pagination(c)
 	sortBy := c.DefaultQuery("sort", "latest")
-	contentType := strings.TrimSpace(c.Query("content_type"))
+	contentType := pluginregistry.NormalizeContentType(c.Query("content_type"))
 	topics, total := s.svc.TagTopics(tag.ID, tag.CommunityID, contentType, sortBy, page, pageSize)
 	c.JSON(http.StatusOK, domain.PageResponse{
 		Items:    topics,
@@ -1930,6 +1947,48 @@ func (s *Server) adminMe(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"user": user, "admin_context": adminCtx})
 }
 
+func (s *Server) adminPlugins(c *gin.Context) {
+	c.JSON(http.StatusOK, gin.H{"items": s.svc.Plugins()})
+}
+
+func (s *Server) adminPluginMenus(c *gin.Context) {
+	user, _ := currentUser(c)
+	menus := []domain.PluginMenu{}
+	for _, plugin := range s.svc.Plugins() {
+		if plugin.Status != pluginregistry.StatusEnabled {
+			continue
+		}
+		for _, menu := range plugin.Menus {
+			if menu.Area != "" && menu.Area != "admin" {
+				continue
+			}
+			if menu.Permission == "" || hasPermission(user.Permissions, menu.Permission) {
+				menus = append(menus, menu)
+			}
+		}
+	}
+	c.JSON(http.StatusOK, gin.H{"items": menus})
+}
+
+func (s *Server) enableAdminPlugin(c *gin.Context) {
+	s.setAdminPluginStatus(c, pluginregistry.StatusEnabled)
+}
+
+func (s *Server) disableAdminPlugin(c *gin.Context) {
+	s.setAdminPluginStatus(c, pluginregistry.StatusDisabled)
+}
+
+func (s *Server) setAdminPluginStatus(c *gin.Context, status string) {
+	code := strings.TrimSpace(c.Param("code"))
+	plugin, err := s.svc.SetPluginStatus(code, status)
+	if err != nil {
+		fail(c, http.StatusBadRequest, err.Error())
+		return
+	}
+	s.audit(c, "system", "更新插件状态", fmt.Sprintf("plugins#%s:%s", plugin.Code, status))
+	c.JSON(http.StatusOK, plugin)
+}
+
 func (s *Server) authMe(c *gin.Context) {
 	user, _ := currentUser(c)
 	c.JSON(http.StatusOK, s.frontendUserPayload(user))
@@ -1968,11 +2027,21 @@ func (s *Server) adminPosts(c *gin.Context) {
 	board := c.DefaultQuery("board", "all")
 	q := c.Query("q")
 	status := c.DefaultQuery("status", "all")
+	contentType := pluginregistry.NormalizeContentType(c.Query("content_type"))
 	if !s.svc.ValidateSite(site) || !s.svc.ValidateBoard(board) {
 		fail(c, http.StatusBadRequest, "筛选参数不合法")
 		return
 	}
 	posts := s.svc.AdminTopics(site, board, q)
+	if contentType != "" && contentType != "all" {
+		filtered := make([]domain.Post, 0, len(posts))
+		for _, post := range posts {
+			if adminContentTypeByBoard(post.Board) == contentType {
+				filtered = append(filtered, post)
+			}
+		}
+		posts = filtered
+	}
 	if status != "all" && status != "" {
 		filtered := make([]domain.Post, 0, len(posts))
 		for _, post := range posts {
@@ -2011,6 +2080,10 @@ func (s *Server) createAdminPost(c *gin.Context) {
 		topicReq.UserID = currentDemoUserID()
 	}
 	if !ensureSiteAllowed(c, req.Site) {
+		return
+	}
+	if err := s.normalizeCreateTopicRequest(&topicReq); err != nil {
+		fail(c, http.StatusBadRequest, err.Error())
 		return
 	}
 	topic, err := s.svc.CreateTopic(topicReq)
@@ -2807,6 +2880,21 @@ func (s *Server) moderatorCommunities(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"items": communities, "total": len(communities)})
 }
 
+func (s *Server) moderatorPluginMenus(c *gin.Context) {
+	menus := []domain.PluginMenu{}
+	for _, plugin := range s.svc.Plugins() {
+		if plugin.Status != pluginregistry.StatusEnabled {
+			continue
+		}
+		for _, menu := range plugin.Menus {
+			if menu.Area == "moderator" {
+				menus = append(menus, menu)
+			}
+		}
+	}
+	c.JSON(http.StatusOK, gin.H{"items": menus, "total": len(menus)})
+}
+
 func (s *Server) moderatorDashboard(c *gin.Context) {
 	communities := s.moderatorCommunitiesForCurrentUser(c)
 	communityIDs := make([]int64, 0, len(communities))
@@ -3453,6 +3541,10 @@ func (s *Server) moderatorUserForAdmin(user domain.AuthUser) (domain.AuthUser, b
 		"report.handle",
 		"moderator.read",
 		"log.read",
+		"plugin.read",
+		"qa.question.audit",
+		"docs.document.audit",
+		"wiki.page.audit",
 	}
 	user.TokenType = "user"
 	user.Identity = "moderator"
@@ -3962,7 +4054,7 @@ func (s *Server) moderatorTopicsForCommunities(communityIDs []int64, status, con
 					}
 				}
 			}
-			if contentType != "" && contentType != "all" && adminContentTypeByBoard(post.Board) != contentType {
+			if contentType != "" && contentType != "all" && adminContentTypeByBoard(post.Board) != pluginregistry.NormalizeContentType(contentType) {
 				continue
 			}
 			out = append(out, post)
@@ -4380,7 +4472,7 @@ func (s *Server) listTopics(c *gin.Context) {
 		categoryID = s.categoryIDBySlug(communityID, categorySlug)
 	}
 
-	contentType := firstQuery(c, "content_type", "type")
+	contentType := pluginregistry.NormalizeContentType(firstQuery(c, "content_type", "type"))
 	if contentType == "" {
 		contentType = contentTypeByBoard(categorySlug)
 	}
@@ -4746,7 +4838,7 @@ func (s *Server) searchRequestFromQuery(c *gin.Context) domain.SearchRequest {
 		}
 	}
 
-	contentType := strings.TrimSpace(firstQuery(c, "content_type", "type"))
+	contentType := pluginregistry.NormalizeContentType(firstQuery(c, "content_type", "type"))
 	if !validContentType(contentType) {
 		contentType = ""
 	}
@@ -5117,16 +5209,16 @@ func adminContentTypeByBoard(board string) string {
 	case "jobs":
 		return "job"
 	case "wiki":
-		return "wiki"
+		return "wiki_page"
 	case "docs":
-		return "doc"
+		return "document"
 	default:
 		return "article"
 	}
 }
 
 func boardByContentTypeHTTP(contentType string) string {
-	switch contentType {
+	switch pluginregistry.NormalizeContentType(contentType) {
 	case "question":
 		return "qa"
 	case "project":
@@ -5135,9 +5227,9 @@ func boardByContentTypeHTTP(contentType string) string {
 		return "ai"
 	case "job":
 		return "jobs"
-	case "wiki":
+	case "wiki_page":
 		return "wiki"
-	case "doc":
+	case "document":
 		return "docs"
 	default:
 		return "community"
@@ -5186,7 +5278,7 @@ func (s *Server) normalizeCreateTopicRequest(req *domain.CreateTopicRequest) err
 	req.Title = strings.TrimSpace(req.Title)
 	req.Summary = strings.TrimSpace(req.Summary)
 	req.Content = strings.TrimSpace(req.Content)
-	req.ContentType = strings.TrimSpace(req.ContentType)
+	req.ContentType = pluginregistry.NormalizeContentType(req.ContentType)
 	req.CommunitySlug = strings.TrimSpace(req.CommunitySlug)
 
 	if req.CommunityID == 0 && req.CommunitySlug != "" {
@@ -5221,15 +5313,29 @@ func (s *Server) normalizeCreateTopicRequest(req *domain.CreateTopicRequest) err
 	if category == nil {
 		return fmt.Errorf("请选择当前子站下的板块")
 	}
-	if req.ContentType == "" {
-		req.ContentType = firstNonEmpty(category.ContentType, category.Type)
+	if category.Status != 1 || !category.Postable {
+		return fmt.Errorf("当前板块不可发布")
 	}
-	categoryContentType := firstNonEmpty(category.ContentType, category.Type)
-	if categoryContentType != "" && req.ContentType != categoryContentType {
+	if req.ContentType == "" {
+		req.ContentType = pluginregistry.NormalizeContentType(firstNonEmpty(category.ContentType, category.Type))
+	}
+	categoryContentType := pluginregistry.NormalizeContentType(firstNonEmpty(category.ContentType, category.Type))
+	if categoryContentType != "" && !pluginregistry.ContentTypeAllowed(category.AllowedContentTypes, req.ContentType) {
 		return fmt.Errorf("内容类型与板块不匹配")
 	}
 	if !validContentType(req.ContentType) {
 		return fmt.Errorf("内容类型不合法")
+	}
+	req.PluginCode = pluginregistry.PluginCodeForContentType(req.ContentType)
+	categoryPlugin := firstNonEmpty(category.PluginCode, pluginregistry.PluginCodeForContentType(categoryContentType))
+	if categoryPlugin != req.PluginCode {
+		return fmt.Errorf("当前板块未绑定对应插件")
+	}
+	if req.PluginCode != pluginregistry.CoreCode {
+		plugin, ok := s.svc.PluginByCode(req.PluginCode)
+		if !ok || plugin.Status != pluginregistry.StatusEnabled {
+			return fmt.Errorf("插件未启用，不能发布该类型内容")
+		}
 	}
 
 	if len(req.TagIDs) > 0 {
@@ -5307,12 +5413,7 @@ func (s *Server) communityTagsForCreate(communityID int64) []domain.Tag {
 }
 
 func validContentType(contentType string) bool {
-	switch contentType {
-	case "article", "question", "project", "ai_work", "job", "wiki", "doc", "news":
-		return true
-	default:
-		return false
-	}
+	return pluginregistry.ValidContentType(contentType)
 }
 
 func (s *Server) categoryIDBySlug(communityID int64, slug string) int64 {
@@ -5343,10 +5444,10 @@ func contentTypeByBoard(board string) string {
 		return "ai_work"
 	case "jobs", "job":
 		return "job"
-	case "wiki":
-		return "wiki"
-	case "docs", "doc":
-		return "doc"
+	case "wiki", "wiki_page":
+		return "wiki_page"
+	case "docs", "doc", "document":
+		return "document"
 	case "news":
 		return "news"
 	default:
@@ -5366,9 +5467,9 @@ func contentTypeLabel(contentType string) string {
 		return "AI作品"
 	case "job":
 		return "招聘内推"
-	case "wiki":
+	case "wiki", "wiki_page":
 		return "Wiki"
-	case "doc":
+	case "doc", "document":
 		return "文档"
 	case "news":
 		return "公告"

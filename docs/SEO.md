@@ -25,6 +25,7 @@ DevHub 当前 SEO 重点面向百度。核心原则是：动态 Topic 详情页�
 - v1.1.4 只修复前台登录态、关注请求、版主入口、后台菜单和发布类型匹配；`/topics/:id` 与 `/c/:slug` 的 SEO 主体仍由 Go 动态输出。
 - v1.2.0 起 `/tags/:tag`、`/tags/:tag/`、`/c/:slug/tags/:tag` 和 `/c/:slug/tags/:tag/` 由 Go 动态输出标签聚合 SEO HTML。
 - v1.2.1 起，alias URL 和 merged source URL 会优先 301 到 canonical 主标签 URL；disabled / merged / alias URL 不进入 sitemap。
+- v1.3.0 起，问答、文档、Wiki 由 `qa`、`docs`、`wiki` 内置插件注册内容类型；`/topics/:id` 的 canonical、源码内容和 JSON-LD 仍由 Core Go 动态页输出，不因插件拆分退化为 CSR。
 - v1.0.0 归档后，任何上线前回归都必须把 `/topics/:id` SEO 源码检查作为阻塞项。
 - 隐藏 Topic 详情页由 Go 输出“内容已隐藏”HTML，并带 `meta name="robots" content="noindex,follow"`；隐藏页不输出原正文。
 

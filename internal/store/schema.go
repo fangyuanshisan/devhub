@@ -333,13 +333,30 @@ CREATE TABLE IF NOT EXISTS communities (
   KEY idx_communities_status_sort (status, sort_order)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
+-- Plugins (系统插件表)
+CREATE TABLE IF NOT EXISTS plugins (
+  id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+  plugin_code VARCHAR(64) NOT NULL,
+  name VARCHAR(128) NOT NULL,
+  version VARCHAR(32) NOT NULL DEFAULT '',
+  status ENUM('installed','enabled','disabled') NOT NULL DEFAULT 'enabled',
+  description VARCHAR(500) NOT NULL DEFAULT '',
+  created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  PRIMARY KEY (id),
+  UNIQUE KEY uk_plugins_code (plugin_code),
+  KEY idx_plugins_status (status)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
 -- Categories (板块表) - 替代 boards，支持 content_type
 CREATE TABLE IF NOT EXISTS categories (
   id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
   community_id BIGINT UNSIGNED NOT NULL DEFAULT 0 COMMENT '0表示全站通用板块',
   name VARCHAR(64) NOT NULL,
   slug VARCHAR(64) NOT NULL,
-  type VARCHAR(32) NOT NULL DEFAULT 'article' COMMENT 'article/question/project/ai_work/job/wiki/doc/news',
+  type VARCHAR(32) NOT NULL DEFAULT 'article' COMMENT 'article/question/project/ai_work/job/wiki_page/document/news',
+  plugin_code VARCHAR(64) NOT NULL DEFAULT 'core',
+  allowed_content_types JSON NULL,
   description TEXT NULL,
   icon VARCHAR(100) NOT NULL DEFAULT '',
   sort_order INT NOT NULL DEFAULT 0,
@@ -366,7 +383,8 @@ CREATE TABLE IF NOT EXISTS topics (
   user_id BIGINT UNSIGNED NOT NULL DEFAULT 0,
   title VARCHAR(200) NOT NULL,
   slug VARCHAR(220) NULL,
-  content_type VARCHAR(32) NOT NULL DEFAULT 'article' COMMENT 'article/question/project/ai_work/job/wiki/doc/news',
+  plugin_code VARCHAR(64) NOT NULL DEFAULT 'core',
+  content_type VARCHAR(32) NOT NULL DEFAULT 'article' COMMENT 'article/question/project/ai_work/job/wiki_page/document/news',
   summary VARCHAR(500) NULL,
   content MEDIUMTEXT NOT NULL,
   ai_summary TEXT NULL,
@@ -389,12 +407,114 @@ CREATE TABLE IF NOT EXISTS topics (
   updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
   deleted_at DATETIME NULL,
   PRIMARY KEY (id),
+  KEY idx_topics_plugin_type_status (plugin_code, content_type, status),
   KEY idx_topics_community_type_status (community_id, content_type, status),
   KEY idx_topics_category_status (category_id, status),
   KEY idx_topics_hot_score (hot_score),
   KEY idx_topics_last_active (last_active_at),
   KEY idx_topics_pinned_featured (is_pinned, is_featured),
   FULLTEXT KEY ft_topics_search (title, summary, content)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- QA plugin tables
+CREATE TABLE IF NOT EXISTS qa_questions (
+  id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+  topic_id BIGINT UNSIGNED NOT NULL,
+  is_solved TINYINT NOT NULL DEFAULT 0,
+  best_answer_id BIGINT UNSIGNED NULL,
+  accepted_at DATETIME NULL,
+  created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  PRIMARY KEY (id),
+  UNIQUE KEY uk_qa_questions_topic (topic_id),
+  KEY idx_qa_questions_solved (is_solved),
+  CONSTRAINT fk_qa_questions_topic FOREIGN KEY (topic_id) REFERENCES topics(id) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE IF NOT EXISTS qa_answers (
+  id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+  topic_id BIGINT UNSIGNED NOT NULL,
+  comment_id BIGINT UNSIGNED NOT NULL,
+  user_id BIGINT UNSIGNED NOT NULL DEFAULT 0,
+  is_accepted TINYINT NOT NULL DEFAULT 0,
+  accepted_at DATETIME NULL,
+  created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  PRIMARY KEY (id),
+  UNIQUE KEY uk_qa_answers_comment (comment_id),
+  KEY idx_qa_answers_topic (topic_id, is_accepted)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- Docs plugin tables
+CREATE TABLE IF NOT EXISTS docs_spaces (
+  id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+  community_id BIGINT UNSIGNED NOT NULL DEFAULT 0,
+  name VARCHAR(128) NOT NULL,
+  slug VARCHAR(128) NOT NULL,
+  description TEXT NULL,
+  status TINYINT NOT NULL DEFAULT 1,
+  created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  deleted_at DATETIME NULL,
+  PRIMARY KEY (id),
+  UNIQUE KEY uk_docs_spaces_community_slug (community_id, slug)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE IF NOT EXISTS docs_documents (
+  id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+  space_id BIGINT UNSIGNED NULL,
+  topic_id BIGINT UNSIGNED NOT NULL,
+  parent_id BIGINT UNSIGNED NULL,
+  sort_order INT NOT NULL DEFAULT 0,
+  status TINYINT NOT NULL DEFAULT 1,
+  created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  PRIMARY KEY (id),
+  UNIQUE KEY uk_docs_documents_topic (topic_id),
+  KEY idx_docs_documents_space_parent (space_id, parent_id, sort_order)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- Wiki plugin tables
+CREATE TABLE IF NOT EXISTS wiki_spaces (
+  id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+  community_id BIGINT UNSIGNED NOT NULL DEFAULT 0,
+  name VARCHAR(128) NOT NULL,
+  slug VARCHAR(128) NOT NULL,
+  description TEXT NULL,
+  status TINYINT NOT NULL DEFAULT 1,
+  created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  deleted_at DATETIME NULL,
+  PRIMARY KEY (id),
+  UNIQUE KEY uk_wiki_spaces_community_slug (community_id, slug)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE IF NOT EXISTS wiki_pages (
+  id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+  space_id BIGINT UNSIGNED NULL,
+  topic_id BIGINT UNSIGNED NOT NULL,
+  current_version_id BIGINT UNSIGNED NULL,
+  status TINYINT NOT NULL DEFAULT 1,
+  created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  PRIMARY KEY (id),
+  UNIQUE KEY uk_wiki_pages_topic (topic_id),
+  KEY idx_wiki_pages_space (space_id, status)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE IF NOT EXISTS wiki_page_versions (
+  id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+  wiki_page_id BIGINT UNSIGNED NOT NULL,
+  topic_id BIGINT UNSIGNED NOT NULL,
+  editor_id BIGINT UNSIGNED NOT NULL DEFAULT 0,
+  version_no INT NOT NULL DEFAULT 1,
+  title VARCHAR(200) NOT NULL,
+  content MEDIUMTEXT NOT NULL,
+  change_note VARCHAR(500) NOT NULL DEFAULT '',
+  created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (id),
+  UNIQUE KEY uk_wiki_versions_page_no (wiki_page_id, version_no),
+  KEY idx_wiki_versions_topic (topic_id, created_at)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- Topic Tags (主题标签关联表)

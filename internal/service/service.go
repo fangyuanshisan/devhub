@@ -22,6 +22,9 @@ type Repository interface {
 	ListBoards() []domain.Board
 	CreateBoard(req domain.Board) (domain.Board, error)
 	UpdateBoard(key string, req domain.Board) (domain.Board, bool)
+	Plugins() []domain.Plugin
+	PluginByCode(code string) (domain.Plugin, bool)
+	SetPluginStatus(code, status string) (domain.Plugin, error)
 	ListPosts(site, board, q, tag string) []domain.Post
 	GetPost(id int64, increaseView bool) (*domain.Post, bool)
 	CreatePost(req domain.CreatePostRequest) (*domain.Post, error)
@@ -206,6 +209,19 @@ func (s *Service) CreateBoard(req domain.Board) (domain.Board, error) {
 // UpdateBoard 更新板块配置。
 func (s *Service) UpdateBoard(key string, req domain.Board) (domain.Board, bool) {
 	return s.repo.UpdateBoard(key, req)
+}
+
+// Plugins 返回系统插件注册信息与运行状态。
+func (s *Service) Plugins() []domain.Plugin { return s.repo.Plugins() }
+
+// PluginByCode 按插件唯一标识获取插件。
+func (s *Service) PluginByCode(code string) (domain.Plugin, bool) {
+	return s.repo.PluginByCode(code)
+}
+
+// SetPluginStatus 更新插件状态。
+func (s *Service) SetPluginStatus(code, status string) (domain.Plugin, error) {
+	return s.repo.SetPluginStatus(code, status)
 }
 
 // ListPosts 按站点、板块、关键词和标签筛选帖子列表。

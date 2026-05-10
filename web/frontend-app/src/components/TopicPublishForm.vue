@@ -179,12 +179,19 @@ function syncCategoryType() {
 
 function initialContentType() {
   if (typeof window === 'undefined') return 'article';
-  const value = new URLSearchParams(window.location.search).get('type') || new URLSearchParams(window.location.search).get('content_type') || 'article';
+  const raw = new URLSearchParams(window.location.search).get('type') || new URLSearchParams(window.location.search).get('content_type') || 'article';
+  const value = normalizeContentType(raw);
   return contentTypes.some((item) => item.value === value) ? value : 'article';
 }
 
 function categoryContentType(category?: Category) {
-  return category?.content_type || category?.type || '';
+  return normalizeContentType(category?.content_type || category?.type || '');
+}
+
+function normalizeContentType(value: string) {
+  if (value === 'doc') return 'document';
+  if (value === 'wiki') return 'wiki_page';
+  return value;
 }
 
 function selectableCategories() {

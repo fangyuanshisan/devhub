@@ -53,7 +53,7 @@ export const fallbackPosts: Post[] = [
     status: 'publish',
     pinned: false,
     recommended: true,
-    content_type: 'doc',
+    content_type: 'document',
     favorite_count: 15,
     hot_score: 1040,
     last_active_at: '2026-05-08 14:10:00',

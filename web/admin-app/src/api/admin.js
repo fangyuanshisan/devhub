@@ -5,6 +5,10 @@ export const logout = (refreshToken) => http.post('/admin/logout', { refresh_tok
 export const me = () => http.get('/admin/me');
 export const sites = () => http.get('/sites');
 export const boards = () => http.get('/boards');
+export const plugins = () => http.get('/admin/plugins');
+export const pluginMenus = () => http.get('/admin/plugin-menus');
+export const enablePlugin = (code) => http.post(`/admin/plugins/${code}/enable`);
+export const disablePlugin = (code) => http.post(`/admin/plugins/${code}/disable`);
 export const adminCommunities = (params) => http.get('/admin/communities', { params });
 export const createCommunity = (payload) => http.post('/admin/communities', payload);
 export const adminCommunity = (id) => http.get(`/admin/communities/${id}`);

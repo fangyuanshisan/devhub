@@ -29,6 +29,7 @@
 - 前台会员导航不得默认暴露 `/admin-next` 总后台入口；子站版主只显示 `/moderator` 版主工作台入口。
 - 前台“我的”类页面和关注操作必须携带前台 user token，不能使用后台 admin token 或无 token 请求。
 - 发布页必须让 `content_type` 与当前子站 `categories.content_type` 保持一致，不能为绕过错误取消后端校验。
+- v1.3.0 起问答、文档、Wiki 属于内置系统插件；发布页还必须遵守 `categories.plugin_code`、`categories.allowed_content_types` 和插件 enabled 状态。
 - 后台子站管理主入口统一为 `/admin-next/communities`；`/admin-next/sites` 只能作为隐藏兼容入口或重定向。
 - 版主工作台必须由后端校验 `community_id` 范围，不能只靠前端隐藏按钮。
 - 版主工作台不能越权管理其他子站，不能管理后台人员、版主分配、全局子站配置或系统设置。
@@ -90,8 +91,10 @@ PORT=8090 CMS_STORE=memory ./.devhub/devhub
 - `v1.1.3` 主题是“独立版主工作台 MVP”，目标是让子站版主通过 `/moderator` 处理自己子站的举报、内容、评论和审计。
 - `v1.2.0` 主题是“标签系统增强版”，目标是补齐标签页、标签详情 API、标签聚合、标签关注、发布建议、后台标签 CRUD、标签 SEO 字段和 sitemap 标签收录。
 - `v1.2.1` 主题是“标签合并、别名与统计重算版”，目标是补齐标签合并、标签别名、标签统计重算、merged/disabled 的 SEO 与 sitemap 行为、标签治理审计日志和后台标签管理增强。
+- `v1.3.0` 主题是“Core + Plugins 架构拆分版”，目标是把问答、文档、Wiki 从核心内容类型中拆为 `qa`、`docs`、`wiki` 内置系统插件。
 - 后续建议：
-  - `v1.3.0`：推荐、关注流和内容发现。
-  - `v1.4.0`：用户成长、声望和个人主页。
-  - `v1.5.0`：后台运营、治理和数据统计增强。
-  - `v1.6.0`：生产化、migration、性能和 CI/CD。
+  - `v1.3.x`：继续完善插件专用 UI、Docs 文档树和 Wiki 版本回滚交互。
+  - `v1.4.0`：推荐、关注流和内容发现。
+  - `v1.5.0`：用户成长、声望和个人主页。
+  - `v1.6.0`：后台运营、治理和数据统计增强。
+  - `v1.7.0`：生产化、migration、性能和 CI/CD。

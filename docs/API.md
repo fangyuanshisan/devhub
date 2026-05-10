@@ -8,6 +8,23 @@
 
 后续 Codex / AI Agent 更新 API 前，应先阅读 `docs/AGENT_RULES.md`，再核对 `internal/transport/httpapi/router.go`。接口存在但字段尚未展开时，可以标注“待补充字段细节”；不要把计划中的接口写成已完成。
 
+## v1.3.0 API 范围
+
+v1.3.0 新增 Core + Plugins 架构基础 API。当前仓库为兼容历史数据，仍以 `topics` 作为 Core 内容表、`categories` 作为 Core 板块表；两者分别新增 `plugin_code`，`categories` 额外新增 `allowed_content_types`。问答、文档、Wiki 不再作为核心写死类型，而是由 `qa`、`docs`、`wiki` 三个内置系统插件注册 `question`、`document`、`wiki_page` 内容类型、后台菜单、权限码和路由描述。
+
+新增插件 API：
+
+```http
+GET /api/v1/plugins
+GET /api/v1/admin/plugins
+GET /api/v1/admin/plugin-menus
+POST /api/v1/admin/plugins/:code/enable
+POST /api/v1/admin/plugins/:code/disable
+GET /api/v1/moderator/plugin-menus
+```
+
+发布内容时，`POST /api/v1/topics` 会校验当前板块是否绑定对应插件、插件是否启用、`content_type` 是否在 `allowed_content_types` 中。历史 `doc` / `wiki` 请求会兼容归一为 `document` / `wiki_page`。
+
 ## v1.2.1 API 范围
 
 v1.2.1 在 v1.2.0 标签系统增强版基础上，补充标签 alias 解析、标签 merge、标签统计重算和后台标签治理 API。当前真实实现继续沿用 `tags.site_key` 作为标签的子站范围字段；alias 的唯一约束也按 `site_key` 生效。
@@ -25,6 +42,7 @@ v1.2.0 API 按以下模块归档：Auth、Communities、Community stats、Commun
 - Comments：评论列表、评论、回复、问答采纳。
 - Search：Topic 搜索、筛选、未解决、精华。
 - Tags：标签列表、热门标签、子站标签、标签详情、标签内容聚合、标签建议、标签关注。
+- Plugins：插件注册、插件状态、插件后台菜单和插件权限描述。
 - Reactions：点赞和兼容 reaction toggle。
 - Favorites：收藏和我的收藏。
 - Follows：关注 user/community/tag/topic。
@@ -146,6 +164,28 @@ GET /api/v1/communities/:slug/moderators
 ```http
 GET /api/v1/communities/:slug/categories
 ```
+
+板块字段补充：
+
+- `plugin_code`：板块绑定插件，Core 类型为 `core`，问答 / 文档 / Wiki 分别为 `qa` / `docs` / `wiki`。
+- `allowed_content_types`：允许发布的内容类型数组。问答板块默认 `["question"]`，文档板块默认 `["document","doc"]`，Wiki 板块默认 `["wiki_page","wiki"]`。
+
+插件状态：
+
+```http
+GET /api/v1/plugins
+```
+
+只返回已启用插件，供前台判断系统能力。
+
+```http
+GET /api/v1/admin/plugins
+GET /api/v1/admin/plugin-menus
+POST /api/v1/admin/plugins/:code/enable
+POST /api/v1/admin/plugins/:code/disable
+```
+
+需要后台权限；`plugin.read` 可查看插件和菜单，`plugin.write` 可启用 / 禁用插件。插件禁用后，对应 `plugin_code` 的板块不能继续发布新内容。
 
 返回字段包含 `content_type`、`visible`、`nav_visible`、`postable`、`seo_title`、`seo_description`、`status`。前台子站页只展示启用且可见的板块导航。
 

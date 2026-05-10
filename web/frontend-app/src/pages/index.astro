@@ -7,7 +7,7 @@ import { devhubSites as sites, portalSite as portal } from '../lib/sites';
 const channelCards = [
   { title: '社区', desc: '讨论工程经验和线上问题', href: '/search/?scope=all&content_type=article' },
   { title: '问答', desc: '沉淀具体问题的可复用答案', href: '/search/?scope=all&content_type=question' },
-  { title: '文档', desc: '教程、部署手册和实践指南', href: '/search/?scope=all&content_type=doc' },
+  { title: '文档', desc: '教程、部署手册和实践指南', href: '/search/?scope=all&content_type=document' },
   { title: '开源', desc: '项目推荐和维护经验', href: '/search/?scope=all&content_type=project' },
 ];
 const jsonLd = {
@@ -28,7 +28,9 @@ const typeLabels = {
   ai_work: '智能作品',
   job: '招聘内推',
   wiki: 'Wiki',
+  wiki_page: 'Wiki',
   doc: '文档',
+  document: '文档',
   news: '动态',
 };
 ---
@@ -45,7 +47,7 @@ const typeLabels = {
           </div>
           <div class="hero-actions">
             <a class="primary-link" href="/topics/new/">发布内容</a>
-            <a href="/search/?scope=all&content_type=doc">浏览文档</a>
+            <a href="/search/?scope=all&content_type=document">浏览文档</a>
           </div>
         </section>
 

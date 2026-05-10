@@ -2,7 +2,7 @@
 
 DevHub 是一个多子站技术社区 CMS。当前项目使用 Go + Gin 提供后端 API 与静态资源托管，前台使用 Astro + Vue Islands，后台使用 Vue 3 + Element Plus。
 
-当前版本：`v1.2.1`，版本主题为“标签合并、别名与统计重算版”。
+当前版本：`v1.3.0`，版本主题为“Core + Plugins 架构拆分版”。
 
 当前只维护两个入口：
 
@@ -26,6 +26,8 @@ DevHub 是一个多子站技术社区 CMS。当前项目使用 Go + Gin 提供�
 - [部署启动文档](docs/DEPLOYMENT.md)
 - [备份与回滚](docs/BACKUP_AND_ROLLBACK.md)
 - [SEO 文档](docs/SEO.md)
+- [插件架构说明](docs/PLUGIN_ARCHITECTURE.md)
+- [v1.3.0 Release Notes](docs/releases/v1.3.0.md)
 - [v1.2.1 Release Notes](docs/releases/v1.2.1.md)
 - [v1.2.0 Release Notes](docs/releases/v1.2.0.md)
 - [v1.1.5 Release Notes](docs/releases/v1.1.5.md)
@@ -41,9 +43,10 @@ DevHub 是一个多子站技术社区 CMS。当前项目使用 Go + Gin 提供�
 
 - 多子站：总站、PHP、Go、Java、AI、Frontend；v1.1.0 起子站具备独立首页、SEO、配置、板块、版主、统计、关注和公告。
 - 多板块：社区、问答中心、开源项目、AI 作品、招聘内推、Wiki、文档；后台支持按子站管理板块、启用 / 禁用、排序和导航展示。
+- 插件架构：v1.3.0 起 Core 保留通用能力，问答、文档、Wiki 由 `qa`、`docs`、`wiki` 三个内置系统插件注册内容类型、菜单、权限和路由描述。
 - 内容：列表、详情、发布、编辑、删除、浏览数、点赞、收藏、关注、标签、热门排序。
 - 标签：v1.2.1 起支持标签详情 SEO 页、标签下内容聚合、标签关注、发布页标签建议、后台标签 CRUD、启用 / 禁用 / 合并、标签别名、标签统计重算、治理审计和 sitemap / canonical 治理。
-- 通用 Topic：已支持 `article`、`question`、`project`、`ai_work`、`job`、`wiki`、`doc`、`news` 等内容类型。
+- 通用 Topic：已支持 `article`、`question`、`project`、`ai_work`、`job`、`wiki_page`、`document`、`news` 等内容类型，并兼容旧 `wiki` / `doc` 参数。
 - 搜索：支持全站、子站、板块、关键词、标签筛选，并支持 `sort=unsolved` 未解决问答筛选。
 - 评论：支持 Topic 评论列表、加载更多、发表评论、回复评论、问答采纳和最佳答案展示；评论点赞仍仅保留旧兼容接口。
 - 互动：MemoryStore / MySQLStore 均支持 Topic 点赞、收藏、关注、我的收藏、我的关注、我的动态、通知中心、评论动态和评论通知。
@@ -52,6 +55,12 @@ DevHub 是一个多子站技术社区 CMS。当前项目使用 Go + Gin 提供�
 - 版主工作台：`/moderator` 提供独立轻量工作台，版主可处理自己子站的举报、主题、评论和审计日志。
 - 后台：控制台、内容管理、举报管理、评论审核、子站管理、子站板块管理、版主管理、用户权限、运营工具、数据统计、系统设置。
 - 存储：支持内存模式和 MySQL 模式。
+
+## v1.3.0 定位
+
+DevHub v1.3.0 是“Core + Plugins 架构拆分版”。本版本新增 `plugins` 表、插件注册定义、插件状态 API 和后台插件入口；`topics` 作为兼容实现中的 Core 内容表新增 `plugin_code`，`categories` 作为 Core 板块表新增 `plugin_code` / `allowed_content_types`；问答、文档、Wiki 分别迁移为 `qa`、`docs`、`wiki` 内置系统插件。
+
+本版本不做插件市场、插件压缩包上传安装、远程更新或复杂动态模块加载。
 
 ## v1.2.1 定位
 
@@ -67,11 +76,11 @@ DevHub v1.2.0 是“标签系统增强版”。本版本新增 `/tags/:tag/` 全
 
 ## v1.1.5 定位
 
-DevHub v1.1.5 是“前台 UI 美化专项”。本补丁已并入当前 v1.2.1 工作分支，只优化前台全局视觉、导航、首页、子站页、Topic 列表、Topic 详情、搜索页、发布页、“我的”页面、版主入口和移动端响应式样式；不修改 API、Store、数据库、路由、鉴权、业务逻辑或 Go 动态 SEO 结构。
+DevHub v1.1.5 是“前台 UI 美化专项”。本补丁已并入当前 v1.3.0 工作分支，只优化前台全局视觉、导航、首页、子站页、Topic 列表、Topic 详情、搜索页、发布页、“我的”页面、版主入口和移动端响应式样式；不修改 API、Store、数据库、路由、鉴权、业务逻辑或 Go 动态 SEO 结构。
 
 ## v1.1.4 定位
 
-DevHub v1.1.4 是“前台登录态与权限入口修复版”。本补丁已并入当前 v1.2.1 工作分支，修复前台登录状态恢复、子站关注和“我的”类页面误判未登录、普通会员误见总后台入口、版主工作台入口、发布 `question` 板块匹配，以及后台子站入口重复问题。
+DevHub v1.1.4 是“前台登录态与权限入口修复版”。本补丁已并入当前 v1.3.0 工作分支，修复前台登录状态恢复、子站关注和“我的”类页面误判未登录、普通会员误见总后台入口、版主工作台入口、发布 `question` 板块匹配，以及后台子站入口重复问题。
 
 ## v1.1.3 定位
 
@@ -467,16 +476,16 @@ git status
 
 本地没有 `npm` 时，可使用 `dev.sh` 或 Docker Node 构建；构建产物由脚本生成，不需要提交。
 
-v1.2.1 归档建议命令：
+v1.3.0 归档建议命令：
 
 ```bash
 git status
 git diff
 git add .
-git commit -m "chore: release DevHub v1.2.1"
-git tag v1.2.1
+git commit -m "chore: release DevHub v1.3.0"
+git tag v1.3.0
 git push origin main
-git push origin v1.2.1
+git push origin v1.3.0
 ```
 
 打 tag 前必须先确认工作区没有未审阅差异，且测试矩阵通过。
@@ -490,7 +499,7 @@ git push origin v1.2.1
 - 标签详情 SEO 页和标签后台管理已在 v1.2.0 完成；标签合并 / 别名和统计重算已在 v1.2.1 完成，趋势统计仍留到后续版本。
 - 评论点赞未纳入 v1.1.0 主线。
 - 问答支持采纳和更换最佳答案，暂不支持取消已解决状态。
-- 标签关注已在 v1.2.0 接入标签页；用户关注前台入口仍可继续增强，完整关注流留到 v1.3.0。
+- 标签关注已在 v1.2.0 接入标签页；用户关注前台入口仍可继续增强，完整关注流留到后续版本。
 - `/sitemap.xml` 目前动态输出但未做大规模分片。
 - 生产部署仍需按实际环境配置进程守护、反向代理、HTTPS、日志轮转和定时备份。
 

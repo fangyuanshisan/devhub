@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"devhub-gin-backend/internal/domain"
+	pluginregistry "devhub-gin-backend/internal/plugins"
 
 	_ "github.com/go-sql-driver/mysql"
 )
@@ -75,7 +76,7 @@ func (s *MySQLStore) Health() domain.HealthStatus {
 		status.Error = err.Error()
 		return status
 	}
-	for _, table := range []string{"sites", "boards", "tags", "posts", "comments", "notifications", "admin_users", "admin_roles"} {
+	for _, table := range []string{"sites", "boards", "plugins", "tags", "posts", "comments", "notifications", "admin_users", "admin_roles"} {
 		var count int
 		if err := s.db.QueryRow("SELECT COUNT(*) FROM " + table).Scan(&count); err != nil {
 			status.OK = false
@@ -178,7 +179,19 @@ func (s *MySQLStore) migrateSiteScopedAudit() error {
 	_, _ = s.db.Exec(`ALTER TABLE categories ADD COLUMN postable TINYINT NOT NULL DEFAULT 1 AFTER nav_visible`)
 	_, _ = s.db.Exec(`ALTER TABLE categories ADD COLUMN seo_title VARCHAR(255) NOT NULL DEFAULT '' AFTER postable`)
 	_, _ = s.db.Exec(`ALTER TABLE categories ADD COLUMN seo_description VARCHAR(500) NOT NULL DEFAULT '' AFTER seo_title`)
+	_, _ = s.db.Exec(`ALTER TABLE categories ADD COLUMN plugin_code VARCHAR(64) NOT NULL DEFAULT 'core' AFTER type`)
+	_, _ = s.db.Exec(`ALTER TABLE categories ADD COLUMN allowed_content_types JSON NULL AFTER plugin_code`)
+	_, _ = s.db.Exec(`ALTER TABLE categories ADD KEY idx_categories_plugin_status (plugin_code, status)`)
 	_, _ = s.db.Exec(`UPDATE categories SET nav_visible=visible WHERE nav_visible=1`)
+	_, _ = s.db.Exec(`UPDATE categories SET type='document', plugin_code='docs', allowed_content_types=JSON_ARRAY('document','doc') WHERE type='doc' OR slug='docs'`)
+	_, _ = s.db.Exec(`UPDATE categories SET type='wiki_page', plugin_code='wiki', allowed_content_types=JSON_ARRAY('wiki_page','wiki') WHERE type='wiki' OR slug='wiki'`)
+	_, _ = s.db.Exec(`UPDATE categories SET plugin_code='qa', allowed_content_types=JSON_ARRAY('question') WHERE type='question'`)
+	_, _ = s.db.Exec(`UPDATE categories SET plugin_code='core', allowed_content_types=JSON_ARRAY(type) WHERE plugin_code='core' AND allowed_content_types IS NULL`)
+	_, _ = s.db.Exec(`ALTER TABLE topics ADD COLUMN plugin_code VARCHAR(64) NOT NULL DEFAULT 'core' AFTER slug`)
+	_, _ = s.db.Exec(`ALTER TABLE topics ADD KEY idx_topics_plugin_type_status (plugin_code, content_type, status)`)
+	_, _ = s.db.Exec(`UPDATE topics SET content_type='document', plugin_code='docs' WHERE content_type='doc'`)
+	_, _ = s.db.Exec(`UPDATE topics SET content_type='wiki_page', plugin_code='wiki' WHERE content_type='wiki'`)
+	_, _ = s.db.Exec(`UPDATE topics SET plugin_code='qa' WHERE content_type='question'`)
 	_, _ = s.db.Exec(`ALTER TABLE tags MODIFY status VARCHAR(32) NOT NULL DEFAULT 'enable'`)
 	_, _ = s.db.Exec(`UPDATE tags SET status='enable' WHERE status IN ('1','enabled','')`)
 	_, _ = s.db.Exec(`UPDATE tags SET status='disable' WHERE status IN ('0','disabled')`)
@@ -270,6 +283,9 @@ func (s *MySQLStore) seedIfEmpty() error {
 	if err := s.seedAuthData(); err != nil {
 		return err
 	}
+	if err := s.seedPlugins(); err != nil {
+		return err
+	}
 
 	// Seed Communities (子站)
 	communities := communitySeedData()
@@ -287,12 +303,12 @@ func (s *MySQLStore) seedIfEmpty() error {
 	// Seed Categories (板块/分类)
 	for _, comm := range communities {
 		for _, cat := range defaultCategorySeeds(comm.ID) {
-			if _, err := s.db.Exec(`INSERT IGNORE INTO categories (id,community_id,name,slug,type,description,icon,sort_order,visible,nav_visible,postable,seo_title,seo_description,status) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
-				cat.ID, comm.ID, cat.Name, cat.Slug, cat.Type, cat.Description, cat.Icon, cat.SortOrder, boolToInt(cat.Visible), boolToInt(cat.NavVisible), boolToInt(cat.Postable), cat.SEOTitle, cat.SEODescription, cat.Status); err != nil {
+			if _, err := s.db.Exec(`INSERT IGNORE INTO categories (id,community_id,name,slug,type,plugin_code,allowed_content_types,description,icon,sort_order,visible,nav_visible,postable,seo_title,seo_description,status) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+				cat.ID, comm.ID, cat.Name, cat.Slug, cat.Type, cat.PluginCode, stringSliceJSON(cat.AllowedContentTypes), cat.Description, cat.Icon, cat.SortOrder, boolToInt(cat.Visible), boolToInt(cat.NavVisible), boolToInt(cat.Postable), cat.SEOTitle, cat.SEODescription, cat.Status); err != nil {
 				return err
 			}
-			if _, err := s.db.Exec(`UPDATE categories SET description=?,icon=?,sort_order=?,visible=?,nav_visible=?,postable=?,seo_title=?,seo_description=?,status=? WHERE id=?`,
-				cat.Description, cat.Icon, cat.SortOrder, boolToInt(cat.Visible), boolToInt(cat.NavVisible), boolToInt(cat.Postable), cat.SEOTitle, cat.SEODescription, cat.Status, cat.ID); err != nil {
+			if _, err := s.db.Exec(`UPDATE categories SET type=?,plugin_code=?,allowed_content_types=?,description=?,icon=?,sort_order=?,visible=?,nav_visible=?,postable=?,seo_title=?,seo_description=?,status=? WHERE id=?`,
+				cat.Type, cat.PluginCode, stringSliceJSON(cat.AllowedContentTypes), cat.Description, cat.Icon, cat.SortOrder, boolToInt(cat.Visible), boolToInt(cat.NavVisible), boolToInt(cat.Postable), cat.SEOTitle, cat.SEODescription, cat.Status, cat.ID); err != nil {
 				return err
 			}
 		}
@@ -371,12 +387,15 @@ func (s *MySQLStore) seedIfEmpty() error {
 		if t.HotScore == 0 {
 			t.HotScore = t.ViewCount + t.CommentCount*5 + t.LikeCount*3 + t.FavoriteCount*4
 		}
-		if _, err := s.db.Exec(`INSERT IGNORE INTO topics (id,community_id,category_id,user_id,title,content_type,summary,content,status,is_pinned,is_featured,is_solved,view_count,comment_count,like_count,favorite_count,hot_score,last_active_at,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,NOW(),NOW())`,
-			t.ID, t.CommunityID, t.CategoryID, t.UserID, t.Title, t.ContentType, t.Summary, t.Content,
+		t.ContentType = pluginregistry.NormalizeContentType(t.ContentType)
+		t.PluginCode = pluginregistry.PluginCodeForContentType(t.ContentType)
+		if _, err := s.db.Exec(`INSERT IGNORE INTO topics (id,community_id,category_id,user_id,title,plugin_code,content_type,summary,content,status,is_pinned,is_featured,is_solved,view_count,comment_count,like_count,favorite_count,hot_score,last_active_at,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,NOW(),NOW())`,
+			t.ID, t.CommunityID, t.CategoryID, t.UserID, t.Title, t.PluginCode, t.ContentType, t.Summary, t.Content,
 			1, boolToInt(t.IsPinned), boolToInt(t.IsFeatured), boolToInt(t.IsSolved), t.ViewCount, t.CommentCount, t.LikeCount, t.FavoriteCount,
 			t.HotScore, Now()); err != nil {
 			return err
 		}
+		s.seedPluginContentRows(t)
 
 		// 添加话题标签关联
 		tagNames := communityTags[t.CommunityID]
@@ -530,6 +549,20 @@ func (s *MySQLStore) seedAuthData() error {
 		{"setting.write", "setting", "write", "管理设置"},
 		{"notification.write", "notification", "write", "推送通知"},
 		{"log.read", "log", "read", "查看日志"},
+		{"plugin.read", "plugin", "read", "查看插件"},
+		{"plugin.write", "plugin", "write", "管理插件"},
+		{"qa.question.create", "qa", "question.create", "发布问题"},
+		{"qa.question.audit", "qa", "question.audit", "审核问题"},
+		{"qa.answer.create", "qa", "answer.create", "提交回答"},
+		{"qa.answer.accept", "qa", "answer.accept", "采纳回答"},
+		{"docs.document.create", "docs", "document.create", "创建文档"},
+		{"docs.document.update", "docs", "document.update", "更新文档"},
+		{"docs.document.audit", "docs", "document.audit", "审核文档"},
+		{"docs.space.manage", "docs", "space.manage", "管理文档空间"},
+		{"wiki.page.create", "wiki", "page.create", "创建 Wiki 页面"},
+		{"wiki.page.edit", "wiki", "page.edit", "编辑 Wiki 页面"},
+		{"wiki.page.audit", "wiki", "page.audit", "审核 Wiki 页面"},
+		{"wiki.page.version.rollback", "wiki", "page.version.rollback", "回滚 Wiki 版本"},
 	}
 	for _, p := range permissions {
 		if _, err := s.db.Exec(`INSERT IGNORE INTO permissions (code,module,action,description) VALUES (?,?,?,?)`, p.Code, p.Module, p.Action, p.Description); err != nil {
@@ -544,10 +577,10 @@ func (s *MySQLStore) seedAuthData() error {
 		Permissions []string
 	}{
 		{1, "super_admin", "超级管理员", "拥有全部站点和全部权限", []string{"*"}},
-		{2, "site_admin", "站点管理员", "管理被授权站点", []string{"dashboard.read", "site.read", "site.write", "board.read", "board.write", "post.read", "post.create", "post.update", "post.delete", "topic.moderate", "comment.read", "comment.moderate", "report.read", "report.handle", "moderator.read", "user.read", "setting.read", "notification.write", "log.read"}},
+		{2, "site_admin", "站点管理员", "管理被授权站点", []string{"dashboard.read", "site.read", "site.write", "board.read", "board.write", "post.read", "post.create", "post.update", "post.delete", "topic.moderate", "comment.read", "comment.moderate", "report.read", "report.handle", "moderator.read", "user.read", "setting.read", "notification.write", "log.read", "plugin.read", "qa.question.audit", "docs.document.audit", "docs.space.manage", "wiki.page.audit", "wiki.page.version.rollback"}},
 		{3, "editor", "编辑", "创建和编辑内容", []string{"dashboard.read", "post.read", "post.create", "post.update", "comment.read"}},
-		{4, "moderator", "审核员", "审核内容和评论", []string{"dashboard.read", "post.read", "post.update", "topic.moderate", "comment.read", "comment.moderate", "report.read", "report.handle"}},
-		{5, "user", "普通用户", "前台登录用户", []string{"post.create", "comment.read"}},
+		{4, "moderator", "审核员", "审核内容和评论", []string{"dashboard.read", "post.read", "post.update", "topic.moderate", "comment.read", "comment.moderate", "report.read", "report.handle", "plugin.read", "qa.question.audit", "docs.document.audit", "wiki.page.audit"}},
+		{5, "user", "普通用户", "前台登录用户", []string{"post.create", "comment.read", "qa.question.create", "qa.answer.create", "docs.document.create", "wiki.page.create"}},
 	}
 	for _, r := range roles {
 		if _, err := s.db.Exec(`INSERT IGNORE INTO roles (id,code,name,builtin,description) VALUES (?,?,?,?,?)`, r.ID, r.Code, r.Name, true, r.Description); err != nil {
@@ -600,6 +633,58 @@ func (s *MySQLStore) seedAuthData() error {
 		}
 	}
 	return nil
+}
+
+func (s *MySQLStore) seedPlugins() error {
+	for _, def := range pluginregistry.Definitions() {
+		if _, err := s.db.Exec(`INSERT INTO plugins (plugin_code,name,version,status,description,created_at,updated_at) VALUES (?,?,?,?,?,NOW(),NOW()) ON DUPLICATE KEY UPDATE name=VALUES(name),version=VALUES(version),description=VALUES(description),updated_at=updated_at`,
+			def.Code, def.Name, def.Version, def.Status, def.Description); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func (s *MySQLStore) seedPluginContentRows(t domain.Topic) {
+	t.ContentType = pluginregistry.NormalizeContentType(t.ContentType)
+	t.PluginCode = firstNonEmptyString(t.PluginCode, pluginregistry.PluginCodeForContentType(t.ContentType))
+	switch t.PluginCode {
+	case "qa":
+		_, _ = s.db.Exec(`INSERT IGNORE INTO qa_questions (topic_id,is_solved,best_answer_id,created_at,updated_at) VALUES (?,?,NULL,NOW(),NOW())`, t.ID, boolToInt(t.IsSolved))
+	case "docs":
+		spaceID := s.ensureDocsSpace(t.CommunityID)
+		_, _ = s.db.Exec(`INSERT IGNORE INTO docs_documents (space_id,topic_id,parent_id,sort_order,status,created_at,updated_at) VALUES (?,?,NULL,0,1,NOW(),NOW())`, nullableInt64(spaceID), t.ID)
+	case "wiki":
+		spaceID := s.ensureWikiSpace(t.CommunityID)
+		_, _ = s.db.Exec(`INSERT IGNORE INTO wiki_pages (space_id,topic_id,status,created_at,updated_at) VALUES (?,?,1,NOW(),NOW())`, nullableInt64(spaceID), t.ID)
+		var pageID int64
+		if err := s.db.QueryRow(`SELECT id FROM wiki_pages WHERE topic_id=?`, t.ID).Scan(&pageID); err == nil && pageID > 0 {
+			_, _ = s.db.Exec(`INSERT IGNORE INTO wiki_page_versions (wiki_page_id,topic_id,editor_id,version_no,title,content,change_note,created_at) VALUES (?,?,?,?,?,?,?,NOW())`,
+				pageID, t.ID, t.UserID, 1, t.Title, t.Content, "初始版本")
+			var versionID int64
+			if err := s.db.QueryRow(`SELECT id FROM wiki_page_versions WHERE wiki_page_id=? AND version_no=1`, pageID).Scan(&versionID); err == nil {
+				_, _ = s.db.Exec(`UPDATE wiki_pages SET current_version_id=? WHERE id=? AND current_version_id IS NULL`, versionID, pageID)
+			}
+		}
+	}
+}
+
+func (s *MySQLStore) ensureDocsSpace(communityID int64) int64 {
+	slug := "default"
+	name := "默认文档空间"
+	_, _ = s.db.Exec(`INSERT IGNORE INTO docs_spaces (community_id,name,slug,description,status,created_at,updated_at) VALUES (?,?,?,?,1,NOW(),NOW())`, communityID, name, slug, "由 Docs 插件自动创建的默认空间。")
+	var id int64
+	_ = s.db.QueryRow(`SELECT id FROM docs_spaces WHERE community_id=? AND slug=? LIMIT 1`, communityID, slug).Scan(&id)
+	return id
+}
+
+func (s *MySQLStore) ensureWikiSpace(communityID int64) int64 {
+	slug := "default"
+	name := "默认 Wiki 空间"
+	_, _ = s.db.Exec(`INSERT IGNORE INTO wiki_spaces (community_id,name,slug,description,status,created_at,updated_at) VALUES (?,?,?,?,1,NOW(),NOW())`, communityID, name, slug, "由 Wiki 插件自动创建的默认空间。")
+	var id int64
+	_ = s.db.QueryRow(`SELECT id FROM wiki_spaces WHERE community_id=? AND slug=? LIMIT 1`, communityID, slug).Scan(&id)
+	return id
 }
 
 // AdminLogin 使用 admin_users 表校验后台人员，并发行后台 token。
@@ -1058,6 +1143,65 @@ func (s *MySQLStore) UpdateBoard(key string, req domain.Board) (domain.Board, bo
 		}
 	}
 	return domain.Board{}, false
+}
+
+func (s *MySQLStore) Plugins() []domain.Plugin {
+	rows, err := s.db.Query(`SELECT plugin_code,name,version,status,COALESCE(description,''),DATE_FORMAT(created_at,'%Y-%m-%d %H:%i:%s'),DATE_FORMAT(updated_at,'%Y-%m-%d %H:%i:%s') FROM plugins ORDER BY plugin_code`)
+	if err != nil {
+		return pluginregistry.Definitions()
+	}
+	defer rows.Close()
+	runtime := map[string]domain.Plugin{}
+	for rows.Next() {
+		var p domain.Plugin
+		if err := rows.Scan(&p.Code, &p.Name, &p.Version, &p.Status, &p.Description, &p.CreatedAt, &p.UpdatedAt); err == nil {
+			p.PluginCode = p.Code
+			runtime[p.Code] = p
+		}
+	}
+	out := make([]domain.Plugin, 0, len(pluginregistry.Definitions()))
+	for _, def := range pluginregistry.Definitions() {
+		if item, ok := runtime[def.Code]; ok {
+			out = append(out, pluginregistry.MergeRuntimeState(def, item))
+			continue
+		}
+		out = append(out, def)
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].Code < out[j].Code })
+	return out
+}
+
+func (s *MySQLStore) PluginByCode(code string) (domain.Plugin, bool) {
+	def, ok := pluginregistry.DefinitionByCode(code)
+	if !ok {
+		return domain.Plugin{}, false
+	}
+	var runtime domain.Plugin
+	err := s.db.QueryRow(`SELECT plugin_code,name,version,status,COALESCE(description,''),DATE_FORMAT(created_at,'%Y-%m-%d %H:%i:%s'),DATE_FORMAT(updated_at,'%Y-%m-%d %H:%i:%s') FROM plugins WHERE plugin_code=?`, def.Code).
+		Scan(&runtime.Code, &runtime.Name, &runtime.Version, &runtime.Status, &runtime.Description, &runtime.CreatedAt, &runtime.UpdatedAt)
+	if err != nil {
+		return def, true
+	}
+	runtime.PluginCode = runtime.Code
+	return pluginregistry.MergeRuntimeState(def, runtime), true
+}
+
+func (s *MySQLStore) SetPluginStatus(code, status string) (domain.Plugin, error) {
+	status = strings.TrimSpace(status)
+	if status != pluginregistry.StatusInstalled && status != pluginregistry.StatusEnabled && status != pluginregistry.StatusDisabled {
+		return domain.Plugin{}, errors.New("插件状态不合法")
+	}
+	def, ok := pluginregistry.DefinitionByCode(code)
+	if !ok {
+		return domain.Plugin{}, errors.New("插件不存在")
+	}
+	if _, err := s.db.Exec(`INSERT INTO plugins (plugin_code,name,version,status,description,created_at,updated_at) VALUES (?,?,?,?,?,NOW(),NOW()) ON DUPLICATE KEY UPDATE status=VALUES(status),updated_at=NOW()`,
+		def.Code, def.Name, def.Version, status, def.Description); err != nil {
+		return domain.Plugin{}, err
+	}
+	s.appendLog("system", "admin", "更新插件状态", fmt.Sprintf("plugins#%s:%s", def.Code, status), "127.0.0.1")
+	plugin, _ := s.PluginByCode(def.Code)
+	return plugin, nil
 }
 
 func (s *MySQLStore) ListPosts(site, board, q, tag string) []domain.Post {
@@ -1861,6 +2005,12 @@ func (s *MySQLStore) CreateComment(postID int64, req domain.CreateCommentRequest
 		return nil, err
 	}
 	id, _ := res.LastInsertId()
+	if topic.PluginCode == "qa" || topic.ContentType == "question" {
+		if _, err := tx.Exec(`INSERT IGNORE INTO qa_answers (topic_id,comment_id,user_id,is_accepted,created_at,updated_at) VALUES (?,?,?,0,NOW(),NOW())`, postID, id, userID); err != nil {
+			_ = tx.Rollback()
+			return nil, err
+		}
+	}
 	if _, err := tx.Exec(`UPDATE topics SET comment_count=comment_count+1,last_active_at=NOW(),updated_at=NOW(),`+recalcTopicHotScoreSQL()+` WHERE id=?`, postID); err != nil {
 		_ = tx.Rollback()
 		return nil, err
@@ -2136,6 +2286,10 @@ func (s *MySQLStore) AdminRoles() []domain.AdminRole {
 func (s *MySQLStore) AdminPermissions() []domain.AdminPermission {
 	return []domain.AdminPermission{
 		{Code: "content", Module: "内容管理", Name: "帖子 / 评论 / 标签 / 文档", Ops: []string{"查", "增", "删", "改", "审核"}},
+		{Code: "plugin", Module: "系统插件", Name: "qa / docs / wiki 插件", Ops: []string{"查", "启用", "禁用"}},
+		{Code: "qa", Module: "问答插件", Name: "问题 / 回答 / 采纳", Ops: []string{"查", "增", "审核", "采纳"}},
+		{Code: "docs", Module: "文档插件", Name: "空间 / 文档树 / 文档", Ops: []string{"查", "增", "改", "管理"}},
+		{Code: "wiki", Module: "Wiki 插件", Name: "页面 / 版本 / 回滚", Ops: []string{"查", "增", "改", "回滚"}},
 		{Code: "site", Module: "站点配置", Name: "子站 / 板块 / 搜索范围", Ops: []string{"查", "增", "删", "改"}},
 		{Code: "user", Module: "用户管理", Name: "用户信息 / 行为 / 违规处理", Ops: []string{"查", "改", "审核"}},
 		{Code: "operation", Module: "运营管理", Name: "推荐 / 通知 / 热门 / 草稿箱", Ops: []string{"查", "增", "删", "改"}},
@@ -2635,7 +2789,7 @@ func scanPost(row scanner) (*domain.Post, error) {
 
 const communitySelect = `id,name,slug,COALESCE(logo,''),COALESCE(cover_image,''),COALESCE(slogan,''),COALESCE(description,''),COALESCE(theme_color,''),COALESCE(seo_title,''),COALESCE(seo_description,''),COALESCE(seo_keywords,''),sort_order,status,COALESCE(follower_count,0),COALESCE(topic_count,0),COALESCE(comment_count,0),COALESCE(hot_score,0),COALESCE(announcement_title,''),COALESCE(announcement_content,''),COALESCE(announcement_url,''),DATE_FORMAT(created_at,'%Y-%m-%d %H:%i:%s'),DATE_FORMAT(updated_at,'%Y-%m-%d %H:%i:%s')`
 
-const categorySelect = `id,community_id,name,slug,type,type,COALESCE(description,''),COALESCE(icon,''),sort_order,visible,nav_visible,postable,COALESCE(seo_title,''),COALESCE(seo_description,''),status,DATE_FORMAT(created_at,'%Y-%m-%d %H:%i:%s'),DATE_FORMAT(updated_at,'%Y-%m-%d %H:%i:%s')`
+const categorySelect = `id,community_id,name,slug,type,type,COALESCE(plugin_code,'core'),COALESCE(CAST(allowed_content_types AS CHAR),''),COALESCE(description,''),COALESCE(icon,''),sort_order,visible,nav_visible,postable,COALESCE(seo_title,''),COALESCE(seo_description,''),status,DATE_FORMAT(created_at,'%Y-%m-%d %H:%i:%s'),DATE_FORMAT(updated_at,'%Y-%m-%d %H:%i:%s')`
 
 func scanCommunityRow(scanner interface{ Scan(dest ...any) error }) (domain.Community, error) {
 	var c domain.Community
@@ -2645,9 +2799,21 @@ func scanCommunityRow(scanner interface{ Scan(dest ...any) error }) (domain.Comm
 
 func scanCategoryRow(scanner interface{ Scan(dest ...any) error }) (domain.Category, error) {
 	var cat domain.Category
-	err := scanner.Scan(&cat.ID, &cat.CommunityID, &cat.Name, &cat.Slug, &cat.Type, &cat.ContentType, &cat.Description, &cat.Icon, &cat.SortOrder, &cat.Visible, &cat.NavVisible, &cat.Postable, &cat.SEOTitle, &cat.SEODescription, &cat.Status, &cat.CreatedAt, &cat.UpdatedAt)
+	var allowedJSON string
+	err := scanner.Scan(&cat.ID, &cat.CommunityID, &cat.Name, &cat.Slug, &cat.Type, &cat.ContentType, &cat.PluginCode, &allowedJSON, &cat.Description, &cat.Icon, &cat.SortOrder, &cat.Visible, &cat.NavVisible, &cat.Postable, &cat.SEOTitle, &cat.SEODescription, &cat.Status, &cat.CreatedAt, &cat.UpdatedAt)
 	if cat.ContentType == "" {
 		cat.ContentType = cat.Type
+	}
+	cat.ContentType = pluginregistry.NormalizeContentType(cat.ContentType)
+	if cat.Type == "" {
+		cat.Type = cat.ContentType
+	}
+	if cat.PluginCode == "" {
+		cat.PluginCode = pluginregistry.PluginCodeForContentType(cat.ContentType)
+	}
+	cat.AllowedContentTypes = parseStringSliceJSON(allowedJSON)
+	if len(cat.AllowedContentTypes) == 0 {
+		cat.AllowedContentTypes = pluginregistry.DefaultAllowedContentTypes(cat.ContentType)
 	}
 	return cat, err
 }
@@ -2742,8 +2908,8 @@ func (s *MySQLStore) CreateCommunity(req domain.CommunityRequest) (domain.Commun
 	}
 	id, _ := res.LastInsertId()
 	for _, cat := range defaultCategorySeeds(id) {
-		_, _ = s.db.Exec(`INSERT IGNORE INTO categories (community_id,name,slug,type,description,icon,sort_order,visible,nav_visible,postable,seo_title,seo_description,status,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,1,NOW(),NOW())`,
-			id, cat.Name, cat.Slug, cat.Type, cat.Description, cat.Icon, cat.SortOrder, boolToInt(cat.Visible), boolToInt(cat.NavVisible), boolToInt(cat.Postable), cat.SEOTitle, cat.SEODescription)
+		_, _ = s.db.Exec(`INSERT IGNORE INTO categories (community_id,name,slug,type,plugin_code,allowed_content_types,description,icon,sort_order,visible,nav_visible,postable,seo_title,seo_description,status,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,1,NOW(),NOW())`,
+			id, cat.Name, cat.Slug, cat.Type, cat.PluginCode, stringSliceJSON(cat.AllowedContentTypes), cat.Description, cat.Icon, cat.SortOrder, boolToInt(cat.Visible), boolToInt(cat.NavVisible), boolToInt(cat.Postable), cat.SEOTitle, cat.SEODescription)
 	}
 	return s.communityByIDRequired(id)
 }
@@ -2804,8 +2970,8 @@ func (s *MySQLStore) CreateCategory(communityID int64, req domain.CategoryReques
 	if err != nil {
 		return domain.Category{}, err
 	}
-	res, err := s.db.Exec(`INSERT INTO categories (community_id,name,slug,type,description,icon,sort_order,visible,nav_visible,postable,seo_title,seo_description,status,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,NOW(),NOW())`,
-		cat.CommunityID, cat.Name, cat.Slug, cat.Type, cat.Description, cat.Icon, cat.SortOrder, boolToInt(cat.Visible), boolToInt(cat.NavVisible), boolToInt(cat.Postable), cat.SEOTitle, cat.SEODescription, cat.Status)
+	res, err := s.db.Exec(`INSERT INTO categories (community_id,name,slug,type,plugin_code,allowed_content_types,description,icon,sort_order,visible,nav_visible,postable,seo_title,seo_description,status,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,NOW(),NOW())`,
+		cat.CommunityID, cat.Name, cat.Slug, cat.Type, cat.PluginCode, stringSliceJSON(cat.AllowedContentTypes), cat.Description, cat.Icon, cat.SortOrder, boolToInt(cat.Visible), boolToInt(cat.NavVisible), boolToInt(cat.Postable), cat.SEOTitle, cat.SEODescription, cat.Status)
 	if err != nil {
 		if strings.Contains(err.Error(), "Duplicate") {
 			return domain.Category{}, errors.New("板块 slug 已存在")
@@ -2825,8 +2991,8 @@ func (s *MySQLStore) UpdateCategory(id int64, req domain.CategoryRequest) (domai
 	if err != nil {
 		return domain.Category{}, err
 	}
-	_, err = s.db.Exec(`UPDATE categories SET community_id=?,name=?,slug=?,type=?,description=?,icon=?,sort_order=?,visible=?,nav_visible=?,postable=?,seo_title=?,seo_description=?,status=?,updated_at=NOW() WHERE id=? AND deleted_at IS NULL`,
-		cat.CommunityID, cat.Name, cat.Slug, cat.Type, cat.Description, cat.Icon, cat.SortOrder, boolToInt(cat.Visible), boolToInt(cat.NavVisible), boolToInt(cat.Postable), cat.SEOTitle, cat.SEODescription, cat.Status, id)
+	_, err = s.db.Exec(`UPDATE categories SET community_id=?,name=?,slug=?,type=?,plugin_code=?,allowed_content_types=?,description=?,icon=?,sort_order=?,visible=?,nav_visible=?,postable=?,seo_title=?,seo_description=?,status=?,updated_at=NOW() WHERE id=? AND deleted_at IS NULL`,
+		cat.CommunityID, cat.Name, cat.Slug, cat.Type, cat.PluginCode, stringSliceJSON(cat.AllowedContentTypes), cat.Description, cat.Icon, cat.SortOrder, boolToInt(cat.Visible), boolToInt(cat.NavVisible), boolToInt(cat.Postable), cat.SEOTitle, cat.SEODescription, cat.Status, id)
 	if err != nil {
 		if strings.Contains(err.Error(), "Duplicate") {
 			return domain.Category{}, errors.New("板块 slug 已存在")
@@ -2864,6 +3030,7 @@ func (s *MySQLStore) ReorderCategories(ids []int64) int {
 }
 
 func (s *MySQLStore) TopicsByFilter(communityID, categoryID int64, contentType, sort string, isSolved *bool, tag string, page, pageSize int) ([]domain.Topic, int) {
+	contentType = pluginregistry.NormalizeContentType(contentType)
 	query := `SELECT id,community_id,category_id,user_id,title,COALESCE(slug,''),content_type,COALESCE(summary,''),content,COALESCE(ai_summary,''),COALESCE(cover_image,''),status,is_pinned,is_featured,is_solved,comment_locked,view_count,comment_count,like_count,favorite_count,hot_score,DATE_FORMAT(last_active_at,'%Y-%m-%d %H:%i:%s'),DATE_FORMAT(created_at,'%Y-%m-%d %H:%i:%s'),DATE_FORMAT(updated_at,'%Y-%m-%d %H:%i:%s') FROM topics WHERE deleted_at IS NULL AND status=1`
 	args := []any{}
 
@@ -3020,12 +3187,24 @@ func (s *MySQLStore) TopicByID(id int64, increaseView bool) (*domain.Topic, erro
 }
 
 func (s *MySQLStore) CreateTopic(req domain.CreateTopicRequest) (*domain.Topic, error) {
-	result, err := s.db.Exec(`INSERT INTO topics (community_id,category_id,user_id,title,content_type,summary,content,status,view_count,comment_count,like_count,favorite_count,hot_score,last_active_at,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?,0,0,0,0,0,NOW(),NOW(),NOW())`,
-		req.CommunityID, req.CategoryID, req.UserID, req.Title, req.ContentType, req.Summary, req.Content, 1)
+	req.ContentType = pluginregistry.NormalizeContentType(req.ContentType)
+	req.PluginCode = pluginregistry.PluginCodeForContentType(req.ContentType)
+	result, err := s.db.Exec(`INSERT INTO topics (community_id,category_id,user_id,title,plugin_code,content_type,summary,content,status,view_count,comment_count,like_count,favorite_count,hot_score,last_active_at,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?,?,0,0,0,0,0,NOW(),NOW(),NOW())`,
+		req.CommunityID, req.CategoryID, req.UserID, req.Title, req.PluginCode, req.ContentType, req.Summary, req.Content, 1)
 	if err != nil {
 		return nil, err
 	}
 	id, _ := result.LastInsertId()
+	s.seedPluginContentRows(domain.Topic{
+		ID:          id,
+		CommunityID: req.CommunityID,
+		CategoryID:  req.CategoryID,
+		UserID:      req.UserID,
+		Title:       req.Title,
+		ContentType: req.ContentType,
+		PluginCode:  req.PluginCode,
+		Content:     req.Content,
+	})
 
 	// 添加标签
 	for _, tagName := range req.Tags {
@@ -3072,8 +3251,15 @@ func (s *MySQLStore) UpdateTopic(id int64, req domain.UpdateTopicRequest) (*doma
 		args = append(args, strings.TrimSpace(*req.Title))
 	}
 	if req.ContentType != nil {
+		normalized := pluginregistry.NormalizeContentType(*req.ContentType)
 		updates = append(updates, "content_type=?")
-		args = append(args, strings.TrimSpace(*req.ContentType))
+		args = append(args, normalized)
+		updates = append(updates, "plugin_code=?")
+		args = append(args, pluginregistry.PluginCodeForContentType(normalized))
+	}
+	if req.PluginCode != nil && req.ContentType == nil {
+		updates = append(updates, "plugin_code=?")
+		args = append(args, strings.TrimSpace(*req.PluginCode))
 	}
 	if req.Summary != nil {
 		updates = append(updates, "summary=?")
@@ -3149,6 +3335,7 @@ func (s *MySQLStore) DeleteTopic(id int64) bool {
 }
 
 func (s *MySQLStore) SearchTopics(req domain.SearchRequest) ([]domain.Topic, int) {
+	req.ContentType = pluginregistry.NormalizeContentType(req.ContentType)
 	selectClause := `SELECT id,community_id,category_id,user_id,title,COALESCE(slug,''),content_type,COALESCE(summary,''),content,COALESCE(ai_summary,''),COALESCE(cover_image,''),status,is_pinned,is_featured,is_solved,comment_locked,view_count,comment_count,like_count,favorite_count,hot_score,DATE_FORMAT(last_active_at,'%Y-%m-%d %H:%i:%s'),DATE_FORMAT(created_at,'%Y-%m-%d %H:%i:%s'),DATE_FORMAT(updated_at,'%Y-%m-%d %H:%i:%s') FROM topics`
 	where := ` WHERE deleted_at IS NULL AND status=1`
 	args := []any{}
@@ -3169,6 +3356,10 @@ func (s *MySQLStore) SearchTopics(req domain.SearchRequest) ([]domain.Topic, int
 	if req.ContentType != "" && req.ContentType != "all" {
 		where += ` AND content_type=?`
 		args = append(args, req.ContentType)
+	}
+	if req.PluginCode != "" {
+		where += ` AND plugin_code=?`
+		args = append(args, req.PluginCode)
 	}
 	if req.TagID > 0 {
 		where += ` AND EXISTS (SELECT 1 FROM topic_tags tt WHERE tt.topic_id=topics.id AND tt.tag_id=?)`
@@ -3664,6 +3855,18 @@ func (s *MySQLStore) AcceptBestAnswer(topicID int64, commentID int64, actorUserI
 		_ = tx.Rollback()
 		return false
 	}
+	if _, err = tx.Exec(`UPDATE qa_questions SET is_solved=1,best_answer_id=?,accepted_at=NOW(),updated_at=NOW() WHERE topic_id=?`, commentID, topicID); err != nil {
+		_ = tx.Rollback()
+		return false
+	}
+	if _, err = tx.Exec(`UPDATE qa_answers SET is_accepted=0,accepted_at=NULL,updated_at=NOW() WHERE topic_id=?`, topicID); err != nil {
+		_ = tx.Rollback()
+		return false
+	}
+	if _, err = tx.Exec(`UPDATE qa_answers SET is_accepted=1,accepted_at=NOW(),updated_at=NOW() WHERE comment_id=? AND topic_id=?`, commentID, topicID); err != nil {
+		_ = tx.Rollback()
+		return false
+	}
 	if _, err = tx.Exec(`INSERT INTO activities (user_id,community_id,topic_id,action,target_type,target_id,remark,created_at) VALUES (?,?,?,?,?,?,?,NOW())`,
 		actorUserID, topic.CommunityID, topic.ID, "accepted_answer", "comment", commentID, topic.Title); err != nil {
 		_ = tx.Rollback()
@@ -4055,6 +4258,8 @@ func scanTopic(row scanner) (*domain.Topic, error) {
 	err := row.Scan(&t.ID, &t.CommunityID, &t.CategoryID, &t.UserID, &t.Title, &t.Slug, &t.ContentType,
 		&t.Summary, &t.Content, &t.AISummary, &t.CoverImage, &t.Status, &t.IsPinned, &t.IsFeatured, &t.IsSolved,
 		&t.CommentLocked, &t.ViewCount, &t.CommentCount, &t.LikeCount, &t.FavoriteCount, &t.HotScore, &t.LastActiveAt, &t.CreatedAt, &t.UpdatedAt)
+	t.ContentType = pluginregistry.NormalizeContentType(t.ContentType)
+	t.PluginCode = pluginregistry.PluginCodeForContentType(t.ContentType)
 	return t, err
 }
 
@@ -4067,6 +4272,8 @@ func (s *MySQLStore) scanTopicDetail(row scanner) (*domain.Topic, error) {
 		&t.FavoriteCount, &t.HotScore, &t.LastActiveAt, &t.CreatedAt, &t.UpdatedAt)
 	t.RejectReason = rejectReason.String
 	t.OfflineReason = offlineReason.String
+	t.ContentType = pluginregistry.NormalizeContentType(t.ContentType)
+	t.PluginCode = pluginregistry.PluginCodeForContentType(t.ContentType)
 	if t.ID > 0 {
 		t.Tags = s.getTopicTags(t.ID)
 	}
@@ -4469,6 +4676,33 @@ func boolToInt(b bool) int {
 	return 0
 }
 
+func stringSliceJSON(items []string) string {
+	if len(items) == 0 {
+		return "[]"
+	}
+	buf, _ := json.Marshal(items)
+	return string(buf)
+}
+
+func parseStringSliceJSON(raw string) []string {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return nil
+	}
+	var items []string
+	if err := json.Unmarshal([]byte(raw), &items); err != nil {
+		return nil
+	}
+	out := make([]string, 0, len(items))
+	for _, item := range items {
+		item = pluginregistry.NormalizeContentType(item)
+		if item != "" {
+			out = append(out, item)
+		}
+	}
+	return uniqueTags(out)
+}
+
 func firstNonZero(values ...int) int {
 	for _, value := range values {
 		if value != 0 {
@@ -4589,6 +4823,7 @@ func normalizeMySQLCategoryRequest(req domain.CategoryRequest, current *domain.C
 		return nil, errors.New("板块 slug 不能为空")
 	}
 	if contentType := strings.TrimSpace(firstNonEmptyString(req.ContentType, req.Type)); contentType != "" {
+		contentType = pluginregistry.NormalizeContentType(contentType)
 		if !validCategoryContentType(contentType) {
 			return nil, errors.New("内容类型不合法")
 		}
@@ -4600,6 +4835,30 @@ func normalizeMySQLCategoryRequest(req domain.CategoryRequest, current *domain.C
 	}
 	if cat.ContentType == "" {
 		cat.ContentType = cat.Type
+	}
+	if req.PluginCode != "" {
+		cat.PluginCode = strings.TrimSpace(req.PluginCode)
+	}
+	expectedPlugin := pluginregistry.PluginCodeForContentType(cat.ContentType)
+	if cat.PluginCode == "" {
+		cat.PluginCode = expectedPlugin
+	}
+	if cat.PluginCode != expectedPlugin {
+		return nil, errors.New("板块插件与内容类型不匹配")
+	}
+	if len(req.AllowedContentTypes) > 0 {
+		allowed := make([]string, 0, len(req.AllowedContentTypes))
+		for _, item := range req.AllowedContentTypes {
+			item = pluginregistry.NormalizeContentType(item)
+			if !validCategoryContentType(item) {
+				return nil, errors.New("允许内容类型不合法")
+			}
+			allowed = append(allowed, item)
+		}
+		cat.AllowedContentTypes = uniqueTags(allowed)
+	}
+	if len(cat.AllowedContentTypes) == 0 {
+		cat.AllowedContentTypes = pluginregistry.DefaultAllowedContentTypes(cat.ContentType)
 	}
 	if strings.TrimSpace(req.Description) != "" || current == nil {
 		cat.Description = strings.TrimSpace(req.Description)

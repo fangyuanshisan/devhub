@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"devhub-gin-backend/internal/domain"
+	pluginregistry "devhub-gin-backend/internal/plugins"
 )
 
 // TimeLayout 是接口中时间字符串的统一格式。
@@ -37,6 +38,7 @@ type MemoryStore struct {
 	boards          map[string]domain.Board
 	communities     map[int64]*domain.Community
 	categories      map[int64]*domain.Category
+	plugins         map[string]*domain.Plugin
 	tags            map[int64]*domain.Tag
 	tagAliases      map[int64]*domain.TagAlias
 	boardOrder      []string
@@ -79,6 +81,7 @@ func NewMemoryStore() *MemoryStore {
 		boards:          map[string]domain.Board{},
 		communities:     map[int64]*domain.Community{},
 		categories:      map[int64]*domain.Category{},
+		plugins:         map[string]*domain.Plugin{},
 		tags:            map[int64]*domain.Tag{},
 		tagAliases:      map[int64]*domain.TagAlias{},
 		boardOrder:      []string{"all", "community", "qa", "opensource", "ai", "jobs", "wiki", "docs"},
@@ -139,6 +142,7 @@ func (s *MemoryStore) Health() domain.HealthStatus {
 			"users":         len(s.users),
 			"communities":   len(s.communities),
 			"categories":    len(s.categories),
+			"plugins":       len(s.plugins),
 			"tags":          len(s.tags),
 			"tag_aliases":   len(s.tagAliases),
 		},
@@ -174,9 +178,38 @@ func defaultCategorySeeds(communityID int64) []domain.Category {
 	out := make([]domain.Category, 0, len(defs))
 	for i, def := range defs {
 		id := communityID*100 + int64(i) + 1
-		out = append(out, domain.Category{ID: id, CommunityID: communityID, Name: def.name, Slug: def.slug, Type: def.ct, ContentType: def.ct, Description: def.desc, Icon: def.icon, SortOrder: i, Visible: true, NavVisible: true, Postable: true, Status: 1, CreatedAt: Now(), UpdatedAt: Now()})
+		contentType := pluginregistry.NormalizeContentType(def.ct)
+		out = append(out, domain.Category{
+			ID:                  id,
+			CommunityID:         communityID,
+			Name:                def.name,
+			Slug:                def.slug,
+			Type:                contentType,
+			ContentType:         contentType,
+			PluginCode:          pluginregistry.PluginCodeForContentType(contentType),
+			AllowedContentTypes: pluginregistry.DefaultAllowedContentTypes(contentType),
+			Description:         def.desc,
+			Icon:                def.icon,
+			SortOrder:           i,
+			Visible:             true,
+			NavVisible:          true,
+			Postable:            true,
+			Status:              1,
+			CreatedAt:           Now(),
+			UpdatedAt:           Now(),
+		})
 	}
 	return out
+}
+
+func (s *MemoryStore) seedPluginsLocked() {
+	now := Now()
+	for _, def := range pluginregistry.Definitions() {
+		cp := def
+		cp.CreatedAt = now
+		cp.UpdatedAt = now
+		s.plugins[cp.Code] = &cp
+	}
 }
 
 func (s *MemoryStore) seedCommunitiesAndCategories() {
@@ -201,6 +234,8 @@ func (s *MemoryStore) seedCommunitiesAndCategories() {
 
 // seed 初始化站点、板块、帖子、评论、通知和后台管理演示数据。
 func (s *MemoryStore) seed() {
+	s.seedPluginsLocked()
+
 	s.sites["portal"] = domain.Site{Key: "portal", Name: "DevHub", Logo: "DH", Title: "DevHub", Sub: "总网站 · 多技术子站内容集合", Pub: "发布内容", Description: "聚合 PHP、Go、Java、AI、Frontend 内容", Color: "#2563eb", Status: "enable", Sort: 0}
 	s.sites["php"] = domain.Site{Key: "php", Name: "PHP", Logo: "PHP", Title: "PHP 子网站", Sub: "子网站 · 7 个板块", Pub: "发布 PHP 内容", Description: "PHP 技术社区", Color: "#7c3aed", Status: "enable", Sort: 1}
 	s.sites["go"] = domain.Site{Key: "go", Name: "Go", Logo: "GO", Title: "Go 子网站", Sub: "子网站 · 7 个板块", Pub: "发布 Go 内容", Description: "Go 技术社区", Color: "#06b6d4", Status: "enable", Sort: 2}
@@ -215,8 +250,8 @@ func (s *MemoryStore) seed() {
 	}
 
 	s.roles[1] = domain.AdminRole{ID: 1, Name: "超级管理员", Builtin: true, Description: "拥有所有模块操作权限", Permissions: []string{"*"}, UserCount: 1}
-	s.roles[2] = domain.AdminRole{ID: 2, Name: "站点管理员", Builtin: true, Description: "负责授权子站的内容和举报治理", Permissions: []string{"dashboard.read", "site.read", "site.write", "board.read", "board.write", "post.read", "post.create", "post.update", "post.delete", "topic.moderate", "comment.read", "comment.moderate", "report.read", "report.handle", "moderator.read", "notification.write", "log.read"}, UserCount: 1}
-	s.roles[3] = domain.AdminRole{ID: 3, Name: "内容审核员", Builtin: true, Description: "负责授权子站的内容审核和评论治理", Permissions: []string{"dashboard.read", "post.read", "post.update", "topic.moderate", "comment.read", "comment.moderate", "report.read", "report.handle"}, UserCount: 1}
+	s.roles[2] = domain.AdminRole{ID: 2, Name: "站点管理员", Builtin: true, Description: "负责授权子站的内容和举报治理", Permissions: []string{"dashboard.read", "site.read", "site.write", "board.read", "board.write", "post.read", "post.create", "post.update", "post.delete", "topic.moderate", "comment.read", "comment.moderate", "report.read", "report.handle", "moderator.read", "notification.write", "log.read", "plugin.read", "qa.question.audit", "docs.document.audit", "docs.space.manage", "wiki.page.audit", "wiki.page.version.rollback"}, UserCount: 1}
+	s.roles[3] = domain.AdminRole{ID: 3, Name: "内容审核员", Builtin: true, Description: "负责授权子站的内容审核和评论治理", Permissions: []string{"dashboard.read", "post.read", "post.update", "topic.moderate", "comment.read", "comment.moderate", "report.read", "report.handle", "plugin.read", "qa.question.audit", "docs.document.audit", "wiki.page.audit"}, UserCount: 1}
 	defaultPassword, _ := hashPassword("admin123")
 	s.users[1] = &domain.AdminUser{ID: 1, Username: "admin", Nickname: "超级管理员", Avatar: "", Phone: "13800000001", Email: "admin@devhub.local", PasswordHash: defaultPassword, Status: "normal", RoleID: 1, RoleName: "超级管理员", CreatedAt: "2026-04-01 09:00:00", LastLoginAt: "2026-05-06 09:30:00"}
 	s.users[2] = &domain.AdminUser{ID: 2, Username: "operator", Nickname: "运营管理员", Avatar: "", Phone: "13800000002", Email: "operator@devhub.local", PasswordHash: defaultPassword, Status: "normal", RoleID: 2, RoleName: "运营管理员", CreatedAt: "2026-04-08 09:00:00", LastLoginAt: "2026-05-05 18:20:00"}
@@ -985,6 +1020,60 @@ func (s *MemoryStore) UpdateBoard(key string, req domain.Board) (domain.Board, b
 	s.boards[key] = board
 	s.appendLogLocked("system", "admin", "更新板块配置", fmt.Sprintf("boards#%s", key), "127.0.0.1")
 	return board, true
+}
+
+// Plugins 返回系统插件注册信息。
+func (s *MemoryStore) Plugins() []domain.Plugin {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	out := make([]domain.Plugin, 0, len(pluginregistry.Definitions()))
+	for _, def := range pluginregistry.Definitions() {
+		if runtime, ok := s.plugins[def.Code]; ok {
+			out = append(out, pluginregistry.MergeRuntimeState(def, *runtime))
+			continue
+		}
+		out = append(out, def)
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].Code < out[j].Code })
+	return out
+}
+
+// PluginByCode 获取系统插件。
+func (s *MemoryStore) PluginByCode(code string) (domain.Plugin, bool) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	def, ok := pluginregistry.DefinitionByCode(code)
+	if !ok {
+		return domain.Plugin{}, false
+	}
+	if runtime, ok := s.plugins[def.Code]; ok {
+		return pluginregistry.MergeRuntimeState(def, *runtime), true
+	}
+	return def, true
+}
+
+// SetPluginStatus 设置插件运行状态。
+func (s *MemoryStore) SetPluginStatus(code, status string) (domain.Plugin, error) {
+	status = strings.TrimSpace(status)
+	if status != pluginregistry.StatusInstalled && status != pluginregistry.StatusEnabled && status != pluginregistry.StatusDisabled {
+		return domain.Plugin{}, errors.New("插件状态不合法")
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	def, ok := pluginregistry.DefinitionByCode(code)
+	if !ok {
+		return domain.Plugin{}, errors.New("插件不存在")
+	}
+	runtime, ok := s.plugins[def.Code]
+	if !ok {
+		cp := def
+		runtime = &cp
+		s.plugins[def.Code] = runtime
+	}
+	runtime.Status = status
+	runtime.UpdatedAt = Now()
+	s.appendLogLocked("system", "admin", "更新插件状态", fmt.Sprintf("plugins#%s:%s", def.Code, status), "127.0.0.1")
+	return pluginregistry.MergeRuntimeState(def, *runtime), nil
 }
 
 // ListPosts 按站点、板块、关键词和标签筛选帖子，并按 ID 倒序返回。
@@ -2012,6 +2101,10 @@ func (s *MemoryStore) AdminRoles() []domain.AdminRole {
 func (s *MemoryStore) AdminPermissions() []domain.AdminPermission {
 	return []domain.AdminPermission{
 		{Code: "content", Module: "内容管理", Name: "帖子 / 评论 / 标签 / 文档", Ops: []string{"查", "增", "删", "改", "审核"}},
+		{Code: "plugin", Module: "系统插件", Name: "qa / docs / wiki 插件", Ops: []string{"查", "启用", "禁用"}},
+		{Code: "qa", Module: "问答插件", Name: "问题 / 回答 / 采纳", Ops: []string{"查", "增", "审核", "采纳"}},
+		{Code: "docs", Module: "文档插件", Name: "空间 / 文档树 / 文档", Ops: []string{"查", "增", "改", "管理"}},
+		{Code: "wiki", Module: "Wiki 插件", Name: "页面 / 版本 / 回滚", Ops: []string{"查", "增", "改", "回滚"}},
 		{Code: "site", Module: "站点配置", Name: "子站 / 板块 / 搜索范围", Ops: []string{"查", "增", "删", "改"}},
 		{Code: "user", Module: "用户管理", Name: "用户信息 / 行为 / 违规处理", Ops: []string{"查", "改", "审核"}},
 		{Code: "operation", Module: "运营管理", Name: "推荐 / 通知 / 热门 / 草稿箱", Ops: []string{"查", "增", "删", "改"}},
@@ -2445,16 +2538,16 @@ func contentTypeForBoard(board string) string {
 	case "jobs":
 		return "job"
 	case "wiki":
-		return "wiki"
+		return "wiki_page"
 	case "docs":
-		return "doc"
+		return "document"
 	default:
 		return "article"
 	}
 }
 
 func boardByContentType(contentType string) string {
-	switch contentType {
+	switch pluginregistry.NormalizeContentType(contentType) {
 	case "question":
 		return "qa"
 	case "project":
@@ -2463,9 +2556,9 @@ func boardByContentType(contentType string) string {
 		return "ai"
 	case "job":
 		return "jobs"
-	case "wiki":
+	case "wiki_page":
 		return "wiki"
-	case "doc":
+	case "document":
 		return "docs"
 	default:
 		return "community"
@@ -2901,6 +2994,7 @@ func (s *MemoryStore) topicFromPostLocked(id int64, increaseView bool) (domain.T
 		UserID:        userID,
 		Title:         p.Title,
 		ContentType:   contentTypeForBoard(p.Board),
+		PluginCode:    pluginregistry.PluginCodeForContentType(contentTypeForBoard(p.Board)),
 		Summary:       p.Summary,
 		Content:       p.Content,
 		Status:        status,
@@ -3298,12 +3392,7 @@ func validCategoryStatus(status int) bool {
 }
 
 func validCategoryContentType(contentType string) bool {
-	switch contentType {
-	case "article", "question", "project", "ai_work", "job", "wiki", "doc", "news":
-		return true
-	default:
-		return false
-	}
+	return pluginregistry.ValidContentType(contentType)
 }
 
 // ===== 新增：DevHub 通用社区系统方法 =====
@@ -3666,6 +3755,7 @@ func (s *MemoryStore) normalizeCategoryRequestLocked(req domain.CategoryRequest,
 	}
 	contentType := strings.TrimSpace(firstNonEmptyString(req.ContentType, req.Type))
 	if contentType != "" {
+		contentType = pluginregistry.NormalizeContentType(contentType)
 		if !validCategoryContentType(contentType) {
 			return nil, errors.New("内容类型不合法")
 		}
@@ -3678,6 +3768,30 @@ func (s *MemoryStore) normalizeCategoryRequestLocked(req domain.CategoryRequest,
 	}
 	if cat.ContentType == "" {
 		cat.ContentType = cat.Type
+	}
+	if req.PluginCode != "" {
+		cat.PluginCode = strings.TrimSpace(req.PluginCode)
+	}
+	expectedPlugin := pluginregistry.PluginCodeForContentType(cat.ContentType)
+	if cat.PluginCode == "" {
+		cat.PluginCode = expectedPlugin
+	}
+	if cat.PluginCode != expectedPlugin {
+		return nil, errors.New("板块插件与内容类型不匹配")
+	}
+	if len(req.AllowedContentTypes) > 0 {
+		allowed := make([]string, 0, len(req.AllowedContentTypes))
+		for _, item := range req.AllowedContentTypes {
+			item = pluginregistry.NormalizeContentType(item)
+			if !validCategoryContentType(item) {
+				return nil, errors.New("允许内容类型不合法")
+			}
+			allowed = append(allowed, item)
+		}
+		cat.AllowedContentTypes = uniqueTags(allowed)
+	}
+	if len(cat.AllowedContentTypes) == 0 {
+		cat.AllowedContentTypes = pluginregistry.DefaultAllowedContentTypes(cat.ContentType)
 	}
 	if strings.TrimSpace(req.Description) != "" || current == nil {
 		cat.Description = strings.TrimSpace(req.Description)
@@ -3774,6 +3888,7 @@ func (s *MemoryStore) communityStatsLocked(communityID int64) domain.CommunitySt
 func (s *MemoryStore) TopicsByFilter(communityID, categoryID int64, contentType, sortBy string, isSolved *bool, tag string, page, pageSize int) ([]domain.Topic, int) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
+	contentType = pluginregistry.NormalizeContentType(contentType)
 
 	// 从 posts 转换为 topics
 	topics := []domain.Topic{}
@@ -3789,6 +3904,7 @@ func (s *MemoryStore) TopicsByFilter(communityID, categoryID int64, contentType,
 			UserID:        p.UserID,
 			Title:         p.Title,
 			ContentType:   contentTypeForBoard(p.Board),
+			PluginCode:    pluginregistry.PluginCodeForContentType(contentTypeForBoard(p.Board)),
 			Summary:       p.Summary,
 			Content:       p.Content,
 			Status:        memoryTopicStatus(p),
@@ -3913,6 +4029,8 @@ func (s *MemoryStore) CreateTopic(req domain.CreateTopicRequest) (*domain.Topic,
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
+	req.ContentType = pluginregistry.NormalizeContentType(req.ContentType)
+	req.PluginCode = pluginregistry.PluginCodeForContentType(req.ContentType)
 	site := s.communitySlugByIDLocked(req.CommunityID)
 	board := boardByContentType(req.ContentType)
 	if req.CategoryID > 0 {
@@ -3961,6 +4079,7 @@ func (s *MemoryStore) CreateTopic(req domain.CreateTopicRequest) (*domain.Topic,
 		UserID:        userID,
 		Title:         post.Title,
 		ContentType:   req.ContentType,
+		PluginCode:    req.PluginCode,
 		Summary:       post.Summary,
 		Content:       post.Content,
 		Status:        1,
@@ -4004,7 +4123,9 @@ func (s *MemoryStore) UpdateTopic(id int64, req domain.UpdateTopicRequest) (*dom
 		p.Board = s.boardByCategoryIDLocked(*req.CategoryID)
 	}
 	if req.ContentType != nil && strings.TrimSpace(*req.ContentType) != "" {
-		p.Board = boardByContentType(strings.TrimSpace(*req.ContentType))
+		contentType := pluginregistry.NormalizeContentType(*req.ContentType)
+		p.Board = boardByContentType(contentType)
+		*req.ContentType = contentType
 	}
 	if req.Title != nil {
 		title := strings.TrimSpace(*req.Title)
@@ -4051,6 +4172,7 @@ func (s *MemoryStore) DeleteTopic(id int64) bool {
 func (s *MemoryStore) SearchTopics(req domain.SearchRequest) ([]domain.Topic, int) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
+	req.ContentType = pluginregistry.NormalizeContentType(req.ContentType)
 
 	all := make([]domain.Topic, 0, len(s.posts))
 	for _, p := range s.posts {
@@ -4067,6 +4189,7 @@ func (s *MemoryStore) SearchTopics(req domain.SearchRequest) ([]domain.Topic, in
 			UserID:        p.UserID,
 			Title:         p.Title,
 			ContentType:   contentTypeForBoard(p.Board),
+			PluginCode:    pluginregistry.PluginCodeForContentType(contentTypeForBoard(p.Board)),
 			Summary:       p.Summary,
 			Content:       p.Content,
 			Status:        status,
@@ -4097,6 +4220,9 @@ func (s *MemoryStore) SearchTopics(req domain.SearchRequest) ([]domain.Topic, in
 			continue
 		}
 		if req.ContentType != "" && topic.ContentType != req.ContentType {
+			continue
+		}
+		if req.PluginCode != "" && req.PluginCode != topic.PluginCode {
 			continue
 		}
 		if req.Sort == "featured" && !topic.IsFeatured {

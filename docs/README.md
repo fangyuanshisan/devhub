@@ -19,40 +19,46 @@ DevHub 文档已收敛为少量当前有效入口。日常优先看下面这些�
 5. [SEO 文档](SEO.md)
    - 百度 SEO 兜底策略，尤其是 `/topics/:id` 动态 HTML 的保护要求。
 
-6. [v1.2.1 Release Notes](releases/v1.2.1.md)
+6. [插件架构说明](PLUGIN_ARCHITECTURE.md)
+   - Core 与 Plugins 边界、内置 qa / docs / wiki 插件、发布校验、数据表和当前限制。
+
+7. [v1.3.0 Release Notes](releases/v1.3.0.md)
+   - Core + Plugins 架构拆分版的插件基础表、内容模型增强、插件模块、后台菜单和兼容策略。
+
+8. [v1.2.1 Release Notes](releases/v1.2.1.md)
    - 标签合并、标签别名、统计重算、SEO / sitemap 治理、后台标签治理和已知限制。
 
-7. [v1.2.0 Release Notes](releases/v1.2.0.md)
+9. [v1.2.0 Release Notes](releases/v1.2.0.md)
    - 标签系统增强版的标签页、API、关注、发布建议、后台管理、SEO、sitemap 和已知限制。
 
-8. [v1.1.5 Release Notes](releases/v1.1.5.md)
+10. [v1.1.5 Release Notes](releases/v1.1.5.md)
    - 前台 UI 美化专项的全局样式、页面视觉、组件样式、响应式和 SEO 保护说明。
 
-9. [v1.1.4 Release Notes](releases/v1.1.4.md)
+11. [v1.1.4 Release Notes](releases/v1.1.4.md)
    - 前台登录态、权限入口、子站关注、“我的”类页面、发布类型匹配和后台子站入口修复。
 
-10. [v1.1.3 Release Notes](releases/v1.1.3.md)
+12. [v1.1.3 Release Notes](releases/v1.1.3.md)
    - 独立版主工作台 MVP 的页面、API、权限边界、审计日志和已知限制。
 
-11. [v1.1.1 Release Notes](releases/v1.1.1.md)
+13. [v1.1.1 Release Notes](releases/v1.1.1.md)
    - 前后台身份边界整理版的身份模型、token 边界、middleware、审计 actor 和已知限制。
 
-12. [v1.1.0 Release Notes](releases/v1.1.0.md)
+14. [v1.1.0 Release Notes](releases/v1.1.0.md)
    - 子站模块增强版的版本定位、数据结构变化、API、SEO、后台、测试清单和已知限制。
 
-13. [测试文档](TESTING.md)
+15. [测试文档](TESTING.md)
    - 页面、接口、互动、SEO、memory / mysql 模式的手工验收清单。
 
-14. [部署启动文档](DEPLOYMENT.md)
+16. [部署启动文档](DEPLOYMENT.md)
    - 本地启动、构建行为、8090 端口排查、Go 模块网络和二进制排障启动。
 
-15. [备份与回滚文档](BACKUP_AND_ROLLBACK.md)
+17. [备份与回滚文档](BACKUP_AND_ROLLBACK.md)
    - v1.x 上线前后需要备份的内容、MySQL 备份恢复、二进制回滚、Git 回滚和紧急回滚流程。
 
-16. [v1.0.0 Release Notes](releases/v1.0.0.md)
+18. [v1.0.0 Release Notes](releases/v1.0.0.md)
    - 首个可运行大版本的版本定位、启动部署、测试清单、已知限制和下一版本规划。
 
-17. [需求原文](../更新.md)
+19. [需求原文](../更新.md)
    - 产品需求原始文档，用于核对目标和范围。
 
 ## 辅助文档
@@ -67,6 +73,6 @@ DevHub 文档已收敛为少量当前有效入口。日常优先看下面这些�
 - API 变化后，同步更新 [API 文档](API.md) 和 [项目总览](../README.md) 的 API 概览。
 - 页面入口、启动方式变化后，同步更新 [项目总览](../README.md)、[部署启动文档](DEPLOYMENT.md) 和 [测试文档](TESTING.md)。
 - SEO 相关变化后，同步更新 [SEO 文档](SEO.md)。
-- 版本归档变化后，同步更新对应 [Release Notes](releases/v1.2.1.md)、[变更日志](../CHANGELOG.md) 和根目录 [VERSION](../VERSION)。
+- 版本归档变化后，同步更新对应 [Release Notes](releases/v1.3.0.md)、[变更日志](../CHANGELOG.md) 和根目录 [VERSION](../VERSION)。
 - Agent 协作规则变化后，同步更新 [AGENT_RULES.md](AGENT_RULES.md)，不要散落在临时对话里。
 - 新增文档前，优先判断能否合并进现有文档，避免文档继续膨胀。

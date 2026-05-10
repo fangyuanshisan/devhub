@@ -204,6 +204,19 @@ seo_keywords VARCHAR(500) DEFAULT ''
 - 前台构建会移除旧 Astro 预生成标签详情页，`/tags/:tag/` 由 Go 动态输出。
 - 后台构建会生成 `/admin-next/tags` 标签管理页面。
 
+## v1.3.0 插件架构升级说明
+
+v1.3.0 新增 Core + Plugins 架构基础表和兼容字段：
+
+- 新增 `plugins` 表。
+- `topics` 新增 `plugin_code`。
+- `categories` 新增 `plugin_code`、`allowed_content_types`。
+- 新增 `qa_questions`、`qa_answers`。
+- 新增 `docs_spaces`、`docs_documents`。
+- 新增 `wiki_spaces`、`wiki_pages`、`wiki_page_versions`。
+
+旧库升级时，启动迁移会尽量把历史 `doc` / `wiki` 内容类型归一为 `document` / `wiki_page`，并把对应数据绑定到 `docs` / `wiki` 插件。升级前建议备份数据库，并在预发环境验证发布页、`/topics/:id` SEO、后台插件菜单和禁用插件后的发布拦截。
+
 生产升级后建议验证：
 
 ```bash

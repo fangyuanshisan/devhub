@@ -63,15 +63,16 @@
 </template>
 
 <script setup>
-import { computed, ref, watch } from 'vue';
+import { computed, onMounted, ref, watch } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import { ElMessage } from 'element-plus';
-import { ArrowDown, Bell, ChatDotRound, DataBoard, Document, Fold, FullScreen, Grid, PriceTag, Promotion, Refresh, Search, SetUp, Setting, Tickets, TrendCharts, User, UserFilled, Warning } from '@element-plus/icons-vue';
+import { ArrowDown, Bell, ChatDotRound, Connection, DataBoard, Document, Fold, FullScreen, Grid, Notebook, PriceTag, Promotion, QuestionFilled, Refresh, Search, SetUp, Setting, Tickets, TrendCharts, User, UserFilled, Warning } from '@element-plus/icons-vue';
+import { plugins as fetchPlugins } from '@/api/admin';
 import { menuRoutes } from '@/router';
 import { useAuthStore } from '@/stores/auth';
 import { useTabsStore } from '@/stores/tabs';
 
-const icons = { ChatDotRound, DataBoard, Document, PriceTag, Promotion, SetUp, Setting, Tickets, TrendCharts, User, UserFilled, Warning };
+const icons = { ChatDotRound, Connection, DataBoard, Document, Notebook, PriceTag, Promotion, QuestionFilled, SetUp, Setting, Tickets, TrendCharts, User, UserFilled, Warning };
 const subMenus = {
   dashboard: [{ key: 'overview', label: '运营概览' }, { key: 'todo', label: '待办事项' }],
   content: [{ key: 'posts', label: '内容管理' }, { key: 'docs', label: '文档管理' }, { key: 'tags', label: '标签管理' }],
@@ -80,6 +81,10 @@ const subMenus = {
   moderators: [{ key: 'list', label: '版主列表' }, { key: 'scope', label: '子站授权' }],
   auditLogs: [{ key: 'list', label: '审计列表' }, { key: 'filter', label: '治理筛选' }],
   tags: [{ key: 'list', label: '标签列表' }, { key: 'seo', label: 'SEO 配置' }, { key: 'topics', label: '关联内容' }],
+  plugins: [{ key: 'list', label: '插件列表' }, { key: 'status', label: '状态治理' }],
+  qaPlugin: [{ key: 'questions', label: '问题列表' }, { key: 'answers', label: '回答治理' }],
+  docsPlugin: [{ key: 'documents', label: '文档列表' }, { key: 'spaces', label: '空间结构' }],
+  wikiPlugin: [{ key: 'pages', label: '页面列表' }, { key: 'versions', label: '版本历史' }],
   communities: [{ key: 'site', label: '子站配置' }, { key: 'board', label: '板块管理' }],
   sites: [{ key: 'site', label: '子站配置' }, { key: 'board', label: '板块管理' }],
   users: [{ key: 'list', label: '用户管理' }, { key: 'roles', label: '角色权限' }],
@@ -94,9 +99,14 @@ const route = useRoute();
 const router = useRouter();
 const quickSearch = ref('');
 const activeSub = ref('overview');
+const pluginStatus = ref({});
 
-const visibleMenus = computed(() => menuRoutes.filter((item) => !item.meta.permission || auth.can(item.meta.permission)));
-const activeGroup = computed(() => visibleMenus.value.find((item) => item.path === route.path) || visibleMenus.value[0] || menuRoutes[0]);
+const visibleMenus = computed(() => menuRoutes.filter((item) => {
+  if (item.meta.hiddenInMenu) return false;
+  if (item.meta.pluginCode && pluginStatus.value[item.meta.pluginCode] && pluginStatus.value[item.meta.pluginCode] !== 'enabled') return false;
+  return !item.meta.permission || auth.can(item.meta.permission);
+}));
+const activeGroup = computed(() => menuRoutes.find((item) => item.path === route.path) || visibleMenus.value[0] || menuRoutes[0]);
 const activeChildren = computed(() => subMenus[activeGroup.value.name] || []);
 const activeSubLabel = computed(() => activeChildren.value.find((item) => item.key === activeSub.value)?.label || activeChildren.value[0]?.label || '');
 const keepAliveNames = computed(() => menuRoutes.filter((item) => item.meta.keepAlive).map((item) => item.name));
@@ -110,8 +120,18 @@ watch(route, (value) => {
   activeSub.value = (subMenus[value.name] || [])[0]?.key || '';
 }, { immediate: true });
 watch(quickSearch, (value) => {
-  const matched = visibleMenus.value.find((item) => item.meta.title.includes(value));
+  const matched = menuRoutes.find((item) => !item.meta.hiddenInMenu && item.meta.title.includes(value));
   if (value && matched) ElMessage.info(`可进入：${matched.meta.title}`);
+});
+
+onMounted(async () => {
+  if (!auth.authed || !auth.can('plugin.read')) return;
+  try {
+    const data = await fetchPlugins();
+    pluginStatus.value = Object.fromEntries((data.items || []).map((item) => [item.code || item.plugin_code, item.status]));
+  } catch (error) {
+    pluginStatus.value = {};
+  }
 });
 
 function removeTab(path) {

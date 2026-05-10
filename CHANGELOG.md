@@ -1,5 +1,29 @@
 # Changelog
 
+## v1.3.0
+
+DevHub v1.3.0 is the Core + Plugins architecture split release.
+
+### Added
+
+- Built-in plugin registry with `qa`, `docs`, and `wiki` system plugins.
+- MySQL `plugins` table with `installed`, `enabled`, and `disabled` states.
+- `topics.plugin_code` plus `categories.plugin_code` and `categories.allowed_content_types`.
+- Plugin-owned tables: `qa_questions`, `qa_answers`, `docs_spaces`, `docs_documents`, `wiki_spaces`, `wiki_pages`, and `wiki_page_versions`.
+- Admin plugin APIs and lightweight admin-next plugin management / plugin content entries.
+
+### Changed
+
+- `question`, `document`, and `wiki_page` are now owned by `qa`, `docs`, and `wiki` plugins rather than hardcoded as Core-only types.
+- Topic publishing validates category plugin binding, enabled plugin status, and allowed content types.
+- Legacy `doc` / `wiki` request values are normalized to `document` / `wiki_page` for compatibility.
+
+### Known Limitations
+
+- Plugin marketplace, package upload, and remote update are still out of scope.
+- Plugin route loading is currently registry metadata plus Core dispatch, not a dynamic module loader.
+- Dedicated Docs tree editing UI and Wiki collaboration / rollback UI remain follow-up work.
+
 ## v1.2.1
 
 DevHub v1.2.1 is the tag governance enhancement release.

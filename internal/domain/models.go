@@ -23,6 +23,51 @@ type Board struct {
 	Visible bool   `json:"visible"`
 }
 
+// Plugin 描述系统插件的注册与运行状态。
+type Plugin struct {
+	Code         string             `json:"code"`
+	PluginCode   string             `json:"plugin_code,omitempty"`
+	Name         string             `json:"name"`
+	Version      string             `json:"version"`
+	Status       string             `json:"status"`
+	Description  string             `json:"description,omitempty"`
+	ContentTypes []string           `json:"content_types,omitempty"`
+	Menus        []PluginMenu       `json:"menus,omitempty"`
+	Permissions  []PluginPermission `json:"permissions,omitempty"`
+	Routes       []PluginRoute      `json:"routes,omitempty"`
+	CreatedAt    string             `json:"created_at,omitempty"`
+	UpdatedAt    string             `json:"updated_at,omitempty"`
+}
+
+// PluginMenu 表示插件注册到后台或版主工作台的菜单。
+type PluginMenu struct {
+	PluginCode string `json:"plugin_code"`
+	Key        string `json:"key"`
+	Title      string `json:"title"`
+	Short      string `json:"short,omitempty"`
+	Path       string `json:"path"`
+	Area       string `json:"area,omitempty"`
+	Icon       string `json:"icon,omitempty"`
+	Permission string `json:"permission,omitempty"`
+}
+
+// PluginPermission 表示插件提供的权限码。
+type PluginPermission struct {
+	PluginCode string `json:"plugin_code"`
+	Code       string `json:"code"`
+	Name       string `json:"name"`
+	Scope      string `json:"scope,omitempty"`
+}
+
+// PluginRoute 表示插件注册的前台或后台路由描述。
+type PluginRoute struct {
+	PluginCode string `json:"plugin_code"`
+	Area       string `json:"area"`
+	Method     string `json:"method"`
+	Path       string `json:"path"`
+	Handler    string `json:"handler,omitempty"`
+}
+
 // TagStat 表示标签及其关联内容数量。
 type TagStat struct {
 	ID             int64  `json:"id,omitempty"`
@@ -499,23 +544,25 @@ type Community struct {
 
 // Category 描述内容板块/分类，支持多种内容类型。
 type Category struct {
-	ID             int64  `json:"id"`
-	CommunityID    int64  `json:"community_id"`
-	Name           string `json:"name"`
-	Slug           string `json:"slug"`
-	Type           string `json:"type"`
-	ContentType    string `json:"content_type"`
-	Description    string `json:"description"`
-	Icon           string `json:"icon"`
-	SortOrder      int    `json:"sort_order"`
-	Visible        bool   `json:"visible"`
-	NavVisible     bool   `json:"nav_visible"`
-	Postable       bool   `json:"postable"`
-	SEOTitle       string `json:"seo_title"`
-	SEODescription string `json:"seo_description"`
-	Status         int    `json:"status"`
-	CreatedAt      string `json:"created_at,omitempty"`
-	UpdatedAt      string `json:"updated_at,omitempty"`
+	ID                  int64    `json:"id"`
+	CommunityID         int64    `json:"community_id"`
+	Name                string   `json:"name"`
+	Slug                string   `json:"slug"`
+	Type                string   `json:"type"`
+	ContentType         string   `json:"content_type"`
+	PluginCode          string   `json:"plugin_code"`
+	AllowedContentTypes []string `json:"allowed_content_types,omitempty"`
+	Description         string   `json:"description"`
+	Icon                string   `json:"icon"`
+	SortOrder           int      `json:"sort_order"`
+	Visible             bool     `json:"visible"`
+	NavVisible          bool     `json:"nav_visible"`
+	Postable            bool     `json:"postable"`
+	SEOTitle            string   `json:"seo_title"`
+	SEODescription      string   `json:"seo_description"`
+	Status              int      `json:"status"`
+	CreatedAt           string   `json:"created_at,omitempty"`
+	UpdatedAt           string   `json:"updated_at,omitempty"`
 }
 
 // Topic 表示社区主题内容，支持多种内容类型。
@@ -527,6 +574,7 @@ type Topic struct {
 	Title         string   `json:"title"`
 	Slug          string   `json:"slug"`
 	ContentType   string   `json:"content_type"`
+	PluginCode    string   `json:"plugin_code"`
 	Summary       string   `json:"summary"`
 	Content       string   `json:"content"`
 	AISummary     string   `json:"ai_summary,omitempty"`
@@ -767,20 +815,22 @@ type CommunityRequest struct {
 
 // CategoryRequest 是后台新增或更新子站板块的请求体。
 type CategoryRequest struct {
-	CommunityID    int64  `json:"community_id"`
-	Name           string `json:"name"`
-	Slug           string `json:"slug"`
-	Type           string `json:"type"`
-	ContentType    string `json:"content_type"`
-	Description    string `json:"description"`
-	Icon           string `json:"icon"`
-	SortOrder      *int   `json:"sort_order"`
-	Visible        *bool  `json:"visible"`
-	NavVisible     *bool  `json:"nav_visible"`
-	Postable       *bool  `json:"postable"`
-	SEOTitle       string `json:"seo_title"`
-	SEODescription string `json:"seo_description"`
-	Status         *int   `json:"status"`
+	CommunityID         int64    `json:"community_id"`
+	Name                string   `json:"name"`
+	Slug                string   `json:"slug"`
+	Type                string   `json:"type"`
+	ContentType         string   `json:"content_type"`
+	PluginCode          string   `json:"plugin_code"`
+	AllowedContentTypes []string `json:"allowed_content_types"`
+	Description         string   `json:"description"`
+	Icon                string   `json:"icon"`
+	SortOrder           *int     `json:"sort_order"`
+	Visible             *bool    `json:"visible"`
+	NavVisible          *bool    `json:"nav_visible"`
+	Postable            *bool    `json:"postable"`
+	SEOTitle            string   `json:"seo_title"`
+	SEODescription      string   `json:"seo_description"`
+	Status              *int     `json:"status"`
 }
 
 // ReorderRequest 表示后台排序请求。
@@ -898,6 +948,7 @@ type CreateTopicRequest struct {
 	CategoryID    int64    `json:"category_id"`
 	Title         string   `json:"title"`
 	ContentType   string   `json:"content_type"`
+	PluginCode    string   `json:"plugin_code"`
 	Summary       string   `json:"summary"`
 	Content       string   `json:"content"`
 	Status        string   `json:"status"`
@@ -912,6 +963,7 @@ type UpdateTopicRequest struct {
 	CategoryID    *int64    `json:"category_id"`
 	Title         *string   `json:"title"`
 	ContentType   *string   `json:"content_type"`
+	PluginCode    *string   `json:"plugin_code"`
 	Summary       *string   `json:"summary"`
 	Content       *string   `json:"content"`
 	Status        *int      `json:"status"`
@@ -946,6 +998,7 @@ type SearchRequest struct {
 	CommunitySlug string `json:"community_slug"`
 	CommunityID   int64  `json:"community_id"`
 	CategoryID    int64  `json:"category_id"`
+	PluginCode    string `json:"plugin_code"`
 	ContentType   string `json:"content_type"`
 	Tag           string `json:"tag"`
 	TagID         int64  `json:"tag_id"`

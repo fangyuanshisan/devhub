@@ -19,7 +19,9 @@ DevHub 当前是 “Go API + Astro 前台 + Vue 后台” 的多子站社区 CMS
 
 首页、子站页、搜索页和用户中心使用 Astro 静态壳 + 运行时 API；Topic 详情页 `/topics/:id` 仍由 Go 动态输出 SEO HTML。第五轮互动闭环已完成基础实现：点赞、收藏、关注、我的收藏、我的关注、我的动态、通知列表和已读逻辑在 MemoryStore 与 MySQLStore 中均可用。第六轮已完成评论列表、发表评论、回复评论、问答采纳、未解决筛选、评论动态和评论通知的基础闭环。第七轮已完成举报、版主范围治理、精华、置顶、隐藏、评论锁定和后台最小治理入口。第八轮补丁后，admin-next 后台内容 CRUD、版主管理 CRUD、批量治理、批量举报处理和治理审计日志均有真实页面入口和 API 封装。
 
-当前版本为 `v1.2.1`，版本主题是“标签合并、别名与统计重算版”。本轮在 v1.2.0 基础上新增标签别名、标签合并、标签统计重算、merged / disabled 标签的 SEO 与 sitemap 治理、后台标签治理审计和 `/admin-next/tags` 管理增强。
+当前版本为 `v1.3.0`，版本主题是“Core + Plugins 架构拆分版”。本轮把问答、文档、Wiki 从核心内容类型中拆分为内置系统插件：Core 保留用户、子站、板块、通用内容表、评论、标签、权限、通知、搜索、审计和插件注册；`qa`、`docs`、`wiki` 插件分别注册自己的内容类型、菜单、权限和路由描述。为兼容历史实现，物理表名仍保留 `topics` / `categories`，它们分别作为 Core `contents` / `channels` 的当前落地表，并新增 `plugin_code`、`allowed_content_types` 等字段。
+
+v1.2.1 标签治理增强已并入当前分支，版本主题是“标签合并、别名与统计重算版”。该版本在 v1.2.0 基础上新增标签别名、标签合并、标签统计重算、merged / disabled 标签的 SEO 与 sitemap 治理、后台标签治理审计和 `/admin-next/tags` 管理增强。
 
 v1.1.4 补丁已并入当前分支，主题是“前台登录态与权限入口修复版”。本补丁统一前台 user token 的导航恢复、子站关注、“我的”类页面请求和版主入口展示；普通前台会员不再显示 `/admin-next` 总后台入口；发布页按 `categories.content_type` 自动匹配板块；后台子站管理主入口统一为 `/admin-next/communities`，`/admin-next/sites` 保留隐藏兼容重定向。
 
@@ -47,6 +49,7 @@ v1.1.5 补丁已并入当前分支，主题是“前台 UI 美化专项”。本
 - v1.1.5 前台 UI 美化专项：统一前台视觉 token、导航、卡片、表单、标签、空状态、Topic 列表 / 详情、搜索、发布、“我的”页面和移动端样式；未改接口、业务逻辑、数据库、路由或 SEO 主体结构。
 - v1.2.0 标签系统增强：新增 `/tags/:tag/` 全站标签 SEO 页和 `/c/:slug/tags/:tag/` 子站标签 SEO 页，公开标签详情 / 聚合 / 建议 API，发布页标签建议，标签关注，`/admin-next/tags` 后台标签 CRUD、启用 / 禁用、SEO 字段和关联内容查看，以及 sitemap 全站 / 子站标签收录。
 - v1.2.1 标签治理增强：新增标签 alias 管理、标签 merge、标签统计重算、merged 状态和 `merged_to_id`、`tag_aliases` 表、alias / merged 301 解析、后台标签治理审计，以及 admin-next 标签别名 / 合并 / 重算入口。
+- v1.3.0 Core + Plugins 架构拆分：新增 `plugins` 表与插件注册服务；`topics` 增加 `plugin_code`，`categories` 增加 `plugin_code` / `allowed_content_types`；新增 `qa`、`docs`、`wiki` 内置插件目录、插件权限、插件菜单和插件运行状态 API；新增 `qa_questions`、`qa_answers`、`docs_spaces`、`docs_documents`、`wiki_spaces`、`wiki_pages`、`wiki_page_versions`；发布内容时校验板块绑定插件、插件启用状态和允许内容类型。
 - 主题与 UI 架构整理：新增 `docs/THEME_AND_UI_ARCHITECTURE.md` 和 `docs/UI_STYLE_GUIDE.md`；前台新增 `tokens.css` 作为主题 token 入口；首页、搜索页、子站页、发布页改为更多复用共享站点配置与内容类型映射，减少页面级硬编码。
 
 ## v1.1.5 前台 UI 美化专项范围

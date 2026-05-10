@@ -6,6 +6,37 @@
 
 本文档用于当前真实实现的手工验收。完成代码变更后，优先执行自动检查，再按页面、接口、业务闭环、SEO 顺序回归。
 
+## v1.3.0 Core + Plugins 架构测试清单
+
+基础检查：
+
+- `./dev.sh --restart`
+- `CMS_STORE=memory ./dev.sh --restart`
+- `./dev.sh --mysql --restart`
+- Docker Go：`go test ./...`
+- Docker Go：`go build -buildvcs=false ./...`
+- Docker Node：后台 `npm run build`
+- Docker Node：前台 `npm run build`
+
+插件架构验收：
+
+- `GET /api/v1/plugins` 只返回 enabled 插件。
+- `GET /api/v1/admin/plugins` 返回 `qa`、`docs`、`wiki` 插件状态。
+- 后台可以禁用 / 启用插件。
+- 禁用 `qa` 后，问答板块不能继续发布 `question`。
+- 禁用 `docs` 后，文档板块不能继续发布 `document`。
+- 禁用 `wiki` 后，Wiki 板块不能继续发布 `wiki_page`。
+- 问答板块只能发布 `question`。
+- 文档板块只能发布 `document`，旧 `doc` 参数会归一兼容。
+- Wiki 板块只能发布 `wiki_page`，旧 `wiki` 参数会归一兼容。
+- `/admin-next/plugins` 可以查看插件状态。
+- `/admin-next/qa`、`/admin-next/docs`、`/admin-next/wiki` 按权限显示。
+- 普通前台会员不能看到总后台入口。
+- 版主可以访问 `/moderator`，并可通过 `/api/v1/moderator/plugin-menus` 获取插件治理菜单。
+- 已有内容列表、搜索页和 `/topics/:id` 仍能正常展示。
+- `/topics/:id` SEO 源码不受插件拆分影响。
+- MemoryStore 与 MySQLStore 插件状态和发布校验行为一致。
+
 ## v1.2.1 标签治理增强测试清单
 
 基础检查：
@@ -13,8 +44,8 @@
 - `./dev.sh --restart`
 - `CMS_STORE=memory ./dev.sh --restart`
 - `./dev.sh --mysql --restart`
-- `go test ./...`
-- `go build ./...`
+- Docker Go：`go test ./...`
+- Docker Go：`go build -buildvcs=false ./...`
 
 标签治理验收：
 
