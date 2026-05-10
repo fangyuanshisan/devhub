@@ -36,10 +36,13 @@ jobs:
           test -f docs/SEO.md
           test -f docs/PROJECT_PROGRESS.md
           test -f docs/BACKUP_AND_ROLLBACK.md
-          test -f docs/releases/v1.0.0.md
           test -f CHANGELOG.md
           test -f VERSION
-          grep -qx 'v1.0.0' VERSION
+          VERSION="$(cat VERSION)"
+          test -n "$VERSION"
+          test -f "docs/releases/${VERSION}.md"
+          grep -qF "$VERSION" README.md
+          grep -qF "$VERSION" CHANGELOG.md
 
   frontend:
     name: Frontend build

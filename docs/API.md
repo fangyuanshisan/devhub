@@ -209,8 +209,12 @@
 
 当前限制：
 
-- 发布链路已校验插件状态和板块约束。
-- 发布链路尚未按 `qa.question.create`、`docs.document.create`、`wiki.page.create` 等插件权限码做细粒度用户权限拦截。
+- 发布链路已校验插件状态、子站插件状态和板块约束。
+- 发布链路已增加插件权限码校验：
+  - `question -> qa.question.create`
+  - `document -> docs.document.create`
+  - `wiki_page -> wiki.page.create`
+  - Core 兼容类型目前使用粗粒度 `post.create`。
 
 ## 当前真实 API 索引
 
@@ -351,11 +355,12 @@ GET    /api/v1/sites/:site
 GET    /api/v1/sites/:site/overview
 GET    /api/v1/boards
 GET    /api/v1/posts
-POST   /api/v1/posts
 GET    /api/v1/posts/:id
-PUT    /api/v1/posts/:id
-DELETE /api/v1/posts/:id
 ```
+
+说明：
+
+- `POST/PUT/DELETE /api/v1/posts*` 写接口已废弃，当前返回 `410 Gone`，请使用 `/api/v1/topics`。
 
 SEO 端点：
 

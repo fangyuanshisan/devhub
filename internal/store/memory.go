@@ -18,88 +18,88 @@ const TimeLayout = "2006-01-02 15:04:05"
 
 // MemoryStore 是线程安全的内存数据仓储，用于演示环境和本地开发。
 type MemoryStore struct {
-	mu              sync.RWMutex
-	nextPostID      int64
-	nextCommentID   int64
-	nextNoticeID    int64
-	nextLogID       int64
-	nextReactionID  int64
-	nextFavoriteID  int64
-	nextFollowID    int64
-	nextActivityID  int64
-	nextReportID    int64
-	nextModeratorID int64
-	nextCommunityID int64
-	nextCategoryID  int64
-	nextTagID       int64
-	nextTagAliasID  int64
-	nextUserID      int64
-	sites           map[string]domain.Site
-	boards          map[string]domain.Board
-	communities     map[int64]*domain.Community
-	categories      map[int64]*domain.Category
-	plugins         map[string]*domain.Plugin
+	mu               sync.RWMutex
+	nextPostID       int64
+	nextCommentID    int64
+	nextNoticeID     int64
+	nextLogID        int64
+	nextReactionID   int64
+	nextFavoriteID   int64
+	nextFollowID     int64
+	nextActivityID   int64
+	nextReportID     int64
+	nextModeratorID  int64
+	nextCommunityID  int64
+	nextCategoryID   int64
+	nextTagID        int64
+	nextTagAliasID   int64
+	nextUserID       int64
+	sites            map[string]domain.Site
+	boards           map[string]domain.Board
+	communities      map[int64]*domain.Community
+	categories       map[int64]*domain.Category
+	plugins          map[string]*domain.Plugin
 	communityPlugins map[int64]map[string]*domain.CommunityPlugin
-	tags            map[int64]*domain.Tag
-	tagAliases      map[int64]*domain.TagAlias
-	boardOrder      []string
-	siteOrder       []string
-	posts           map[int64]*domain.Post
-	comments        map[int64]*domain.Comment
-	notices         map[int64]*domain.Notification
-	reactions       map[string]*domain.Reaction
-	favorites       map[string]*domain.Favorite
-	follows         map[string]*domain.Follow
-	activities      map[int64]*domain.Activity
-	reports         map[int64]*domain.Report
-	moderators      map[int64]*domain.CommunityModerator
-	commentLocks    map[int64]bool
-	users           map[int64]*domain.AdminUser
-	roles           map[int64]domain.AdminRole
-	settings        domain.AdminSettings
-	logs            []domain.AdminLog
+	tags             map[int64]*domain.Tag
+	tagAliases       map[int64]*domain.TagAlias
+	boardOrder       []string
+	siteOrder        []string
+	posts            map[int64]*domain.Post
+	comments         map[int64]*domain.Comment
+	notices          map[int64]*domain.Notification
+	reactions        map[string]*domain.Reaction
+	favorites        map[string]*domain.Favorite
+	follows          map[string]*domain.Follow
+	activities       map[int64]*domain.Activity
+	reports          map[int64]*domain.Report
+	moderators       map[int64]*domain.CommunityModerator
+	commentLocks     map[int64]bool
+	users            map[int64]*domain.AdminUser
+	roles            map[int64]domain.AdminRole
+	settings         domain.AdminSettings
+	logs             []domain.AdminLog
 }
 
 // NewMemoryStore 创建内存仓储并写入演示数据。
 func NewMemoryStore() *MemoryStore {
 	s := &MemoryStore{
-		nextPostID:      1,
-		nextCommentID:   1,
-		nextNoticeID:    1,
-		nextLogID:       1,
-		nextReactionID:  1,
-		nextFavoriteID:  1,
-		nextFollowID:    1,
-		nextActivityID:  1,
-		nextReportID:    1,
-		nextModeratorID: 1,
-		nextCommunityID: 1,
-		nextCategoryID:  1,
-		nextTagID:       1,
-		nextTagAliasID:  1,
-		nextUserID:      1,
-		sites:           map[string]domain.Site{},
-		boards:          map[string]domain.Board{},
-		communities:     map[int64]*domain.Community{},
-		categories:      map[int64]*domain.Category{},
-		plugins:         map[string]*domain.Plugin{},
+		nextPostID:       1,
+		nextCommentID:    1,
+		nextNoticeID:     1,
+		nextLogID:        1,
+		nextReactionID:   1,
+		nextFavoriteID:   1,
+		nextFollowID:     1,
+		nextActivityID:   1,
+		nextReportID:     1,
+		nextModeratorID:  1,
+		nextCommunityID:  1,
+		nextCategoryID:   1,
+		nextTagID:        1,
+		nextTagAliasID:   1,
+		nextUserID:       1,
+		sites:            map[string]domain.Site{},
+		boards:           map[string]domain.Board{},
+		communities:      map[int64]*domain.Community{},
+		categories:       map[int64]*domain.Category{},
+		plugins:          map[string]*domain.Plugin{},
 		communityPlugins: map[int64]map[string]*domain.CommunityPlugin{},
-		tags:            map[int64]*domain.Tag{},
-		tagAliases:      map[int64]*domain.TagAlias{},
-		boardOrder:      []string{"all", "community", "qa", "opensource", "ai", "jobs", "wiki", "docs"},
-		siteOrder:       []string{"php", "go", "java", "ai", "frontend"},
-		posts:           map[int64]*domain.Post{},
-		comments:        map[int64]*domain.Comment{},
-		notices:         map[int64]*domain.Notification{},
-		reactions:       map[string]*domain.Reaction{},
-		favorites:       map[string]*domain.Favorite{},
-		follows:         map[string]*domain.Follow{},
-		activities:      map[int64]*domain.Activity{},
-		reports:         map[int64]*domain.Report{},
-		moderators:      map[int64]*domain.CommunityModerator{},
-		commentLocks:    map[int64]bool{},
-		users:           map[int64]*domain.AdminUser{},
-		roles:           map[int64]domain.AdminRole{},
+		tags:             map[int64]*domain.Tag{},
+		tagAliases:       map[int64]*domain.TagAlias{},
+		boardOrder:       []string{"all", "community", "qa", "opensource", "ai", "jobs", "wiki", "docs"},
+		siteOrder:        []string{"php", "go", "java", "ai", "frontend"},
+		posts:            map[int64]*domain.Post{},
+		comments:         map[int64]*domain.Comment{},
+		notices:          map[int64]*domain.Notification{},
+		reactions:        map[string]*domain.Reaction{},
+		favorites:        map[string]*domain.Favorite{},
+		follows:          map[string]*domain.Follow{},
+		activities:       map[int64]*domain.Activity{},
+		reports:          map[int64]*domain.Report{},
+		moderators:       map[int64]*domain.CommunityModerator{},
+		commentLocks:     map[int64]bool{},
+		users:            map[int64]*domain.AdminUser{},
+		roles:            map[int64]domain.AdminRole{},
 		settings: domain.AdminSettings{
 			SiteName:          "DevHub",
 			Copyright:         "© 2026 DevHub",
@@ -876,6 +876,10 @@ func (s *MemoryStore) memoryAuthUserLocked(userID int64, identity string) domain
 			perms = append(perms, role.Permissions...)
 		}
 	}
+	if identity == "user" {
+		// Frontend users have a baseline set of permissions for publishing and interaction.
+		perms = []string{"post.create", "comment.read", "qa.question.create", "qa.answer.create", "docs.document.create", "wiki.page.create"}
+	}
 	return domain.AuthUser{
 		ID:          u.ID,
 		Username:    u.Username,
@@ -1118,6 +1122,7 @@ func (s *MemoryStore) CommunityPlugins(communityID int64) ([]domain.Plugin, erro
 		if cp, ok := runtime[def.Code]; ok && cp != nil {
 			merged.CommunityStatus = cp.Status
 			merged.ConfigJSON = cp.ConfigJSON
+			merged.SortOrder = cp.SortOrder
 		}
 		if merged.GlobalStatus == pluginregistry.StatusEnabled && merged.CommunityStatus == pluginregistry.StatusEnabled {
 			merged.Status = pluginregistry.StatusEnabled
@@ -1126,7 +1131,12 @@ func (s *MemoryStore) CommunityPlugins(communityID int64) ([]domain.Plugin, erro
 		}
 		out = append(out, merged)
 	}
-	sort.Slice(out, func(i, j int) bool { return out[i].Code < out[j].Code })
+	sort.Slice(out, func(i, j int) bool {
+		if out[i].SortOrder != out[j].SortOrder {
+			return out[i].SortOrder < out[j].SortOrder
+		}
+		return out[i].Code < out[j].Code
+	})
 	return out, nil
 }
 

@@ -346,6 +346,36 @@ func firstNonEmpty(items ...string) string {
 	return ""
 }
 
+func requiredCreatePermission(contentType, pluginCode string) string {
+	contentType = strings.TrimSpace(contentType)
+	pluginCode = strings.TrimSpace(pluginCode)
+	switch contentType {
+	case "question":
+		return "qa.question.create"
+	case "document":
+		return "docs.document.create"
+	case "wiki_page":
+		return "wiki.page.create"
+	}
+	if pluginCode == "" || pluginCode == pluginregistry.CoreCode {
+		return "post.create"
+	}
+	return ""
+}
+
+func hasPermission(perms []string, permission string) bool {
+	permission = strings.TrimSpace(permission)
+	if permission == "" {
+		return true
+	}
+	for _, p := range perms {
+		if p == "*" || p == permission {
+			return true
+		}
+	}
+	return false
+}
+
 // SetPluginStatus 更新插件状态。
 func (s *Service) SetPluginStatus(code, status string) (domain.Plugin, error) {
 	return s.repo.SetPluginStatus(code, status)
@@ -642,6 +672,18 @@ func (s *Service) TopicByID(id int64, increaseView bool) (*domain.Topic, error) 
 
 // CreateTopic 创建主题。
 func (s *Service) CreateTopic(req domain.CreateTopicRequest) (*domain.Topic, error) {
+	normalizedType, pluginCode, err := s.ValidateTopicPluginAccess(req.CommunityID, req.CategoryID, req.ContentType)
+	if err != nil {
+		return nil, err
+	}
+	req.ContentType = normalizedType
+	req.PluginCode = pluginCode
+
+	if perm := requiredCreatePermission(normalizedType, pluginCode); perm != "" {
+		if !hasPermission(req.ActorPermissions, perm) {
+			return nil, errors.New("无权发布该类型内容")
+		}
+	}
 	return s.repo.CreateTopic(req)
 }
 

@@ -78,7 +78,11 @@ Core 只保留通用社区能力：
 当前真实状态：
 
 - 步骤 1-8 已在 `ValidateTopicPluginAccess` 和 Store 层板块校验中落地。
-- 步骤 9 的插件权限码细粒度发布拦截仍是部分完成 / 待实现。
+- 步骤 9 已接入最小权限码校验：
+  - `question -> qa.question.create`
+  - `document -> docs.document.create`
+  - `wiki_page -> wiki.page.create`
+  - Core 兼容类型当前仍为粗粒度 `post.create`。
 
 ## 数据结构
 

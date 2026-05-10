@@ -25,33 +25,34 @@ type Board struct {
 
 // Plugin 描述系统插件的注册与运行状态。
 type Plugin struct {
-	Code         string             `json:"code"`
-	PluginCode   string             `json:"plugin_code,omitempty"`
-	Name         string             `json:"name"`
-	Version      string             `json:"version"`
-	Status       string             `json:"status"`
-	GlobalStatus string             `json:"global_status,omitempty"`
-	CommunityStatus string          `json:"community_status,omitempty"`
-	Description  string             `json:"description,omitempty"`
-	ContentTypes []string           `json:"content_types,omitempty"`
-	Menus        []PluginMenu       `json:"menus,omitempty"`
-	Permissions  []PluginPermission `json:"permissions,omitempty"`
-	Routes       []PluginRoute      `json:"routes,omitempty"`
-	ConfigJSON   string             `json:"config_json,omitempty"`
-	CreatedAt    string             `json:"created_at,omitempty"`
-	UpdatedAt    string             `json:"updated_at,omitempty"`
+	Code            string             `json:"code"`
+	PluginCode      string             `json:"plugin_code,omitempty"`
+	Name            string             `json:"name"`
+	Version         string             `json:"version"`
+	Status          string             `json:"status"`
+	GlobalStatus    string             `json:"global_status,omitempty"`
+	CommunityStatus string             `json:"community_status,omitempty"`
+	SortOrder       int                `json:"sort_order,omitempty"`
+	Description     string             `json:"description,omitempty"`
+	ContentTypes    []string           `json:"content_types,omitempty"`
+	Menus           []PluginMenu       `json:"menus,omitempty"`
+	Permissions     []PluginPermission `json:"permissions,omitempty"`
+	Routes          []PluginRoute      `json:"routes,omitempty"`
+	ConfigJSON      string             `json:"config_json,omitempty"`
+	CreatedAt       string             `json:"created_at,omitempty"`
+	UpdatedAt       string             `json:"updated_at,omitempty"`
 }
 
 // CommunityPlugin 表示子站对某个插件的启用状态与配置。
 type CommunityPlugin struct {
-	ID         int64  `json:"id"`
-	CommunityID int64 `json:"community_id"`
-	PluginCode string `json:"plugin_code"`
-	Status     string `json:"status"`
-	SortOrder  int    `json:"sort_order"`
-	ConfigJSON string `json:"config_json,omitempty"`
-	CreatedAt  string `json:"created_at,omitempty"`
-	UpdatedAt  string `json:"updated_at,omitempty"`
+	ID          int64  `json:"id"`
+	CommunityID int64  `json:"community_id"`
+	PluginCode  string `json:"plugin_code"`
+	Status      string `json:"status"`
+	SortOrder   int    `json:"sort_order"`
+	ConfigJSON  string `json:"config_json,omitempty"`
+	CreatedAt   string `json:"created_at,omitempty"`
+	UpdatedAt   string `json:"updated_at,omitempty"`
 }
 
 // PluginMenu 表示插件注册到后台或版主工作台的菜单。
@@ -969,6 +970,10 @@ type CreateTopicRequest struct {
 	Status        string   `json:"status"`
 	TagIDs        []int64  `json:"tag_ids"`
 	Tags          []string `json:"tags"`
+
+	// ActorPermissions is derived from the authenticated user context.
+	// It is not part of the public API payload.
+	ActorPermissions []string `json:"-"`
 }
 
 // UpdateTopicRequest 是更新主题的请求体。

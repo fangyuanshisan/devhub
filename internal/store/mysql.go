@@ -916,12 +916,6 @@ func (s *MySQLStore) authUserByID(userID int64, identity string) (*domain.AuthUs
 	}
 	sort.Strings(user.Sites)
 	user.Permissions = s.permissionsForRoles(roleCodes)
-	if identity == "user" {
-		user.RoleCode = "user"
-		user.RoleName = "普通用户"
-		user.Sites = nil
-		user.Permissions = nil
-	}
 	user.TokenType = identity
 	user.Identity = identity
 	if identity == "admin" {
@@ -1259,6 +1253,7 @@ func (s *MySQLStore) CommunityPlugins(communityID int64) ([]domain.Plugin, error
 		if rt, ok := runtime[item.Code]; ok {
 			item.CommunityStatus = rt.status
 			item.ConfigJSON = rt.config
+			item.SortOrder = rt.sortOrder
 		}
 		if item.GlobalStatus == pluginregistry.StatusEnabled && item.CommunityStatus == pluginregistry.StatusEnabled {
 			item.Status = pluginregistry.StatusEnabled
@@ -1267,7 +1262,12 @@ func (s *MySQLStore) CommunityPlugins(communityID int64) ([]domain.Plugin, error
 		}
 		out = append(out, item)
 	}
-	sort.Slice(out, func(i, j int) bool { return out[i].Code < out[j].Code })
+	sort.Slice(out, func(i, j int) bool {
+		if out[i].SortOrder != out[j].SortOrder {
+			return out[i].SortOrder < out[j].SortOrder
+		}
+		return out[i].Code < out[j].Code
+	})
 	return out, nil
 }
 

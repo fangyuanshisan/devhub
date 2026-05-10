@@ -111,9 +111,19 @@
         <h3 class="drawer-title">{{ currentCommunity.name }} <span class="muted">/{{ currentCommunity.slug }}</span></h3>
         <p class="muted">插件需同时满足“全局 enabled + 子站 enabled”才可用于发布与菜单展示。禁用不影响历史内容访问，只限制新发布与入口。</p>
       </div>
-      <el-button @click="loadPlugins">刷新</el-button>
+      <div>
+        <el-button class="mr-6" @click="loadPlugins">刷新</el-button>
+        <el-button type="primary" :disabled="pluginRows.length < 2" @click="savePluginOrder">保存排序</el-button>
+      </div>
     </div>
     <el-table :data="pluginRows" border stripe>
+      <el-table-column prop="sort_order" label="排序" width="120">
+        <template #default="{ row, $index }">
+          <span class="content-meta">#{{ row.sort_order ?? 0 }}</span>
+          <el-button link :disabled="$index === 0" @click="movePlugin($index, -1)">上移</el-button>
+          <el-button link :disabled="$index === pluginRows.length - 1" @click="movePlugin($index, 1)">下移</el-button>
+        </template>
+      </el-table-column>
       <el-table-column prop="code" label="code" width="110" />
       <el-table-column prop="name" label="名称" width="140" />
       <el-table-column label="内容类型" min-width="180">
@@ -131,10 +141,26 @@
         <template #default="{ row }">
           <el-button v-if="row.community_status !== 'enabled'" link type="success" @click="setCommunityPlugin(row, 'enabled')">启用</el-button>
           <el-button v-else link type="warning" @click="setCommunityPlugin(row, 'disabled')">禁用</el-button>
+          <el-button link type="primary" @click="openPluginConfig(row)">配置</el-button>
         </template>
       </el-table-column>
     </el-table>
   </el-drawer>
+
+  <el-dialog v-model="pluginConfigDialog" :title="`${pluginConfigTarget?.name || ''} 配置`" width="640px">
+    <el-form label-width="110px">
+      <el-form-item label="config_json">
+        <el-input v-model="pluginConfigText" type="textarea" :rows="10" placeholder="{}" />
+      </el-form-item>
+      <el-alert title="禁用提示" type="info" show-icon :closable="false">
+        <template #default>禁用子站插件只影响新发布、导航、菜单和管理入口，不影响历史内容访问。</template>
+      </el-alert>
+    </el-form>
+    <template #footer>
+      <el-button @click="pluginConfigDialog = false">取消</el-button>
+      <el-button type="primary" @click="savePluginConfig">保存</el-button>
+    </template>
+  </el-dialog>
 
   <el-dialog v-model="categoryDialog" :title="categoryForm.id ? '编辑板块' : '新增板块'" width="520px">
     <el-form :model="categoryForm" label-width="100px">
@@ -158,7 +184,7 @@
 import { computed, reactive, ref } from 'vue';
 import { useRouter } from 'vue-router';
 import { ElMessage } from 'element-plus';
-import { adminCommunities, adminCommunityCategories, adminCommunityPlugins, createCommunity, createCommunityCategory, disableCategory, disableCommunity, disableCommunityPlugin, enableCategory, enableCommunity, enableCommunityPlugin, reorderCategories, reorderCommunities, updateCategory, updateCommunity } from '@/api/admin';
+import { adminCommunities, adminCommunityCategories, adminCommunityPlugins, createCommunity, createCommunityCategory, disableCategory, disableCommunity, disableCommunityPlugin, enableCategory, enableCommunity, enableCommunityPlugin, reorderCategories, reorderCommunities, reorderCommunityPlugins, updateCategory, updateCommunity, updateCommunityPluginConfig } from '@/api/admin';
 
 const router = useRouter();
 const keyword = ref('');
@@ -171,6 +197,9 @@ const pluginDrawer = ref(false);
 const currentCommunity = ref({});
 const categoryRows = ref([]);
 const pluginRows = ref([]);
+const pluginConfigDialog = ref(false);
+const pluginConfigTarget = ref(null);
+const pluginConfigText = ref('{}');
 const form = reactive(blankCommunity());
 const categoryForm = reactive(blankCategory());
 const contentTypes = [
@@ -262,6 +291,47 @@ async function setCommunityPlugin(row, status) {
   ElMessage.success('子站插件已更新');
   await loadPlugins();
   if (categoryDrawer.value) await loadCategories();
+}
+
+function movePlugin(index, delta) {
+  const next = index + delta;
+  if (next < 0 || next >= pluginRows.value.length) return;
+  const arr = [...pluginRows.value];
+  const tmp = arr[index];
+  arr[index] = arr[next];
+  arr[next] = tmp;
+  pluginRows.value = arr;
+}
+
+async function savePluginOrder() {
+  const codes = pluginRows.value.map((p) => p.code);
+  await reorderCommunityPlugins(currentCommunity.value.id, { codes });
+  ElMessage.success('插件排序已保存');
+  await loadPlugins();
+}
+
+function openPluginConfig(row) {
+  pluginConfigTarget.value = row;
+  pluginConfigText.value = row.config_json && row.config_json.trim() ? row.config_json : '{}';
+  pluginConfigDialog.value = true;
+}
+
+async function savePluginConfig() {
+  const row = pluginConfigTarget.value;
+  if (!row) return;
+  const raw = (pluginConfigText.value || '').trim();
+  if (raw !== '') {
+    try {
+      JSON.parse(raw);
+    } catch (e) {
+      ElMessage.error('config_json 不是合法 JSON');
+      return;
+    }
+  }
+  await updateCommunityPluginConfig(currentCommunity.value.id, row.code, { config_json: raw ? JSON.parse(raw) : {} });
+  ElMessage.success('插件配置已保存');
+  pluginConfigDialog.value = false;
+  await loadPlugins();
 }
 function openCategoryCreate() {
   Object.assign(categoryForm, blankCategory(), { sort_order: categoryRows.value.length + 1 });

@@ -33,6 +33,10 @@
 
 - `POST /api/v1/topics` 写入归一后的 `content_type` 和 `plugin_code`。
 - `doc` 参数保存为 `document`，`wiki` 参数保存为 `wiki_page`。
+- 发布权限校验：
+  - `question` 需要 `qa.question.create`
+  - `document` 需要 `docs.document.create`
+  - `wiki_page` 需要 `wiki.page.create`
 - 子站禁用 `qa` 后，该子站不能发布 `question`。
 - 其他仍启用 `qa` 的子站可以继续发布 `question`。
 - 子站禁用 `docs` 后，该子站不能发布 `document`。

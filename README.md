@@ -1,6 +1,6 @@
 # DevHub
 
-DevHub 是一个多子站通用开源社区程序，默认演示为开发者社区，支持多子站、多板块、多内容类型，并采用 Core + Plugins 架构逐步拆分业务能力。当前项目使用 Go + Gin 提供后端 API 与静态资源托管，前台使用 Astro + Vue Islands，后台使用 Vue 3 + Element Plus。
+DevHub 是一个面向多子站场景的通用开源社区程序，采用 Core + Plugins 架构。Core 提供用户、认证、子站、板块、通用内容、评论、标签、搜索、通知、SEO、权限、审计和插件分发能力；问答、文档、Wiki 通过 qa、docs、wiki 内置系统插件扩展。
 
 当前版本：`v1.3.0`，版本主题为“Core + Plugins 架构拆分版”。
 
@@ -19,16 +19,16 @@ DevHub 是一个多子站通用开源社区程序，默认演示为开发者社�
 
 常用文档：
 
-- [Codex / AI Agent 固定规则](docs/AGENT_RULES.md)
-- [项目进度](docs/PROJECT_PROGRESS.md)
-- [API 文档](docs/API.md)
-- [测试文档](docs/TESTING.md)
-- [部署启动文档](docs/DEPLOYMENT.md)
-- [备份与回滚](docs/BACKUP_AND_ROLLBACK.md)
-- [SEO 文档](docs/SEO.md)
-- [插件架构说明](docs/PLUGIN_ARCHITECTURE.md)
-- [v1.3.0 Release Notes](docs/releases/v1.3.0.md)
-- [变更日志](CHANGELOG.md)
+- [AGENT_RULES.md](docs/AGENT_RULES.md)
+- [PROJECT_PROGRESS.md](docs/PROJECT_PROGRESS.md)
+- [API.md](docs/API.md)
+- [TESTING.md](docs/TESTING.md)
+- [DEPLOYMENT.md](docs/DEPLOYMENT.md)
+- [BACKUP_AND_ROLLBACK.md](docs/BACKUP_AND_ROLLBACK.md)
+- [SEO.md](docs/SEO.md)
+- [PLUGIN_ARCHITECTURE.md](docs/PLUGIN_ARCHITECTURE.md)
+- [docs/releases/v1.3.0.md](docs/releases/v1.3.0.md)
+- [CHANGELOG.md](CHANGELOG.md)
 
 ## 当前能力
 
@@ -46,6 +46,15 @@ DevHub 是一个多子站通用开源社区程序，默认演示为开发者社�
 DevHub v1.3.0 是“Core + Plugins 架构拆分版”。本版本新增 `plugins` 表、插件注册定义、插件状态 API 和后台插件入口；`topics` 作为兼容实现中的 Core 内容表新增 `plugin_code`，`categories` 作为 Core 板块表新增 `plugin_code` / `allowed_content_types`；问答、文档、Wiki 分别迁移为 `qa`、`docs`、`wiki` 内置系统插件。
 
 本版本范围和当前限制以 [v1.3.0 Release Notes](docs/releases/v1.3.0.md) 为准，长期滚动状态见 [项目进度](docs/PROJECT_PROGRESS.md)。
+
+历史版本说明见 `docs/README.md` 的“历史版本归档”。
+
+## Roadmap
+
+- v1.3.x：插件系统验收、子站插件配置 UI、插件权限码校验
+- v1.4.0：Docs/Wiki 专用体验
+- v1.5.0：开源项目、招聘、AI 作品插件化
+- v1.6.0：生产化、migration、性能和 CI/CD
 
 ## 目录结构
 

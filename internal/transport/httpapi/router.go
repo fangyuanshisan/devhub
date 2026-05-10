@@ -93,12 +93,12 @@ func NewRouter(svc *service.Service) *gin.Engine {
 		api.POST("/topics/:id/comments/:commentId/replies", srv.userAuthRequired(), srv.replyTopicComment)
 		api.POST("/topics/:id/comments/:commentId/accept", srv.userAuthRequired(), srv.acceptTopicComment)
 		api.POST("/topics", srv.userAuthRequired(), srv.createTopic)
-		api.PUT("/topics/:id", srv.authRequired(), srv.updateTopic)
-		api.DELETE("/topics/:id", srv.authRequired(), srv.deleteTopic)
+		api.PUT("/topics/:id", srv.userAuthRequired(), srv.updateTopic)
+		api.DELETE("/topics/:id", srv.userAuthRequired(), srv.deleteTopic)
 		api.POST("/topics/:id/like", srv.userAuthRequired(), srv.likeTopic)
 		api.POST("/topics/:id/favorite", srv.userAuthRequired(), srv.favoriteTopic)
 		api.GET("/topics/:id/interaction", srv.topicInteraction)
-		api.POST("/topics/:id/solve", srv.authRequired(), srv.solveTopic)
+		api.POST("/topics/:id/solve", srv.userAuthRequired(), srv.solveTopic)
 		api.GET("/search/topics", srv.searchTopics)
 		api.POST("/actions/toggle", srv.userAuthRequired(), srv.toggleReaction)
 		api.POST("/reactions/toggle", srv.userAuthRequired(), srv.toggleReaction)
@@ -1609,76 +1609,16 @@ func (s *Server) getPost(c *gin.Context) {
 }
 
 func (s *Server) createPost(c *gin.Context) {
-	var req domain.CreatePostRequest
-	if err := c.ShouldBindJSON(&req); err != nil {
-		fail(c, http.StatusBadRequest, err.Error())
-		return
-	}
-	if strings.HasPrefix(c.FullPath(), "/api/v1/admin/") && !ensureSiteAllowed(c, req.Site) {
-		return
-	}
-	p, err := s.svc.CreatePost(req)
-	if err != nil {
-		fail(c, http.StatusBadRequest, err.Error())
-		return
-	}
-	s.audit(c, "operation", "创建帖子", fmt.Sprintf("posts#%d", p.ID))
-	c.JSON(http.StatusCreated, p)
+	// Legacy posts write APIs are deprecated. Use /api/v1/topics instead.
+	fail(c, http.StatusGone, "posts 写接口已废弃，请使用 /api/v1/topics")
 }
 
 func (s *Server) updatePost(c *gin.Context) {
-	id, ok := idParam(c, "id")
-	if !ok {
-		return
-	}
-	if strings.HasPrefix(c.FullPath(), "/api/v1/admin/") {
-		post, exists := s.svc.GetPost(id, false)
-		if !exists {
-			fail(c, http.StatusNotFound, "帖子不存在")
-			return
-		}
-		if !ensureSiteAllowed(c, post.Site) {
-			return
-		}
-	}
-	var req domain.UpdatePostRequest
-	if err := c.ShouldBindJSON(&req); err != nil {
-		fail(c, http.StatusBadRequest, err.Error())
-		return
-	}
-	if strings.HasPrefix(c.FullPath(), "/api/v1/admin/") && req.Site != nil && !ensureSiteAllowed(c, *req.Site) {
-		return
-	}
-	p, err := s.svc.UpdatePost(id, req)
-	if err != nil {
-		fail(c, http.StatusBadRequest, err.Error())
-		return
-	}
-	s.audit(c, "operation", "更新帖子", fmt.Sprintf("posts#%d", p.ID))
-	c.JSON(http.StatusOK, p)
+	fail(c, http.StatusGone, "posts 写接口已废弃，请使用 /api/v1/topics")
 }
 
 func (s *Server) deletePost(c *gin.Context) {
-	id, ok := idParam(c, "id")
-	if !ok {
-		return
-	}
-	if strings.HasPrefix(c.FullPath(), "/api/v1/admin/") {
-		post, exists := s.svc.GetPost(id, false)
-		if !exists {
-			fail(c, http.StatusNotFound, "帖子不存在")
-			return
-		}
-		if !ensureSiteAllowed(c, post.Site) {
-			return
-		}
-	}
-	if !s.svc.DeletePost(id) {
-		fail(c, http.StatusNotFound, "帖子不存在")
-		return
-	}
-	s.audit(c, "operation", "删除帖子", fmt.Sprintf("posts#%d", id))
-	c.JSON(http.StatusOK, gin.H{"deleted": true})
+	fail(c, http.StatusGone, "posts 写接口已废弃，请使用 /api/v1/topics")
 }
 
 func (s *Server) likePost(c *gin.Context) {
@@ -2081,8 +2021,13 @@ func (s *Server) createAdminPost(c *gin.Context) {
 		fail(c, http.StatusBadRequest, err.Error())
 		return
 	}
-	if user, ok := currentUser(c); ok && user.TokenType == "user" {
-		topicReq.UserID = user.ID
+	if user, ok := currentUser(c); ok {
+		if user.TokenType == "user" {
+			topicReq.UserID = user.ID
+		} else {
+			topicReq.UserID = currentDemoUserID()
+		}
+		topicReq.ActorPermissions = user.Permissions
 	} else {
 		topicReq.UserID = currentDemoUserID()
 	}
@@ -4853,6 +4798,7 @@ func (s *Server) createTopic(c *gin.Context) {
 		return
 	}
 	req.UserID = user.ID
+	req.ActorPermissions = user.Permissions
 	topic, err := s.svc.CreateTopic(req)
 	if err != nil {
 		fail(c, http.StatusBadRequest, err.Error())
@@ -4877,7 +4823,23 @@ func (s *Server) updateTopic(c *gin.Context) {
 		return
 	}
 
-	topic, err := s.svc.UpdateTopic(id, req)
+	// Frontend topic edits are user-scoped. Admin/moderator governance must use /api/v1/admin/* or /api/v1/moderator/*.
+	topic, err := s.svc.TopicByID(id, false)
+	if err != nil || topic == nil {
+		fail(c, http.StatusNotFound, "主题不存在")
+		return
+	}
+	user, _ := currentUser(c)
+	if user.ID == 0 || topic.UserID != user.ID {
+		fail(c, http.StatusForbidden, "无权编辑该主题")
+		return
+	}
+	if req.ContentType != nil || req.PluginCode != nil || req.CommunityID != nil || req.CategoryID != nil || req.CommunitySlug != nil {
+		fail(c, http.StatusBadRequest, "不允许修改主题归属或内容类型")
+		return
+	}
+
+	topic, err = s.svc.UpdateTopic(id, req)
 	if err != nil {
 		fail(c, http.StatusBadRequest, err.Error())
 		return
@@ -4888,6 +4850,16 @@ func (s *Server) updateTopic(c *gin.Context) {
 func (s *Server) deleteTopic(c *gin.Context) {
 	id, ok := idParam(c, "id")
 	if !ok {
+		return
+	}
+	topic, err := s.svc.TopicByID(id, false)
+	if err != nil || topic == nil {
+		fail(c, http.StatusNotFound, "主题不存在")
+		return
+	}
+	user, _ := currentUser(c)
+	if user.ID == 0 || topic.UserID != user.ID {
+		fail(c, http.StatusForbidden, "无权删除该主题")
 		return
 	}
 	if !s.svc.DeleteTopic(id) {
