@@ -44,6 +44,7 @@
 
 - 开发、构建、测试、数据库环境以 Docker / docker compose / `dev.sh` 为准。
 - 不依赖宿主机 `npm`、`node`、`go`、`mysql` 一定存在。
+- 后台 / 前台 E2E 测试优先使用项目内 Docker 镜像运行；后台 Playwright E2E 使用 `admin-e2e` 服务，避免依赖宿主机 Node/npm 或每轮临时拉取浏览器镜像。
 - 推荐开发启动：`./dev.sh --restart`。
 - 修改 Go 后端代码后必须重启服务，优先使用 `./dev.sh --restart`。
 - 如果 `dev.sh` 或 `go run` 因网络、Go 模块解析、端口释放竞态等问题不稳定，可使用二进制兜底：

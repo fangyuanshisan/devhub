@@ -10,6 +10,7 @@ export const pluginMenus = () => http.get('/admin/plugin-menus');
 export const enablePlugin = (code) => http.post(`/admin/plugins/${code}/enable`);
 export const disablePlugin = (code) => http.post(`/admin/plugins/${code}/disable`);
 export const updatePluginConfig = (code, payload) => http.put(`/admin/plugins/${code}/config`, payload);
+export const pluginImpact = (code) => http.get(`/admin/plugins/${code}/impact`);
 export const adminCommunities = (params) => http.get('/admin/communities', { params });
 export const createCommunity = (payload) => http.post('/admin/communities', payload);
 export const adminCommunity = (id) => http.get(`/admin/communities/${id}`);
@@ -18,6 +19,7 @@ export const enableCommunity = (id) => http.post(`/admin/communities/${id}/enabl
 export const disableCommunity = (id) => http.post(`/admin/communities/${id}/disable`);
 export const reorderCommunities = (payload) => http.post('/admin/communities/reorder', payload);
 export const adminCommunityPlugins = (id) => http.get(`/admin/communities/${id}/plugins`);
+export const communityPluginImpact = (id, code) => http.get(`/admin/communities/${id}/plugins/${code}/impact`);
 export const enableCommunityPlugin = (id, code) => http.post(`/admin/communities/${id}/plugins/${code}/enable`);
 export const disableCommunityPlugin = (id, code) => http.post(`/admin/communities/${id}/plugins/${code}/disable`);
 export const updateCommunityPluginConfig = (id, code, payload) => http.put(`/admin/communities/${id}/plugins/${code}/config`, payload);

@@ -67,6 +67,142 @@ type MemoryStore struct {
 	logs             []domain.AdminLog
 }
 
+func countPluginMenus(def domain.Plugin, area string) int {
+	n := 0
+	for _, m := range def.Menus {
+		a := strings.TrimSpace(m.Area)
+		if a == "" {
+			a = strings.TrimSpace(m.Location)
+		}
+		if area == "" || a == area {
+			n++
+		}
+	}
+	return n
+}
+
+func (s *MemoryStore) PluginImpact(code string) (domain.PluginImpact, error) {
+	code = strings.TrimSpace(code)
+	if code == "" {
+		return domain.PluginImpact{}, errors.New("plugin_code 不能为空")
+	}
+	p, ok := s.PluginByCode(code)
+	if !ok || p.Code == "" {
+		return domain.PluginImpact{}, errors.New("插件不存在")
+	}
+
+	enabledCommunities := 0
+	for id := range s.communities {
+		if id == 0 {
+			continue
+		}
+		// Enabled means: global enabled AND community enabled.
+		global, ok := s.plugins[code]
+		if !ok || global == nil || global.Status != pluginregistry.StatusEnabled {
+			continue
+		}
+		cp := s.communityPlugins[id][code]
+		if cp != nil && cp.Status == pluginregistry.StatusEnabled {
+			enabledCommunities++
+		}
+	}
+
+	categories := 0
+	for _, cat := range s.categories {
+		if cat == nil {
+			continue
+		}
+		if strings.TrimSpace(cat.PluginCode) == code {
+			categories++
+		}
+	}
+
+	topics := 0
+	pending := 0
+	for _, post := range s.posts {
+		if post == nil {
+			continue
+		}
+		ct := contentTypeForBoard(post.Board)
+		if pluginregistry.PluginCodeForContentType(ct) != code {
+			continue
+		}
+		topics++
+		if memoryTopicStatus(post) == 2 {
+			pending++
+		}
+	}
+
+	return domain.PluginImpact{
+		PluginCode:              code,
+		EnabledCommunitiesCount: enabledCommunities,
+		CategoriesCount:         categories,
+		TopicsCount:             topics,
+		PendingTopicsCount:      pending,
+		MenusCount:              len(p.Menus),
+		FrontendMenusCount:      countPluginMenus(p, "frontend"),
+		ModeratorMenusCount:     countPluginMenus(p, "moderator"),
+		AdminMenusCount:         countPluginMenus(p, "admin"),
+	}, nil
+}
+
+func (s *MemoryStore) CommunityPluginImpact(communityID int64, code string) (domain.PluginImpact, error) {
+	code = strings.TrimSpace(code)
+	if communityID <= 0 {
+		return domain.PluginImpact{}, errors.New("community_id 不合法")
+	}
+	if _, ok := s.communities[communityID]; !ok {
+		return domain.PluginImpact{}, errors.New("子站不存在")
+	}
+	impact, err := s.PluginImpact(code)
+	if err != nil {
+		return domain.PluginImpact{}, err
+	}
+
+	// Narrow counts to the specified community where possible.
+	enabledCommunities := 0
+	global, ok := s.plugins[code]
+	if ok && global != nil && global.Status == pluginregistry.StatusEnabled {
+		cp := s.communityPlugins[communityID][code]
+		if cp != nil && cp.Status == pluginregistry.StatusEnabled {
+			enabledCommunities = 1
+		}
+	}
+	categories := 0
+	for _, cat := range s.categories {
+		if cat == nil || cat.CommunityID != communityID {
+			continue
+		}
+		if strings.TrimSpace(cat.PluginCode) == code {
+			categories++
+		}
+	}
+	topics := 0
+	pending := 0
+	for _, post := range s.posts {
+		if post == nil {
+			continue
+		}
+		if s.communityIDBySlugLocked(post.Site) != communityID {
+			continue
+		}
+		ct := contentTypeForBoard(post.Board)
+		if pluginregistry.PluginCodeForContentType(ct) != code {
+			continue
+		}
+		topics++
+		if memoryTopicStatus(post) == 2 {
+			pending++
+		}
+	}
+
+	impact.EnabledCommunitiesCount = enabledCommunities
+	impact.CategoriesCount = categories
+	impact.TopicsCount = topics
+	impact.PendingTopicsCount = pending
+	return impact, nil
+}
+
 // NewMemoryStore 创建内存仓储并写入演示数据。
 func NewMemoryStore() *MemoryStore {
 	s := &MemoryStore{

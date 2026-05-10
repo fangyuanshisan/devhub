@@ -33,6 +33,8 @@ type Repository interface {
 	PluginByCode(code string) (domain.Plugin, bool)
 	SetPluginStatus(code, status string) (domain.Plugin, error)
 	SetPluginConfig(code, configJSON string) (domain.Plugin, error)
+	PluginImpact(code string) (domain.PluginImpact, error)
+	CommunityPluginImpact(communityID int64, code string) (domain.PluginImpact, error)
 	PluginMigrations(pluginCode string) ([]domain.PluginMigration, error)
 	AppendPluginMigration(record domain.PluginMigration) (domain.PluginMigration, error)
 	CommunityPlugins(communityID int64) ([]domain.Plugin, error)
@@ -485,6 +487,14 @@ func (s *Service) SetPluginStatus(code, status string) (domain.Plugin, error) {
 // SetPluginConfig updates global plugin config_json.
 func (s *Service) SetPluginConfig(code, configJSON string) (domain.Plugin, error) {
 	return s.repo.SetPluginConfig(code, configJSON)
+}
+
+func (s *Service) PluginImpact(code string) (domain.PluginImpact, error) {
+	return s.repo.PluginImpact(code)
+}
+
+func (s *Service) CommunityPluginImpact(communityID int64, code string) (domain.PluginImpact, error) {
+	return s.repo.CommunityPluginImpact(communityID, code)
 }
 
 func (s *Service) PluginMigrations(pluginCode string) ([]domain.PluginMigration, error) {

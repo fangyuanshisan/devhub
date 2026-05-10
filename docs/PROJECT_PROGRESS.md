@@ -40,8 +40,8 @@ Core 保留用户、认证、子站、板块、通用内容、评论、标签、
 - 前台入口：子站插件公开接口会隐藏 `config_json` / `resolved_config` 等后台配置；子站板块导航会按子站插件状态过滤。
 - 后台入口：`/admin-next/plugins` 作为系统插件管理入口；插件业务页通过系统插件列表进入，默认不散落在后台左侧导航。
 - 后台插件管理体验：
-  - 后台全局插件管理已支持说明卡片、插件状态 badge、内容类型 tag、权限 / 菜单 / schema 摘要、详情抽屉、tabs 分区展示、配置 schema / resolved config JSON 展示与复制、全局配置编辑、启用 / 禁用确认。
-  - 后台子站插件配置已支持双状态 badge、子站启用统计、全局禁用原因提示、启用 / 禁用确认、`config_json` 编辑、schema 参考、JSON 格式化、JSON 合法性拦截、数字排序和上移 / 下移后保存。
+  - 后台全局插件管理已支持说明卡片、插件状态 badge、内容类型 tag、权限 / 菜单 / schema 摘要、详情抽屉、tabs 分区展示、配置 schema / resolved config JSON 展示与复制、全局配置编辑、Ajv 客户端校验、启用 / 禁用确认和 impact 计数提示。
+  - 后台子站插件配置已支持双状态 badge、子站启用统计、全局禁用原因提示、启用 / 禁用确认、`config_json` 编辑、schema 参考、JSON 格式化、Ajv 客户端校验、数字排序和上移 / 下移后保存。
   - 前台子站页和发布页会按当前子站已启用插件收口入口与内容类型。
   - 版主工作台已补最小插件治理入口区，并按当前子站插件状态与权限过滤。
 - 审计：全局插件状态、子站插件状态、全局插件配置、子站插件配置和排序已接入 `admin_logs`，并为插件治理操作写入 `old_value`、`new_value`、`metadata_json` 结构化字段；`target` 文本摘要继续保留用于兼容展示。
@@ -52,7 +52,7 @@ Core 保留用户、认证、子站、板块、通用内容、评论、标签、
 
 ## 当前部分完成
 
-- 子站插件管理 UI：后台体验已从最小表格增强为更清晰的配置面板，包括全局 / 子站双状态、禁用原因、schema 参考、JSON 格式化、禁用影响提示和排序保存；多浏览器矩阵、批量操作和更强可视化仍待后续专项验收。
+- 子站插件管理 UI：后台体验已从最小表格增强为更清晰的配置面板，包括全局 / 子站双状态、禁用原因、schema 参考、JSON Editor、Ajv 校验、禁用影响提示和排序保存；多浏览器矩阵、批量操作和更强可视化仍待后续专项验收。
 - 插件权限：后台菜单和版主菜单已按权限过滤；发布链路已按内容类型做最小权限码校验：
   - `question -> qa.question.create`
   - `document -> docs.document.create`
@@ -66,7 +66,7 @@ Core 保留用户、认证、子站、板块、通用内容、评论、标签、
 - Projects / Jobs / AI Works 业务体验：当前完成插件归属、发布校验、权限码和菜单声明；专属扩展表、专属管理页和完整业务流程仍待后续。
 - 插件路由：当前是注册描述 + Core 分发，不是真正动态运行时加载器。
 - Hook 机制：当前已有最小内部 HookBus，并覆盖创建、更新、删除、评论、搜索、通知和 SEO 调用点；Search / Notification / SEO 仍是预留级事件派发，尚未形成完整插件业务处理器、统一错误日志和重试策略。
-- 配置校验：当前已完成默认配置、全局配置、子站配置三层合并和 JSON 格式校验；`config_schema` 强校验仍待后续。
+- 配置校验：当前已完成默认配置、全局配置、子站配置三层合并，后端已按简化 `config_schema` 做基础校验，后台 JSON Editor 已接入 Ajv 客户端校验；自动表单渲染和更完整 JSON Schema 支持仍待后续。
 - 验收覆盖：已做文档与路由核对；完整 Docker 启动、真实 token API、浏览器页面和 SEO curl 矩阵仍需按测试文档继续补测。
 
 ## 当前未完成
@@ -74,8 +74,7 @@ Core 保留用户、认证、子站、板块、通用内容、评论、标签、
 - 子站插件配置 UI 的完整浏览器验收矩阵，包括多子站、禁用提示、保存失败提示和排序持久化回归。
 - 更细粒度的权限体系：例如 Core 兼容类型 `article` / `news` 的细分权限码、按子站/板块维度配置权限矩阵、以及更明确的错误码与权限配置 API（当前仍为最小校验闭环）。
 - P0 插件平台收口：HookBus 的完整业务处理器与日志策略。Search / Notification / SEO 目前已有调用点，但缺少实际插件处理器、统一失败日志和重试策略。
-- P0 插件平台收口：`config_schema` 基础校验。
-- P1 插件平台增强：`config_schema` 后台自动表单渲染。
+- P1 插件平台增强：`config_schema` 后台自动表单渲染和更完整 JSON Schema 支持。
 - 非插件历史审计日志的结构化 diff：插件治理已写入 `old_value`、`new_value`、`metadata_json`，其他旧审计仍可能只有 `target` 文本。
 - `qa` 取消采纳最佳答案。
 - Docs 文档树专用编辑 UI。
@@ -152,20 +151,18 @@ P3：高级能力
 
 - 历史数据可能存在 `topics.plugin_code`、`categories.plugin_code`、`categories.allowed_content_types` 或 `community_plugins` 缺失 / 不一致，生产升级前需要迁移演练和抽样校验。
 - 子站插件禁用后已有内容应继续可读；后续改发布、列表或 SEO 时要避免把禁用插件误当作历史内容 404 条件。
-- API 和后台 UI 已增强不等于完整产品闭环；子站插件配置、排序、插件详情抽屉和插件入口仍需继续做真实浏览器矩阵验收。
+- API 和后台 UI 已增强不等于完整产品闭环；当前已新增 Docker 化 Playwright 最小 E2E runner，但多账号、多子站、跨权限和更细视觉交互仍需继续扩展浏览器矩阵。
 - `/sitemap.xml` 当前仍是单文件动态输出，内容规模扩大后需要 sitemap index / 分片。
 - 用户提出的 `docs/BACKUP_ROLLBACK.md` 与仓库真实文件名不一致；当前真实文件是 `docs/BACKUP_AND_ROLLBACK.md`。
 
 ## 下一步任务
 
-1. P0：补 `config_schema` 基础校验，至少覆盖 `type`、`enum`、`required` 等最小规则。
-2. P0：补 HookBus 真实业务处理器和统一错误日志，优先覆盖 Search / Notification / SEO。
-3. P0：用真实 admin/user token 补测全局插件、子站插件、版主菜单和跨子站发布矩阵。
-4. P0：完成后台插件管理 UI 浏览器验收：全局插件详情抽屉、全局启用 / 禁用确认、子站 `config_json`、排序、禁用影响提示、失败提示和保存后刷新。
-5. P0：补跑 `/topics/:id` SEO curl 检查，确认插件禁用后历史内容源码不退化。
-6. P1：细化插件权限矩阵，尤其是 Core 兼容类型 `article` / `news` 的权限码策略。
-7. P1：规划插件 SDK 文档和插件生成模板。
-8. 如需要后台迁移内容子站、板块或类型，设计单独迁移 API，并逐条校验插件状态、子站插件状态、板块绑定、allowed_content_types 和权限码。
+1. P0：补 HookBus 真实业务处理器和统一错误日志，优先覆盖 Search / Notification / SEO。
+2. P0：用真实 admin/user token 补测全局插件、子站插件、版主菜单和跨子站发布矩阵。
+3. P0：扩展后台插件管理 E2E 浏览器矩阵：全局插件详情抽屉、全局启用 / 禁用确认、子站 `config_json`、排序、禁用影响提示、失败提示和保存后刷新已覆盖核心路径；仍需补多账号、多子站、持久化和视觉细节。
+4. P1：细化插件权限矩阵，尤其是 Core 兼容类型 `article` / `news` 的权限码策略。
+5. P1：规划插件 SDK 文档和插件生成模板。
+6. 如需要后台迁移内容子站、板块或类型，设计单独迁移 API，并逐条校验插件状态、子站插件状态、板块绑定、allowed_content_types 和权限码。
 
 ## 当前验收清单
 
@@ -191,6 +188,118 @@ P3：高级能力
 - [ ] 后台编辑内容不能修改子站、板块、`content_type` 或 `plugin_code`。
 
 ## 最近任务记录
+
+### 2026-05-10：插件治理中心基础 UI + 依赖接入
+
+修改范围：
+
+- `web/admin-app/src/views/Plugins.vue`：插件治理中心页面基础结构优化、统计卡片、筛选工具栏、列表字段增强（hooks/schema 状态等）。
+- `web/admin-app/package.json` / `web/admin-app/package-lock.json`：接入治理中心相关前端依赖。
+
+已完成事项：
+
+- 接入依赖：`json-editor-vue`、`ajv`、`@vueuse/core`（本轮只接入与后续治理中心能力预留，不做 JSON Editor 配置编辑器重构）。
+- 插件治理中心顶部新增统计卡片（基于现有 `/api/v1/admin/plugins` 返回数据实时计算，不伪造后端暂不可得字段）。
+- 新增筛选工具栏：支持按 code/name 搜索、按 status、content_type、is_system、是否有 config_schema 筛选。
+- 插件列表增强：增加 hooks 数量、schema 状态 badge，并保留原有“详情/配置/启用/禁用/管理”能力与禁用确认提示。
+
+未完成事项：
+
+- 本轮不做 JSON Editor 形态的配置编辑（仍使用 textarea + 格式化），不做影响分析、审计 Tab、子站插件抽屉等高级能力。
+
+已执行检查：
+
+- `cd web/admin-app && npm run build`（使用 Docker Node 环境执行）通过。
+
+下一轮建议：
+
+1. 在插件治理中心接入“结构化审计浏览/筛选”与 hook 失败审计展示（需要后端补齐 hook.failed/hook.blocked 写入）。
+2. 基于 `ajv` 将 config_schema 校验错误更友好地呈现到 UI（仍不做复杂表单生成器）。
+
+### 2026-05-10：插件详情抽屉 Tabs + JSON 配置编辑器
+
+修改范围：
+
+- `web/admin-app/src/views/Plugins.vue`：插件治理中心“详情/权限/菜单/配置”统一收口到插件详情抽屉；移除旧的 textarea 全局配置弹窗。
+- `web/admin-app/src/components/plugin/PluginDetailDrawer.vue`：插件详情抽屉升级为治理视图 Tabs（概览/内容类型/权限/菜单/配置/Hooks/路由）。
+- `web/admin-app/src/components/plugin/PluginJsonEditor.vue`：引入 `json-editor-vue` 作为 JSON 编辑器，并用 `Ajv` 做 `config_schema` 基础校验（客户端侧），提供格式化/复制/清空 `{}`。
+
+已完成事项：
+
+- 插件详情抽屉 Tabs 结构完成，字段展示更贴近治理视角（能力摘要、权限/菜单列表、路由声明等）。
+- 配置 Tab 支持同时展示：
+  - `config_schema`（只读）
+  - `config_json`（可编辑，JSON Editor）
+  - `resolved_config`（只读）
+- 保存配置时：前端先做 `config_schema` 校验（Ajv），通过后调用 `PUT /api/v1/admin/plugins/:code/config`；后端仍会做二次校验与审计写入。
+- Hooks Tab 不伪造“handler 存在/最近执行状态”；平台调用点仅按当前后端已确认接入的 Dispatch 列表标记，其余显示“未知/未覆盖”。
+
+未完成事项：
+
+- 本轮不做“子站插件配置抽屉”升级（仍按既有最小 UI）。
+- 本轮不做 Hook 运行时观测（最近执行/错误追踪）；需要后端提供可查询接口或审计聚合。
+
+已执行检查：
+
+- `cd web/admin-app && npm run build`（使用 Docker Node 环境执行）：本轮需要重新执行并记录结果。
+
+### 2026-05-10：子站插件配置抽屉升级
+
+修改范围：
+
+- `web/admin-app/src/views/Communities.vue`：升级子站“插件配置”抽屉，补顶部概览、筛选工具栏、字段增强，并将子站 `config_json` 编辑从 textarea 升级为 JSON Editor。
+
+已完成事项：
+
+- 子站插件配置抽屉顶部概览：展示子站名称/slug，以及子站 enabled/disabled 与全局 disabled 插件数量。
+- 增加筛选能力：
+  - 全部 / 子站已启用 / 子站未启用 / 全局已禁用
+  - 按 name/code 搜索
+  - 按 content_type 筛选
+- 列表字段增强：新增“配置覆盖”字段（标记子站是否覆盖了默认/全局配置）。
+- 子站 `config_json`：
+  - 使用 `PluginJsonEditor`（`json-editor-vue`）编辑
+  - 使用 Ajv 对 `config_schema` 做基础校验，校验失败禁止保存并展示错误
+  - 支持清空为 `{}` 与保存后刷新
+- 保持排序能力：数字排序 + 上移/下移 + 保存排序（不引入拖拽库）。
+
+未完成事项：
+
+- 本轮不做“清空覆盖配置”的后端专用接口（目前用保存 `{}` 作为最小可用方案）。
+
+已执行检查：
+
+- `cd web/admin-app && npm run build`（使用 Docker Node 环境执行）：本轮需要重新执行并记录结果。
+
+### 2026-05-10：影响分析入口、审计入口与 PluginContent 优化
+
+修改范围：
+
+- 后端：新增插件影响分析统计接口（全局与子站范围），供禁用确认与治理中心展示使用。
+- 后台 UI：
+  - 全局禁用确认弹窗增加 impact 信息（不可用时显示“待接口支持/暂不可用”，不伪造）。
+  - 插件详情抽屉新增“审计”Tab（复用 `admin/audit-logs`，按 `plugins#<code>` 前缀筛选，展示 old/new/metadata）。
+  - `PluginContent.vue` 增强：展示 plugin/status、增加子站筛选与状态筛选、展示 plugin_code/content_type，并提供返回插件入口。
+
+已完成事项：
+
+- 新增接口：
+  - `GET /api/v1/admin/plugins/:code/impact`
+  - `GET /api/v1/admin/communities/:id/plugins/:code/impact`
+- 插件禁用确认：全局与子站禁用确认均可在可用时展示 impact 计数（子站影响板块数/已有内容数等）。
+- 审计入口：插件详情抽屉新增审计 Tab，可按动作关键字与 community_id 进一步筛选，并查看 `old_value/new_value/metadata_json`。
+- PluginContent：支持按子站（site）与状态筛选内容列表，提升插件内容治理的可用性。
+
+未完成事项：
+
+- 本轮不做“影响范围统计”更深的维度（例如受影响的具体板块列表），仅提供轻量计数与入口。
+
+已执行检查：
+
+- `gofmt`：本轮涉及 Go 变更，需要执行并记录结果。
+- `go test ./...`：本轮涉及 Go 变更，需要执行并记录结果。
+- `go build`：本轮涉及 Go 变更，需要执行并记录结果。
+- `cd web/admin-app && npm run build`：本轮需要执行并记录结果。
 
 ### 2026-05-10：完整插件系统优先级与文档口径校准
 
@@ -239,9 +348,9 @@ P3：高级能力
 
 下一轮建议：
 
-1. P0：实现 `config_schema` 基础校验。
-2. P0：补 HookBus 业务处理器、统一错误日志和失败策略。
-3. P0：执行完整插件系统真实 token 验收矩阵。
+1. P0：补 HookBus 业务处理器、统一错误日志和失败策略。
+2. P0：执行完整插件系统真实 token 验收矩阵。
+3. P1：继续增强 `config_schema` 自动表单渲染和更完整 JSON Schema 支持。
 
 ### 2026-05-10：后台插件管理界面体验增强
 
@@ -263,9 +372,9 @@ P3：高级能力
 
 未完成事项：
 
-- 本轮未新增插件影响范围统计接口，因此 UI 不展示绑定子站数量、启用子站列表或受影响板块数量，避免伪造数据。
-- 本轮未引入自动浏览器测试；后台插件详情抽屉、子站配置抽屉、禁用确认、配置保存和排序仍需真实浏览器矩阵验收。
-- 本轮未做 `config_schema` 强校验或自动表单渲染，仍只校验 JSON 合法性。
+- 当轮未新增插件影响范围统计接口，因此 UI 不展示绑定子站数量、启用子站列表或受影响板块数量；该能力已在后续“影响分析入口、审计入口与 PluginContent 轻量增强”任务中补齐轻量 impact 计数。
+- 当轮未引入自动浏览器测试；后续已新增 Docker 化 Playwright 最小 E2E runner，后台插件详情抽屉、子站配置抽屉和禁用确认已有核心路径覆盖，完整浏览器矩阵仍需继续扩展。
+- 当轮未做 `config_schema` 强校验或自动表单渲染；后续 `v1.3.2` 已补齐简化 schema 基础校验，自动表单渲染仍待后续。
 
 新发现风险：
 
@@ -282,7 +391,7 @@ P3：高级能力
 跳过项及原因：
 
 - 本轮未修改前台代码，跳过 `cd web/frontend-app && npm run build`。
-- 未执行真实浏览器矩阵：仓库当前没有自动浏览器测试 runner，需要后续手工验收或引入专项测试工具。
+- 未执行真实浏览器矩阵：当时仓库没有自动浏览器测试 runner；后续已新增 `admin-e2e` 最小 E2E runner。
 
 影响范围：
 
@@ -295,6 +404,191 @@ P3：高级能力
 
 下一轮建议：
 
-1. 用真实 admin token 完成 `/admin-next/plugins` 和 `/admin-next/communities` 插件配置浏览器矩阵。
-2. 增加插件影响范围统计接口后，再在禁用确认中展示启用子站、绑定板块和可能受影响入口。
-3. 继续实现 P0 `config_schema` 基础校验。
+1. 扩展 `/admin-next/plugins` 和 `/admin-next/communities` 插件配置 E2E，覆盖多账号、多子站、配置保存持久化和视觉细节。
+2. 继续增强 impact 的受影响对象明细列表（当前已有轻量计数）。
+3. 继续推进 `config_schema` 自动表单渲染。
+
+### 2026-05-10：影响分析入口、审计入口与 PluginContent 轻量增强
+
+修改范围：
+
+- 后端新增轻量影响范围统计接口（impact）：
+  - `GET /api/v1/admin/plugins/:code/impact`
+  - `GET /api/v1/admin/communities/:id/plugins/:code/impact`
+- `web/admin-app/src/views/Plugins.vue`：全局禁用确认弹窗在可用时展示 impact 计数（不可用时显示“待接口支持/暂不可用”，不伪造）。
+- `web/admin-app/src/components/plugin/PluginDetailDrawer.vue`：插件详情抽屉新增“审计”Tab，复用 `GET /api/v1/admin/audit-logs`，支持按 plugin_code + action 关键字 + community_id 筛选，并展示 `old_value/new_value/metadata_json`（有则展示，无则不伪造）。
+- `web/admin-app/src/views/Communities.vue`：子站禁用确认弹窗在可用时展示该子站范围 impact 计数（板块数/已有内容/审核中内容等）。
+- `web/admin-app/src/views/PluginContent.vue`：轻量增强插件内容页：显示 plugin_code/content_type、增加子站筛选、状态筛选，并提供返回插件详情入口。
+- 同步文档：`docs/API.md`、`docs/TESTING.md`、`docs/PLUGIN_ARCHITECTURE.md`、`docs/releases/v1.3.0.md`、`CHANGELOG.md`。
+
+已完成事项：
+
+- 影响分析入口：后端提供计数型 impact（子站启用数/板块数/内容数/审核中内容数/菜单声明数），前端在禁用确认中按实际返回展示，不伪造数字。
+- 审计入口：插件详情抽屉新增审计 Tab，可在治理中心快速回溯插件启停/配置/排序等操作的结构化 diff（若日志未结构化则保持空或原始展示，不伪造）。
+- PluginContent：补齐插件上下文信息与筛选入口，让“通用插件内容页”更接近治理中心的可用形态。
+
+未完成事项：
+
+- 本轮不提供“受影响对象明细列表”（例如受影响的具体板块列表），impact 仅提供轻量计数。
+- 本轮审计 Tab 复用 `admin/audit-logs`：对“子站插件审计 target 命名规范”的覆盖仍需后续进一步统一（当前按 `plugins#<code>` 前缀过滤，不伪造跨 target 的聚合结果）。
+
+已执行检查：
+
+- `go test ./...`：通过（新增 impact 接口后同步修复了相关测试用例的 config_schema 约束输入）。
+- `go build -o .devhub/devhub .`：通过。
+- `cd web/admin-app && npm run build`：宿主机缺少 `npm`，失败于 `npm: command not found`。
+- 使用 Docker Node 执行：`docker run --rm -v "$PWD/web/admin-app":/app -w /app node:20-alpine sh -lc "npm ci && npm run build"`：通过。
+
+跳过项及原因：
+
+- 本轮未修改前台代码，跳过 `cd web/frontend-app && npm run build`。
+
+影响范围：
+
+- API：新增 2 个 impact 接口（仅计数型字段），用于禁用前影响分析与治理提示。
+- 数据库：无结构变更。
+- 权限：impact 接口受 admin 权限保护（`plugin.read` / `site.read` + 子站管理范围校验）。
+- SEO：无变更，继续保持禁用插件不影响历史内容访问与 SEO。
+- 后台 UI：增强禁用确认、审计入口与 PluginContent 体验。
+
+下一轮建议：
+
+1. 在 impact 基础上补齐“受影响对象列表”接口（如确有需要），并确保不引入重查询风险。
+2. 统一 admin_logs 的 target/metadata 规范，使“插件审计筛选”可覆盖全局插件与子站插件两条链路。
+
+### 2026-05-10：插件治理中心专项验收与文档归档
+
+修改范围：
+
+- 本轮以验收和文档归档为主，小范围修正文档旧口径。
+- 校准 `config_schema` 与 impact 状态：当前已完成简化 schema 基础校验与轻量 impact 计数；仍未完成自动表单渲染、完整 JSON Schema 和受影响对象明细列表。
+- 更新 `docs/PROJECT_PROGRESS.md`、`docs/TESTING.md`、`docs/PLUGIN_ARCHITECTURE.md`、`docs/releases/v1.3.0.md` 和 `CHANGELOG.md`。
+
+已完成事项：
+
+- 后端检查：`go test ./...` 通过，`go build -o .devhub/devhub .` 通过。
+- 后台构建：宿主机 `npm` 不存在；已使用 Docker Node 执行 `npm ci && npm run build` 并通过，Vite 仅输出 chunk size warning。
+- 临时启动：`8090` 已被占用，因此使用 `PORT=18090 CMS_STORE=memory ./.devhub/devhub` 完成验收抽查。
+- `/admin-next` 与 `/admin-next/plugins` 返回 200，后台构建产物包含 `Plugins`、`Communities`、`PluginContent` 和 `PluginJsonEditor` chunk。
+- 全局插件 API 可返回插件声明、状态、`config_schema`、权限、菜单、路由和 `resolved_config`。
+- impact 验收：
+  - `GET /api/v1/admin/plugins/qa/impact` 返回全局轻量计数。
+  - `GET /api/v1/admin/communities/1/plugins/qa/impact` 返回子站范围轻量计数。
+  - 禁用确认前端代码在 impact 不可用时显示待支持文案，不伪造统计数字。
+- JSON / schema 验收：
+  - `PUT /api/v1/admin/plugins/qa/config` 传入合法配置返回 200。
+  - 缺少 required 字段返回 400。
+  - 子站插件配置字段类型错误返回 400。
+- 全局禁用 / 子站启用限制验收：
+  - 全局禁用 `qa` 返回 200。
+  - 全局禁用后尝试启用子站 `qa` 返回 400，并提示“插件全局未启用，不能在子站启用”。
+  - 验收后已恢复 `qa` 全局 enabled。
+- 审计入口验收：
+  - `GET /api/v1/admin/audit-logs?target=plugins%23qa` 可返回插件启停审计。
+  - 审计记录包含 `old_value`、`new_value`、`metadata_json`，插件详情审计 Tab 可基于该接口展示。
+- PluginContent 验收：
+  - `/admin-next/qa` 返回 200。
+  - `GET /api/v1/admin/posts?content_type=question` 返回内容列表。
+  - 源码中已接入 plugin_code/content_type、子站筛选、状态筛选和返回入口；真实浏览器交互仍需人工矩阵。
+- 身份与菜单验收：
+  - 首页源码未暴露 `/admin-next` 总后台入口；版主入口为登录后按权限显示的隐藏入口。
+  - `GET /api/v1/moderator/plugin-menus?community_slug=php` 使用前台 user token 返回当前子站可见插件菜单。
+- SEO 回归：
+  - `/topics/1/` 返回 200，源码包含 title、description、h1、article、标签链接和 Article JSON-LD。
+  - `/c/php/` 返回 200，源码包含 title、description、canonical、h1、真实 topic 链接和热门标签。
+  - 全局禁用 `qa` 后访问已有 question `/topics/2/` 仍返回 200，源码包含 title、description、h1、article、标签链接和 Article JSON-LD。
+  - `/sitemap.xml` 和 `/robots.txt` 返回 200。
+
+未完成事项：
+
+- 未执行真实浏览器点击矩阵：当时仓库没有 Playwright/Cypress 等自动化 runner，本轮以构建、源码、API 和 SEO curl 验收为主；后续已新增 `admin-e2e` 最小 E2E runner。
+- 插件治理中心 UI 的实际交互（Tabs 切换、JSON Editor 光标输入、复制按钮、抽屉滚动、禁用确认弹窗视觉）仍需人工浏览器验收。
+- impact 当前仅为轻量计数，不提供受影响对象明细列表。
+- 审计 Tab 复用 `admin/audit-logs`，全局插件审计 target 已验证；子站插件审计 target 与全局插件审计的聚合筛选仍待后续统一。
+
+新发现风险：
+
+- 后台 bundle 中 `PluginJsonEditor` chunk 超过 500 KB，Vite 构建只警告不失败；后续可以考虑按需加载或手动拆包。
+- `8090` 在当前环境已被占用，验收使用 `18090` 临时端口；正式验收时需确认默认端口对应服务状态。
+
+已执行检查：
+
+- `go test ./...`：通过。
+- `go build -o .devhub/devhub .`：通过。
+- `cd web/admin-app && npm run build`：失败，原因是宿主机没有 `npm`。
+- `docker run --rm -v "$PWD/web/admin-app":/app -w /app node:20-alpine sh -lc "npm ci && npm run build"`：通过。
+- `PORT=18090 CMS_STORE=memory ./.devhub/devhub`：通过，服务用于 API / SEO 抽查。
+- `curl` 抽查 `/admin-next`、`/admin-next/plugins`、`/admin-next/qa`、`/api/v1/admin/plugins`、impact API、audit logs、`/topics/1/`、`/topics/2/`、`/c/php/`、`/sitemap.xml`、`/robots.txt`：通过或按预期返回错误。
+
+跳过项及原因：
+
+- 未执行 `cd web/frontend-app && npm run build`：本轮未修改前台代码。
+- 未执行完整浏览器矩阵：当时仓库没有自动化浏览器 runner；后续已新增 `admin-e2e` 最小 E2E，完整矩阵仍需扩展。
+
+影响范围：
+
+- API：无新增接口；验证了已有 impact、插件、审计和内容管理接口。
+- 数据库：无结构变更。
+- 权限：验证了 admin impact、全局禁用、子站启用限制和版主插件菜单。
+- SEO：验证了 `/topics/:id`、`/c/:slug`、sitemap 和 robots；禁用插件不影响历史内容 SEO。
+- 插件系统：完成一轮命令行/API/SEO 层面的专项验收；后续已补 Docker 化 Playwright 最小 E2E，治理中心更大可视化交互矩阵仍需扩展。
+- 前后台 UI：后台构建通过；真实浏览器点击矩阵仍未覆盖。
+
+下一轮建议：
+
+1. 扩展 Playwright E2E，从当前 5 条最小路径扩大到多账号、多子站、配置保存持久化和权限边界。
+2. 为 impact 增加可分页的受影响对象明细接口，必要时只在点击“查看明细”时加载。
+3. 统一插件审计 target 规范，让全局插件和子站插件审计能在同一 Tab 中准确聚合筛选。
+
+### 2026-05-11：固定 DevHub 后台 E2E Docker 镜像，提升 Playwright 测试效率与一致性
+
+修改范围：
+
+- 新增 `web/admin-app/Dockerfile.e2e` 和 `web/admin-app/docker/e2e-entrypoint.sh`，固定 Playwright 基础镜像 `mcr.microsoft.com/playwright:v1.59.1-noble`，并在镜像构建阶段执行 `npm ci`。
+- 新增根目录 `docker-compose.yml` 的 `admin-e2e` 服务，支持 `docker compose build admin-e2e` 与 `docker compose run --rm admin-e2e`。
+- 新增后台 Playwright 配置和最小插件治理 E2E 用例。
+- 将 `@playwright/test` 固定到 `1.59.1`，与 Playwright Docker 镜像版本一致。
+- 更新 `.gitignore` 与 `.dockerignore`，确保 `node_modules`、`web/admin-vue`、`playwright-report` 和 `test-results` 不进入仓库。
+- 更新 `docs/AGENT_RULES.md`、`docs/TESTING.md`、`docs/PROJECT_PROGRESS.md`、`docs/releases/v1.3.2.md` 和 `CHANGELOG.md`。
+
+已完成事项：
+
+- 后台 E2E 测试有了项目内固定 Docker 镜像；首次构建拉取大型 Playwright 基础镜像，后续复用本地 `sns-admin-e2e` 镜像。
+- 后台构建和 E2E 均在容器内执行，不依赖宿主机 Node/npm。
+- `admin-e2e` 支持先构建最新 `web/admin-vue` 静态产物，再跑 Playwright 测试，避免 Go 服务读到旧后台构建。
+- 最小 E2E 当前覆盖 `/admin-next/plugins`、插件详情 Tabs、JSON Editor/Ajv 错误提示、全局禁用确认、子站插件抽屉和 PluginContent 入口。
+
+未完成事项：
+
+- 当前 E2E 是后台插件治理中心的最小路径，不覆盖多浏览器、多账号、多子站、配置保存持久化、前台发布页和版主工作台完整矩阵。
+- 当前没有接入 CI workflow；本轮只固定本地/CI 可复用的 Docker 命令入口。
+
+新发现风险：
+
+- `web/admin-vue` 是 Go 服务读取的后台静态产物；E2E 前需要先执行 `docker compose run --rm admin-e2e npm run build`，不要和 E2E 并行写该目录，否则可能出现短暂 404 或读取不完整静态文件。
+- Playwright 首次基础镜像较大，首次构建耗时正常；后续复用缓存。
+
+已执行检查：
+
+- `docker compose build admin-e2e`：通过。
+- `docker compose run --rm admin-e2e npm run build`：通过，Vite 仅输出 chunk size warning。
+- `docker compose run --rm admin-e2e`：通过，5 个 Playwright 用例全部通过。
+- `git status --short | rg 'node_modules|test-results|playwright-report|admin-vue' || true`：无输出，确认这些产物不会被提交。
+
+跳过项及原因：
+
+- 本轮未修改 Go 后端和前台应用，未执行 `go test ./...`、`go build`、`cd web/frontend-app && npm run build`。
+
+影响范围：
+
+- API：无新增或修改。
+- 数据库：无结构变更。
+- 权限：无权限逻辑变更。
+- SEO：无 SEO 行为变更。
+- 插件系统：新增后台插件治理 E2E 验收入口。
+- 前后台 UI：不改 UI 视觉，只增加稳定测试选择器与 E2E 覆盖。
+
+下一轮建议：
+
+1. 将 `docker compose build admin-e2e` 和 `docker compose run --rm admin-e2e` 接入 CI workflow。
+2. 扩展 E2E 覆盖多账号、多子站、配置保存持久化和版主菜单权限边界。

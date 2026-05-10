@@ -128,6 +128,20 @@ type Plugin struct {
 	UpdatedAt       string `json:"updated_at,omitempty"`
 }
 
+// PluginImpact summarizes the governance impact scope for disabling/enabling a plugin.
+// It intentionally stays lightweight: only counts that are cheap and stable to compute.
+type PluginImpact struct {
+	PluginCode              string `json:"plugin_code"`
+	EnabledCommunitiesCount int    `json:"enabled_communities_count"`
+	CategoriesCount         int    `json:"categories_count"`
+	TopicsCount             int    `json:"topics_count"`
+	PendingTopicsCount      int    `json:"pending_topics_count"`
+	MenusCount              int    `json:"menus_count"`
+	FrontendMenusCount      int    `json:"frontend_menus_count"`
+	ModeratorMenusCount     int    `json:"moderator_menus_count"`
+	AdminMenusCount         int    `json:"admin_menus_count"`
+}
+
 // CommunityPlugin 表示子站对某个插件的启用状态与配置。
 type CommunityPlugin struct {
 	ID          int64  `json:"id"`

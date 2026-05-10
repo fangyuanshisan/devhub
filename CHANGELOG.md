@@ -9,6 +9,12 @@ DevHub v1.3.2 is the plugin platform governance enhancement release.
 - Moved HookBus into the plugin platform layer (`internal/plugins`) and registered minimal built-in hook handlers for system plugins.
 - Enforced `config_schema` validation when saving plugin `config_json` (both global `plugins.config_json` and per-community `community_plugins.config_json`).
 - Added `plugin_migrations` table (schema + migration) for tracking plugin migration execution state.
+- Enhanced `/admin-next/plugins` towards a plugin governance center baseline UI (stats cards, filter toolbar, clearer status/capability badges).
+- Upgraded the admin plugin detail drawer into a tabbed governance view and replaced the global-config textarea with a JSON editor powered by `json-editor-vue` + `Ajv` client-side schema validation.
+- Upgraded the admin community plugin drawer with filtering, clearer status/override indicators, and a JSON editor for `community_plugins.config_json` powered by `json-editor-vue` + `Ajv` schema validation.
+- Added lightweight plugin impact analysis endpoints and surfaced impact hints in disable confirmations; added an audit tab to the admin plugin detail drawer (backed by `admin/audit-logs`) and improved the generic PluginContent page with community/status filters.
+- Archived a plugin-governance acceptance pass covering Go tests/build, Docker Node admin build, impact APIs, audit logs, config schema failures, global/community plugin state limits, moderator menus, and `/topics/:id` SEO regression.
+- Added a fixed Docker-based admin Playwright E2E runner (`admin-e2e`) using `mcr.microsoft.com/playwright:v1.59.1-noble`, with containerized admin build and a minimal plugin-governance browser test suite.
 
 ## v1.3.1
 
@@ -39,7 +45,7 @@ DevHub v1.3.1 is the plugin-entry hardening and permission-boundary release.
 - HookBus is still minimal: search/notification/SEO currently dispatch events but do not yet have full plugin business handlers, retry, or unified error logging.
 - `plugins.config_json` and `community_plugins.config_json` validate JSON syntax only; `config_schema` enforcement remains follow-up work.
 - The improved admin plugin UI still needs a real browser acceptance matrix; there is no automated browser test runner in the repo yet.
-- Plugin impact-scope statistics are not implemented yet, so the admin UI does not show affected community/board counts.
+- Plugin impact analysis currently provides lightweight count-only endpoints; affected-object detail lists (e.g. impacted category IDs) are still follow-up work.
 - Non-plugin historical audit logs may still only have `admin_logs.target` text summaries.
 - `project`, `job`, and `ai_work` are plugin-owned but still lack dedicated extension tables and full business workflows.
 - Plugin packages, marketplace, remote install/update, and dynamic loading are not implemented in v1.3.1; they are staged as P2/P3 plugin-platform roadmap items rather than permanent exclusions.

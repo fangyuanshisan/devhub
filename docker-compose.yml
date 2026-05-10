@@ -1,0 +1,16 @@
+services:
+  admin-e2e:
+    build:
+      context: ./web/admin-app
+      dockerfile: Dockerfile.e2e
+    working_dir: /workspace/web/admin-app
+    environment:
+      DEVHUB_E2E_ORIGIN: ${DEVHUB_E2E_ORIGIN:-http://host.docker.internal:8090}
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    volumes:
+      - .:/workspace
+      - admin_e2e_node_modules:/workspace/web/admin-app/node_modules
+
+volumes:
+  admin_e2e_node_modules:

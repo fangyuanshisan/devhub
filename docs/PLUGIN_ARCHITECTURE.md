@@ -257,7 +257,7 @@ HookBus 完整化属于插件平台 P0 收口任务。当前只服务内置系�
 - `plugins.config_json` 已落库，并可通过后台插件页和 `PUT /api/v1/admin/plugins/:code/config` 管理。
 - `community_plugins.config_json` 已落地，并可通过后台子站插件配置和 `PUT /api/v1/admin/communities/:id/plugins/:code/config` 管理。
 - API 返回的 `resolved_config` 以 `default`、`global`、`community`、`effective` 四段表达当前合并视图。
-- 当前已完成 JSON 合法性校验；`config_schema` 基础校验是 P0 任务，后台表单自动渲染是 P1 任务。
+- 当前已完成 JSON 合法性校验与简化 `config_schema` 基础校验；后台插件配置使用 JSON Editor + Ajv 做客户端校验，后端保存时仍会二次校验。后台自动表单渲染和更完整 JSON Schema 支持是 P1 任务。
 
 ## 两层插件状态
 
@@ -395,10 +395,14 @@ v1.3.1 采用稳妥策略：后台编辑已存在内容时禁止修改归属和�
 
 - `/admin-next/plugins` 展示全局插件列表、状态 badge、系统插件标识、内容类型、权限数量、菜单数量和 `config_schema` 摘要。
 - 插件详情使用抽屉分区展示基础信息、内容类型、权限、菜单、配置、路由和 Hooks，避免把 JSON 直接堆在表格中。
-- 全局插件配置继续使用 textarea 编辑 `config_json`，并展示 `config_schema` 作为参考；当前只校验 JSON 合法性，暂不做 schema 强校验。
+- 全局插件配置已升级为 JSON Editor（`json-editor-vue`），并使用 Ajv 做 `config_schema` 基础校验；后续仍可增强为更完整的 schema 强校验与自动表单渲染。
 - `/admin-next/communities` 的子站插件配置抽屉展示全局状态和子站状态双 badge，并支持子站启用 / 禁用、`config_json` 编辑、JSON 格式化、数字排序和禁用原因提示。
 - 全局禁用和子站禁用都有二次确认，并明确 disabled 只影响新发布、导航、菜单和管理入口，不影响历史内容详情页和 SEO。
-- 当前没有插件影响范围统计接口，后台 UI 不展示启用子站数量、绑定板块数量或受影响内容数量，避免伪造数据。
+- 插件影响范围统计已提供轻量 impact 计数接口：
+  - `GET /api/v1/admin/plugins/:code/impact`
+  - `GET /api/v1/admin/communities/:id/plugins/:code/impact`
+  UI 在接口不可用时必须显示“待接口支持/暂不可用”，不得伪造数字。
+  同时插件详情抽屉提供“审计”Tab，复用 `GET /api/v1/admin/audit-logs`，按 `target=plugins#<code>` 前缀筛选展示。
 
 ## 当前限制与阶段边界
 

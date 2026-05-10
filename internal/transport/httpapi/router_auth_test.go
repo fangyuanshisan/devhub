@@ -93,7 +93,8 @@ func TestPublicPluginAPIsHideConfig(t *testing.T) {
 	router := NewRouter(service.New(store.NewMemoryStore()))
 	admin := adminToken(t, router)
 
-	req := httptest.NewRequest(http.MethodPut, "/api/v1/admin/plugins/qa/config", bytes.NewBufferString(`{"config_json":{"secret":"hidden"}}`))
+	// qa 插件存在 config_schema 约束，这里使用合法配置值，测试重点是：public API 不应泄露 config_json/resolved_config。
+	req := httptest.NewRequest(http.MethodPut, "/api/v1/admin/plugins/qa/config", bytes.NewBufferString(`{"config_json":{"allow_anonymous_answer":true,"default_question_status":"publish"}}`))
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("Authorization", "Bearer "+admin)
 	w := httptest.NewRecorder()
@@ -102,7 +103,7 @@ func TestPublicPluginAPIsHideConfig(t *testing.T) {
 		t.Fatalf("expected plugin config update success, got %d: %s", w.Code, w.Body.String())
 	}
 
-	req = httptest.NewRequest(http.MethodPut, "/api/v1/admin/communities/1/plugins/qa/config", bytes.NewBufferString(`{"config_json":{"community_secret":"hidden"}}`))
+	req = httptest.NewRequest(http.MethodPut, "/api/v1/admin/communities/1/plugins/qa/config", bytes.NewBufferString(`{"config_json":{"allow_anonymous_answer":false,"default_question_status":"publish"}}`))
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("Authorization", "Bearer "+admin)
 	w = httptest.NewRecorder()
@@ -128,7 +129,8 @@ func TestPluginConfigAuditAndInvalidJSON(t *testing.T) {
 	router := NewRouter(service.New(store.NewMemoryStore()))
 	token := adminToken(t, router)
 
-	req := httptest.NewRequest(http.MethodPut, "/api/v1/admin/plugins/qa/config", bytes.NewBufferString(`{"config_json":{"limit":5}}`))
+	// qa 插件存在 config_schema 约束，这里使用合法配置值，测试重点是：审计日志应记录结构化 old/new/metadata。
+	req := httptest.NewRequest(http.MethodPut, "/api/v1/admin/plugins/qa/config", bytes.NewBufferString(`{"config_json":{"allow_anonymous_answer":true,"default_question_status":"publish"}}`))
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("Authorization", "Bearer "+token)
 	w := httptest.NewRecorder()
@@ -146,7 +148,7 @@ func TestPluginConfigAuditAndInvalidJSON(t *testing.T) {
 		t.Fatalf("expected invalid json to fail, got %d: %s", w.Code, w.Body.String())
 	}
 
-	req = httptest.NewRequest(http.MethodPut, "/api/v1/admin/communities/1/plugins/qa/config", bytes.NewBufferString(`{"config_json":{"enabled":true}}`))
+	req = httptest.NewRequest(http.MethodPut, "/api/v1/admin/communities/1/plugins/qa/config", bytes.NewBufferString(`{"config_json":{"allow_anonymous_answer":false,"default_question_status":"review"}}`))
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("Authorization", "Bearer "+token)
 	w = httptest.NewRecorder()

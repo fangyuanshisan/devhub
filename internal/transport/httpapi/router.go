@@ -147,6 +147,7 @@ func NewRouter(svc *service.Service) *gin.Engine {
 			protected.GET("/me", srv.adminMe)
 			protected.GET("/plugins", srv.requirePermission("plugin.read"), srv.adminPlugins)
 			protected.GET("/plugin-menus", srv.adminPluginMenus)
+			protected.GET("/plugins/:code/impact", srv.requirePermission("plugin.read"), srv.adminPluginImpact)
 			protected.POST("/plugins/:code/enable", srv.requirePermission("plugin.write"), srv.enableAdminPlugin)
 			protected.POST("/plugins/:code/disable", srv.requirePermission("plugin.write"), srv.disableAdminPlugin)
 			protected.PUT("/plugins/:code/config", srv.requirePermission("plugin.write"), srv.updateAdminPluginConfig)
@@ -159,6 +160,7 @@ func NewRouter(svc *service.Service) *gin.Engine {
 			protected.POST("/communities/:id/disable", srv.requirePermission("site.write"), srv.disableAdminCommunity)
 			protected.POST("/communities/reorder", srv.requirePermission("site.write"), srv.reorderAdminCommunities)
 			protected.GET("/communities/:id/plugins", srv.requirePermission("site.read"), srv.adminCommunityPlugins)
+			protected.GET("/communities/:id/plugins/:code/impact", srv.requirePermission("site.read"), srv.adminCommunityPluginImpact)
 			protected.POST("/communities/:id/plugins/:code/enable", srv.requirePermission("site.write"), srv.enableAdminCommunityPlugin)
 			protected.POST("/communities/:id/plugins/:code/disable", srv.requirePermission("site.write"), srv.disableAdminCommunityPlugin)
 			protected.PUT("/communities/:id/plugins/:code/config", srv.requirePermission("site.write"), srv.updateAdminCommunityPluginConfig)
@@ -1902,6 +1904,33 @@ func (s *Server) adminMe(c *gin.Context) {
 
 func (s *Server) adminPlugins(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"items": s.svc.Plugins()})
+}
+
+func (s *Server) adminPluginImpact(c *gin.Context) {
+	code := strings.TrimSpace(c.Param("code"))
+	impact, err := s.svc.PluginImpact(code)
+	if err != nil {
+		fail(c, http.StatusBadRequest, err.Error())
+		return
+	}
+	c.JSON(http.StatusOK, impact)
+}
+
+func (s *Server) adminCommunityPluginImpact(c *gin.Context) {
+	id, ok := idParam(c, "id")
+	if !ok {
+		return
+	}
+	if !s.canManageCommunityConfig(c, id) {
+		return
+	}
+	code := strings.TrimSpace(c.Param("code"))
+	impact, err := s.svc.CommunityPluginImpact(id, code)
+	if err != nil {
+		fail(c, http.StatusBadRequest, err.Error())
+		return
+	}
+	c.JSON(http.StatusOK, impact)
 }
 
 func (s *Server) adminPluginMenus(c *gin.Context) {

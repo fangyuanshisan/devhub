@@ -2753,6 +2753,102 @@ func (s *MySQLStore) AdminLogsByFilter(filter domain.AdminLogFilter) ([]domain.A
 	return out, total
 }
 
+func (s *MySQLStore) PluginImpact(code string) (domain.PluginImpact, error) {
+	code = strings.TrimSpace(code)
+	if code == "" {
+		return domain.PluginImpact{}, errors.New("plugin_code 不能为空")
+	}
+	plugin, ok := s.PluginByCode(code)
+	if !ok || plugin.Code == "" {
+		return domain.PluginImpact{}, errors.New("插件不存在")
+	}
+
+	enabledCommunities := 0
+	_ = s.db.QueryRow(
+		`SELECT COUNT(*) FROM community_plugins cp 
+		 JOIN plugins p ON p.plugin_code=cp.plugin_code
+		 WHERE cp.plugin_code=? AND cp.status='enabled' AND p.status='enabled'`,
+		code,
+	).Scan(&enabledCommunities)
+
+	categories := 0
+	_ = s.db.QueryRow(`SELECT COUNT(*) FROM categories WHERE plugin_code=? AND deleted_at IS NULL`, code).Scan(&categories)
+
+	topics := 0
+	_ = s.db.QueryRow(`SELECT COUNT(*) FROM topics WHERE plugin_code=? AND deleted_at IS NULL`, code).Scan(&topics)
+
+	// "pending" here maps to topics.status=2 (审核中) per schema comment.
+	pending := 0
+	_ = s.db.QueryRow(`SELECT COUNT(*) FROM topics WHERE plugin_code=? AND deleted_at IS NULL AND status=2`, code).Scan(&pending)
+
+	frontendMenus := 0
+	adminMenus := 0
+	moderatorMenus := 0
+	for _, m := range plugin.Menus {
+		area := strings.TrimSpace(m.Area)
+		if area == "" {
+			area = strings.TrimSpace(m.Location)
+		}
+		switch area {
+		case "frontend":
+			frontendMenus++
+		case "admin":
+			adminMenus++
+		case "moderator":
+			moderatorMenus++
+		}
+	}
+
+	return domain.PluginImpact{
+		PluginCode:              code,
+		EnabledCommunitiesCount: enabledCommunities,
+		CategoriesCount:         categories,
+		TopicsCount:             topics,
+		PendingTopicsCount:      pending,
+		MenusCount:              len(plugin.Menus),
+		FrontendMenusCount:      frontendMenus,
+		ModeratorMenusCount:     moderatorMenus,
+		AdminMenusCount:         adminMenus,
+	}, nil
+}
+
+func (s *MySQLStore) CommunityPluginImpact(communityID int64, code string) (domain.PluginImpact, error) {
+	code = strings.TrimSpace(code)
+	if communityID <= 0 {
+		return domain.PluginImpact{}, errors.New("community_id 不合法")
+	}
+	if _, ok := s.communityByID(communityID); !ok {
+		return domain.PluginImpact{}, errors.New("子站不存在")
+	}
+	impact, err := s.PluginImpact(code)
+	if err != nil {
+		return domain.PluginImpact{}, err
+	}
+
+	enabledCommunities := 0
+	_ = s.db.QueryRow(
+		`SELECT COUNT(*) FROM community_plugins cp 
+		 JOIN plugins p ON p.plugin_code=cp.plugin_code
+		 WHERE cp.community_id=? AND cp.plugin_code=? AND cp.status='enabled' AND p.status='enabled'`,
+		communityID, code,
+	).Scan(&enabledCommunities)
+
+	categories := 0
+	_ = s.db.QueryRow(`SELECT COUNT(*) FROM categories WHERE community_id=? AND plugin_code=? AND deleted_at IS NULL`, communityID, code).Scan(&categories)
+
+	topics := 0
+	_ = s.db.QueryRow(`SELECT COUNT(*) FROM topics WHERE community_id=? AND plugin_code=? AND deleted_at IS NULL`, communityID, code).Scan(&topics)
+
+	pending := 0
+	_ = s.db.QueryRow(`SELECT COUNT(*) FROM topics WHERE community_id=? AND plugin_code=? AND deleted_at IS NULL AND status=2`, communityID, code).Scan(&pending)
+
+	impact.EnabledCommunitiesCount = enabledCommunities
+	impact.CategoriesCount = categories
+	impact.TopicsCount = topics
+	impact.PendingTopicsCount = pending
+	return impact, nil
+}
+
 func (s *MySQLStore) PushNotification(req domain.PushNotificationRequest) *domain.Notification {
 	scope := strings.TrimSpace(req.Scope)
 	if scope == "" {

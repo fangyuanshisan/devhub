@@ -102,6 +102,29 @@
 - `401 {"error":"未登录"}`
 - `403 {"error":"无权限"}`
 
+`GET /api/v1/admin/plugins/:code/impact`
+
+- 认证：后台 admin token。
+- 权限：`plugin.read`。
+- 用途：插件治理中心的“禁用前影响分析”入口，用于展示禁用该插件对系统范围的影响计数。
+- 返回：影响范围统计（计数型字段，尽量轻量且可缓存）。
+
+响应示例：
+
+```json
+{
+  "plugin_code": "qa",
+  "enabled_communities_count": 3,
+  "categories_count": 5,
+  "topics_count": 120,
+  "pending_topics_count": 4,
+  "menus_count": 3,
+  "frontend_menus_count": 1,
+  "moderator_menus_count": 1,
+  "admin_menus_count": 1
+}
+```
+
 ### 前台子站插件展示 API
 
 `GET /api/v1/communities/:slug/plugins`
@@ -193,6 +216,13 @@
 - `401 {"error":"未登录"}`
 - `403 {"error":"无权限"}`
 - `404 {"error":"子站不存在"}`
+
+`GET /api/v1/admin/communities/:id/plugins/:code/impact`
+
+- 认证：后台 admin token。
+- 权限：`site.read`，并经过子站管理范围校验。
+- 用途：子站插件治理的“禁用前影响分析”入口，用于展示在某个子站范围内禁用该插件的影响计数。
+- 返回：同全局 impact，但计数会尽量收敛到该子站范围（例如该子站板块数、该子站内容数）。
 
 ### 插件菜单 API
 
