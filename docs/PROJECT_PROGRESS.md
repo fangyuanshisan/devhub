@@ -61,6 +61,7 @@ v1.1.5 补丁已并入当前分支，主题是“前台 UI 美化专项”。本
 - Core 表字段增强：`topics.plugin_code`、`categories.plugin_code`、`categories.allowed_content_types`。
 - 发布校验：`POST /api/v1/topics` 对 `plugin_code`、插件状态、`allowed_content_types` 做一致性校验，并兼容 `doc/wiki -> document/wiki_page`。
 - 前台发布页：内容类型选择按“启用插件 + 板块 allowed_content_types”收口。
+- 子站插件：新增 `community_plugins`，支持每个子站独立启用/禁用插件；发布、板块绑定、导航与菜单展示均受子站插件状态影响。
 
 部分完成：
 

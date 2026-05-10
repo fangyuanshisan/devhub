@@ -173,7 +173,7 @@ async function loadCommunityData() {
     const [categoryData, tagData, pluginData] = await Promise.all([
       ofetch(`/api/v1/communities/${encodeURIComponent(form.community_slug)}/categories`),
       ofetch(`/api/v1/tags/suggestions?community_slug=${encodeURIComponent(form.community_slug)}&limit=30`),
-      ofetch(`/api/v1/plugins`),
+      ofetch(`/api/v1/communities/${encodeURIComponent(form.community_slug)}/plugins`),
     ]);
     categories.value = categoryData.items || [];
     setTags(tagData.items || []);

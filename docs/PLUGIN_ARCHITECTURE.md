@@ -41,6 +41,13 @@ Core 保留通用能力：
 - `enabled`：已启用，可发布对应内容。
 - `disabled`：已禁用，对应板块不能继续发布新内容。
 
+插件状态分层（全局 + 子站）：
+
+- `plugins.status`：系统层插件状态，决定插件是否全局可用。
+- `community_plugins.status`：子站层插件状态，决定某个子站是否启用该插件。
+- 只有当插件同时满足“全局 enabled + 子站 enabled”时，才能在该子站绑定板块、展示菜单、发布新内容。
+- 禁用只影响新发布与入口展示，不影响已有内容 `/topics/:id` 的访问与 SEO。
+
 插件生命周期（概念层）：
 
 - `registered`：代码内置定义层的插件（`internal/plugins/*`），不一定落库。
@@ -62,7 +69,7 @@ Core 保留通用能力：
 - `content_type` 先归一：历史 `doc` / `wiki` 会归一为 `document` / `wiki_page`。
 - 根据 `content_type` 判断 `plugin_code`（例如 `question -> qa`，否则为 `core`）。
 - `category.plugin_code` 必须匹配 `content_type` 对应插件（历史空值兼容为 `core`）。
-- 插件类型必须为 `enabled`（禁用后只限制新发布，不影响已有内容阅读与 SEO）。
+- 插件必须全局 `enabled`，且当前子站 `community_plugins` 也为 `enabled`（禁用后只限制新发布，不影响已有内容阅读与 SEO）。
 - `content_type` 必须在 `category.allowed_content_types` 中（允许 legacy alias）。
 - 通过后写入 `topics.content_type`（归一后）与 `topics.plugin_code`。
 
@@ -75,6 +82,7 @@ Core 保留通用能力：
 新增：
 
 - `plugins`
+- `community_plugins`
 - `qa_questions`
 - `qa_answers`
 - `docs_spaces`

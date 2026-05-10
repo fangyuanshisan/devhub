@@ -348,6 +348,23 @@ CREATE TABLE IF NOT EXISTS plugins (
   KEY idx_plugins_status (status)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
+-- Community Plugins (子站插件启用关系)
+CREATE TABLE IF NOT EXISTS community_plugins (
+  id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+  community_id BIGINT UNSIGNED NOT NULL,
+  plugin_code VARCHAR(64) NOT NULL,
+  status ENUM('enabled','disabled') NOT NULL DEFAULT 'enabled',
+  sort_order INT NOT NULL DEFAULT 0,
+  config_json JSON NULL,
+  created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  PRIMARY KEY (id),
+  UNIQUE KEY uk_community_plugins_community_code (community_id, plugin_code),
+  KEY idx_community_plugins_plugin (plugin_code),
+  KEY idx_community_plugins_community (community_id),
+  CONSTRAINT fk_community_plugins_community FOREIGN KEY (community_id) REFERENCES communities(id) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
 -- Categories (板块表) - 替代 boards，支持 content_type
 CREATE TABLE IF NOT EXISTS categories (
   id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,

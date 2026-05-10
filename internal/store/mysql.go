@@ -192,6 +192,23 @@ func (s *MySQLStore) migrateSiteScopedAudit() error {
 	_, _ = s.db.Exec(`UPDATE topics SET content_type='document', plugin_code='docs' WHERE content_type='doc'`)
 	_, _ = s.db.Exec(`UPDATE topics SET content_type='wiki_page', plugin_code='wiki' WHERE content_type='wiki'`)
 	_, _ = s.db.Exec(`UPDATE topics SET plugin_code='qa' WHERE content_type='question'`)
+	_, _ = s.db.Exec(`CREATE TABLE IF NOT EXISTS community_plugins (
+		id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+		community_id BIGINT UNSIGNED NOT NULL,
+		plugin_code VARCHAR(64) NOT NULL,
+		status ENUM('enabled','disabled') NOT NULL DEFAULT 'enabled',
+		sort_order INT NOT NULL DEFAULT 0,
+		config_json JSON NULL,
+		created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+		updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+		PRIMARY KEY (id),
+		UNIQUE KEY uk_community_plugins_community_code (community_id, plugin_code),
+		KEY idx_community_plugins_plugin (plugin_code),
+		KEY idx_community_plugins_community (community_id),
+		CONSTRAINT fk_community_plugins_community FOREIGN KEY (community_id) REFERENCES communities(id) ON DELETE CASCADE
+	) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci`)
+	_, _ = s.db.Exec(`INSERT IGNORE INTO community_plugins (community_id, plugin_code, status, sort_order, config_json, created_at, updated_at)
+		SELECT c.id, p.plugin_code, 'enabled', 0, NULL, NOW(), NOW() FROM communities c JOIN plugins p ON p.status='enabled'`)
 	_, _ = s.db.Exec(`ALTER TABLE tags MODIFY status VARCHAR(32) NOT NULL DEFAULT 'enable'`)
 	_, _ = s.db.Exec(`UPDATE tags SET status='enable' WHERE status IN ('1','enabled','')`)
 	_, _ = s.db.Exec(`UPDATE tags SET status='disable' WHERE status IN ('0','disabled')`)
@@ -299,6 +316,8 @@ func (s *MySQLStore) seedIfEmpty() error {
 			return err
 		}
 	}
+	_, _ = s.db.Exec(`INSERT IGNORE INTO community_plugins (community_id, plugin_code, status, sort_order, config_json, created_at, updated_at)
+		SELECT c.id, p.plugin_code, 'enabled', 0, NULL, NOW(), NOW() FROM communities c JOIN plugins p ON p.status='enabled'`)
 
 	// Seed Categories (板块/分类)
 	for _, comm := range communities {
@@ -1202,6 +1221,143 @@ func (s *MySQLStore) SetPluginStatus(code, status string) (domain.Plugin, error)
 	s.appendLog("system", "admin", "更新插件状态", fmt.Sprintf("plugins#%s:%s", def.Code, status), "127.0.0.1")
 	plugin, _ := s.PluginByCode(def.Code)
 	return plugin, nil
+}
+
+func (s *MySQLStore) CommunityPlugins(communityID int64) ([]domain.Plugin, error) {
+	var exists int
+	if err := s.db.QueryRow(`SELECT 1 FROM communities WHERE id=? AND deleted_at IS NULL`, communityID).Scan(&exists); err != nil {
+		return nil, errors.New("子站不存在")
+	}
+	rows, err := s.db.Query(`SELECT plugin_code,status,sort_order,COALESCE(CAST(config_json AS CHAR),''),DATE_FORMAT(created_at,'%Y-%m-%d %H:%i:%s'),DATE_FORMAT(updated_at,'%Y-%m-%d %H:%i:%s') FROM community_plugins WHERE community_id=? ORDER BY sort_order,plugin_code`, communityID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	type rowItem struct {
+		status    string
+		sortOrder int
+		config    string
+		createdAt string
+		updatedAt string
+	}
+	runtime := map[string]rowItem{}
+	for rows.Next() {
+		var code string
+		var item rowItem
+		if err := rows.Scan(&code, &item.status, &item.sortOrder, &item.config, &item.createdAt, &item.updatedAt); err != nil {
+			continue
+		}
+		runtime[code] = item
+	}
+
+	base := s.Plugins()
+	out := make([]domain.Plugin, 0, len(base))
+	for _, plugin := range base {
+		item := plugin
+		item.GlobalStatus = plugin.Status
+		item.CommunityStatus = pluginregistry.StatusDisabled
+		if rt, ok := runtime[item.Code]; ok {
+			item.CommunityStatus = rt.status
+			item.ConfigJSON = rt.config
+		}
+		if item.GlobalStatus == pluginregistry.StatusEnabled && item.CommunityStatus == pluginregistry.StatusEnabled {
+			item.Status = pluginregistry.StatusEnabled
+		} else {
+			item.Status = pluginregistry.StatusDisabled
+		}
+		out = append(out, item)
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].Code < out[j].Code })
+	return out, nil
+}
+
+func (s *MySQLStore) SetCommunityPluginStatus(communityID int64, code, status string) (domain.Plugin, error) {
+	status = strings.TrimSpace(status)
+	if status != pluginregistry.StatusEnabled && status != pluginregistry.StatusDisabled {
+		return domain.Plugin{}, errors.New("插件状态不合法")
+	}
+	def, ok := pluginregistry.DefinitionByCode(code)
+	if !ok {
+		return domain.Plugin{}, errors.New("插件不存在")
+	}
+	plugin, ok := s.PluginByCode(def.Code)
+	if !ok {
+		return domain.Plugin{}, errors.New("插件不存在")
+	}
+	if plugin.Status != pluginregistry.StatusEnabled && status == pluginregistry.StatusEnabled {
+		return domain.Plugin{}, errors.New("插件全局未启用，不能在子站启用")
+	}
+	var exists int
+	if err := s.db.QueryRow(`SELECT 1 FROM communities WHERE id=? AND deleted_at IS NULL`, communityID).Scan(&exists); err != nil {
+		return domain.Plugin{}, errors.New("子站不存在")
+	}
+	if _, err := s.db.Exec(`INSERT INTO community_plugins (community_id,plugin_code,status,sort_order,config_json,created_at,updated_at)
+		VALUES (?,?,?,0,NULL,NOW(),NOW())
+		ON DUPLICATE KEY UPDATE status=VALUES(status),updated_at=NOW()`, communityID, def.Code, status); err != nil {
+		return domain.Plugin{}, err
+	}
+	s.appendLog("system", "admin", "更新子站插件状态", fmt.Sprintf("community_plugins#%d:%s:%s", communityID, def.Code, status), "127.0.0.1")
+	items, _ := s.CommunityPlugins(communityID)
+	for _, item := range items {
+		if item.Code == def.Code {
+			return item, nil
+		}
+	}
+	return domain.Plugin{}, errors.New("插件不存在")
+}
+
+func (s *MySQLStore) SetCommunityPluginConfig(communityID int64, code, configJSON string) (domain.Plugin, error) {
+	def, ok := pluginregistry.DefinitionByCode(code)
+	if !ok {
+		return domain.Plugin{}, errors.New("插件不存在")
+	}
+	var exists int
+	if err := s.db.QueryRow(`SELECT 1 FROM communities WHERE id=? AND deleted_at IS NULL`, communityID).Scan(&exists); err != nil {
+		return domain.Plugin{}, errors.New("子站不存在")
+	}
+	configJSON = strings.TrimSpace(configJSON)
+	var config any = nil
+	if configJSON != "" {
+		if !json.Valid([]byte(configJSON)) {
+			return domain.Plugin{}, errors.New("config_json 必须是合法 JSON")
+		}
+		config = json.RawMessage(configJSON)
+	}
+	if _, err := s.db.Exec(`INSERT INTO community_plugins (community_id,plugin_code,status,sort_order,config_json,created_at,updated_at)
+		VALUES (?,?,?,0,?,NOW(),NOW())
+		ON DUPLICATE KEY UPDATE config_json=VALUES(config_json),updated_at=NOW()`, communityID, def.Code, pluginregistry.StatusDisabled, config); err != nil {
+		return domain.Plugin{}, err
+	}
+	s.appendLog("system", "admin", "更新子站插件配置", fmt.Sprintf("community_plugins#%d:%s:config", communityID, def.Code), "127.0.0.1")
+	items, _ := s.CommunityPlugins(communityID)
+	for _, item := range items {
+		if item.Code == def.Code {
+			return item, nil
+		}
+	}
+	return domain.Plugin{}, errors.New("插件不存在")
+}
+
+func (s *MySQLStore) ReorderCommunityPlugins(communityID int64, codes []string) (int, error) {
+	var exists int
+	if err := s.db.QueryRow(`SELECT 1 FROM communities WHERE id=? AND deleted_at IS NULL`, communityID).Scan(&exists); err != nil {
+		return 0, errors.New("子站不存在")
+	}
+	updated := 0
+	for i, code := range codes {
+		def, ok := pluginregistry.DefinitionByCode(code)
+		if !ok {
+			continue
+		}
+		if _, err := s.db.Exec(`INSERT INTO community_plugins (community_id,plugin_code,status,sort_order,config_json,created_at,updated_at)
+			VALUES (?,?,?, ?, NULL, NOW(), NOW())
+			ON DUPLICATE KEY UPDATE sort_order=VALUES(sort_order),updated_at=NOW()`, communityID, def.Code, pluginregistry.StatusDisabled, i); err != nil {
+			return updated, err
+		}
+		updated++
+	}
+	s.appendLog("system", "admin", "更新子站插件排序", fmt.Sprintf("community_plugins#%d:sort", communityID), "127.0.0.1")
+	return updated, nil
 }
 
 func (s *MySQLStore) ListPosts(site, board, q, tag string) []domain.Post {
@@ -2970,6 +3126,16 @@ func (s *MySQLStore) CreateCategory(communityID int64, req domain.CategoryReques
 	if err != nil {
 		return domain.Category{}, err
 	}
+	if cat.PluginCode != pluginregistry.CoreCode {
+		plugin, ok := s.PluginByCode(cat.PluginCode)
+		if !ok || plugin.Status != pluginregistry.StatusEnabled {
+			return domain.Category{}, errors.New("插件全局未启用，不能绑定该插件板块")
+		}
+		var status string
+		if err := s.db.QueryRow(`SELECT status FROM community_plugins WHERE community_id=? AND plugin_code=?`, cat.CommunityID, cat.PluginCode).Scan(&status); err != nil || status != pluginregistry.StatusEnabled {
+			return domain.Category{}, errors.New("当前子站未启用该插件，不能绑定该插件板块")
+		}
+	}
 	res, err := s.db.Exec(`INSERT INTO categories (community_id,name,slug,type,plugin_code,allowed_content_types,description,icon,sort_order,visible,nav_visible,postable,seo_title,seo_description,status,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,NOW(),NOW())`,
 		cat.CommunityID, cat.Name, cat.Slug, cat.Type, cat.PluginCode, stringSliceJSON(cat.AllowedContentTypes), cat.Description, cat.Icon, cat.SortOrder, boolToInt(cat.Visible), boolToInt(cat.NavVisible), boolToInt(cat.Postable), cat.SEOTitle, cat.SEODescription, cat.Status)
 	if err != nil {
@@ -2990,6 +3156,16 @@ func (s *MySQLStore) UpdateCategory(id int64, req domain.CategoryRequest) (domai
 	cat, err := normalizeMySQLCategoryRequest(req, &current)
 	if err != nil {
 		return domain.Category{}, err
+	}
+	if cat.PluginCode != pluginregistry.CoreCode {
+		plugin, ok := s.PluginByCode(cat.PluginCode)
+		if !ok || plugin.Status != pluginregistry.StatusEnabled {
+			return domain.Category{}, errors.New("插件全局未启用，不能绑定该插件板块")
+		}
+		var status string
+		if err := s.db.QueryRow(`SELECT status FROM community_plugins WHERE community_id=? AND plugin_code=?`, cat.CommunityID, cat.PluginCode).Scan(&status); err != nil || status != pluginregistry.StatusEnabled {
+			return domain.Category{}, errors.New("当前子站未启用该插件，不能绑定该插件板块")
+		}
 	}
 	_, err = s.db.Exec(`UPDATE categories SET community_id=?,name=?,slug=?,type=?,plugin_code=?,allowed_content_types=?,description=?,icon=?,sort_order=?,visible=?,nav_visible=?,postable=?,seo_title=?,seo_description=?,status=?,updated_at=NOW() WHERE id=? AND deleted_at IS NULL`,
 		cat.CommunityID, cat.Name, cat.Slug, cat.Type, cat.PluginCode, stringSliceJSON(cat.AllowedContentTypes), cat.Description, cat.Icon, cat.SortOrder, boolToInt(cat.Visible), boolToInt(cat.NavVisible), boolToInt(cat.Postable), cat.SEOTitle, cat.SEODescription, cat.Status, id)

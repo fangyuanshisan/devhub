@@ -8,6 +8,7 @@ DevHub v1.3.0 is the Core + Plugins architecture split release.
 
 - Built-in plugin registry with `qa`, `docs`, and `wiki` system plugins.
 - MySQL `plugins` table with `installed`, `enabled`, and `disabled` states.
+- Per-community plugin enablement via the `community_plugins` table.
 - `topics.plugin_code` plus `categories.plugin_code` and `categories.allowed_content_types`.
 - Plugin-owned tables: `qa_questions`, `qa_answers`, `docs_spaces`, `docs_documents`, `wiki_spaces`, `wiki_pages`, and `wiki_page_versions`.
 - Admin plugin APIs and lightweight admin-next plugin management / plugin content entries.

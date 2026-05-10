@@ -1,6 +1,7 @@
 package httpapi
 
 import (
+	"encoding/json"
 	"fmt"
 	"html"
 	"net/http"
@@ -80,6 +81,7 @@ func NewRouter(svc *service.Service) *gin.Engine {
 		api.GET("/communities/:slug/overview", srv.communityOverview)
 		api.GET("/communities/:slug/stats", srv.communityStats)
 		api.GET("/communities/:slug/categories", srv.listCategories)
+		api.GET("/communities/:slug/plugins", srv.communityPlugins)
 		api.GET("/communities/:slug/tags", srv.listCommunityTags)
 		api.GET("/communities/:slug/tags/:tag", srv.getCommunityTag)
 		api.GET("/communities/:slug/tags/:tag/topics", srv.communityTagTopics)
@@ -152,6 +154,11 @@ func NewRouter(svc *service.Service) *gin.Engine {
 			protected.POST("/communities/:id/enable", srv.requirePermission("site.write"), srv.enableAdminCommunity)
 			protected.POST("/communities/:id/disable", srv.requirePermission("site.write"), srv.disableAdminCommunity)
 			protected.POST("/communities/reorder", srv.requirePermission("site.write"), srv.reorderAdminCommunities)
+			protected.GET("/communities/:id/plugins", srv.requirePermission("site.read"), srv.adminCommunityPlugins)
+			protected.POST("/communities/:id/plugins/:code/enable", srv.requirePermission("site.write"), srv.enableAdminCommunityPlugin)
+			protected.POST("/communities/:id/plugins/:code/disable", srv.requirePermission("site.write"), srv.disableAdminCommunityPlugin)
+			protected.PUT("/communities/:id/plugins/:code/config", srv.requirePermission("site.write"), srv.updateAdminCommunityPluginConfig)
+			protected.PUT("/communities/:id/plugins/sort", srv.requirePermission("site.write"), srv.reorderAdminCommunityPlugins)
 			protected.GET("/communities/:id/categories", srv.requirePermission("board.read"), srv.adminCommunityCategories)
 			protected.POST("/communities/:id/categories", srv.requirePermission("board.write"), srv.createAdminCommunityCategory)
 			protected.PUT("/categories/:id", srv.requirePermission("board.write"), srv.updateAdminCategory)
@@ -2357,6 +2364,103 @@ func (s *Server) reorderAdminCommunities(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"updated": updated})
 }
 
+func (s *Server) adminCommunityPlugins(c *gin.Context) {
+	id, ok := idParam(c, "id")
+	if !ok {
+		return
+	}
+	if !s.canManageCommunityConfig(c, id) {
+		return
+	}
+	items, err := s.svc.CommunityPlugins(id)
+	if err != nil {
+		fail(c, http.StatusBadRequest, err.Error())
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"items": items, "total": len(items)})
+}
+
+func (s *Server) enableAdminCommunityPlugin(c *gin.Context) {
+	s.setAdminCommunityPluginStatus(c, pluginregistry.StatusEnabled)
+}
+
+func (s *Server) disableAdminCommunityPlugin(c *gin.Context) {
+	s.setAdminCommunityPluginStatus(c, pluginregistry.StatusDisabled)
+}
+
+func (s *Server) setAdminCommunityPluginStatus(c *gin.Context, status string) {
+	id, ok := idParam(c, "id")
+	if !ok {
+		return
+	}
+	if !s.canManageCommunityConfig(c, id) {
+		return
+	}
+	code := strings.TrimSpace(c.Param("code"))
+	plugin, err := s.svc.SetCommunityPluginStatus(id, code, status)
+	if err != nil {
+		fail(c, http.StatusBadRequest, err.Error())
+		return
+	}
+	s.audit(c, "system", "更新子站插件状态", fmt.Sprintf("community_plugins#%d:%s:%s", id, plugin.Code, status))
+	c.JSON(http.StatusOK, plugin)
+}
+
+func (s *Server) updateAdminCommunityPluginConfig(c *gin.Context) {
+	id, ok := idParam(c, "id")
+	if !ok {
+		return
+	}
+	if !s.canManageCommunityConfig(c, id) {
+		return
+	}
+	code := strings.TrimSpace(c.Param("code"))
+	var req struct {
+		ConfigJSON any `json:"config_json"`
+	}
+	if err := c.ShouldBindJSON(&req); err != nil {
+		fail(c, http.StatusBadRequest, err.Error())
+		return
+	}
+	payload := ""
+	if req.ConfigJSON != nil {
+		if raw, err := json.Marshal(req.ConfigJSON); err == nil {
+			payload = string(raw)
+		}
+	}
+	plugin, err := s.svc.SetCommunityPluginConfig(id, code, payload)
+	if err != nil {
+		fail(c, http.StatusBadRequest, err.Error())
+		return
+	}
+	s.audit(c, "system", "更新子站插件配置", fmt.Sprintf("community_plugins#%d:%s:config", id, plugin.Code))
+	c.JSON(http.StatusOK, plugin)
+}
+
+func (s *Server) reorderAdminCommunityPlugins(c *gin.Context) {
+	id, ok := idParam(c, "id")
+	if !ok {
+		return
+	}
+	if !s.canManageCommunityConfig(c, id) {
+		return
+	}
+	var req struct {
+		Codes []string `json:"codes"`
+	}
+	if err := c.ShouldBindJSON(&req); err != nil {
+		fail(c, http.StatusBadRequest, err.Error())
+		return
+	}
+	updated, err := s.svc.ReorderCommunityPlugins(id, uniqueStrings(req.Codes))
+	if err != nil {
+		fail(c, http.StatusBadRequest, err.Error())
+		return
+	}
+	s.audit(c, "system", "子站插件排序", fmt.Sprintf("community_plugins#%d:sort:%d", id, updated))
+	c.JSON(http.StatusOK, gin.H{"updated": updated})
+}
+
 func (s *Server) adminCommunityCategories(c *gin.Context) {
 	id, ok := idParam(c, "id")
 	if !ok {
@@ -2882,10 +2986,40 @@ func (s *Server) moderatorCommunities(c *gin.Context) {
 
 func (s *Server) moderatorPluginMenus(c *gin.Context) {
 	user, _ := currentUser(c)
+	communityID := int64(0)
+	if slug := strings.TrimSpace(firstQuery(c, "community_slug", "community", "site")); slug != "" {
+		if comm, ok := s.svc.CommunityBySlug(slug); ok {
+			communityID = comm.ID
+		}
+	} else if id := strings.TrimSpace(c.Query("community_id")); id != "" {
+		if parsed, err := strconv.ParseInt(id, 10, 64); err == nil {
+			communityID = parsed
+		}
+	}
+	if communityID > 0 && !s.canModerateCommunityStrict(c, communityID) {
+		return
+	}
+	moderated := s.moderatorCommunitiesForCurrentUser(c)
 	menus := []domain.PluginMenu{}
 	for _, plugin := range s.svc.Plugins() {
 		if plugin.Status != pluginregistry.StatusEnabled {
 			continue
+		}
+		if communityID > 0 {
+			if !s.pluginEnabledForCommunity(communityID, plugin.Code) {
+				continue
+			}
+		} else if len(moderated) > 0 {
+			ok := false
+			for _, comm := range moderated {
+				if s.pluginEnabledForCommunity(comm.ID, plugin.Code) {
+					ok = true
+					break
+				}
+			}
+			if !ok {
+				continue
+			}
 		}
 		for _, menu := range plugin.Menus {
 			if menu.Area == "moderator" {
@@ -4405,7 +4539,47 @@ func (s *Server) listCategories(c *gin.Context) {
 		return
 	}
 	categories := s.svc.Categories(comm.ID)
-	c.JSON(http.StatusOK, gin.H{"items": categories})
+	enabled := map[string]bool{pluginregistry.CoreCode: true}
+	if plugins, err := s.svc.CommunityPlugins(comm.ID); err == nil {
+		for _, plugin := range plugins {
+			if plugin.Status == pluginregistry.StatusEnabled {
+				enabled[plugin.Code] = true
+			}
+		}
+	}
+	filtered := make([]domain.Category, 0, len(categories))
+	for _, cat := range categories {
+		if cat.Status != 1 || !cat.Visible {
+			continue
+		}
+		if enabled[firstNonEmpty(cat.PluginCode, pluginregistry.CoreCode)] {
+			filtered = append(filtered, cat)
+		}
+	}
+	c.JSON(http.StatusOK, gin.H{"items": filtered})
+}
+
+func (s *Server) communityPlugins(c *gin.Context) {
+	comm, ok := s.svc.CommunityBySlug(c.Param("slug"))
+	if !ok || comm.Status != 1 {
+		fail(c, http.StatusNotFound, "子站不存在")
+		return
+	}
+	items, err := s.svc.CommunityPlugins(comm.ID)
+	if err != nil {
+		fail(c, http.StatusBadRequest, err.Error())
+		return
+	}
+	enabled := make([]domain.Plugin, 0, len(items))
+	for _, plugin := range items {
+		if plugin.Status == pluginregistry.StatusEnabled {
+			plugin.GlobalStatus = ""
+			plugin.CommunityStatus = ""
+			plugin.ConfigJSON = ""
+			enabled = append(enabled, plugin)
+		}
+	}
+	c.JSON(http.StatusOK, gin.H{"items": enabled})
 }
 
 func (s *Server) listCommunityTags(c *gin.Context) {
@@ -5339,6 +5513,9 @@ func (s *Server) normalizeCreateTopicRequest(req *domain.CreateTopicRequest) err
 		if !ok || plugin.Status != pluginregistry.StatusEnabled {
 			return fmt.Errorf("插件未启用，不能发布该类型内容")
 		}
+		if !s.pluginEnabledForCommunity(req.CommunityID, req.PluginCode) {
+			return fmt.Errorf("当前子站未启用该插件，不能发布该类型内容")
+		}
 	}
 
 	if len(req.TagIDs) > 0 {
@@ -5375,6 +5552,22 @@ func (s *Server) normalizeCreateTopicRequest(req *domain.CreateTopicRequest) err
 		req.Tags = uniqueStrings(normalized)
 	}
 	return nil
+}
+
+func (s *Server) pluginEnabledForCommunity(communityID int64, pluginCode string) bool {
+	if strings.TrimSpace(pluginCode) == "" || pluginCode == pluginregistry.CoreCode {
+		return true
+	}
+	items, err := s.svc.CommunityPlugins(communityID)
+	if err != nil {
+		return false
+	}
+	for _, plugin := range items {
+		if plugin.Code == pluginCode {
+			return plugin.Status == pluginregistry.StatusEnabled
+		}
+	}
+	return false
 }
 
 func (s *Server) communityTagsForCreate(communityID int64) []domain.Tag {

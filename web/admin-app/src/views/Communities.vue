@@ -49,6 +49,7 @@
         <template #default="{ row }">
           <el-button link type="primary" @click="openEdit(row)">编辑</el-button>
           <el-button link type="primary" @click="openCategories(row)">板块</el-button>
+          <el-button link type="primary" @click="openPlugins(row)">插件</el-button>
           <el-button link type="primary" @click="openModerators(row)">版主</el-button>
           <el-button link type="primary" @click="openFrontend(row)">前台</el-button>
           <el-button v-if="row.status !== 1" link type="success" @click="enable(row)">启用</el-button>
@@ -104,6 +105,37 @@
     </el-table>
   </el-drawer>
 
+  <el-drawer v-model="pluginDrawer" :title="`${currentCommunity.name || ''} 插件管理`" size="720px">
+    <div class="drawer-head">
+      <div>
+        <h3 class="drawer-title">{{ currentCommunity.name }} <span class="muted">/{{ currentCommunity.slug }}</span></h3>
+        <p class="muted">插件需同时满足“全局 enabled + 子站 enabled”才可用于发布与菜单展示。禁用不影响历史内容访问，只限制新发布与入口。</p>
+      </div>
+      <el-button @click="loadPlugins">刷新</el-button>
+    </div>
+    <el-table :data="pluginRows" border stripe>
+      <el-table-column prop="code" label="code" width="110" />
+      <el-table-column prop="name" label="名称" width="140" />
+      <el-table-column label="内容类型" min-width="180">
+        <template #default="{ row }">
+          <el-tag v-for="type in row.content_types || []" :key="type" class="mr-6">{{ type }}</el-tag>
+        </template>
+      </el-table-column>
+      <el-table-column label="全局/子站" width="170">
+        <template #default="{ row }">
+          <el-tag :type="(row.global_status || row.status) === 'enabled' ? 'success' : 'info'" class="mr-6">{{ row.global_status || row.status }}</el-tag>
+          <el-tag :type="(row.community_status || row.status) === 'enabled' ? 'success' : 'info'">{{ row.community_status || row.status }}</el-tag>
+        </template>
+      </el-table-column>
+      <el-table-column label="操作" width="160">
+        <template #default="{ row }">
+          <el-button v-if="row.community_status !== 'enabled'" link type="success" @click="setCommunityPlugin(row, 'enabled')">启用</el-button>
+          <el-button v-else link type="warning" @click="setCommunityPlugin(row, 'disabled')">禁用</el-button>
+        </template>
+      </el-table-column>
+    </el-table>
+  </el-drawer>
+
   <el-dialog v-model="categoryDialog" :title="categoryForm.id ? '编辑板块' : '新增板块'" width="520px">
     <el-form :model="categoryForm" label-width="100px">
       <el-form-item label="名称"><el-input v-model="categoryForm.name" /></el-form-item>
@@ -126,7 +158,7 @@
 import { computed, reactive, ref } from 'vue';
 import { useRouter } from 'vue-router';
 import { ElMessage } from 'element-plus';
-import { adminCommunities, adminCommunityCategories, createCommunity, createCommunityCategory, disableCategory, disableCommunity, enableCategory, enableCommunity, reorderCategories, reorderCommunities, updateCategory, updateCommunity } from '@/api/admin';
+import { adminCommunities, adminCommunityCategories, adminCommunityPlugins, createCommunity, createCommunityCategory, disableCategory, disableCommunity, disableCommunityPlugin, enableCategory, enableCommunity, enableCommunityPlugin, reorderCategories, reorderCommunities, updateCategory, updateCommunity } from '@/api/admin';
 
 const router = useRouter();
 const keyword = ref('');
@@ -135,8 +167,10 @@ const drawer = ref(false);
 const editing = ref({});
 const categoryDrawer = ref(false);
 const categoryDialog = ref(false);
+const pluginDrawer = ref(false);
 const currentCommunity = ref({});
 const categoryRows = ref([]);
+const pluginRows = ref([]);
 const form = reactive(blankCommunity());
 const categoryForm = reactive(blankCategory());
 const contentTypes = [
@@ -210,6 +244,25 @@ async function loadCategories() {
   const data = await adminCommunityCategories(currentCommunity.value.id);
   categoryRows.value = data.items || [];
 }
+
+async function openPlugins(row) {
+  currentCommunity.value = row;
+  pluginDrawer.value = true;
+  await loadPlugins();
+}
+
+async function loadPlugins() {
+  const data = await adminCommunityPlugins(currentCommunity.value.id);
+  pluginRows.value = data.items || [];
+}
+
+async function setCommunityPlugin(row, status) {
+  if (status === 'enabled') await enableCommunityPlugin(currentCommunity.value.id, row.code);
+  else await disableCommunityPlugin(currentCommunity.value.id, row.code);
+  ElMessage.success('子站插件已更新');
+  await loadPlugins();
+  if (categoryDrawer.value) await loadCategories();
+}
 function openCategoryCreate() {
   Object.assign(categoryForm, blankCategory(), { sort_order: categoryRows.value.length + 1 });
   categoryDialog.value = true;
@@ -241,3 +294,10 @@ async function saveCategoryOrder() {
 
 load();
 </script>
+
+<style scoped>
+.drawer-head { display: flex; justify-content: space-between; align-items: flex-start; gap: 12px; margin-bottom: 12px; }
+.drawer-title { margin: 0 0 6px; }
+.muted { color: #64748b; }
+.mr-6 { margin-right: 6px; }
+</style>

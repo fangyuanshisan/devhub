@@ -25,6 +25,10 @@ type Repository interface {
 	Plugins() []domain.Plugin
 	PluginByCode(code string) (domain.Plugin, bool)
 	SetPluginStatus(code, status string) (domain.Plugin, error)
+	CommunityPlugins(communityID int64) ([]domain.Plugin, error)
+	SetCommunityPluginStatus(communityID int64, code, status string) (domain.Plugin, error)
+	SetCommunityPluginConfig(communityID int64, code, configJSON string) (domain.Plugin, error)
+	ReorderCommunityPlugins(communityID int64, codes []string) (int, error)
 	ListPosts(site, board, q, tag string) []domain.Post
 	GetPost(id int64, increaseView bool) (*domain.Post, bool)
 	CreatePost(req domain.CreatePostRequest) (*domain.Post, error)
@@ -217,6 +221,26 @@ func (s *Service) Plugins() []domain.Plugin { return s.repo.Plugins() }
 // PluginByCode 按插件唯一标识获取插件。
 func (s *Service) PluginByCode(code string) (domain.Plugin, bool) {
 	return s.repo.PluginByCode(code)
+}
+
+// CommunityPlugins returns plugin list with community runtime state overlay.
+func (s *Service) CommunityPlugins(communityID int64) ([]domain.Plugin, error) {
+	return s.repo.CommunityPlugins(communityID)
+}
+
+// SetCommunityPluginStatus updates per-community plugin enablement.
+func (s *Service) SetCommunityPluginStatus(communityID int64, code, status string) (domain.Plugin, error) {
+	return s.repo.SetCommunityPluginStatus(communityID, code, status)
+}
+
+// SetCommunityPluginConfig updates per-community plugin config blob.
+func (s *Service) SetCommunityPluginConfig(communityID int64, code, configJSON string) (domain.Plugin, error) {
+	return s.repo.SetCommunityPluginConfig(communityID, code, configJSON)
+}
+
+// ReorderCommunityPlugins updates per-community plugin sort order.
+func (s *Service) ReorderCommunityPlugins(communityID int64, codes []string) (int, error) {
+	return s.repo.ReorderCommunityPlugins(communityID, codes)
 }
 
 // SetPluginStatus 更新插件状态。

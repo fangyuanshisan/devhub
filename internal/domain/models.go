@@ -30,13 +30,28 @@ type Plugin struct {
 	Name         string             `json:"name"`
 	Version      string             `json:"version"`
 	Status       string             `json:"status"`
+	GlobalStatus string             `json:"global_status,omitempty"`
+	CommunityStatus string          `json:"community_status,omitempty"`
 	Description  string             `json:"description,omitempty"`
 	ContentTypes []string           `json:"content_types,omitempty"`
 	Menus        []PluginMenu       `json:"menus,omitempty"`
 	Permissions  []PluginPermission `json:"permissions,omitempty"`
 	Routes       []PluginRoute      `json:"routes,omitempty"`
+	ConfigJSON   string             `json:"config_json,omitempty"`
 	CreatedAt    string             `json:"created_at,omitempty"`
 	UpdatedAt    string             `json:"updated_at,omitempty"`
+}
+
+// CommunityPlugin 表示子站对某个插件的启用状态与配置。
+type CommunityPlugin struct {
+	ID         int64  `json:"id"`
+	CommunityID int64 `json:"community_id"`
+	PluginCode string `json:"plugin_code"`
+	Status     string `json:"status"`
+	SortOrder  int    `json:"sort_order"`
+	ConfigJSON string `json:"config_json,omitempty"`
+	CreatedAt  string `json:"created_at,omitempty"`
+	UpdatedAt  string `json:"updated_at,omitempty"`
 }
 
 // PluginMenu 表示插件注册到后台或版主工作台的菜单。

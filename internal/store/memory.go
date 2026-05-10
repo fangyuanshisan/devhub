@@ -39,6 +39,7 @@ type MemoryStore struct {
 	communities     map[int64]*domain.Community
 	categories      map[int64]*domain.Category
 	plugins         map[string]*domain.Plugin
+	communityPlugins map[int64]map[string]*domain.CommunityPlugin
 	tags            map[int64]*domain.Tag
 	tagAliases      map[int64]*domain.TagAlias
 	boardOrder      []string
@@ -82,6 +83,7 @@ func NewMemoryStore() *MemoryStore {
 		communities:     map[int64]*domain.Community{},
 		categories:      map[int64]*domain.Category{},
 		plugins:         map[string]*domain.Plugin{},
+		communityPlugins: map[int64]map[string]*domain.CommunityPlugin{},
 		tags:            map[int64]*domain.Tag{},
 		tagAliases:      map[int64]*domain.TagAlias{},
 		boardOrder:      []string{"all", "community", "qa", "opensource", "ai", "jobs", "wiki", "docs"},
@@ -212,6 +214,27 @@ func (s *MemoryStore) seedPluginsLocked() {
 	}
 }
 
+func (s *MemoryStore) seedCommunityPluginsLocked() {
+	now := Now()
+	for id := range s.communities {
+		if _, ok := s.communityPlugins[id]; !ok {
+			s.communityPlugins[id] = map[string]*domain.CommunityPlugin{}
+		}
+		for _, def := range pluginregistry.Definitions() {
+			s.communityPlugins[id][def.Code] = &domain.CommunityPlugin{
+				ID:          0,
+				CommunityID: id,
+				PluginCode:  def.Code,
+				Status:      pluginregistry.StatusEnabled,
+				SortOrder:   0,
+				ConfigJSON:  "",
+				CreatedAt:   now,
+				UpdatedAt:   now,
+			}
+		}
+	}
+}
+
 func (s *MemoryStore) seedCommunitiesAndCategories() {
 	for _, comm := range communitySeedData() {
 		c := comm
@@ -243,6 +266,7 @@ func (s *MemoryStore) seed() {
 	s.sites["ai"] = domain.Site{Key: "ai", Name: "AI", Logo: "AI", Title: "AI 子网站", Sub: "子网站 · 7 个板块", Pub: "发布 AI 内容", Description: "AI Agent、RAG、Prompt 与工作流社区", Color: "#7c3aed", Status: "enable", Sort: 4}
 	s.sites["frontend"] = domain.Site{Key: "frontend", Name: "Frontend", Logo: "FE", Title: "Frontend 子网站", Sub: "子网站 · 7 个板块", Pub: "发布前端内容", Description: "Vue、React、TypeScript 与前端工程化社区", Color: "#16a34a", Status: "enable", Sort: 5}
 	s.seedCommunitiesAndCategories()
+	s.seedCommunityPluginsLocked()
 
 	boardNames := map[string]string{"all": "全部", "community": "社区", "qa": "问答中心", "opensource": "开源项目", "ai": "AI作品", "jobs": "招聘内推", "wiki": "Wiki", "docs": "文档"}
 	for i, key := range s.boardOrder {
@@ -1074,6 +1098,147 @@ func (s *MemoryStore) SetPluginStatus(code, status string) (domain.Plugin, error
 	runtime.UpdatedAt = Now()
 	s.appendLogLocked("system", "admin", "更新插件状态", fmt.Sprintf("plugins#%s:%s", def.Code, status), "127.0.0.1")
 	return pluginregistry.MergeRuntimeState(def, *runtime), nil
+}
+
+func (s *MemoryStore) CommunityPlugins(communityID int64) ([]domain.Plugin, error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	if _, ok := s.communities[communityID]; !ok {
+		return nil, errors.New("子站不存在")
+	}
+	runtime := s.communityPlugins[communityID]
+	out := make([]domain.Plugin, 0, len(pluginregistry.Definitions()))
+	for _, def := range pluginregistry.Definitions() {
+		merged := def
+		if global, ok := s.plugins[def.Code]; ok {
+			merged = pluginregistry.MergeRuntimeState(def, *global)
+		}
+		merged.GlobalStatus = merged.Status
+		merged.CommunityStatus = pluginregistry.StatusDisabled
+		if cp, ok := runtime[def.Code]; ok && cp != nil {
+			merged.CommunityStatus = cp.Status
+			merged.ConfigJSON = cp.ConfigJSON
+		}
+		if merged.GlobalStatus == pluginregistry.StatusEnabled && merged.CommunityStatus == pluginregistry.StatusEnabled {
+			merged.Status = pluginregistry.StatusEnabled
+		} else {
+			merged.Status = pluginregistry.StatusDisabled
+		}
+		out = append(out, merged)
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].Code < out[j].Code })
+	return out, nil
+}
+
+func (s *MemoryStore) SetCommunityPluginStatus(communityID int64, code, status string) (domain.Plugin, error) {
+	status = strings.TrimSpace(status)
+	if status != pluginregistry.StatusEnabled && status != pluginregistry.StatusDisabled {
+		return domain.Plugin{}, errors.New("插件状态不合法")
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if _, ok := s.communities[communityID]; !ok {
+		return domain.Plugin{}, errors.New("子站不存在")
+	}
+	def, ok := pluginregistry.DefinitionByCode(code)
+	if !ok {
+		return domain.Plugin{}, errors.New("插件不存在")
+	}
+	global, ok := s.plugins[def.Code]
+	if !ok {
+		return domain.Plugin{}, errors.New("插件不存在")
+	}
+	if global.Status != pluginregistry.StatusEnabled && status == pluginregistry.StatusEnabled {
+		return domain.Plugin{}, errors.New("插件全局未启用，不能在子站启用")
+	}
+	if _, ok := s.communityPlugins[communityID]; !ok {
+		s.communityPlugins[communityID] = map[string]*domain.CommunityPlugin{}
+	}
+	cp := s.communityPlugins[communityID][def.Code]
+	if cp == nil {
+		cp = &domain.CommunityPlugin{CommunityID: communityID, PluginCode: def.Code, CreatedAt: Now()}
+		s.communityPlugins[communityID][def.Code] = cp
+	}
+	cp.Status = status
+	cp.UpdatedAt = Now()
+	s.appendLogLocked("system", "admin", "更新子站插件状态", fmt.Sprintf("community_plugins#%d:%s:%s", communityID, def.Code, status), "127.0.0.1")
+
+	plugin := pluginregistry.MergeRuntimeState(def, *global)
+	plugin.GlobalStatus = global.Status
+	plugin.CommunityStatus = cp.Status
+	plugin.ConfigJSON = cp.ConfigJSON
+	if plugin.GlobalStatus == pluginregistry.StatusEnabled && plugin.CommunityStatus == pluginregistry.StatusEnabled {
+		plugin.Status = pluginregistry.StatusEnabled
+	} else {
+		plugin.Status = pluginregistry.StatusDisabled
+	}
+	return plugin, nil
+}
+
+func (s *MemoryStore) SetCommunityPluginConfig(communityID int64, code, configJSON string) (domain.Plugin, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if _, ok := s.communities[communityID]; !ok {
+		return domain.Plugin{}, errors.New("子站不存在")
+	}
+	def, ok := pluginregistry.DefinitionByCode(code)
+	if !ok {
+		return domain.Plugin{}, errors.New("插件不存在")
+	}
+	global, ok := s.plugins[def.Code]
+	if !ok {
+		return domain.Plugin{}, errors.New("插件不存在")
+	}
+	if _, ok := s.communityPlugins[communityID]; !ok {
+		s.communityPlugins[communityID] = map[string]*domain.CommunityPlugin{}
+	}
+	cp := s.communityPlugins[communityID][def.Code]
+	if cp == nil {
+		cp = &domain.CommunityPlugin{CommunityID: communityID, PluginCode: def.Code, Status: pluginregistry.StatusDisabled, CreatedAt: Now()}
+		s.communityPlugins[communityID][def.Code] = cp
+	}
+	cp.ConfigJSON = strings.TrimSpace(configJSON)
+	cp.UpdatedAt = Now()
+	s.appendLogLocked("system", "admin", "更新子站插件配置", fmt.Sprintf("community_plugins#%d:%s:config", communityID, def.Code), "127.0.0.1")
+
+	plugin := pluginregistry.MergeRuntimeState(def, *global)
+	plugin.GlobalStatus = global.Status
+	plugin.CommunityStatus = cp.Status
+	plugin.ConfigJSON = cp.ConfigJSON
+	if plugin.GlobalStatus == pluginregistry.StatusEnabled && plugin.CommunityStatus == pluginregistry.StatusEnabled {
+		plugin.Status = pluginregistry.StatusEnabled
+	} else {
+		plugin.Status = pluginregistry.StatusDisabled
+	}
+	return plugin, nil
+}
+
+func (s *MemoryStore) ReorderCommunityPlugins(communityID int64, codes []string) (int, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if _, ok := s.communities[communityID]; !ok {
+		return 0, errors.New("子站不存在")
+	}
+	if _, ok := s.communityPlugins[communityID]; !ok {
+		s.communityPlugins[communityID] = map[string]*domain.CommunityPlugin{}
+	}
+	updated := 0
+	for i, code := range codes {
+		def, ok := pluginregistry.DefinitionByCode(code)
+		if !ok {
+			continue
+		}
+		cp := s.communityPlugins[communityID][def.Code]
+		if cp == nil {
+			cp = &domain.CommunityPlugin{CommunityID: communityID, PluginCode: def.Code, Status: pluginregistry.StatusDisabled, CreatedAt: Now()}
+			s.communityPlugins[communityID][def.Code] = cp
+		}
+		cp.SortOrder = i
+		cp.UpdatedAt = Now()
+		updated++
+	}
+	s.appendLogLocked("system", "admin", "更新子站插件排序", fmt.Sprintf("community_plugins#%d:sort", communityID), "127.0.0.1")
+	return updated, nil
 }
 
 // ListPosts 按站点、板块、关键词和标签筛选帖子，并按 ID 倒序返回。
@@ -3778,6 +3943,19 @@ func (s *MemoryStore) normalizeCategoryRequestLocked(req domain.CategoryRequest,
 	}
 	if cat.PluginCode != expectedPlugin {
 		return nil, errors.New("板块插件与内容类型不匹配")
+	}
+	if cat.CommunityID == 0 {
+		return nil, errors.New("板块必须绑定子站")
+	}
+	if expectedPlugin != pluginregistry.CoreCode {
+		global := s.plugins[expectedPlugin]
+		if global == nil || global.Status != pluginregistry.StatusEnabled {
+			return nil, errors.New("插件全局未启用，不能绑定该插件板块")
+		}
+		cp := s.communityPlugins[cat.CommunityID][expectedPlugin]
+		if cp == nil || cp.Status != pluginregistry.StatusEnabled {
+			return nil, errors.New("当前子站未启用该插件，不能绑定该插件板块")
+		}
 	}
 	if len(req.AllowedContentTypes) > 0 {
 		allowed := make([]string, 0, len(req.AllowedContentTypes))

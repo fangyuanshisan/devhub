@@ -16,6 +16,11 @@ export const updateCommunity = (id, payload) => http.put(`/admin/communities/${i
 export const enableCommunity = (id) => http.post(`/admin/communities/${id}/enable`);
 export const disableCommunity = (id) => http.post(`/admin/communities/${id}/disable`);
 export const reorderCommunities = (payload) => http.post('/admin/communities/reorder', payload);
+export const adminCommunityPlugins = (id) => http.get(`/admin/communities/${id}/plugins`);
+export const enableCommunityPlugin = (id, code) => http.post(`/admin/communities/${id}/plugins/${code}/enable`);
+export const disableCommunityPlugin = (id, code) => http.post(`/admin/communities/${id}/plugins/${code}/disable`);
+export const updateCommunityPluginConfig = (id, code, payload) => http.put(`/admin/communities/${id}/plugins/${code}/config`, payload);
+export const reorderCommunityPlugins = (id, payload) => http.put(`/admin/communities/${id}/plugins/sort`, payload);
 export const adminCommunityCategories = (id) => http.get(`/admin/communities/${id}/categories`);
 export const createCommunityCategory = (id, payload) => http.post(`/admin/communities/${id}/categories`, payload);
 export const updateCategory = (id, payload) => http.put(`/admin/categories/${id}`, payload);

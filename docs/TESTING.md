@@ -21,12 +21,15 @@
 插件架构验收：
 
 - `GET /api/v1/plugins` 只返回 enabled 插件。
+- `GET /api/v1/communities/:slug/plugins` 只返回该子站可用插件（全局 enabled + 子站 enabled）。
 - `GET /api/v1/admin/plugins` 返回 `qa`、`docs`、`wiki` 插件状态。
+- `GET /api/v1/admin/communities/:id/plugins` 返回该子站插件状态列表。
 - 后台可以禁用 / 启用插件。
 - 禁用 `qa` 后，问答板块不能继续发布 `question`。
 - 禁用 `docs` 后，文档板块不能继续发布 `document`。
 - 禁用 `wiki` 后，Wiki 板块不能继续发布 `wiki_page`。
 - 禁用 `qa/docs/wiki` 后，前台发布页内容类型下拉不再出现对应类型；强行提交应返回“插件未启用/板块不允许”的错误提示。
+- 子站 A 禁用 `qa` 后，该子站不能发布 `question`；子站 B 仍启用 `qa` 时，子站 B 可以继续发布 `question`。
 - 问答板块只能发布 `question`。
 - 文档板块只能发布 `document`，旧 `doc` 参数会归一兼容。
 - Wiki 板块只能发布 `wiki_page`，旧 `wiki` 参数会归一兼容。

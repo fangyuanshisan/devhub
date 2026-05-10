@@ -179,6 +179,12 @@ GET /api/v1/plugins
 只返回已启用（`enabled`）插件，供前台判断系统能力与发布页内容类型收口。
 
 ```http
+GET /api/v1/communities/:slug/plugins
+```
+
+只返回该子站“全局 enabled + 子站 enabled”的插件列表，用于前台子站首页、发布页和导航收口。
+
+```http
 GET /api/v1/admin/plugins
 GET /api/v1/admin/plugin-menus
 POST /api/v1/admin/plugins/:code/enable
@@ -187,6 +193,20 @@ GET /api/v1/moderator/plugin-menus
 ```
 
 需要后台权限；`plugin.read` 可查看插件和菜单，`plugin.write` 可启用 / 禁用插件。插件禁用后，对应 `plugin_code` 的板块不能继续发布新内容。
+
+子站插件（community plugins）：
+
+```http
+GET  /api/v1/admin/communities/:id/plugins
+POST /api/v1/admin/communities/:id/plugins/:code/enable
+POST /api/v1/admin/communities/:id/plugins/:code/disable
+PUT  /api/v1/admin/communities/:id/plugins/:code/config
+PUT  /api/v1/admin/communities/:id/plugins/sort
+```
+
+- `plugins` 表表示插件是否全局可用；`community_plugins` 表表示插件在某个子站是否启用。
+- 全局 `disabled` 的插件不能在子站启用。
+- 禁用子站插件不影响历史内容阅读，只影响新发布与菜单/入口展示。
 
 `GET /api/v1/admin/plugin-menus`：
 
@@ -197,6 +217,7 @@ GET /api/v1/moderator/plugin-menus
 
 - 仅返回 `enabled` 插件的 `moderator` 菜单。
 - 若菜单声明了 `permission`，则按当前前台用户权限过滤。
+- 可选按 `community_slug` / `community_id` 参数筛选子站；不传时返回“当前版主可治理子站”范围内的可用插件菜单并做去重。
 
 返回字段包含 `content_type`、`visible`、`nav_visible`、`postable`、`seo_title`、`seo_description`、`status`。前台子站页只展示启用且可见的板块导航。
 
