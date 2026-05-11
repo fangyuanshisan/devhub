@@ -29,6 +29,7 @@
       </el-form-item>
       <el-form-item label="动作"><el-input v-model="query.action" clearable placeholder="动作关键词" style="width: 150px" data-testid="admin-audit-action-search" /></el-form-item>
       <el-form-item label="目标"><el-input v-model="query.target" clearable placeholder="topics#1" style="width: 150px" /></el-form-item>
+      <el-form-item label="元数据"><el-input v-model="query.metadata" clearable placeholder="plugin_code / request_id" style="width: 180px" /></el-form-item>
       <el-form-item><el-button type="primary" @click="load">查询</el-button><el-button @click="reset">重置</el-button></el-form-item>
     </el-form>
   </section>
@@ -51,9 +52,22 @@
 
 <script setup>
 import { reactive, ref } from 'vue';
+import { useRoute } from 'vue-router';
 import { auditLogs } from '@/api/admin';
 
-const query = reactive({ site: 'portal', type: 'all', target_type: '', actor_type: '', actor: '', action: '', target: '', page: 1, page_size: 20 });
+const route = useRoute();
+const query = reactive({
+  site: 'portal',
+  type: 'all',
+  target_type: String(route.query.target_type || ''),
+  actor_type: String(route.query.actor_type || ''),
+  actor: String(route.query.actor || ''),
+  action: String(route.query.action || ''),
+  target: String(route.query.target || ''),
+  metadata: String(route.query.metadata || route.query.plugin_code || ''),
+  page: 1,
+  page_size: 20,
+});
 const rows = ref([]);
 const total = ref(0);
 
@@ -76,7 +90,7 @@ async function load() {
   total.value = data.total || 0;
 }
 function reset() {
-  Object.assign(query, { site: 'portal', type: 'all', target_type: '', actor_type: '', actor: '', action: '', target: '', page: 1, page_size: 20 });
+  Object.assign(query, { site: 'portal', type: 'all', target_type: '', actor_type: '', actor: '', action: '', target: '', metadata: '', page: 1, page_size: 20 });
   load();
 }
 load();

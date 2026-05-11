@@ -14,19 +14,19 @@
         <div class="stat-v">{{ stats.total }}</div>
       </div>
       <div class="stat-card">
-        <div class="stat-k">Enabled</div>
+        <div class="stat-k">{{ t('plugin.stats.enabled') }}</div>
         <div class="stat-v">{{ stats.enabled }}</div>
       </div>
       <div class="stat-card">
-        <div class="stat-k">Disabled</div>
+        <div class="stat-k">{{ t('plugin.stats.disabled') }}</div>
         <div class="stat-v">{{ stats.disabled }}</div>
       </div>
       <div class="stat-card">
-        <div class="stat-k">System</div>
+        <div class="stat-k">{{ t('plugin.stats.system') }}</div>
         <div class="stat-v">{{ stats.system }}</div>
       </div>
       <div class="stat-card">
-        <div class="stat-k">有 Schema</div>
+        <div class="stat-k">{{ t('plugin.stats.hasSchema') }}</div>
         <div class="stat-v">{{ stats.hasSchema }}</div>
       </div>
     </div>
@@ -37,24 +37,24 @@
         <p>Core 保留通用底座，业务能力通过系统插件声明、启停、权限、菜单和配置扩展。</p>
       </div>
       <div class="tool-actions">
-        <el-input v-model="filters.q" data-testid="plugin-search" placeholder="搜索 code / name" clearable style="width: 220px" />
-        <el-select v-model="filters.status" placeholder="状态" clearable style="width: 140px">
-          <el-option label="全部" value="all" />
-          <el-option label="enabled" value="enabled" />
-          <el-option label="disabled" value="disabled" />
+        <el-input v-model="filters.q" data-testid="plugin-search" :placeholder="t('plugin.filters.searchPlaceholder')" clearable style="width: 220px" />
+        <el-select v-model="filters.status" :placeholder="t('plugin.filters.status')" clearable style="width: 140px">
+          <el-option :label="t('common.all')" value="all" />
+          <el-option :label="pluginStatusLabel('enabled')" value="enabled" />
+          <el-option :label="pluginStatusLabel('disabled')" value="disabled" />
         </el-select>
-        <el-select v-model="filters.contentType" placeholder="content_type" clearable filterable style="width: 180px">
+        <el-select v-model="filters.contentType" :placeholder="t('plugin.contentType')" clearable filterable style="width: 180px">
           <el-option v-for="ct in allContentTypes" :key="ct" :label="ct" :value="ct" />
         </el-select>
-        <el-select v-model="filters.system" placeholder="system" clearable style="width: 140px">
-          <el-option label="全部" value="all" />
-          <el-option label="仅 system" value="yes" />
-          <el-option label="非 system" value="no" />
+        <el-select v-model="filters.system" :placeholder="t('plugin.system')" clearable style="width: 140px">
+          <el-option :label="t('common.all')" value="all" />
+          <el-option :label="t('plugin.filters.onlySystem')" value="yes" />
+          <el-option :label="t('plugin.filters.nonSystem')" value="no" />
         </el-select>
-        <el-select v-model="filters.hasSchema" placeholder="config_schema" clearable style="width: 160px">
-          <el-option label="全部" value="all" />
-          <el-option label="有 schema" value="yes" />
-          <el-option label="无 schema" value="no" />
+        <el-select v-model="filters.hasSchema" :placeholder="t('plugin.config.schema')" clearable style="width: 160px">
+          <el-option :label="t('common.all')" value="all" />
+          <el-option :label="t('plugin.filters.hasSchema')" value="yes" />
+          <el-option :label="t('plugin.filters.noSchema')" value="no" />
         </el-select>
         <el-button @click="load">刷新</el-button>
       </div>
@@ -66,19 +66,19 @@
             <strong>{{ row.name }}</strong>
             <span>{{ row.code }}</span>
           </div>
-          <el-tag v-if="row.is_system" size="small" type="primary">system</el-tag>
+          <el-tag v-if="row.is_system" size="small" type="primary">{{ t('plugin.system') }}</el-tag>
         </template>
       </el-table-column>
       <el-table-column prop="version" label="版本" width="100" />
       <el-table-column label="状态" width="120">
         <template #default="{ row }">
-          <el-tag :type="statusType(row.status)" effect="light">{{ row.status }}</el-tag>
+          <el-tag :type="statusType(row.status)" effect="light">{{ pluginStatusLabel(row.status) }}</el-tag>
         </template>
       </el-table-column>
       <el-table-column label="运行健康" min-width="170">
         <template #default="{ row }">
           <div class="health-cell">
-            <el-tag :type="healthType(row.health?.status)" effect="light">{{ row.health?.status || 'unknown' }}</el-tag>
+            <el-tag :type="healthType(row.health?.status)" effect="light">{{ pluginHealthLabel(row.health?.status) }}</el-tag>
             <span class="muted">{{ row.health?.suggested_action || '暂无建议' }}</span>
           </div>
         </template>
@@ -95,12 +95,12 @@
             <el-tag type="info" effect="plain">权限 {{ (row.permissions || []).length }}</el-tag>
             <el-tag type="info" effect="plain">菜单 {{ (row.menus || []).length }}</el-tag>
             <el-tag :type="hasConfigSchema(row) ? 'success' : 'info'" effect="plain">
-              schema {{ hasConfigSchema(row) ? '有' : '无' }}
+              {{ t('plugin.capability.schema') }} {{ hasConfigSchema(row) ? '有' : '无' }}
             </el-tag>
-            <el-tag :type="(row.hooks || []).length ? 'success' : 'info'" effect="plain">hooks {{ (row.hooks || []).length }}</el-tag>
-            <el-tag :type="statusMetricType(row.health?.config_status)" effect="plain">配置 {{ row.health?.config_status || '-' }}</el-tag>
-            <el-tag :type="statusMetricType(row.health?.migration_status)" effect="plain">迁移 {{ row.health?.migration_status || '-' }}</el-tag>
-            <el-tag :type="statusMetricType(row.health?.hook_status)" effect="plain">Hook {{ row.health?.hook_status || '-' }}</el-tag>
+            <el-tag :type="(row.hooks || []).length ? 'success' : 'info'" effect="plain">{{ t('plugin.capability.hooks') }} {{ (row.hooks || []).length }}</el-tag>
+            <el-tag :type="statusMetricType(row.health?.config_status)" effect="plain">配置 {{ pluginHealthLabel(row.health?.config_status) }}</el-tag>
+            <el-tag :type="statusMetricType(row.health?.migration_status)" effect="plain">迁移 {{ pluginHealthLabel(row.health?.migration_status) }}</el-tag>
+            <el-tag :type="statusMetricType(row.health?.hook_status)" effect="plain">Hook {{ pluginHealthLabel(row.health?.hook_status) }}</el-tag>
           </div>
         </template>
       </el-table-column>
@@ -134,6 +134,8 @@ import { useRouter } from 'vue-router';
 import { disablePlugin, enablePlugin, pluginImpact, plugins } from '@/api/admin';
 import { useAuthStore } from '@/stores/auth';
 import PluginDetailDrawer from '@/components/plugin/PluginDetailDrawer.vue';
+import { t } from '@/i18n';
+import { pluginHealthLabel, pluginStatusLabel } from '@/i18n/formatters';
 
 const auth = useAuthStore();
 const router = useRouter();

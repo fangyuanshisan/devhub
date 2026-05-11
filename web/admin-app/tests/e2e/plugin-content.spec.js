@@ -14,9 +14,10 @@ test.describe('admin plugin content detailed flow', () => {
     for (const [path, type] of [['qa', 'question'], ['docs', 'document'], ['wiki', 'wiki_page']]) {
       await page.goto(`/admin-next/${path}`);
       await expect(page.getByTestId('plugin-content-page')).toBeVisible();
-      await expect(page.getByTestId('plugin-content-page')).toContainText(`content_type：${type}`);
+      await expect(page.getByTestId('plugin-content-page')).toContainText(`内容类型：${type}`);
       await expect(page.getByTestId('plugin-content-community-filter')).toBeVisible();
       await expect(page.getByTestId('plugin-content-status-filter')).toBeVisible();
+      await expect(page.getByTestId('plugin-content-type-filter')).toBeVisible();
       await expect(page.getByTestId('plugin-content-search')).toBeVisible();
       await page.getByTestId('plugin-content-search').fill('E2E');
       await page.getByTestId('plugin-content-query').click();

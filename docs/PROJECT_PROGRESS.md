@@ -1933,3 +1933,70 @@ P1 规划边界：
 1. 进入 P1 前先补 HookBus Update/Delete/Search/Notification/SEO 异常注入矩阵，降低后续扩展风险。
 2. 再做插件内容治理操作权限矩阵和批量操作边界。
 3. 最后推进 `config_schema` 自动表单和插件 SDK / 模板，避免 UI 体验先行但平台契约不稳。
+
+### 2026-05-11：阶段 B：引入 i18n，统一优化插件治理体验
+
+修改范围：
+
+- 后台：`web/admin-app/package.json`、`web/admin-app/package-lock.json`、`web/admin-app/src/i18n/*`、`web/admin-app/src/main.js`、`web/admin-app/src/components/plugin/PluginJsonEditor.vue`、`web/admin-app/src/components/plugin/PluginDetailDrawer.vue`、`web/admin-app/src/views/Plugins.vue`、`web/admin-app/src/views/Communities.vue`、`web/admin-app/src/views/PluginContent.vue`。
+- 文档：`docs/PROJECT_PROGRESS.md`、`docs/TESTING.md`、`docs/PLUGIN_ARCHITECTURE.md`、`CHANGELOG.md`。
+
+已完成事项：
+
+- 后台引入 `vue-i18n`，默认语言为 `zh-CN`，提供 `t()` / `$t()` 和插件治理专用中文文案映射。
+- 插件中心、插件详情抽屉、配置编辑器、子站插件配置和 PluginContent 页的主要用户可见英文状态值已中文化；`plugin_code`、`content_type`、`hook_name`、JSON key 等技术值继续保留原始值。
+- 根据 UI 复查截图，补齐插件详情抽屉“概览”表格和邻近 Tab 的漏网英文：`name/status/health/maturity/suggested_action`、内容类型定义列、Hook 统计列、迁移列、路由列和审计列均改为中文标签；状态值 `enabled/healthy` 通过 formatter 展示为中文。
+- `PluginJsonEditor` 从纯 JSON Editor 升级为“表单模式 + JSON 高级模式”，支持 `string`、`number`、`integer`、`boolean`、`array`、`object`、`enum`、`required`、`minimum`、`maximum`、`default`、`title` 和 `description` 的基础渲染。
+- 配置编辑器新增配置差异预览，展示原配置、新配置和变更字段；`token`、`password`、`secret`、`key` 等敏感字段在预览中脱敏。
+- 配置编辑器展示最终生效配置预览；全局插件配置和子站插件配置都复用同一编辑器。
+- `PluginContent` 增强为基础通用治理页：展示插件编码、内容类型、状态、子站、更新时间、评论数；新增内容类型筛选、详情抽屉、多选、批量隐藏、批量恢复和“查看审计日志”入口。
+- PluginContent 的审计入口已与通用治理审计页打通：跳转到 `/admin-next/audit-logs` 时会预填 `action=批量治理主题`、`target_type=topic` 和插件编码 metadata 筛选；通用审计页会读取这些 query 并展示为可见筛选条件。
+- 批量隐藏 / 恢复复用现有 `POST /api/v1/admin/topics/batch`，后端已有权限校验、插件内容审计和归属校验；本轮未新增生产 API。
+
+未完成事项：
+
+- 本轮只接入后台插件治理相关主要页面；前台和后台非插件页面仍按后续模块逐步清理。
+- 本轮只覆盖插件治理相关主要页面，后台其它页面仍可能存在少量用户可见英文，需要后续按模块继续清理。
+- `config_schema` 自动表单是基础版本；深层嵌套对象、复杂数组、字段分组、敏感字段编辑策略和配置版本回滚仍待 P1 后续增强。
+- PluginContent 已支持批量隐藏 / 恢复，但审核通过 / 拒绝、置顶、加精等批量治理按钮仍待后续补齐完整权限矩阵和 UI；审计跳转已预填筛选条件，但跨页面审计高亮和更完整 E2E 仍待后续。
+
+新发现风险：
+
+- 当前 `en-US` 仅作为占位语言包，尚未完成英文翻译；如后续需要完整多语言，需要补齐语言包和切换入口。
+- 表单模式会按 `config_schema.properties` 做浅层渲染；复杂 schema 仍应使用 JSON 高级模式，保存仍以后端 schema 校验为准。
+
+已执行检查命令和结果：
+
+- `docker compose run --rm admin-e2e npm install vue-i18n@^11 --package-lock-only`：首次使用默认 npm registry 超时；随后在容器内切换 `https://registry.npmmirror.com` 后通过，`package.json` / `package-lock.json` 已同步。
+- `docker compose run --rm admin-e2e npm install`：通过，容器内依赖与 lock 文件一致。
+- `docker compose run --rm admin-e2e npm run build`：通过；仍有既有 Vite chunk size warning，不影响构建。
+- `docker compose run --rm admin-e2e npm run build`：补齐详情抽屉漏网英文后复跑通过；仍有既有 Vite chunk size warning，不影响构建。
+- `go test ./...`：通过。
+- `go build -o .devhub/devhub .`：通过。
+- `bash -n dev.sh`：通过。
+- `bash -n scripts/check-frontend.sh`：通过。
+- `./scripts/check-frontend.sh --quick`：通过，前后台构建通过；日志目录 `.devhub/checks/20260511-213849/`。
+- `./scripts/check-frontend.sh --admin-only --e2e-only`：通过，后台 E2E `18 passed`；日志目录 `.devhub/checks/20260511-213806/`。
+- `./scripts/check-frontend.sh --quick`：本轮补齐审计跳转后复跑通过，前后台构建通过；日志目录 `.devhub/checks/20260511-220601/`。
+- `./scripts/check-frontend.sh --admin-only --e2e-only`：本轮补齐审计跳转后复跑通过，后台 E2E `18 passed`；日志目录 `.devhub/checks/20260511-220624/`。
+- `git diff --check`：通过。
+
+失败项或跳过项：
+
+- `./scripts/check-frontend.sh --admin-only --e2e-only` 调试过程中曾因旧英文断言和 `vue-i18n` 将“清空为 {}`”解析为插值表达式而失败；已改为中文断言、稳定 testid，并将按钮文案调整为“清空为空对象”。
+- 未执行 `./scripts/check-frontend.sh --frontend-only --e2e-only`：本轮未修改前台运行时代码或前台 UI，已通过 `--quick` 覆盖前台构建。
+
+影响范围：
+
+- API：无新增生产 API。
+- 数据库：无 schema 变更。
+- 权限：PluginContent 批量治理复用既有后台批量主题接口，权限边界仍由后端强校验。
+- SEO：无 SEO 路由变更。
+- 插件系统：进入 P1 插件治理体验增强，重点是中文化、配置表单化、有效配置预览和通用内容治理。
+- 前后台 UI：仅后台插件治理相关页面变更；前台无变更。
+
+下一轮建议：
+
+1. 继续清理后台非插件页面残留英文文案。
+2. 如需要完整多语言，补齐 `en-US` 语言包和语言切换入口。
+3. 为 PluginContent 补齐批量审核、批量置顶、批量加精与审计筛选跳转的完整 E2E。

@@ -294,6 +294,7 @@
   - `page`、`page_size`：分页参数。
 - 返回：`domain.PageResponse`，items 为 `AdminLog`，包含 `old_value`、`new_value`、`metadata_json`。
 - 覆盖范围：插件启停、插件配置、子站插件配置、子站插件排序、Hook 失败审计，以及带 `plugin_code` 的插件内容治理操作。
+- 阶段 B 后台联动：通用 PluginContent 页的“查看审计日志”入口会跳转到 `/admin-next/audit-logs`，并通过 query 预填 `action=批量治理主题`、`target_type=topic`、`metadata=<plugin_code>`；通用审计页会读取这些 query 并带入 `/api/v1/admin/audit-logs` 查询。
 
 响应示例：
 
@@ -790,6 +791,7 @@ POST /api/v1/admin/reports/:id/handle
 POST /api/v1/admin/reports/batch-handle
 GET  /api/v1/admin/comments
 POST /api/v1/admin/comments/batch
+POST /api/v1/admin/topics/batch
 GET  /api/v1/admin/audit-logs
 ```
 
@@ -819,6 +821,26 @@ GET  /api/v1/admin/audit-logs
 - `page_size`
 
 说明：非插件历史日志可能仍只有 `target` 文本摘要。
+
+`POST /api/v1/admin/topics/batch`
+
+- 认证：后台 admin token，或明确允许的子站版主身份。
+- 权限：`topic.moderate`，并由后端继续校验当前操作者是否可治理每条内容所属子站。
+- 用途：后台通用内容治理与 PluginContent 通用插件内容页的批量治理入口。
+- 请求：
+
+```json
+{
+  "ids": [1, 2],
+  "action": "hide",
+  "note": "PluginContent hide qa"
+}
+```
+
+- 当前支持动作：`feature`、`unfeature`、`pin`、`unpin`、`hide`、`restore`、`lock-comments`、`unlock-comments`、`delete`。
+- 阶段 B UI 使用范围：PluginContent 当前只接入 `hide` / `restore` 最小闭环。
+- 审计：对插件内容会写入带 `plugin_code` / `content_type` / `community_id` / `category_id` / `content_id` 的插件内容治理审计；同时保留批量治理摘要审计。
+- 常见错误：单条内容无权治理时，该条返回 `error`，不会伪造成成功。
 
 版主工作台：
 

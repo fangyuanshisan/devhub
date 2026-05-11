@@ -4,9 +4,9 @@
       <div>
         <h2>{{ route.meta.title }}</h2>
         <p>
-          当前插件：<span class="mono">{{ route.meta.pluginCode }}</span>
-          · content_type：<span class="mono">{{ route.meta.contentType }}</span>
-          · 状态：<el-tag v-if="plugin" :type="statusType(plugin.status)" size="small">{{ plugin.status }}</el-tag>
+          {{ t('plugin.code') }}：<span class="mono">{{ route.meta.pluginCode }}</span>
+          · {{ t('plugin.contentType') }}：<span class="mono">{{ route.meta.contentType }}</span>
+          · {{ t('plugin.status') }}：<el-tag v-if="plugin" :type="statusType(plugin.status)" size="small">{{ pluginStatusLabel(plugin.status) }}</el-tag>
         </p>
         <p class="muted">插件内容通过 Core 通用内容表兼容展示；禁用插件不影响历史内容访问，只影响新发布与入口。</p>
       </div>
@@ -20,40 +20,76 @@
           <el-option label="hidden" value="hidden" />
           <el-option label="pending" value="pending" />
         </el-select>
+        <el-select v-model="filters.contentType" clearable filterable :placeholder="t('plugin.contentType')" style="width: 160px" data-testid="plugin-content-type-filter">
+          <el-option v-for="ct in contentTypes" :key="ct" :label="ct" :value="ct" />
+        </el-select>
         <el-input v-model="keyword" placeholder="搜索标题 / 摘要" clearable class="search" data-testid="plugin-content-search" @keyup.enter="load" />
         <el-button data-testid="plugin-content-back" @click="backToPlugins">返回插件</el-button>
         <el-button type="primary" data-testid="plugin-content-query" @click="load">查询</el-button>
       </div>
     </div>
-    <el-table :data="items" border stripe data-testid="plugin-content-table">
+    <div class="batch-bar">
+      <span class="muted">{{ t('common.selected') }} {{ selectedRows.length }} {{ t('common.selectedItems') }}</span>
+      <el-button type="warning" :disabled="!selectedRows.length" data-testid="plugin-content-batch-hide" @click="batchUpdate('hide')">{{ t('plugin.content.batchHide') }}</el-button>
+      <el-button type="success" :disabled="!selectedRows.length" data-testid="plugin-content-batch-restore" @click="batchUpdate('restore')">{{ t('plugin.content.batchRestore') }}</el-button>
+      <el-button :disabled="!lastAuditQuery" @click="openAuditLogs">{{ t('plugin.content.viewAuditLogs') }}</el-button>
+    </div>
+    <el-table :data="items" border stripe data-testid="plugin-content-table" @selection-change="onSelectionChange">
+      <el-table-column type="selection" width="48" />
       <el-table-column prop="id" label="ID" width="80" />
       <el-table-column prop="title" label="标题" min-width="260" />
       <el-table-column prop="site" label="子站" width="110" />
       <el-table-column prop="board" label="板块" width="110" />
-      <el-table-column prop="status" label="状态" width="100" />
-      <el-table-column prop="comments" label="评论/回答" width="110" />
-      <el-table-column prop="updated_at" label="更新时间" width="170" />
-      <el-table-column label="plugin/type" width="180">
+      <el-table-column label="状态" width="100">
+        <template #default="{ row }">
+          <el-tag :type="contentStatusType(row.status)" size="small">{{ contentStatusLabel(row.status) }}</el-tag>
+        </template>
+      </el-table-column>
+      <el-table-column prop="comments" :label="t('plugin.content.comments')" width="110" />
+      <el-table-column prop="updated_at" :label="t('plugin.content.updatedAt')" width="170" />
+      <el-table-column label="插件/类型" width="180">
         <template #default="{ row }">
           <div class="mono">{{ row.plugin_code || '-' }}</div>
           <div class="muted mono">{{ row.content_type || '-' }}</div>
         </template>
       </el-table-column>
-      <el-table-column label="操作" width="130">
+      <el-table-column :label="t('plugin.action')" width="190">
         <template #default="{ row }">
-          <el-button link type="primary" @click="open(row)">查看</el-button>
+          <el-button link type="primary" @click="openDetail(row)">{{ t('plugin.content.viewDetail') }}</el-button>
+          <el-button link type="primary" @click="open(row)">{{ t('common.view') }}</el-button>
         </template>
       </el-table-column>
     </el-table>
   </section>
+
+  <el-drawer v-model="detailDrawer" :title="t('plugin.content.detailTitle')" size="620px" data-testid="plugin-content-detail-drawer">
+    <el-descriptions v-if="detailTarget" :column="1" border>
+      <el-descriptions-item label="ID">{{ detailTarget.id }}</el-descriptions-item>
+      <el-descriptions-item label="标题">{{ detailTarget.title }}</el-descriptions-item>
+      <el-descriptions-item :label="t('plugin.code')">{{ detailTarget.plugin_code || '-' }}</el-descriptions-item>
+      <el-descriptions-item :label="t('plugin.contentType')">{{ detailTarget.content_type || '-' }}</el-descriptions-item>
+      <el-descriptions-item :label="t('field.community')">{{ detailTarget.site || '-' }}</el-descriptions-item>
+      <el-descriptions-item label="板块">{{ detailTarget.board || '-' }}</el-descriptions-item>
+      <el-descriptions-item :label="t('plugin.status')">{{ contentStatusLabel(detailTarget.status) }}</el-descriptions-item>
+      <el-descriptions-item :label="t('plugin.content.comments')">{{ detailTarget.comments || 0 }}</el-descriptions-item>
+      <el-descriptions-item :label="t('plugin.content.updatedAt')">{{ detailTarget.updated_at || '-' }}</el-descriptions-item>
+      <el-descriptions-item :label="t('field.description')">{{ detailTarget.summary || detailTarget.excerpt || '-' }}</el-descriptions-item>
+    </el-descriptions>
+    <template #footer>
+      <el-button @click="detailDrawer = false">{{ t('common.close') }}</el-button>
+      <el-button type="primary" @click="open(detailTarget)">{{ t('common.view') }}</el-button>
+    </template>
+  </el-drawer>
 </template>
 
 <script setup>
 import { onMounted, ref, watch } from 'vue';
-import { ElMessage } from 'element-plus';
+import { ElMessage, ElMessageBox } from 'element-plus';
 import { useRoute, useRouter } from 'vue-router';
-import { adminCommunities, plugins, posts } from '@/api/admin';
+import { adminCommunities, batchTopics, plugins, posts } from '@/api/admin';
 import { useAuthStore } from '@/stores/auth';
+import { t } from '@/i18n';
+import { pluginStatusLabel } from '@/i18n/formatters';
 
 const auth = useAuthStore();
 const route = useRoute();
@@ -62,7 +98,12 @@ const items = ref([]);
 const keyword = ref('');
 const plugin = ref(null);
 const communities = ref([]);
-const filters = ref({ communityId: null, status: 'all' });
+const filters = ref({ communityId: null, status: 'all', contentType: '' });
+const selectedRows = ref([]);
+const detailDrawer = ref(false);
+const detailTarget = ref(null);
+const lastAuditQuery = ref('');
+const contentTypes = ref([]);
 
 async function load() {
   const pluginList = await plugins();
@@ -73,6 +114,7 @@ async function load() {
     return;
   }
   plugin.value = current;
+  contentTypes.value = current.content_types?.length ? current.content_types : [route.meta.contentType];
   const permission = current.menus?.find((item) => item.area === 'admin')?.permission || route.meta.permission;
   if (permission && !auth.can(permission)) {
     ElMessage.warning('当前账号无权访问该插件管理页。');
@@ -89,10 +131,12 @@ async function load() {
       ? communities.value.find((c) => c.id === filters.value.communityId)?.slug
       : 'portal';
 
-  const data = await posts({ site, board: 'all', q: keyword.value, content_type: route.meta.contentType, status: filters.value.status || 'all' });
+  const targetType = filters.value.contentType || route.meta.contentType;
+  const data = await posts({ site, board: 'all', q: keyword.value, content_type: targetType, status: filters.value.status || 'all' });
   const list = data.items || data || [];
   // Best-effort: keep only rows belonging to this plugin/type when data comes from legacy adminPosts.
-  items.value = list.filter((r) => (r.content_type || route.meta.contentType) === route.meta.contentType);
+  items.value = list.filter((r) => (r.plugin_code || route.meta.pluginCode) === route.meta.pluginCode || (r.content_type || targetType) === targetType);
+  selectedRows.value = [];
 }
 
 function open(row) {
@@ -103,9 +147,62 @@ function backToPlugins() {
   router.push('/plugins');
 }
 
+function openDetail(row) {
+  detailTarget.value = row;
+  detailDrawer.value = true;
+}
+
+function onSelectionChange(rows) {
+  selectedRows.value = rows || [];
+}
+
+async function batchUpdate(action) {
+  const ids = selectedRows.value.map((row) => row.id).filter(Boolean);
+  if (!ids.length) return;
+  const actionLabel = action === 'hide' ? t('plugin.content.hide') : t('plugin.content.restore');
+  await ElMessageBox.confirm(t('plugin.content.batchConfirm', { count: ids.length, action: actionLabel }), '批量治理确认', {
+    type: action === 'hide' ? 'warning' : 'info',
+    confirmButtonText: t('common.confirm'),
+    cancelButtonText: t('common.cancel'),
+  });
+  await batchTopics({ ids, action, note: `PluginContent ${action} ${route.meta.pluginCode}` });
+  ElMessage.success(t('plugin.content.batchDone'));
+  lastAuditQuery.value = route.meta.pluginCode;
+  await load();
+}
+
+function openAuditLogs() {
+  router.push({
+    path: '/audit-logs',
+    query: {
+      action: '批量治理主题',
+      target_type: 'topic',
+      metadata: route.meta.pluginCode,
+    },
+  });
+}
+
 function statusType(status) {
   if (status === 'enabled') return 'success';
   if (status === 'disabled') return 'danger';
+  return 'info';
+}
+
+function contentStatusLabel(status) {
+  const map = {
+    publish: '已发布',
+    hidden: '已隐藏',
+    pending: '待审核',
+    draft: '草稿',
+    rejected: '已拒绝',
+  };
+  return map[status] || status || '-';
+}
+
+function contentStatusType(status) {
+  if (status === 'publish') return 'success';
+  if (status === 'hidden' || status === 'rejected') return 'danger';
+  if (status === 'pending' || status === 'draft') return 'warning';
   return 'info';
 }
 
@@ -122,4 +219,14 @@ onMounted(load);
 .tool-actions { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; margin-left: auto; justify-content: flex-end; }
 .search { max-width: 260px; }
 .mono { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
+.batch-bar {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  padding: 10px 12px;
+  border: 1px solid #e2e8f0;
+  border-radius: 12px;
+  background: #f8fafc;
+}
 </style>

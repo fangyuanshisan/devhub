@@ -123,8 +123,8 @@
     </div>
     <div class="plugin-toolbar">
       <el-segmented v-model="pluginFilters.mode" :options="pluginFilterModes" />
-      <el-input v-model="pluginFilters.q" placeholder="搜索 name / code" clearable style="width: 220px" />
-      <el-select v-model="pluginFilters.contentType" placeholder="content_type" clearable filterable style="width: 200px">
+      <el-input v-model="pluginFilters.q" placeholder="搜索插件名称 / 编码" clearable style="width: 220px" />
+      <el-select v-model="pluginFilters.contentType" placeholder="内容类型" clearable filterable style="width: 200px">
         <el-option v-for="ct in allPluginContentTypes" :key="ct" :label="ct" :value="ct" />
       </el-select>
     </div>
@@ -162,8 +162,8 @@
       <el-table-column label="状态" width="190">
         <template #default="{ row }">
           <div class="status-stack">
-            <span><em>全局</em><el-tag :type="statusType(globalStatus(row))">{{ globalStatus(row) }}</el-tag></span>
-            <span><em>子站</em><el-tag :type="statusType(communityStatus(row))">{{ communityStatus(row) }}</el-tag></span>
+            <span><em>全局</em><el-tag :type="statusType(globalStatus(row))">{{ pluginStatusLabel(globalStatus(row)) }}</el-tag></span>
+            <span><em>子站</em><el-tag :type="statusType(communityStatus(row))">{{ pluginStatusLabel(communityStatus(row)) }}</el-tag></span>
           </div>
         </template>
       </el-table-column>
@@ -199,19 +199,25 @@
       />
       <el-form-item label="状态">
         <div class="config-status">
-          <el-tag :type="statusType(globalStatus(pluginConfigTarget || {}))">全局 {{ globalStatus(pluginConfigTarget || {}) }}</el-tag>
-          <el-tag :type="statusType(communityStatus(pluginConfigTarget || {}))">子站 {{ communityStatus(pluginConfigTarget || {}) }}</el-tag>
+          <el-tag :type="statusType(globalStatus(pluginConfigTarget || {}))">全局 {{ pluginStatusLabel(globalStatus(pluginConfigTarget || {})) }}</el-tag>
+          <el-tag :type="statusType(communityStatus(pluginConfigTarget || {}))">子站 {{ pluginStatusLabel(communityStatus(pluginConfigTarget || {})) }}</el-tag>
         </div>
       </el-form-item>
       <el-form-item label="config_schema">
         <pre class="json-box compact">{{ formatJSON(pluginConfigTarget?.config_schema || {}) }}</pre>
       </el-form-item>
       <el-form-item label="config_json">
-        <PluginJsonEditor v-model="pluginConfigValue" :schema="pluginConfigTarget?.config_schema || null" @schema-errors="onCommunityConfigSchemaErrors">
+        <PluginJsonEditor
+          v-model="pluginConfigValue"
+          :schema="pluginConfigTarget?.config_schema || null"
+          :original-value="jsonValue(pluginConfigTarget?.config_json)"
+          :resolved-config="pluginConfigTarget?.resolved_config?.effective || pluginConfigTarget?.resolved_config || {}"
+          @schema-errors="onCommunityConfigSchemaErrors"
+        >
           <template #title><strong>子站 config_json</strong></template>
         </PluginJsonEditor>
         <div class="config-actions">
-          <el-button @click="clearPluginConfig">清空为 {}</el-button>
+          <el-button data-testid="json-clear-object" @click="clearPluginConfig">清空为 {}</el-button>
           <el-button type="primary" data-testid="community-plugin-config-save" :disabled="communityConfigSchemaErrors.length > 0" @click="savePluginConfig">保存</el-button>
         </div>
       </el-form-item>
@@ -270,6 +276,7 @@ import {
   updateCommunityPluginConfig,
 } from '@/api/admin';
 import PluginJsonEditor from '@/components/plugin/PluginJsonEditor.vue';
+import { pluginStatusLabel } from '@/i18n/formatters';
 
 const router = useRouter();
 const keyword = ref('');

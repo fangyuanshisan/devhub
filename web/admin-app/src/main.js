@@ -6,5 +6,6 @@ import '@toast-ui/editor/dist/toastui-editor.css';
 import './styles.css';
 import App from './App.vue';
 import router from './router';
+import i18n from './i18n';
 
-createApp(App).use(createPinia()).use(router).use(ElementPlus).mount('#app');
+createApp(App).use(createPinia()).use(router).use(i18n).use(ElementPlus).mount('#app');
