@@ -2,7 +2,7 @@
 
 [返回文档入口](README.md)
 
-更新时间：2026-05-10
+更新时间：2026-05-11
 
 本文档只记录当前仓库真实状态、当前风险和下一步任务。历史版本能力已并入当前分支，详情见对应 Release Notes；旧版本已解决问题不再占用当前主体。
 
@@ -22,11 +22,11 @@ Core 保留用户、认证、子站、板块、通用内容、评论、标签、
 
 - 插件注册：`internal/plugins/registry.go` 和 `internal/plugins/qa|docs|wiki|projects|jobs|aiworks` 提供内置插件定义、内容类型映射、菜单、权限和路由描述。
 - 插件声明规范：当前已统一到 manifest 风格声明，包含插件本体、内容类型定义、权限定义、菜单定义、路由定义、`config_schema`、依赖、最小 Core 版本和 Hook 声明。
-- 全局插件状态：`plugins` 表和 MemoryStore / MySQLStore 均支持 `installed`、`enabled`、`disabled`，并提供全局插件列表、启用和禁用 API。
+- 全局插件状态：`plugins` 表和 MemoryStore / MySQLStore 已扩展支持 `discovered`、`installed`、`migrated`、`configured`、`enabled`、`disabled`、`running`、`config_invalid`、`migration_pending`、`dependency_missing`；当前发布可用性仍只认 `enabled`，其余状态不放行新建内容。
 - 子站插件状态：`community_plugins` 表和 MemoryStore / MySQLStore 均支持按子站启用 / 禁用、配置和排序插件。
 - 两层状态判断：插件在某个子站可用需要同时满足 `plugins.status=enabled` 和 `community_plugins.status=enabled`；`core` 作为兼容内置能力在 Service 层特殊视为可用。
 - 内容模型兼容：`topics.plugin_code`、`categories.plugin_code`、`categories.allowed_content_types` 已进入 schema 与 Store。
-- 发布校验：`POST /api/v1/topics` 已走统一 `ValidateTopicPluginAccess`，会归一 `doc -> document`、`wiki -> wiki_page`，并校验插件状态、子站插件状态、板块插件绑定和允许内容类型。
+- 发布校验：`POST /api/v1/topics` 已走统一 `ValidateTopicPluginAccess`，会归一 `doc -> document`、`wiki -> wiki_page`，并校验插件存在、全局 `enabled`、子站 `enabled`、板块插件绑定、允许内容类型和服务端权限码；前端隐藏入口不能替代后端强拦截。
 - 板块管理校验：MemoryStore / MySQLStore 在创建或编辑子站板块时校验 `plugin_code` 与 `content_type` 匹配，并拒绝绑定全局或子站未启用的插件。
 - 插件 API：全局插件 API、子站插件 API、前台子站插件展示 API 和版主插件菜单 API 已在 `router.go` 注册。
 - 插件业务闭环：
@@ -49,8 +49,43 @@ Core 保留用户、认证、子站、板块、通用内容、评论、标签、
 - 审计：全局插件状态、子站插件状态、全局插件配置、子站插件配置和排序已接入 `admin_logs`，并为插件治理操作写入 `old_value`、`new_value`、`metadata_json` 结构化字段；`target` 文本摘要继续保留用于兼容展示。
 - Wiki schema：当前只保留插件化 `wiki_spaces`、`wiki_pages`、`wiki_page_versions` 语义，旧 `wiki_revisions` 预留冲突已清理。
 - SEO 保护：`/topics/:id` 仍由 Go 动态输出 SEO HTML，插件禁用不影响历史内容详情访问。
+- 插件影响分析：全局 / 子站 impact 接口已扩展返回历史内容数、启用/禁用子站数、绑定板块数、近 7 天内容数、审核中内容数、菜单声明数、配置覆盖数、待执行迁移数和近 7 天 Hook 失败数。
 - 技术债收口：`Service.CreatePost` 已封口，不再作为业务写入口；`/api/v1/posts` 写接口继续废弃；后台 `admin/posts` 创建入口在兼容 `post.create` 基础权限之外，叠加真实内容类型对应的插件 create 权限。
 - 后台编辑边界：后台内容编辑已禁止修改子站、板块、`content_type` 和 `plugin_code` 归属字段；如后续需要迁移归属，必须走单独迁移专项和完整插件校验。
+- 插件系统专项验收：2026-05-11 已完成一次后端、后台构建、SEO curl、前台 E2E、后台 E2E 集中回归；前台 14 条 E2E 通过，后台 15 条 E2E 在修复状态污染后通过，详见本文末尾“插件系统专项验收与 E2E 回归清单归档”。
+
+## 插件平台基线对账
+
+本节是 2026-05-11 基于代码阅读的真实基线。
+
+已完成能力：
+
+- Registry / manifest：内置 `qa/docs/wiki/projects/jobs/ai_works` 统一声明 `plugin_code`、`content_types`、权限、菜单、路由、Hook、`config_schema`、依赖和最小 Core 版本。
+- 运行状态：`plugins.status` 与 `community_plugins.status` 两层状态已落地；全局状态枚举已扩展，但只有 `plugins.status=enabled` 与 `community_plugins.status=enabled` 的组合会放行发布。
+- 配置：全局 `plugins.config_json`、子站 `community_plugins.config_json`、`resolved_config` 合并视图、JSON 合法性校验和简化 `config_schema` 后端校验已落地。
+- 权限：发布链路按 `ContentTypeDefinition.create_permission` 校验；后台 / 版主插件菜单按状态和权限过滤。
+- Hook：存在内置 HookBus，内容创建 / 更新 / 删除、评论、搜索、通知、SEO、插件启停均有最小调用点。
+- 迁移记录：存在 `plugin_migrations` 表和 MemoryStore / MySQLStore 读写能力。
+- 后台治理：`/admin-next/plugins`、插件详情抽屉、配置、impact、审计 Tab、通用插件内容页和子站插件配置抽屉均已具备基础能力。
+
+部分完成能力：
+
+- 生命周期：`discovered`、`migrated`、`configured`、`running`、`config_invalid`、`migration_pending`、`dependency_missing` 已进入全局状态模型；但它们还不是自动流转状态机，当前代码以 `plugins.status=enabled` / `community_plugins.status=enabled` / `plugin_migrations.status` 为运行判断依据。
+- Hook 治理：Hook 能执行，已有 `hook_executions`、失败统计、最近错误、平均耗时、失败率和 `plugin.hook.failed` / `plugin.hook.blocked` 审计；重试策略、告警和更多业务处理器仍待后续。
+- 插件迁移：已有内置插件 up/no-op runner、失败记录、失败重试、后台迁移 Tab 和迁移审计；migration down、真实 rollback、迁移前备份和外部插件迁移包仍未完成。
+- 权限矩阵：当前是最小权限码校验，不是完整 RBAC 矩阵；community/category 作用域、角色分配 UI 和权限配置 API 仍待后续。
+- 插件内容治理：通用页和代表操作已有，但专属详情、批量操作、审计跳转和完整内容治理闭环仍待后续。
+
+预留能力：
+
+- 插件安装器、插件包上传、插件升级、soft uninstall、hard uninstall。
+- 插件健康状态已有轻量摘要；独立健康 API、运行监控、告警、插件依赖解析和版本兼容检查仍待后续。
+- 插件 SDK、生成模板、插件市场、远程安装、动态加载、沙箱和第三方 Hook 运行时。
+
+后续规划：
+
+- P0 优先把插件影响范围明细、迁移 runner、权限矩阵、Hook 告警/重试和 E2E 强校验补成治理闭环。
+- P1/P2/P3 再推进自动表单、SDK、插件包、市场和高级运行时能力。
 
 ## 当前部分完成
 
@@ -67,7 +102,7 @@ Core 保留用户、认证、子站、板块、通用内容、评论、标签、
 - Docs / Wiki 业务体验：当前已具备基础空间、文档树读取、版本列表等最小闭环；拖拽排序、完整回滚 UI、协作锁和专用编辑体验仍待后续。
 - Projects / Jobs / AI Works 业务体验：当前完成插件归属、发布校验、权限码和菜单声明；专属扩展表、专属管理页和完整业务流程仍待后续。
 - 插件路由：当前是注册描述 + Core 分发，不是真正动态运行时加载器。
-- Hook 机制：当前已有最小内部 HookBus，并覆盖创建、更新、删除、评论、搜索、通知和 SEO 调用点；Search / Notification / SEO 仍是预留级事件派发，尚未形成完整插件业务处理器、统一错误日志和重试策略。
+- Hook 机制：当前已有内置 HookBus，并覆盖创建、更新、删除、评论、搜索、通知和 SEO 调用点；执行结果已落入 `hook_executions`，失败会写入 `plugin.hook.blocked` / `plugin.hook.failed` 审计。Search / Notification / SEO 仍是预留级事件派发，尚未形成完整插件业务处理器、健康状态、告警和重试策略。
 - 配置校验：当前已完成默认配置、全局配置、子站配置三层合并，后端已按简化 `config_schema` 做基础校验，后台 JSON Editor 已接入 Ajv 客户端校验；自动表单渲染和更完整 JSON Schema 支持仍待后续。
 - 验收覆盖：已做文档与路由核对；完整 Docker 启动、真实 token API、浏览器页面和 SEO curl 矩阵仍需按测试文档继续补测。
 
@@ -75,7 +110,7 @@ Core 保留用户、认证、子站、板块、通用内容、评论、标签、
 
 - 子站插件配置 UI 的完整浏览器验收矩阵，包括多子站、禁用提示、保存失败提示和排序持久化回归。
 - 更细粒度的权限体系：例如 Core 兼容类型 `article` / `news` 的细分权限码、按子站/板块维度配置权限矩阵、以及更明确的错误码与权限配置 API（当前仍为最小校验闭环）。
-- P0 插件平台收口：HookBus 的完整业务处理器与日志策略。Search / Notification / SEO 目前已有调用点，但缺少实际插件处理器、统一失败日志和重试策略。
+- P0 插件平台收口：HookBus 的完整业务处理器、健康状态、告警和重试策略。Search / Notification / SEO 目前已有调用点和执行记录，但缺少实际插件处理器。
 - P1 插件平台增强：`config_schema` 后台自动表单渲染和更完整 JSON Schema 支持。
 - 非插件历史审计日志的结构化 diff：插件治理已写入 `old_value`、`new_value`、`metadata_json`，其他旧审计仍可能只有 `target` 文本。
 - `qa` 取消采纳最佳答案。
@@ -192,6 +227,184 @@ P3：高级能力
 - [ ] 后台编辑内容不能修改子站、板块、`content_type` 或 `plugin_code`。
 
 ## 最近任务记录
+
+### 2026-05-11：插件配置管理与 config_schema 后端强校验
+
+修改范围：
+
+- `internal/plugins/registry.go`
+- `internal/plugins/qa/qa.go`
+- `internal/plugins/docs/docs.go`
+- `internal/plugins/wiki/wiki.go`
+- `internal/plugins/registry_test.go`
+- `internal/transport/httpapi/router.go`
+- `internal/transport/httpapi/router_auth_test.go`
+- `docs/API.md`
+- `docs/PLUGIN_ARCHITECTURE.md`
+- `docs/PROJECT_PROGRESS.md`
+- `docs/TESTING.md`
+- `docs/releases/v1.3.2.md`
+- `CHANGELOG.md`
+
+已完成事项：
+
+- `config_schema.properties.*.default` 已参与 `resolved_config.effective` 合并，作为最低优先级默认配置来源。
+- 明确配置层级：schema 默认值 -> `plugins.config_json` 全局配置 -> `community_plugins.config_json` 子站配置，子站配置优先级最高。
+- 后端强校验继续由 `pluginregistry.ValidateConfigJSON` 执行，覆盖 JSON 合法性、required、type、enum、object、boolean、string、number、integer 和数字 min/max。
+- `qa/docs/wiki` 内置插件补充关键配置默认值，用于 effective config 合并。
+- 全局插件配置和子站插件配置审计 metadata 增加 `changed_keys`，记录本次变更的顶层配置键。
+- 新增/扩展测试覆盖默认值合并、required 缺失、enum 非法、type 错误、integer/min 边界与配置审计 metadata。
+
+未完成事项：
+
+- 当前 diff 只记录顶层 `changed_keys`，不做深层路径级 diff。
+- 当前不做自动表单生成器、配置版本回滚、灰度配置或敏感字段加密。
+- 配置校验失败暂未写入审计日志，避免把大量无效输入刷入治理日志；后续如需要可单独做安全审计策略。
+
+新发现风险：
+
+- schema 默认值目前来自 `properties.*.default`，不是完整 JSON Schema default 递归实现；嵌套对象默认值和数组默认值仍需后续增强。
+
+已执行检查：
+
+- `gofmt -w internal/plugins/registry.go internal/plugins/qa/qa.go internal/plugins/docs/docs.go internal/plugins/wiki/wiki.go internal/plugins/registry_test.go internal/transport/httpapi/router.go internal/transport/httpapi/router_auth_test.go`：通过。
+- `go test ./...`：通过。
+- `go build -o .devhub/devhub .`：通过。
+- `docker compose run --rm admin-e2e npm run build`：通过。
+
+失败项或跳过项及原因：
+
+- 未执行完整前后台 E2E 矩阵；本轮按要求只做配置管理链路的轻量验收。
+
+影响范围：
+
+- API：配置 API 返回的 `resolved_config.effective` 会包含 schema 默认值；审计 `metadata_json` 增加 `changed_keys`。
+- 数据库：无结构变更。
+- 权限：无权限模型变更。
+- SEO：无 SEO 逻辑变更。
+- 插件系统：增强配置合并与配置审计闭环。
+- 后台 UI：无需改页面结构，继续复用 JSON Editor + Ajv；后端强校验兜底。
+
+下一轮建议：
+
+- 继续做配置中心增强：深层 diff、配置版本记录、配置回滚或按 schema 自动表单。
+
+### 2026-05-11：插件状态模型、启停强拦截与影响分析
+
+修改范围：
+
+- `internal/plugins/registry.go`
+- `internal/domain/models.go`
+- `internal/service/service.go`
+- `internal/store/memory.go`
+- `internal/store/mysql.go`
+- `internal/store/schema.go`
+- `db/mysql/001_schema.sql`
+- `db/mysql/migrations/005_core_plugins.sql`
+- `db/mysql/migrations/009_plugin_status_model.sql`
+- `web/admin-app/src/views/Plugins.vue`
+- `web/admin-app/src/views/Communities.vue`
+- `docs/API.md`
+- `docs/PLUGIN_ARCHITECTURE.md`
+- `docs/PROJECT_PROGRESS.md`
+- `docs/TESTING.md`
+- `docs/releases/v1.3.2.md`
+- `CHANGELOG.md`
+
+已完成事项：
+
+- 扩展全局插件状态模型：`plugins.status` 与 MemoryStore / MySQLStore 均接受 `discovered`、`installed`、`migrated`、`configured`、`enabled`、`disabled`、`running`、`config_invalid`、`migration_pending`、`dependency_missing`。
+- 明确发布可用性规则：当前只有全局 `enabled` + 子站 `enabled` 才能创建插件内容；其他全局状态均不会放行新建内容。
+- 强化 `ValidateTopicPluginAccess` 错误信息：创建内容时会校验内容类型、插件存在、全局状态、子站状态、板块绑定和 `allowed_content_types`。
+- 扩展全局与子站 impact 统计：返回历史内容数、启用/禁用子站数、绑定板块数、近 7 天内容数、审核中内容数、菜单声明数、配置覆盖数和待执行迁移数。
+- 后台全局禁用与子站禁用确认弹窗展示更完整的 impact 信息，并明确历史内容和 SEO 不受影响。
+- 新增老库迁移 `009_plugin_status_model.sql`，用于扩展 MySQL `plugins.status` enum。
+
+未完成事项：
+
+- 完整生命周期状态机尚未完成；`running`、`configured`、`migration_pending` 等当前是可记录状态，不是自动流转机制。
+- Hook 错误统计已在后续“HookBus 运行时与 Hook 执行记录”任务中接入 `hook_executions`；`recent_hook_errors_count` 现在是近 7 天失败次数，但仍不等同于完整健康评分。
+- impact 仍是轻量计数，不包含受影响对象明细列表。
+
+新发现风险：
+
+- 如果运维手动把插件状态改成 `running` 或 `configured`，当前发布链路不会放行；这符合本轮“只有 enabled 可发布”的安全策略，但需要在后续生命周期状态机中明确状态流转语义。
+
+已执行检查：
+
+- `gofmt -w internal/domain/models.go internal/plugins/registry.go internal/service/service.go internal/store/memory.go internal/store/mysql.go`：通过。
+- `go test ./...`：首次因错误文案不包含旧测试期望的“插件未启用”失败；已调整为兼容且更明确的错误文案后重跑通过。
+- `go build -o .devhub/devhub .`：通过。
+- `docker compose run --rm admin-e2e npm run build`：通过。
+
+失败项或跳过项及原因：
+
+- 未执行完整前后台 E2E 矩阵；本轮按要求只做状态模型、强拦截、影响分析与后台构建的轻量验收。
+
+影响范围：
+
+- API：impact API 返回字段扩展；插件状态口径扩展。
+- 数据库：扩展 `plugins.status` enum，并新增老库升级迁移。
+- 权限：无权限模型结构变更；发布链路继续由服务端权限码校验。
+- SEO：无 SEO 逻辑变更；disabled 插件不影响历史 `/topics/:id` 动态 HTML。
+- 插件系统：增强状态模型、启停强拦截和禁用前影响分析。
+- 后台 UI：增强插件禁用确认弹窗的真实影响提示。
+
+下一轮建议：
+
+- 继续为 impact 增加按需加载的受影响对象明细，并为 HookBus 补健康状态、告警和重试策略。
+
+### 2026-05-11：插件平台基线对账与文档口径统一
+
+修改范围：
+
+- `docs/PROJECT_PROGRESS.md`
+- `docs/PLUGIN_ARCHITECTURE.md`
+- `docs/API.md`
+- `docs/TESTING.md`
+- `docs/releases/v1.3.2.md`
+- `CHANGELOG.md`
+
+已完成事项：
+
+- 对账 `internal/domain/models.go`、`internal/plugins/*`、`internal/service/service.go`、`internal/store/*`、`internal/transport/httpapi/router.go` 和后台插件页面，确认当前插件平台真实基线。
+- 明确当前定位是“内置系统插件平台 + registry / manifest 描述 + Core 分发”，不是第三方插件市场、动态插件加载或插件包安装系统。
+- 明确真实表名仍为 `topics` / `categories`，`contents` / `channels` 只作为架构概念或长期目标命名。
+- 将插件能力按“已完成 / 部分完成 / 预留 / 后续规划”重新归类，重点校正生命周期、Hook、迁移、权限矩阵、配置和后台治理口径。
+- 修正 `config_schema` 相关旧表述：当前已完成 JSON 合法性校验和简化 schema 后端校验；自动表单和完整 JSON Schema 仍是后续。
+- 修正当时 `plugin_migrations` 口径：该阶段只有记录表和 Store 读写，不等于完整 migration runner；后续已补齐内置 up/no-op runner、执行/重试 API 和后台迁移 Tab。
+
+未完成事项：
+
+- 本轮不实现新功能；当时 Hook 执行记录、迁移 runner、插件健康状态、完整权限矩阵、插件安装/升级/卸载仍待后续代码任务。后续任务已补齐 Hook 执行记录、轻量健康摘要和内置 up/no-op 迁移 runner；完整权限矩阵、真实 rollback、插件安装/升级/卸载仍待后续。
+
+新发现风险：
+
+- 文档中容易把 `plugin_migrations` 表存在误读为迁移系统完成；当时已修正为“记录能力已完成，runner/重试/rollback 待实现”，后续已补齐第一阶段 runner 与重试，rollback 仍待实现。
+- 文档中容易把 Hook 调用点存在误读为 Hook 观测完成；已修正为“可派发，执行记录和统计待实现”。
+
+已执行检查：
+
+- `rg` 核对插件 registry、manifest、HookBus、config_schema、plugin_migrations、impact、admin_logs 和后台插件页面实现：通过。
+- `test -f docs/PLUGIN_SYSTEM_ROADMAP.md`：通过。
+- `rg "插件平台基线对账|discovered|plugin_migrations|config_schema" docs/PROJECT_PROGRESS.md docs/PLUGIN_ARCHITECTURE.md docs/API.md docs/TESTING.md docs/releases/v1.3.2.md CHANGELOG.md`：通过。
+
+失败项或跳过项及原因：
+
+- 未执行 Go / 前后台构建；本轮仅进行代码阅读和 Markdown 文档口径修正，无业务代码、API、数据库或 UI 改动。
+
+影响范围：
+
+- API：无新增或修改，API 文档只补充基线说明。
+- 数据库：无结构变更。
+- 权限：无代码变更，文档补充当前权限矩阵边界。
+- SEO：无代码变更，继续保留插件 disabled 不影响历史内容 SEO 的红线。
+- 插件系统：无运行时变更，文档统一真实状态。
+- 前后台 UI：无代码变更。
+
+下一轮建议：
+
+- 从 P0 中挑一个可落地专项推进：优先建议实现 Hook 执行记录 / 失败审计，或实现 plugin_migrations 查询与手动执行入口。
 
 ### 2026-05-11：登记完整插件系统长期完善路线图为下一阶段最高优先级目标
 
@@ -493,7 +706,7 @@ P3：高级能力
 
 - 本轮不实现插件市场、插件包、远程安装、动态加载或新增插件。
 - 本轮不补 QA / Docs / Wiki / Projects / Jobs / AI Works 的专属业务功能。
-- P0 中 `config_schema` 基础校验、HookBus 业务处理器、完整真实 token 验收矩阵仍待代码专项。
+- P0 中 HookBus 业务处理器、完整真实 token 验收矩阵仍待代码专项；`config_schema` 已完成简化基础校验，但结构化错误、更完整 JSON Schema 和自动表单仍待后续。
 
 新发现风险：
 
@@ -946,3 +1159,237 @@ P3：高级能力
 
 1. 进入第二阶段 E2E 覆盖前，优先继续扩展登录用户互动、发布成功、插件启停联动和版主工作台矩阵。
 2. 如需 CI 收口，可直接接入 `./scripts/check-frontend.sh --target both --quiet`。
+
+### 2026-05-11：HookBus 运行时与 Hook 执行记录
+
+修改范围：
+
+- 后端：`internal/plugins/hookbus.go`、`internal/service/service.go`、`internal/store/memory.go`、`internal/store/mysql.go`、`internal/transport/httpapi/router.go`、`internal/domain/models.go`。
+- 数据库：`internal/store/schema.go`、`db/mysql/001_schema.sql`、`db/mysql/migrations/010_hook_executions.sql`。
+- 后台：`web/admin-app/src/components/plugin/PluginDetailDrawer.vue`、`web/admin-app/src/api/admin.js`。
+- 测试：`internal/service/hookbus_test.go`。
+- 文档：`docs/API.md`、`docs/PLUGIN_ARCHITECTURE.md`、`docs/TESTING.md`、`docs/releases/v1.3.2.md`、`CHANGELOG.md`、`docs/PROJECT_PROGRESS.md`。
+
+已完成事项：
+
+- HookBus 新增 `DispatchWithResults`，返回每个内置 handler 的执行结果、耗时、成功/失败和错误信息。
+- `HookContext` 补齐 `hook_name`、`channel_id`、`user_id`、`admin_user_id` 等运行治理字段。
+- Service 层统一通过 `dispatchHook` 执行 Hook，按全局插件状态和子站插件状态过滤，插件启用 / 禁用生命周期 Hook 允许在状态切换时执行。
+- 新增 `hook_executions` 执行记录，MemoryStore 和 MySQLStore 均支持写入、最近执行查询和聚合统计。
+- blocking hook 失败会阻断主流程，并写入 `plugin.hook.blocked` 审计。
+- non-blocking hook 失败不阻断主流程，并写入 `plugin.hook.failed` 审计。
+- impact API 的 `recent_hook_errors_count` 已改为统计最近 7 天 `hook_executions` 失败记录。
+- 新增 `GET /api/v1/admin/plugins/:code/hooks`，返回 Hook 统计与最近 20 条执行记录。
+- 后台插件详情 Hooks Tab 接入真实运行统计：执行次数、失败次数、失败率、平均耗时、最近执行、最近失败、最近错误和最近执行列表。
+- qa / docs / wiki 继续使用内置最小 Hook handler；qa/docs/wiki 的 BeforeCreateContent 会校验对应内容类型。
+
+未完成事项：
+
+- HookBus 仍只服务内置系统插件，不支持第三方动态插件、远程 Hook 或 Webhook。
+- Search / Notification / SEO 仍是最小事件派发，缺少完整插件业务处理器。
+- 尚未实现 Hook 健康状态、告警、重试策略、异步队列和跨 Store 事务回滚封装。
+- 后台 Hooks Tab 展示真实执行记录，但不伪造 handler 是否存在；handler 状态仍需后续平台能力补充。
+
+新发现风险：
+
+- Hook handler 若未来写入外部资源，blocking 失败和主数据写入之间需要补事务边界设计。
+- 非阻断 Hook 当前只记录失败并审计，没有自动重试；通知、搜索索引类 Hook 后续需要幂等和重试策略。
+
+已执行检查命令和结果：
+
+- `gofmt -w internal/domain/models.go internal/plugins/hookbus.go internal/service/service.go internal/service/hookbus_test.go internal/store/memory.go internal/store/mysql.go internal/transport/httpapi/router.go`：通过。
+- `go test ./...`：通过。
+- `go build -o .devhub/devhub .`：通过。
+- `docker compose run --rm admin-e2e npm run build`：通过（Vite 输出 chunk size warning，非失败）。
+
+失败项或跳过项及原因：
+
+- 完整浏览器矩阵未执行；本轮只要求 HookBus 运行时和后台构建轻量验收。
+
+影响范围：
+
+- API：新增 `GET /api/v1/admin/plugins/:code/hooks`。
+- 数据库：新增 `hook_executions` 表，新装 schema 与老库迁移均已补齐。
+- 权限：新增接口使用 `plugin.read`；未改变发布权限矩阵。
+- SEO：`OnSEOBuild` 仍为 non-blocking，历史详情和 SEO 不应受影响。
+- 插件系统：HookBus 从可派发升级为可记录、可审计、可查询。
+- 前后台 UI：后台插件详情 Hooks Tab 展示运行时统计；前台 UI 无变更。
+
+下一轮建议：
+
+1. 为 HookBus 增加健康状态、告警和失败重试策略。
+2. 为 Search / Notification / SEO 补真实插件业务处理器和幂等设计。
+3. 在 E2E 中增加后台 Hooks Tab 和 `hook_executions` 可视化回归。
+
+### 2026-05-11：插件审计、健康状态与后台治理中心增强
+
+修改范围：
+
+- 后端：`internal/domain/models.go`、`internal/service/service.go`、`internal/transport/httpapi/router.go`。
+- 后台：`web/admin-app/src/views/Plugins.vue`、`web/admin-app/src/components/plugin/PluginDetailDrawer.vue`、`web/admin-app/src/api/admin.js`。
+- 文档：`docs/API.md`、`docs/PLUGIN_ARCHITECTURE.md`、`docs/TESTING.md`、`docs/releases/v1.3.2.md`、`CHANGELOG.md`、`docs/PROJECT_PROGRESS.md`。
+
+已完成事项：
+
+- 新增轻量 `PluginHealth` 摘要，`GET /api/v1/admin/plugins` 会为后台返回 `health` 字段。
+- 健康状态计算来源包括：插件全局状态、`config_schema` 对全局配置的校验结果、`plugin_migrations` pending/failed 状态、Hook 失败统计和依赖插件状态。
+- 当前健康状态覆盖 `healthy`、`warning`、`error`、`disabled`、`migration_pending`、`config_invalid`、`dependency_missing`。
+- 新增 `GET /api/v1/admin/plugins/:code/audit-logs`，插件详情“审计”Tab 改用插件专用审计查询入口。
+- 插件内容治理操作补充结构化审计：隐藏/恢复、置顶、加精、评论锁、评论隐藏/恢复和批量主题治理会在插件内容上写入带 `plugin_code/content_type/community_id/category_id/content_id` 的 metadata。
+- 后台插件列表展示运行健康、配置状态、迁移状态、Hook 状态、最近错误和建议操作。
+- 插件详情抽屉新增“运行状态”Tab，展示 overall/config/migration/hook/dependency、pending/failed migrations、hook failures、recent error 和 suggested action。
+- 全局禁用确认中的近期 Hook 错误改为展示 `impact.recent_hook_errors_count` 实际计数，不再显示“暂未接入”。
+
+未完成事项：
+
+- 健康状态当前是后台治理摘要，不是完整监控系统；尚未提供独立健康 API、告警规则、自动恢复或 Prometheus/Grafana 集成。
+- 插件迁移仍缺后台执行/重试/失败详情 UI，健康状态只能基于已有 `plugin_migrations` 记录计算。
+- 插件内容治理审计已覆盖当前已有操作，但专属插件业务管理页和更复杂批量操作仍待后续完善。
+
+新发现风险：
+
+- 插件审计查询按插件 code/target 做轻量筛选；若历史日志没有结构化 plugin_code 或 target 不含插件 code，仍不会出现在插件专用审计 Tab。
+- Hook 失败会影响健康摘要，但当前没有“连续失败阈值”和自动告警策略，后续需要避免 warning 长期被忽略。
+
+已执行检查命令和结果：
+
+- `gofmt -w internal/domain/models.go internal/service/service.go internal/transport/httpapi/router.go`：通过。
+- `go test ./...`：通过。
+- `go build -o .devhub/devhub .`：通过。
+- `docker compose run --rm admin-e2e npm run build`：通过（Vite 输出 chunk size warning，非失败）。
+
+失败项或跳过项及原因：
+
+- 完整浏览器矩阵未执行；本轮只要求插件审计、健康状态与后台治理中心的轻量验收。
+
+影响范围：
+
+- API：新增 `GET /api/v1/admin/plugins/:code/audit-logs`；`GET /api/v1/admin/plugins` 增加后台 `health` 字段。
+- 数据库：无新增表或字段；复用已有 `admin_logs.old_value/new_value/metadata_json` 与 `hook_executions`。
+- 权限：新增审计接口使用 `plugin.read`；未改变发布权限矩阵。
+- SEO：无 SEO 路由变更；插件禁用不影响历史内容详情和 SEO 的规则保持不变。
+- 插件系统：补齐轻量健康摘要、插件专用审计入口和插件内容治理审计 metadata。
+- 前后台 UI：后台插件列表和详情抽屉增强；前台 UI 无变更。
+
+下一轮建议：
+
+1. 为插件迁移继续补真实 rollback/down、迁移前备份和 E2E 覆盖。
+2. 为 Hook 健康状态增加连续失败阈值、告警和重试策略。
+3. 扩展 E2E 覆盖插件健康状态、审计 Tab 和插件内容治理审计回归。
+
+### 2026-05-11：插件迁移闭环
+
+修改范围：
+
+- 后端：`internal/domain/models.go`、`internal/plugins/registry.go`、`internal/plugins/qa/qa.go`、`internal/plugins/docs/docs.go`、`internal/plugins/wiki/wiki.go`、`internal/service/service.go`、`internal/store/memory.go`、`internal/store/mysql.go`、`internal/transport/httpapi/router.go`。
+- 数据库：`db/mysql/001_schema.sql`、`internal/store/schema.go`、`db/mysql/migrations/008_plugin_migrations.sql`。
+- 后台：`web/admin-app/src/components/plugin/PluginDetailDrawer.vue`、`web/admin-app/src/api/admin.js`。
+- 文档：`docs/API.md`、`docs/PLUGIN_ARCHITECTURE.md`、`docs/TESTING.md`、`docs/releases/v1.3.2.md`、`CHANGELOG.md`、`docs/PROJECT_PROGRESS.md`。
+
+已完成事项：
+
+- 扩展 `PluginManifest`，支持 `migrations` 声明；qa/docs/wiki 已声明第一批内置 up migration。
+- 扩展 `PluginMigration` 返回字段，兼容 `version`，同时暴露 `migration_version`、`direction`、`duration_ms`、`rollback_supported`、`declared` 等治理字段。
+- `plugin_migrations.status` 扩展为 `pending/running/success/failed`，并新增 `updated_at`；新装 schema、启动迁移和老库迁移脚本已同步。
+- `Service` 新增内置 migration runner：可列出声明、执行所有待处理 migration、执行/重试单条 migration；已成功 migration 不重复破坏数据。
+- 当前 runner 是内置 up/no-op runner：qa/docs/wiki 的扩展表由主 schema / 启动迁移保证，runner 负责记录 running/success/failed、耗时和错误。
+- 新增后台 API：`GET /api/v1/admin/plugins/:code/migrations`、`POST /api/v1/admin/plugins/:code/migrations/run`、`POST /api/v1/admin/plugins/:code/migrations/:name/retry`。
+- 迁移操作写入审计：`plugin.migration.run`、`plugin.migration.retry`、`plugin.migration.success`、`plugin.migration.failed`。
+- 插件详情抽屉新增“迁移”Tab，展示迁移列表、状态、最近执行、失败原因、rollback 标识，并提供执行/重试入口。
+- 插件健康状态继续从 `plugin_migrations` pending/failed 记录计算 `migration_status`。
+
+未完成事项：
+
+- 不支持 migration down、真实 rollback、迁移前备份或外部插件迁移包。
+- 不支持复杂迁移依赖排序、批量跨插件迁移计划和迁移影响对象明细。
+- 未做完整浏览器 E2E，只执行后台构建作为轻量验收。
+
+新发现风险：
+
+- 当前内置 migration runner 是 no-op 记录型 runner，适合确认主 schema 已具备表结构；后续若 migration 真正改表，必须加入备份、事务边界、失败恢复和 MySQL/MemoryStore 差异处理。
+- 老库执行 `008_plugin_migrations.sql` 会修改 enum 并补 `updated_at`，生产执行前仍需备份并在预发库演练。
+
+已执行检查命令和结果：
+
+- `gofmt -w internal/domain/models.go internal/plugins/registry.go internal/plugins/qa/qa.go internal/plugins/docs/docs.go internal/plugins/wiki/wiki.go internal/service/service.go internal/store/memory.go internal/store/mysql.go internal/transport/httpapi/router.go`：通过。
+- `go test ./...`：通过。
+- `go build -o .devhub/devhub .`：通过。
+- `docker compose run --rm admin-e2e npm run build`：通过（Vite 输出 chunk size warning，非失败）。
+
+失败项或跳过项及原因：
+
+- 未执行完整 E2E；本轮只要求插件迁移闭环的轻量验收。
+
+影响范围：
+
+- API：新增插件迁移查询、执行和重试接口。
+- 数据库：扩展 `plugin_migrations.status` 与 `updated_at`，不删除历史数据。
+- 权限：新增迁移查询使用 `plugin.read`，执行/重试使用 `plugin.write`。
+- SEO：无 SEO 路由变更；插件 disabled / migration 状态不影响历史内容详情访问。
+- 插件系统：迁移从“记录表”升级为“内置 up/no-op runner + 后台 Tab + 审计”。
+- 前后台 UI：后台插件详情新增迁移 Tab；前台 UI 无变更。
+
+下一轮建议：
+
+1. 为迁移 runner 增加真实 SQL migration 执行能力前，先设计备份、事务边界和失败恢复策略。
+2. 为迁移 Tab 增加 E2E 覆盖：列表、执行、重复执行不破坏、失败重试和审计记录。
+3. 继续补 Hook 告警/重试和插件健康独立详情 API。
+
+### 2026-05-11：插件系统专项验收与 E2E 回归清单归档
+
+修改范围：
+
+- 后台 E2E：`web/admin-app/tests/e2e/plugin-governance.spec.js`。
+- 文档：`docs/PROJECT_PROGRESS.md`、`docs/TESTING.md`、`docs/API.md`、`docs/PLUGIN_ARCHITECTURE.md`、`docs/releases/v1.3.2.md`、`CHANGELOG.md`。
+
+已完成事项：
+
+- 执行插件系统专项验收，覆盖 Go 单测、Go 构建、后台 Docker 构建、前后台 Playwright E2E、`/topics/1/` 与 `/c/php/` SEO 动态 HTML curl 回归。
+- 前台 E2E 通过 14 条，覆盖首页、子站页、搜索页、Topic 动态详情、未登录发布拦截、标签页、登录互动、发布成功、插件禁用强拦截和版主权限边界。
+- 后台 E2E 首次执行发现 2 个验收侧问题：全局禁用 `qa` 的用例失败后未恢复插件状态，污染并行执行的插件内容页测试；另一个断言仍使用旧影响分析文案。
+- 已小范围修复后台 E2E：插件治理用例改为 serial，并在 `finally` 中恢复 `qa` enabled；影响分析断言同步为真实展示字段“当前启用子站 / 将阻止发布的板块”。
+- 后台 E2E 复跑通过 15 条，覆盖后台登录、内容、评论、举报、子站、标签、审计、插件治理、子站插件配置和通用插件内容页。
+- SEO curl 验证 `/topics/1/` 包含 title、canonical、Article JSON-LD、article、h1；`/c/php/` 包含 title、description、canonical、h1 和 WebSite JSON-LD。
+
+未完成事项：
+
+- 本轮未执行真实 API 手工矩阵逐项开关插件 / 修改配置 / 执行迁移；相关能力由现有自动化 E2E、Go 单测和文档验收清单覆盖，后续仍可扩展专项 API 回归。
+- 插件迁移 E2E 目前仍以后台 UI/接口可见性为主，尚未覆盖失败注入、重试后状态恢复和审计定位的完整浏览器流程。
+- Hook 治理 E2E 尚未覆盖人为制造 blocking / non-blocking Hook 失败后的后台记录展示。
+
+新发现风险：
+
+- 插件启停类 E2E 若失败后未恢复状态，会污染后续用例和本地演示环境；此类测试必须串行或在 `finally` / `afterEach` 中恢复原状态。
+- 当前后台构建仍有 Vite chunk size warning，非失败；后续可考虑拆分 JSON Editor / Content 等大 chunk。
+
+已执行检查命令和结果：
+
+- `go test ./...`：通过。
+- `go build -o .devhub/devhub .`：通过。
+- `bash -n dev.sh`：通过。
+- `docker compose run --rm admin-e2e npm run build`：通过（Vite chunk size warning，非失败）。
+- `curl -fsS --max-time 5 http://127.0.0.1:8090/topics/1/ | rg -i "<title|<h1|<article|application/ld\\+json|canonical"`：通过。
+- `curl -fsS --max-time 5 http://127.0.0.1:8090/c/php/ | rg -i "<title|<h1|canonical|description"`：通过。
+- `./scripts/check-frontend.sh --frontend-only --e2e-only`：通过，前台 14 passed。
+- `./scripts/check-frontend.sh --admin-only --e2e-only`：首次失败 2 项，修复后复跑通过，后台 15 passed。
+
+失败项或跳过项及原因：
+
+- 首次后台 E2E 失败已修复并复跑通过。
+- 未执行前台构建：本轮未修改前台代码，且前台 E2E 已通过。
+- 未新增数据库迁移或 API，因此未执行 MySQL 老库升级演练。
+
+影响范围：
+
+- API：无新增或变更。
+- 数据库：无新增或变更。
+- 权限：无权限模型变更；验收确认前后台 E2E 仍覆盖基础权限边界。
+- SEO：无策略变更；curl 回归确认动态 HTML 关键元素仍存在。
+- 插件系统：修复插件治理 E2E 的状态恢复与文案断言，降低插件启停测试污染风险。
+- 前后台 UI：无 UI 功能变更；后台 E2E 测试断言更新。
+
+下一轮建议：
+
+1. 补插件迁移失败注入 / 重试 / 审计定位的自动化 E2E。
+2. 补 Hook blocking / non-blocking 失败注入的 API 或 E2E 回归。
+3. 将插件启停、配置和迁移操作的状态恢复 helper 统一抽象，减少测试间污染。

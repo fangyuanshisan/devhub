@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+	"time"
 
 	"devhub-gin-backend/internal/domain"
 )
@@ -48,14 +49,18 @@ const (
 // HookContext is the governance-friendly context carried by hook execution.
 // It is intentionally decoupled from HTTP layer request types.
 type HookContext struct {
+	HookName    string              `json:"hook_name,omitempty"`
 	RequestID   string              `json:"request_id,omitempty"`
 	PluginCode  string              `json:"plugin_code,omitempty"`
 	ContentType string              `json:"content_type,omitempty"`
+	ChannelID   int64               `json:"channel_id,omitempty"`
 	CommunityID int64               `json:"community_id,omitempty"`
 	CategoryID  int64               `json:"category_id,omitempty"`
 	ContentID   int64               `json:"content_id,omitempty"`
 	ActorType   HookActorType       `json:"actor_type,omitempty"`
 	ActorID     int64               `json:"actor_id,omitempty"`
+	UserID      int64               `json:"user_id,omitempty"`
+	AdminUserID int64               `json:"admin_user_id,omitempty"`
 	Metadata    map[string]any      `json:"metadata,omitempty"`
 	Actor       domain.ActorContext `json:"-"`
 }
@@ -81,6 +86,21 @@ type HookEvent struct {
 // HookHandler is a built-in plugin hook handler.
 type HookHandler func(HookEvent) error
 
+// HookExecutionResult is the in-memory result emitted by HookBus dispatch.
+// Service/store layers decide how to persist it.
+type HookExecutionResult struct {
+	HookName     string
+	PluginCode   string
+	Mode         HookMode
+	Blocking     bool
+	HandlerIndex int
+	StartedAt    time.Time
+	FinishedAt   time.Time
+	DurationMS   int
+	Success      bool
+	ErrorMessage string
+}
+
 // HookBus dispatches hooks for built-in system plugins.
 // It is NOT a third-party dynamic plugin execution environment.
 type HookBus struct {
@@ -104,46 +124,80 @@ func (b *HookBus) Register(name, pluginCode string, handler HookHandler) {
 	b.handlers[name][pluginCode] = append(b.handlers[name][pluginCode], handler)
 }
 
+// HandlerCount returns registered handler count for a hook/plugin pair.
+func (b *HookBus) HandlerCount(name, pluginCode string) int {
+	if b == nil {
+		return 0
+	}
+	return len(b.handlers[strings.TrimSpace(name)][strings.TrimSpace(pluginCode)])
+}
+
 // Dispatch executes hook handlers.
 //
 // For blocking hooks, the first error stops execution and is returned.
 // For non-blocking hooks, errors are aggregated and returned as a single error,
 // so callers can decide whether to log/audit without blocking the main flow.
 func (b *HookBus) Dispatch(event HookEvent) error {
+	_, err := b.DispatchWithResults(event)
+	return err
+}
+
+// DispatchWithResults executes hook handlers and returns per-handler execution
+// results so the platform can persist observability records.
+func (b *HookBus) DispatchWithResults(event HookEvent) ([]HookExecutionResult, error) {
 	if b == nil {
-		return nil
+		return nil, nil
 	}
 	name := strings.TrimSpace(event.Name)
 	pluginCode := strings.TrimSpace(event.Ctx.PluginCode)
 	if name == "" || pluginCode == "" {
-		return nil
+		return nil, nil
 	}
 	group := b.handlers[name]
 	if len(group) == 0 {
-		return nil
+		return nil, nil
 	}
 	handlers := group[pluginCode]
 	if len(handlers) == 0 {
-		return nil
+		return nil, nil
 	}
 
 	var nonBlockingErrs []error
-	for _, handler := range handlers {
+	results := make([]HookExecutionResult, 0, len(handlers))
+	for i, handler := range handlers {
 		if handler == nil {
 			continue
 		}
-		if err := handler(event); err != nil {
+		started := time.Now()
+		err := handler(event)
+		finished := time.Now()
+		result := HookExecutionResult{
+			HookName:     name,
+			PluginCode:   pluginCode,
+			Mode:         event.Mode,
+			Blocking:     event.Mode == HookBlocking,
+			HandlerIndex: i,
+			StartedAt:    started,
+			FinishedAt:   finished,
+			DurationMS:   int(finished.Sub(started).Milliseconds()),
+			Success:      err == nil,
+		}
+		if err != nil {
+			result.ErrorMessage = err.Error()
+		}
+		results = append(results, result)
+		if err != nil {
 			if event.Mode == HookBlocking {
-				return err
+				return results, err
 			}
 			nonBlockingErrs = append(nonBlockingErrs, err)
 		}
 	}
 	if len(nonBlockingErrs) == 0 {
-		return nil
+		return results, nil
 	}
 	if len(nonBlockingErrs) == 1 {
-		return nonBlockingErrs[0]
+		return results, nonBlockingErrs[0]
 	}
-	return errors.New(fmt.Sprintf("hook %s non-blocking errors: %v", name, nonBlockingErrs))
+	return results, errors.New(fmt.Sprintf("hook %s non-blocking errors: %v", name, nonBlockingErrs))
 }

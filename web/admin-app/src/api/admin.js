@@ -11,6 +11,11 @@ export const enablePlugin = (code) => http.post(`/admin/plugins/${code}/enable`)
 export const disablePlugin = (code) => http.post(`/admin/plugins/${code}/disable`);
 export const updatePluginConfig = (code, payload) => http.put(`/admin/plugins/${code}/config`, payload);
 export const pluginImpact = (code) => http.get(`/admin/plugins/${code}/impact`);
+export const pluginHooks = (code) => http.get(`/admin/plugins/${code}/hooks`);
+export const pluginAuditLogs = (code, params) => http.get(`/admin/plugins/${code}/audit-logs`, { params });
+export const pluginMigrations = (code) => http.get(`/admin/plugins/${code}/migrations`);
+export const runPluginMigrations = (code) => http.post(`/admin/plugins/${code}/migrations/run`);
+export const retryPluginMigration = (code, name) => http.post(`/admin/plugins/${code}/migrations/${encodeURIComponent(name)}/retry`);
 export const adminCommunities = (params) => http.get('/admin/communities', { params });
 export const createCommunity = (payload) => http.post('/admin/communities', payload);
 export const adminCommunity = (id) => http.get(`/admin/communities/${id}`);

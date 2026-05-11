@@ -76,12 +76,49 @@ func TestResolvePluginConfigPrecedence(t *testing.T) {
 	if !ok {
 		t.Fatal("qa definition missing")
 	}
-	resolved := ResolvePluginConfig(def, `{"limit":3,"mode":"global"}`, `{"mode":"community"}`)
+	resolved := ResolvePluginConfig(def, `{"allow_anonymous_answer":true,"default_question_status":"review"}`, `{"default_question_status":"publish"}`)
 	effective, ok := resolved["effective"].(map[string]any)
 	if !ok {
 		t.Fatalf("expected effective map, got %#v", resolved["effective"])
 	}
-	if effective["limit"] != float64(3) || effective["mode"] != "community" {
+	if effective["allow_anonymous_answer"] != true ||
+		effective["default_question_status"] != "publish" ||
+		effective["require_accept_permission"] != true {
 		t.Fatalf("unexpected merged config: %#v", effective)
+	}
+}
+
+func TestValidateConfigJSONSchemaRules(t *testing.T) {
+	def, ok := DefinitionByCode("docs")
+	if !ok {
+		t.Fatal("docs definition missing")
+	}
+	cases := []struct {
+		name string
+		raw  string
+	}{
+		{name: "required", raw: `{}`},
+		{name: "boolean type", raw: `{"allow_public_spaces":"yes"}`},
+		{name: "integer type", raw: `{"allow_public_spaces":true,"max_tree_depth":1.5}`},
+		{name: "integer min", raw: `{"allow_public_spaces":true,"max_tree_depth":0}`},
+		{name: "unknown field", raw: `{"allow_public_spaces":true,"unknown":true}`},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if err := ValidateConfigJSON(def, tc.raw); err == nil {
+				t.Fatalf("expected %s config to fail", tc.name)
+			}
+		})
+	}
+	if err := ValidateConfigJSON(def, `{"allow_public_spaces":true,"max_tree_depth":10}`); err != nil {
+		t.Fatalf("expected valid docs config: %v", err)
+	}
+
+	qaDef, ok := DefinitionByCode("qa")
+	if !ok {
+		t.Fatal("qa definition missing")
+	}
+	if err := ValidateConfigJSON(qaDef, `{"allow_anonymous_answer":true,"default_question_status":"invalid"}`); err == nil {
+		t.Fatal("expected invalid enum to fail")
 	}
 }

@@ -1,9 +1,11 @@
 package service
 
 import (
+	"encoding/json"
 	"errors"
 	"fmt"
 	"strings"
+	"time"
 
 	"devhub-gin-backend/internal/domain"
 	pluginregistry "devhub-gin-backend/internal/plugins"
@@ -37,6 +39,10 @@ type Repository interface {
 	CommunityPluginImpact(communityID int64, code string) (domain.PluginImpact, error)
 	PluginMigrations(pluginCode string) ([]domain.PluginMigration, error)
 	AppendPluginMigration(record domain.PluginMigration) (domain.PluginMigration, error)
+	SavePluginMigration(record domain.PluginMigration) (domain.PluginMigration, error)
+	AppendHookExecution(record domain.HookExecution) (domain.HookExecution, error)
+	HookExecutions(pluginCode string, limit int) ([]domain.HookExecution, error)
+	HookStats(pluginCode string) ([]domain.HookStats, error)
 	CommunityPlugins(communityID int64) ([]domain.Plugin, error)
 	SetCommunityPluginStatus(communityID int64, code, status string) (domain.Plugin, error)
 	SetCommunityPluginConfig(communityID int64, code, configJSON string) (domain.Plugin, error)
@@ -165,10 +171,170 @@ func New(repo Repository) *Service {
 // DispatchHook exposes HookBus dispatch for platform-governance actions (enable/disable/config/etc).
 // Keep this minimal: callers should only send non-business platform events.
 func (s *Service) DispatchHook(event pluginregistry.HookEvent) error {
+	return s.dispatchHook(event)
+}
+
+// RegisterHookHandler registers a built-in hook handler. This is intended for
+// tests and compile-time system plugins, not third-party dynamic loading.
+func (s *Service) RegisterHookHandler(name, pluginCode string, handler pluginregistry.HookHandler) {
+	if s == nil || s.hooks == nil {
+		return
+	}
+	s.hooks.Register(name, pluginCode, handler)
+}
+
+func (s *Service) dispatchHook(event pluginregistry.HookEvent) error {
 	if s == nil || s.hooks == nil {
 		return nil
 	}
-	return s.hooks.Dispatch(event)
+	event.Ctx.HookName = event.Name
+	if event.Ctx.CategoryID == 0 && event.Ctx.ChannelID > 0 {
+		event.Ctx.CategoryID = event.Ctx.ChannelID
+	}
+	if event.Ctx.ChannelID == 0 && event.Ctx.CategoryID > 0 {
+		event.Ctx.ChannelID = event.Ctx.CategoryID
+	}
+	if event.Ctx.UserID == 0 && event.Ctx.Actor.UserID > 0 {
+		event.Ctx.UserID = event.Ctx.Actor.UserID
+	}
+	if event.Ctx.AdminUserID == 0 && event.Ctx.Actor.AdminID > 0 {
+		event.Ctx.AdminUserID = event.Ctx.Actor.AdminID
+	}
+	if event.Ctx.ActorID == 0 {
+		event.Ctx.ActorID = actorIDFromHookContext(event.Ctx)
+	}
+	if event.Ctx.ActorType == "" {
+		event.Ctx.ActorType = actorTypeFromActor(event.Ctx.Actor)
+	}
+
+	if !s.shouldRunHook(event) {
+		return nil
+	}
+
+	results, err := s.hooks.DispatchWithResults(event)
+	for _, result := range results {
+		record := hookExecutionRecord(event, result)
+		if saved, saveErr := s.repo.AppendHookExecution(record); saveErr == nil {
+			record = saved
+		}
+		if !record.Success {
+			s.auditHookFailure(record)
+		}
+	}
+	if event.Mode == pluginregistry.HookBlocking {
+		return err
+	}
+	return nil
+}
+
+func (s *Service) shouldRunHook(event pluginregistry.HookEvent) bool {
+	code := strings.TrimSpace(event.Ctx.PluginCode)
+	if code == "" || code == pluginregistry.CoreCode {
+		return false
+	}
+	// Lifecycle hooks are emitted exactly when status changes, so they must run
+	// even for the disabled transition.
+	if event.Name == pluginregistry.HookAfterPluginEnabled || event.Name == pluginregistry.HookAfterPluginDisabled {
+		return true
+	}
+	if !s.IsPluginEnabled(code) {
+		return false
+	}
+	if event.Ctx.CommunityID > 0 && !s.IsPluginEnabledForCommunity(event.Ctx.CommunityID, code) {
+		return false
+	}
+	return true
+}
+
+func hookExecutionRecord(event pluginregistry.HookEvent, result pluginregistry.HookExecutionResult) domain.HookExecution {
+	ctx := event.Ctx
+	meta := map[string]any{
+		"handler_index": result.HandlerIndex,
+	}
+	for k, v := range ctx.Metadata {
+		meta[k] = v
+	}
+	metadata := ""
+	if raw, err := json.Marshal(meta); err == nil && string(raw) != "null" {
+		metadata = string(raw)
+	}
+	return domain.HookExecution{
+		HookName:     result.HookName,
+		PluginCode:   result.PluginCode,
+		Mode:         string(result.Mode),
+		ContentType:  ctx.ContentType,
+		ContentID:    ctx.ContentID,
+		CommunityID:  ctx.CommunityID,
+		CategoryID:   ctx.CategoryID,
+		ActorType:    string(ctx.ActorType),
+		ActorID:      ctx.ActorID,
+		UserID:       ctx.UserID,
+		AdminUserID:  ctx.AdminUserID,
+		RequestID:    ctx.RequestID,
+		StartedAt:    formatHookTime(result.StartedAt),
+		FinishedAt:   formatHookTime(result.FinishedAt),
+		DurationMS:   result.DurationMS,
+		Success:      result.Success,
+		ErrorMessage: result.ErrorMessage,
+		Blocking:     result.Blocking,
+		Metadata:     metadata,
+	}
+}
+
+func (s *Service) auditHookFailure(record domain.HookExecution) {
+	action := "plugin.hook.failed"
+	if record.Blocking {
+		action = "plugin.hook.blocked"
+	}
+	metadata, _ := json.Marshal(map[string]any{
+		"plugin_code":  record.PluginCode,
+		"hook_name":    record.HookName,
+		"mode":         record.Mode,
+		"blocking":     record.Blocking,
+		"content_type": record.ContentType,
+		"content_id":   record.ContentID,
+		"community_id": record.CommunityID,
+		"category_id":  record.CategoryID,
+		"request_id":   record.RequestID,
+		"error":        record.ErrorMessage,
+		"duration_ms":  record.DurationMS,
+	})
+	site := "portal"
+	if record.CommunityID > 0 {
+		site = fmt.Sprintf("community:%d", record.CommunityID)
+	}
+	s.repo.AppendAdminLog(domain.AdminLog{
+		Site:      site,
+		Type:      "system",
+		Actor:     firstNonEmpty(record.ActorType, "system"),
+		ActorType: firstNonEmpty(record.ActorType, "system"),
+		ActorID:   record.ActorID,
+		Action:    action,
+		Target:    fmt.Sprintf("hooks#%s:%s", record.PluginCode, record.HookName),
+		OldValue:  "",
+		NewValue:  "",
+		Metadata:  string(metadata),
+	})
+}
+
+func formatHookTime(t time.Time) string {
+	if t.IsZero() {
+		return ""
+	}
+	return t.Format("2006-01-02 15:04:05")
+}
+
+func actorIDFromHookContext(ctx pluginregistry.HookContext) int64 {
+	if ctx.ActorID > 0 {
+		return ctx.ActorID
+	}
+	if ctx.AdminUserID > 0 {
+		return ctx.AdminUserID
+	}
+	if ctx.UserID > 0 {
+		return ctx.UserID
+	}
+	return actorIDFromActor(ctx.Actor)
 }
 
 // ActorContextFromAuthUser converts server-authenticated identity into a trusted actor context.
@@ -386,11 +552,15 @@ func (s *Service) ValidateTopicPluginAccess(communityID, categoryID int64, conte
 	}
 	pluginCode := pluginregistry.PluginCodeForContentType(contentType)
 	if pluginCode != pluginregistry.CoreCode {
+		plugin, ok := s.PluginByCode(pluginCode)
+		if !ok || plugin.Code == "" {
+			return "", "", errors.New("内容类型对应插件不存在")
+		}
 		if !s.IsPluginEnabled(pluginCode) {
-			return "", "", errors.New("插件全局未启用")
+			return "", "", fmt.Errorf("插件未启用：插件 %s 当前状态为 %s，不能创建 %s 内容", pluginCode, firstNonEmpty(plugin.Status, "unknown"), contentType)
 		}
 		if !s.IsPluginEnabledForCommunity(communityID, pluginCode) {
-			return "", "", errors.New("当前子站未启用该插件")
+			return "", "", fmt.Errorf("当前子站未启用插件 %s，不能创建 %s 内容", pluginCode, contentType)
 		}
 	}
 	if categoryID > 0 {
@@ -479,6 +649,15 @@ func RequireCreatePermission(perms []string, contentType, pluginCode string) err
 	return fmt.Errorf("缺少权限 %s，不能创建该类型内容", permission)
 }
 
+func firstNonBlank(values ...string) string {
+	for _, value := range values {
+		if strings.TrimSpace(value) != "" {
+			return strings.TrimSpace(value)
+		}
+	}
+	return ""
+}
+
 // SetPluginStatus 更新插件状态。
 func (s *Service) SetPluginStatus(code, status string) (domain.Plugin, error) {
 	return s.repo.SetPluginStatus(code, status)
@@ -498,11 +677,290 @@ func (s *Service) CommunityPluginImpact(communityID int64, code string) (domain.
 }
 
 func (s *Service) PluginMigrations(pluginCode string) ([]domain.PluginMigration, error) {
-	return s.repo.PluginMigrations(pluginCode)
+	return s.pluginMigrationsWithDefinitions(pluginCode)
 }
 
 func (s *Service) AppendPluginMigration(record domain.PluginMigration) (domain.PluginMigration, error) {
 	return s.repo.AppendPluginMigration(record)
+}
+
+func (s *Service) RunPluginMigration(pluginCode, migrationName, executor string) (domain.PluginMigration, error) {
+	pluginCode = strings.TrimSpace(pluginCode)
+	migrationName = strings.TrimSpace(migrationName)
+	plugin, ok := s.repo.PluginByCode(pluginCode)
+	if !ok || plugin.Code == "" {
+		return domain.PluginMigration{}, errors.New("插件不存在")
+	}
+	defs := pluginregistry.MigrationDefinitions(pluginCode)
+	var def domain.PluginMigrationDefinition
+	for _, item := range defs {
+		if item.MigrationName == migrationName {
+			def = item
+			break
+		}
+	}
+	if def.MigrationName == "" {
+		return domain.PluginMigration{}, errors.New("迁移不存在")
+	}
+	if def.Direction != "" && def.Direction != "up" {
+		return domain.PluginMigration{}, errors.New("当前仅支持 up migration")
+	}
+	records, _ := s.repo.PluginMigrations(pluginCode)
+	for _, item := range records {
+		if sameMigration(item, def) && item.Status == "success" {
+			return enrichMigrationRecord(item, def), nil
+		}
+	}
+	now := time.Now()
+	running := migrationRecordFromDefinition(def, "running")
+	running.Executor = executor
+	running.StartedAt = now.Format("2006-01-02 15:04:05")
+	running, _ = s.repo.SavePluginMigration(running)
+
+	result := migrationRecordFromDefinition(def, "success")
+	result.Executor = executor
+	result.StartedAt = running.StartedAt
+	result.FinishedAt = time.Now().Format("2006-01-02 15:04:05")
+	result.DurationMS = int(time.Since(now).Milliseconds())
+	result.ExecutionTimeMS = result.DurationMS
+	result.ExecutedAt = result.FinishedAt
+	// v1.3.2 built-in migrations are idempotent no-op confirmations because the
+	// authoritative schema already creates these plugin tables on startup.
+	result.Description = firstNonBlank(def.Description, "内置插件迁移表结构已由主 schema 保证，本次记录为 no-op success")
+	return s.repo.SavePluginMigration(result)
+}
+
+func (s *Service) RunAllPluginMigrations(pluginCode, executor string) ([]domain.PluginMigration, error) {
+	pluginCode = strings.TrimSpace(pluginCode)
+	if _, ok := s.repo.PluginByCode(pluginCode); !ok {
+		return nil, errors.New("插件不存在")
+	}
+	defs := pluginregistry.MigrationDefinitions(pluginCode)
+	out := make([]domain.PluginMigration, 0, len(defs))
+	for _, def := range defs {
+		item, err := s.RunPluginMigration(pluginCode, def.MigrationName, executor)
+		if err != nil {
+			failed := migrationRecordFromDefinition(def, "failed")
+			failed.Executor = executor
+			failed.StartedAt = time.Now().Format("2006-01-02 15:04:05")
+			failed.FinishedAt = failed.StartedAt
+			failed.ErrorMessage = err.Error()
+			if saved, saveErr := s.repo.SavePluginMigration(failed); saveErr == nil {
+				out = append(out, saved)
+			}
+			return out, err
+		}
+		out = append(out, item)
+	}
+	return out, nil
+}
+
+func (s *Service) HookExecutions(pluginCode string, limit int) ([]domain.HookExecution, error) {
+	return s.repo.HookExecutions(pluginCode, limit)
+}
+
+func (s *Service) HookStats(pluginCode string) ([]domain.HookStats, error) {
+	return s.repo.HookStats(pluginCode)
+}
+
+func (s *Service) pluginMigrationsWithDefinitions(pluginCode string) ([]domain.PluginMigration, error) {
+	pluginCode = strings.TrimSpace(pluginCode)
+	records, err := s.repo.PluginMigrations(pluginCode)
+	if err != nil {
+		return nil, err
+	}
+	defs := pluginregistry.MigrationDefinitions(pluginCode)
+	if len(defs) == 0 {
+		return records, nil
+	}
+	seen := map[string]bool{}
+	out := make([]domain.PluginMigration, 0, len(records)+len(defs))
+	for _, record := range records {
+		key := migrationKey(record.PluginCode, record.MigrationVersion, record.MigrationName)
+		matched := false
+		for _, def := range defs {
+			if sameMigration(record, def) {
+				record = enrichMigrationRecord(record, def)
+				matched = true
+				break
+			}
+		}
+		if !matched && record.MigrationVersion == "" {
+			record.MigrationVersion = record.Version
+		}
+		record.Declared = matched
+		seen[key] = true
+		out = append(out, record)
+	}
+	for _, def := range defs {
+		key := migrationKey(def.PluginCode, def.MigrationVersion, def.MigrationName)
+		if seen[key] {
+			continue
+		}
+		out = append(out, migrationRecordFromDefinition(def, "pending"))
+	}
+	return out, nil
+}
+
+func migrationRecordFromDefinition(def domain.PluginMigrationDefinition, status string) domain.PluginMigration {
+	return domain.PluginMigration{
+		PluginCode:        def.PluginCode,
+		MigrationVersion:  firstNonBlank(def.MigrationVersion, "1.0.0"),
+		Version:           firstNonBlank(def.MigrationVersion, "1.0.0"),
+		MigrationName:     def.MigrationName,
+		Direction:         firstNonBlank(def.Direction, "up"),
+		Checksum:          def.Checksum,
+		Status:            firstNonBlank(status, "pending"),
+		RollbackSupported: def.RollbackSupported,
+		Description:       def.Description,
+		Declared:          true,
+	}
+}
+
+func enrichMigrationRecord(record domain.PluginMigration, def domain.PluginMigrationDefinition) domain.PluginMigration {
+	if record.MigrationVersion == "" {
+		record.MigrationVersion = firstNonBlank(record.Version, def.MigrationVersion)
+	}
+	if record.Version == "" {
+		record.Version = record.MigrationVersion
+	}
+	if record.Direction == "" {
+		record.Direction = firstNonBlank(def.Direction, "up")
+	}
+	if record.Checksum == "" {
+		record.Checksum = def.Checksum
+	}
+	record.RollbackSupported = def.RollbackSupported
+	if record.Description == "" {
+		record.Description = def.Description
+	}
+	record.Declared = true
+	return record
+}
+
+func sameMigration(record domain.PluginMigration, def domain.PluginMigrationDefinition) bool {
+	return strings.TrimSpace(record.PluginCode) == strings.TrimSpace(def.PluginCode) &&
+		firstNonBlank(record.MigrationVersion, record.Version) == firstNonBlank(def.MigrationVersion, "1.0.0") &&
+		strings.TrimSpace(record.MigrationName) == strings.TrimSpace(def.MigrationName)
+}
+
+func migrationKey(pluginCode, version, name string) string {
+	return strings.TrimSpace(pluginCode) + ":" + strings.TrimSpace(version) + ":" + strings.TrimSpace(name)
+}
+
+// PluginHealth computes a lightweight runtime health summary for plugin governance UI.
+func (s *Service) PluginHealth(code string) (domain.PluginHealth, error) {
+	code = strings.TrimSpace(code)
+	plugin, ok := s.repo.PluginByCode(code)
+	if !ok || plugin.Code == "" {
+		return domain.PluginHealth{}, errors.New("插件不存在")
+	}
+	health := domain.PluginHealth{
+		Status:           "healthy",
+		ConfigStatus:     "valid",
+		MigrationStatus:  "ok",
+		HookStatus:       "ok",
+		DependencyStatus: "ok",
+		SuggestedAction:  "无需处理",
+		UpdatedAt:        time.Now().Format("2006-01-02 15:04:05"),
+	}
+
+	disabled := plugin.Status == pluginregistry.StatusDisabled
+	if disabled {
+		health.Status = "disabled"
+		health.SuggestedAction = "如需恢复新发布和入口展示，请启用插件"
+	} else if plugin.Status == pluginregistry.StatusConfigInvalid {
+		health.Status = "config_invalid"
+		health.ConfigStatus = "invalid"
+		health.SuggestedAction = "检查插件 config_json"
+	} else if plugin.Status == pluginregistry.StatusMigrationPending {
+		health.Status = "migration_pending"
+		health.MigrationStatus = "pending"
+		health.SuggestedAction = "执行或确认插件迁移"
+	} else if plugin.Status == pluginregistry.StatusDependencyMissing {
+		health.Status = "dependency_missing"
+		health.DependencyStatus = "missing"
+		health.SuggestedAction = "检查依赖插件状态"
+	}
+
+	if err := pluginregistry.ValidateConfigJSON(plugin, plugin.ConfigJSON); err != nil {
+		if !disabled {
+			health.Status = "config_invalid"
+		}
+		health.ConfigStatus = "invalid"
+		health.RecentError = err.Error()
+		if !disabled {
+			health.SuggestedAction = "修正插件全局配置"
+		}
+	}
+
+	for _, dep := range plugin.Dependencies {
+		dep = strings.TrimSpace(dep)
+		if dep == "" {
+			continue
+		}
+		if !s.IsPluginEnabled(dep) {
+			if !disabled {
+				health.Status = "dependency_missing"
+			}
+			health.DependencyStatus = "missing"
+			if health.RecentError == "" {
+				health.RecentError = fmt.Sprintf("依赖插件 %s 未启用", dep)
+			}
+			if !disabled {
+				health.SuggestedAction = "启用或修复依赖插件"
+			}
+			break
+		}
+	}
+
+	migrations, err := s.pluginMigrationsWithDefinitions(code)
+	if err == nil {
+		for _, item := range migrations {
+			switch strings.TrimSpace(item.Status) {
+			case "pending":
+				health.PendingMigrationsCount++
+			case "failed":
+				health.FailedMigrationsCount++
+				if item.ErrorMessage != "" {
+					health.RecentError = item.ErrorMessage
+				}
+			}
+		}
+		if health.FailedMigrationsCount > 0 {
+			if !disabled {
+				health.Status = "error"
+			}
+			health.MigrationStatus = "failed"
+			if !disabled {
+				health.SuggestedAction = "查看并重试失败迁移"
+			}
+		} else if health.PendingMigrationsCount > 0 && health.Status == "healthy" && !disabled {
+			health.Status = "migration_pending"
+			health.MigrationStatus = "pending"
+			health.SuggestedAction = "确认并执行待处理迁移"
+		}
+	}
+
+	stats, err := s.repo.HookStats(code)
+	if err == nil {
+		for _, stat := range stats {
+			health.HookFailureCount += stat.FailureCount
+			if stat.LastError != "" {
+				health.LastHookError = stat.LastError
+				health.RecentError = stat.LastError
+			}
+		}
+		if health.HookFailureCount > 0 {
+			health.HookStatus = "warning"
+			if health.Status == "healthy" && !disabled {
+				health.Status = "warning"
+				health.SuggestedAction = "查看 Hooks Tab 的最近失败记录"
+			}
+		}
+	}
+
+	return health, nil
 }
 
 // ListPosts 按站点、板块、关键词和标签筛选帖子列表。
@@ -713,7 +1171,7 @@ func (s *Service) AppendAdminLog(log domain.AdminLog) { s.repo.AppendAdminLog(lo
 func (s *Service) PushNotification(req domain.PushNotificationRequest) *domain.Notification {
 	notice := s.repo.PushNotification(req)
 	if notice != nil {
-		_ = s.hooks.Dispatch(pluginregistry.HookEvent{
+		_ = s.dispatchHook(pluginregistry.HookEvent{
 			Name:         pluginregistry.HookOnNotificationBuild,
 			Mode:         pluginregistry.HookNonBlocking,
 			Ctx:          pluginregistry.HookContext{ActorType: pluginregistry.HookActorSystem},
@@ -803,7 +1261,7 @@ func (s *Service) TopicsByFilter(communityID, categoryID int64, contentType, sor
 func (s *Service) TopicByID(id int64, increaseView bool) (*domain.Topic, error) {
 	topic, err := s.repo.TopicByID(id, increaseView)
 	if err == nil && topic != nil {
-		_ = s.hooks.Dispatch(pluginregistry.HookEvent{
+		_ = s.dispatchHook(pluginregistry.HookEvent{
 			Name:  pluginregistry.HookOnSEOBuild,
 			Mode:  pluginregistry.HookNonBlocking,
 			Ctx:   pluginregistry.HookContext{PluginCode: topic.PluginCode, ContentType: topic.ContentType, CommunityID: topic.CommunityID, CategoryID: topic.CategoryID, ContentID: topic.ID, ActorType: pluginregistry.HookActorSystem},
@@ -830,7 +1288,7 @@ func (s *Service) CreateTopic(req domain.CreateTopicRequest) (*domain.Topic, err
 			return nil, errors.New("无权发布该类型内容")
 		}
 	}
-	if err := s.hooks.Dispatch(pluginregistry.HookEvent{
+	if err := s.dispatchHook(pluginregistry.HookEvent{
 		Name: pluginregistry.HookBeforeCreateContent,
 		Mode: pluginregistry.HookBlocking,
 		Ctx: pluginregistry.HookContext{
@@ -850,7 +1308,7 @@ func (s *Service) CreateTopic(req domain.CreateTopicRequest) (*domain.Topic, err
 	if err != nil {
 		return nil, err
 	}
-	_ = s.hooks.Dispatch(pluginregistry.HookEvent{
+	_ = s.dispatchHook(pluginregistry.HookEvent{
 		Name: pluginregistry.HookAfterCreateContent,
 		Mode: pluginregistry.HookNonBlocking,
 		Ctx: pluginregistry.HookContext{
@@ -875,7 +1333,7 @@ func (s *Service) UpdateTopic(id int64, req domain.UpdateTopicRequest) (*domain.
 	if before != nil {
 		pluginCode = before.PluginCode
 	}
-	if err := s.hooks.Dispatch(pluginregistry.HookEvent{
+	if err := s.dispatchHook(pluginregistry.HookEvent{
 		Name: pluginregistry.HookBeforeUpdateContent,
 		Mode: pluginregistry.HookBlocking,
 		Ctx: pluginregistry.HookContext{
@@ -917,7 +1375,7 @@ func (s *Service) UpdateTopic(id int64, req domain.UpdateTopicRequest) (*domain.
 	if err != nil {
 		return nil, err
 	}
-	_ = s.hooks.Dispatch(pluginregistry.HookEvent{
+	_ = s.dispatchHook(pluginregistry.HookEvent{
 		Name: pluginregistry.HookAfterUpdateContent,
 		Mode: pluginregistry.HookNonBlocking,
 		Ctx: pluginregistry.HookContext{
@@ -943,7 +1401,7 @@ func (s *Service) DeleteTopic(id int64) bool {
 	if before != nil {
 		pluginCode = before.PluginCode
 	}
-	if err := s.hooks.Dispatch(pluginregistry.HookEvent{
+	if err := s.dispatchHook(pluginregistry.HookEvent{
 		Name: pluginregistry.HookBeforeModerateContent,
 		Mode: pluginregistry.HookBlocking,
 		Ctx: pluginregistry.HookContext{
@@ -976,7 +1434,7 @@ func (s *Service) DeleteTopic(id int64) bool {
 	}
 	deleted := s.repo.DeleteTopic(id)
 	if deleted {
-		_ = s.hooks.Dispatch(pluginregistry.HookEvent{
+		_ = s.dispatchHook(pluginregistry.HookEvent{
 			Name: pluginregistry.HookAfterModerateContent,
 			Mode: pluginregistry.HookNonBlocking,
 			Ctx: pluginregistry.HookContext{
@@ -1012,7 +1470,7 @@ func (s *Service) DeleteTopic(id int64) bool {
 // SearchTopics 搜索主题。
 func (s *Service) SearchTopics(req domain.SearchRequest) ([]domain.Topic, int) {
 	topics, total := s.repo.SearchTopics(req)
-	_ = s.hooks.Dispatch(pluginregistry.HookEvent{
+	_ = s.dispatchHook(pluginregistry.HookEvent{
 		Name:          pluginregistry.HookOnSearchIndex,
 		Mode:          pluginregistry.HookNonBlocking,
 		Ctx:           pluginregistry.HookContext{ActorType: pluginregistry.HookActorSystem},
@@ -1144,7 +1602,7 @@ func (s *Service) SetTopicFeatured(id int64, featured bool) (*domain.Topic, erro
 	if before != nil {
 		pluginCode = before.PluginCode
 	}
-	if err := s.hooks.Dispatch(pluginregistry.HookEvent{
+	if err := s.dispatchHook(pluginregistry.HookEvent{
 		Name: pluginregistry.HookBeforeUpdateContent,
 		Mode: pluginregistry.HookBlocking,
 		Ctx: pluginregistry.HookContext{PluginCode: pluginCode, ContentType: func() string {
@@ -1171,7 +1629,7 @@ func (s *Service) SetTopicFeatured(id int64, featured bool) (*domain.Topic, erro
 	if err != nil {
 		return nil, err
 	}
-	_ = s.hooks.Dispatch(pluginregistry.HookEvent{
+	_ = s.dispatchHook(pluginregistry.HookEvent{
 		Name:          pluginregistry.HookAfterUpdateContent,
 		Mode:          pluginregistry.HookNonBlocking,
 		Ctx:           pluginregistry.HookContext{PluginCode: topic.PluginCode, ContentType: topic.ContentType, CommunityID: topic.CommunityID, CategoryID: topic.CategoryID, ContentID: topic.ID, ActorType: pluginregistry.HookActorSystem},
@@ -1187,7 +1645,7 @@ func (s *Service) SetTopicPinned(id int64, pinned bool) (*domain.Topic, error) {
 	if before != nil {
 		pluginCode = before.PluginCode
 	}
-	if err := s.hooks.Dispatch(pluginregistry.HookEvent{
+	if err := s.dispatchHook(pluginregistry.HookEvent{
 		Name: pluginregistry.HookBeforeUpdateContent,
 		Mode: pluginregistry.HookBlocking,
 		Ctx: pluginregistry.HookContext{PluginCode: pluginCode, ContentType: func() string {
@@ -1214,7 +1672,7 @@ func (s *Service) SetTopicPinned(id int64, pinned bool) (*domain.Topic, error) {
 	if err != nil {
 		return nil, err
 	}
-	_ = s.hooks.Dispatch(pluginregistry.HookEvent{
+	_ = s.dispatchHook(pluginregistry.HookEvent{
 		Name:          pluginregistry.HookAfterUpdateContent,
 		Mode:          pluginregistry.HookNonBlocking,
 		Ctx:           pluginregistry.HookContext{PluginCode: topic.PluginCode, ContentType: topic.ContentType, CommunityID: topic.CommunityID, CategoryID: topic.CategoryID, ContentID: topic.ID, ActorType: pluginregistry.HookActorSystem},
@@ -1230,7 +1688,7 @@ func (s *Service) SetTopicStatus(id int64, status int) (*domain.Topic, error) {
 	if before != nil {
 		pluginCode = before.PluginCode
 	}
-	if err := s.hooks.Dispatch(pluginregistry.HookEvent{
+	if err := s.dispatchHook(pluginregistry.HookEvent{
 		Name: pluginregistry.HookBeforeUpdateContent,
 		Mode: pluginregistry.HookBlocking,
 		Ctx: pluginregistry.HookContext{PluginCode: pluginCode, ContentType: func() string {
@@ -1257,7 +1715,7 @@ func (s *Service) SetTopicStatus(id int64, status int) (*domain.Topic, error) {
 	if err != nil {
 		return nil, err
 	}
-	_ = s.hooks.Dispatch(pluginregistry.HookEvent{
+	_ = s.dispatchHook(pluginregistry.HookEvent{
 		Name:          pluginregistry.HookAfterUpdateContent,
 		Mode:          pluginregistry.HookNonBlocking,
 		Ctx:           pluginregistry.HookContext{PluginCode: topic.PluginCode, ContentType: topic.ContentType, CommunityID: topic.CommunityID, CategoryID: topic.CategoryID, ContentID: topic.ID, ActorType: pluginregistry.HookActorSystem},
@@ -1273,7 +1731,7 @@ func (s *Service) SetTopicCommentLocked(id int64, locked bool) (*domain.Topic, e
 	if before != nil {
 		pluginCode = before.PluginCode
 	}
-	if err := s.hooks.Dispatch(pluginregistry.HookEvent{
+	if err := s.dispatchHook(pluginregistry.HookEvent{
 		Name: pluginregistry.HookBeforeUpdateContent,
 		Mode: pluginregistry.HookBlocking,
 		Ctx: pluginregistry.HookContext{PluginCode: pluginCode, ContentType: func() string {
@@ -1300,7 +1758,7 @@ func (s *Service) SetTopicCommentLocked(id int64, locked bool) (*domain.Topic, e
 	if err != nil {
 		return nil, err
 	}
-	_ = s.hooks.Dispatch(pluginregistry.HookEvent{
+	_ = s.dispatchHook(pluginregistry.HookEvent{
 		Name:          pluginregistry.HookAfterUpdateContent,
 		Mode:          pluginregistry.HookNonBlocking,
 		Ctx:           pluginregistry.HookContext{PluginCode: topic.PluginCode, ContentType: topic.ContentType, CommunityID: topic.CommunityID, CategoryID: topic.CategoryID, ContentID: topic.ID, ActorType: pluginregistry.HookActorSystem},
@@ -1341,7 +1799,7 @@ func (s *Service) CreateCommentWithRequest(topicID int64, req domain.CreateComme
 		categoryID = topic.CategoryID
 	}
 	actor := domain.ActorContext{UserID: req.ActorUserID, Permissions: nil}
-	_ = s.hooks.Dispatch(pluginregistry.HookEvent{
+	_ = s.dispatchHook(pluginregistry.HookEvent{
 		Name: pluginregistry.HookAfterCreateComment,
 		Mode: pluginregistry.HookNonBlocking,
 		Ctx: pluginregistry.HookContext{

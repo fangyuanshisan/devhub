@@ -53,8 +53,8 @@ func Definition() domain.Plugin {
 				"type":                 "object",
 				"additionalProperties": false,
 				"properties": map[string]any{
-					"allow_public_spaces": map[string]any{"type": "boolean", "description": "是否允许公开文档空间"},
-					"max_tree_depth":      map[string]any{"type": "integer", "min": float64(1), "max": float64(20), "description": "文档树最大深度"},
+					"allow_public_spaces": map[string]any{"type": "boolean", "default": true, "description": "是否允许公开文档空间"},
+					"max_tree_depth":      map[string]any{"type": "integer", "min": float64(1), "max": float64(20), "default": float64(5), "description": "文档树最大深度"},
 				},
 				"required": []any{"allow_public_spaces"},
 			},
@@ -62,6 +62,10 @@ func Definition() domain.Plugin {
 				{PluginCode: Code, Name: "BeforeCreateContent", Description: "创建文档前预留文档树约束校验", Critical: true, FailurePolicy: "rollback"},
 				{PluginCode: Code, Name: "OnSEOBuild", Description: "构建文档详情 SEO 元信息", Critical: false, FailurePolicy: "log"},
 				{PluginCode: Code, Name: "OnSearchIndex", Description: "构建文档搜索索引元信息", Critical: false, FailurePolicy: "log"},
+			},
+			Migrations: []domain.PluginMigrationDefinition{
+				{PluginCode: Code, MigrationVersion: "1.0.0", MigrationName: "docs_spaces", Direction: "up", Checksum: "builtin:docs:docs_spaces:v1", Tables: []string{"docs_spaces"}, RollbackSupported: false, Description: "确认 docs_spaces 文档空间表"},
+				{PluginCode: Code, MigrationVersion: "1.0.0", MigrationName: "docs_documents", Direction: "up", Checksum: "builtin:docs:docs_documents:v1", Tables: []string{"docs_documents"}, RollbackSupported: false, Description: "确认 docs_documents 文档扩展表"},
 			},
 		},
 		Status: "enabled",

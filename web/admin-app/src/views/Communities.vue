@@ -417,9 +417,14 @@ async function setCommunityPlugin(row, status) {
     }
     const lines = [];
     if (impact) {
-      lines.push(`影响板块：${impact.categories_count}`);
-      lines.push(`已有内容：${impact.topics_count}（历史仍可访问，SEO 不受影响）`);
-      if (typeof impact.pending_topics_count === 'number') lines.push(`审核中内容：${impact.pending_topics_count}`);
+      lines.push(`当前子站启用状态：${(impact.enabled_communities_count ?? 0) > 0 ? 'enabled' : 'disabled'}`);
+      lines.push(`将阻止发布的板块：${impact.categories_count ?? 0}`);
+      lines.push(`已有历史内容：${impact.existing_contents_count ?? impact.topics_count ?? 0}（历史仍可访问，SEO 不受影响）`);
+      if (typeof impact.recent_contents_count === 'number') lines.push(`近 7 天内容：${impact.recent_contents_count}`);
+      if (typeof impact.pending_contents_count === 'number') lines.push(`审核中内容：${impact.pending_contents_count}`);
+      if (typeof impact.configs_count === 'number') lines.push(`配置覆盖记录：${impact.configs_count}`);
+      if (typeof impact.pending_migrations_count === 'number') lines.push(`待执行迁移：${impact.pending_migrations_count}`);
+      lines.push('近期 Hook 错误：执行记录统计暂未接入，不作为本次禁用判断。');
     } else {
       lines.push('影响范围统计待后端接口支持或当前环境暂不可用。');
     }

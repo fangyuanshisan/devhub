@@ -342,7 +342,7 @@ CREATE TABLE IF NOT EXISTS plugins (
   plugin_code VARCHAR(64) NOT NULL,
   name VARCHAR(128) NOT NULL,
   version VARCHAR(32) NOT NULL DEFAULT '',
-  status ENUM('installed','enabled','disabled') NOT NULL DEFAULT 'enabled',
+  status ENUM('discovered','installed','migrated','configured','enabled','disabled','running','config_invalid','migration_pending','dependency_missing') NOT NULL DEFAULT 'enabled',
   description VARCHAR(500) NOT NULL DEFAULT '',
   config_json JSON NULL,
   created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
@@ -376,16 +376,47 @@ CREATE TABLE IF NOT EXISTS plugin_migrations (
   version VARCHAR(32) NOT NULL DEFAULT '',
   migration_name VARCHAR(128) NOT NULL,
   checksum VARCHAR(128) NOT NULL DEFAULT '',
-  status ENUM('pending','success','failed') NOT NULL DEFAULT 'pending',
+  status ENUM('pending','running','success','failed') NOT NULL DEFAULT 'pending',
   executed_at DATETIME NULL,
   execution_time_ms INT NOT NULL DEFAULT 0,
   error_message VARCHAR(1000) NOT NULL DEFAULT '',
   created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
   PRIMARY KEY (id),
   UNIQUE KEY uk_plugin_migrations_unique (plugin_code, version, migration_name),
   KEY idx_plugin_migrations_plugin (plugin_code),
   KEY idx_plugin_migrations_status (status),
   KEY idx_plugin_migrations_executed (executed_at)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- Hook Executions (内置插件 HookBus 执行记录)
+CREATE TABLE IF NOT EXISTS hook_executions (
+  id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+  hook_name VARCHAR(128) NOT NULL,
+  plugin_code VARCHAR(64) NOT NULL,
+  mode VARCHAR(32) NOT NULL DEFAULT 'non_blocking',
+  content_type VARCHAR(64) NOT NULL DEFAULT '',
+  content_id BIGINT UNSIGNED NULL,
+  community_id BIGINT UNSIGNED NULL,
+  category_id BIGINT UNSIGNED NULL,
+  actor_type VARCHAR(32) NOT NULL DEFAULT '',
+  actor_id BIGINT UNSIGNED NULL,
+  user_id BIGINT UNSIGNED NULL,
+  admin_user_id BIGINT UNSIGNED NULL,
+  request_id VARCHAR(128) NOT NULL DEFAULT '',
+  started_at DATETIME NOT NULL,
+  finished_at DATETIME NULL,
+  duration_ms INT NOT NULL DEFAULT 0,
+  success TINYINT(1) NOT NULL DEFAULT 1,
+  error_message TEXT NULL,
+  blocking TINYINT(1) NOT NULL DEFAULT 0,
+  metadata_json JSON NULL,
+  created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (id),
+  KEY idx_hook_executions_plugin_hook (plugin_code, hook_name),
+  KEY idx_hook_executions_success (plugin_code, success, started_at),
+  KEY idx_hook_executions_content (content_id),
+  KEY idx_hook_executions_community (community_id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- Categories (板块表) - 替代 boards，支持 content_type

@@ -181,7 +181,7 @@ func TestPluginConfigAuditAndInvalidJSON(t *testing.T) {
 	if !bytes.Contains(w.Body.Bytes(), []byte("metadata_json")) || !bytes.Contains(w.Body.Bytes(), []byte("old_value")) || !bytes.Contains(w.Body.Bytes(), []byte("new_value")) {
 		t.Fatalf("expected structured audit fields in %s", w.Body.String())
 	}
-	for _, want := range [][]byte{[]byte(`\"plugin_code\":\"qa\"`), []byte(`\"operation\":\"plugin_config\"`), []byte(`\"operation\":\"community_plugin_config\"`), []byte(`\"operation\":\"community_plugin_sort\"`)} {
+	for _, want := range [][]byte{[]byte(`\"plugin_code\":\"qa\"`), []byte(`\"operation\":\"plugin_config\"`), []byte(`\"operation\":\"community_plugin_config\"`), []byte(`\"operation\":\"community_plugin_sort\"`), []byte(`\"changed_keys\"`), []byte(`default_question_status`)} {
 		if !bytes.Contains(w.Body.Bytes(), want) {
 			t.Fatalf("expected structured audit metadata %q in %s", want, w.Body.String())
 		}

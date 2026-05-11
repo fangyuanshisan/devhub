@@ -31,12 +31,18 @@ type MySQLStore struct {
 	database string
 }
 
+func (s *MySQLStore) columnExists(tableName, columnName string) bool {
+	var count int
+	err := s.db.QueryRow(`SELECT COUNT(*) FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME=? AND COLUMN_NAME=?`, tableName, columnName).Scan(&count)
+	return err == nil && count > 0
+}
+
 func (s *MySQLStore) PluginMigrations(pluginCode string) ([]domain.PluginMigration, error) {
 	pluginCode = strings.TrimSpace(pluginCode)
 	if pluginCode == "" {
 		return []domain.PluginMigration{}, nil
 	}
-	rows, err := s.db.Query(`SELECT id,plugin_code,version,migration_name,checksum,status,COALESCE(DATE_FORMAT(executed_at,'%Y-%m-%d %H:%i:%s'),''),execution_time_ms,COALESCE(error_message,''),DATE_FORMAT(created_at,'%Y-%m-%d %H:%i:%s')
+	rows, err := s.db.Query(`SELECT id,plugin_code,version,migration_name,checksum,status,COALESCE(DATE_FORMAT(executed_at,'%Y-%m-%d %H:%i:%s'),''),execution_time_ms,COALESCE(error_message,''),DATE_FORMAT(created_at,'%Y-%m-%d %H:%i:%s'),DATE_FORMAT(updated_at,'%Y-%m-%d %H:%i:%s')
 		FROM plugin_migrations WHERE plugin_code=? ORDER BY id DESC`, pluginCode)
 	if err != nil {
 		return nil, err
@@ -45,7 +51,10 @@ func (s *MySQLStore) PluginMigrations(pluginCode string) ([]domain.PluginMigrati
 	out := []domain.PluginMigration{}
 	for rows.Next() {
 		var it domain.PluginMigration
-		if err := rows.Scan(&it.ID, &it.PluginCode, &it.Version, &it.MigrationName, &it.Checksum, &it.Status, &it.ExecutedAt, &it.ExecutionTimeMS, &it.ErrorMessage, &it.CreatedAt); err == nil {
+		if err := rows.Scan(&it.ID, &it.PluginCode, &it.Version, &it.MigrationName, &it.Checksum, &it.Status, &it.ExecutedAt, &it.ExecutionTimeMS, &it.ErrorMessage, &it.CreatedAt, &it.UpdatedAt); err == nil {
+			it.MigrationVersion = it.Version
+			it.FinishedAt = it.ExecutedAt
+			it.DurationMS = it.ExecutionTimeMS
 			out = append(out, it)
 		}
 	}
@@ -53,6 +62,49 @@ func (s *MySQLStore) PluginMigrations(pluginCode string) ([]domain.PluginMigrati
 }
 
 func (s *MySQLStore) AppendPluginMigration(record domain.PluginMigration) (domain.PluginMigration, error) {
+	if record.MigrationVersion == "" {
+		record.MigrationVersion = record.Version
+	}
+	if record.Version == "" {
+		record.Version = record.MigrationVersion
+	}
+	record.PluginCode = strings.TrimSpace(record.PluginCode)
+	record.Version = strings.TrimSpace(record.Version)
+	record.MigrationVersion = strings.TrimSpace(record.MigrationVersion)
+	record.MigrationName = strings.TrimSpace(record.MigrationName)
+	record.Status = strings.TrimSpace(record.Status)
+	if record.PluginCode == "" || record.MigrationName == "" {
+		return domain.PluginMigration{}, errors.New("plugin_code 和 migration_name 不能为空")
+	}
+	if record.Status == "" {
+		record.Status = "pending"
+	}
+	// Upsert-like: if existing unique key exists, do not insert again.
+	_, err := s.db.Exec(`INSERT IGNORE INTO plugin_migrations (plugin_code,version,migration_name,checksum,status,executed_at,execution_time_ms,error_message,created_at,updated_at)
+		VALUES (?,?,?,?,?,NULL,?,?,NOW(),NOW())`,
+		record.PluginCode, record.Version, record.MigrationName, record.Checksum, record.Status, record.ExecutionTimeMS, record.ErrorMessage)
+	if err != nil {
+		return domain.PluginMigration{}, err
+	}
+	// Return latest record for that unique key.
+	var out domain.PluginMigration
+	_ = s.db.QueryRow(`SELECT id,plugin_code,version,migration_name,checksum,status,COALESCE(DATE_FORMAT(executed_at,'%Y-%m-%d %H:%i:%s'),''),execution_time_ms,COALESCE(error_message,''),DATE_FORMAT(created_at,'%Y-%m-%d %H:%i:%s'),DATE_FORMAT(updated_at,'%Y-%m-%d %H:%i:%s')
+		FROM plugin_migrations WHERE plugin_code=? AND version=? AND migration_name=? ORDER BY id DESC LIMIT 1`,
+		record.PluginCode, record.Version, record.MigrationName).
+		Scan(&out.ID, &out.PluginCode, &out.Version, &out.MigrationName, &out.Checksum, &out.Status, &out.ExecutedAt, &out.ExecutionTimeMS, &out.ErrorMessage, &out.CreatedAt, &out.UpdatedAt)
+	out.MigrationVersion = out.Version
+	out.FinishedAt = out.ExecutedAt
+	out.DurationMS = out.ExecutionTimeMS
+	return out, nil
+}
+
+func (s *MySQLStore) SavePluginMigration(record domain.PluginMigration) (domain.PluginMigration, error) {
+	if record.MigrationVersion == "" {
+		record.MigrationVersion = record.Version
+	}
+	if record.Version == "" {
+		record.Version = record.MigrationVersion
+	}
 	record.PluginCode = strings.TrimSpace(record.PluginCode)
 	record.Version = strings.TrimSpace(record.Version)
 	record.MigrationName = strings.TrimSpace(record.MigrationName)
@@ -63,19 +115,121 @@ func (s *MySQLStore) AppendPluginMigration(record domain.PluginMigration) (domai
 	if record.Status == "" {
 		record.Status = "pending"
 	}
-	// Upsert-like: if existing unique key exists, do not insert again.
-	_, err := s.db.Exec(`INSERT IGNORE INTO plugin_migrations (plugin_code,version,migration_name,checksum,status,executed_at,execution_time_ms,error_message,created_at)
-		VALUES (?,?,?,?,?,NULL,?,?,NOW())`,
-		record.PluginCode, record.Version, record.MigrationName, record.Checksum, record.Status, record.ExecutionTimeMS, record.ErrorMessage)
+	executedAt := record.FinishedAt
+	if executedAt == "" {
+		executedAt = record.ExecutedAt
+	}
+	if executedAt == "" && (record.Status == "success" || record.Status == "failed") {
+		executedAt = Now()
+	}
+	duration := record.DurationMS
+	if duration == 0 {
+		duration = record.ExecutionTimeMS
+	}
+	_, err := s.db.Exec(`INSERT INTO plugin_migrations (plugin_code,version,migration_name,checksum,status,executed_at,execution_time_ms,error_message,created_at,updated_at)
+		VALUES (?,?,?,?,?,?,?,?,NOW(),NOW())
+		ON DUPLICATE KEY UPDATE checksum=VALUES(checksum),status=VALUES(status),executed_at=VALUES(executed_at),execution_time_ms=VALUES(execution_time_ms),error_message=VALUES(error_message),updated_at=NOW()`,
+		record.PluginCode, record.Version, record.MigrationName, record.Checksum, record.Status, nullableTimeString(executedAt), duration, record.ErrorMessage)
 	if err != nil {
 		return domain.PluginMigration{}, err
 	}
-	// Return latest record for that unique key.
 	var out domain.PluginMigration
-	_ = s.db.QueryRow(`SELECT id,plugin_code,version,migration_name,checksum,status,COALESCE(DATE_FORMAT(executed_at,'%Y-%m-%d %H:%i:%s'),''),execution_time_ms,COALESCE(error_message,''),DATE_FORMAT(created_at,'%Y-%m-%d %H:%i:%s')
+	_ = s.db.QueryRow(`SELECT id,plugin_code,version,migration_name,checksum,status,COALESCE(DATE_FORMAT(executed_at,'%Y-%m-%d %H:%i:%s'),''),execution_time_ms,COALESCE(error_message,''),DATE_FORMAT(created_at,'%Y-%m-%d %H:%i:%s'),DATE_FORMAT(updated_at,'%Y-%m-%d %H:%i:%s')
 		FROM plugin_migrations WHERE plugin_code=? AND version=? AND migration_name=? ORDER BY id DESC LIMIT 1`,
 		record.PluginCode, record.Version, record.MigrationName).
-		Scan(&out.ID, &out.PluginCode, &out.Version, &out.MigrationName, &out.Checksum, &out.Status, &out.ExecutedAt, &out.ExecutionTimeMS, &out.ErrorMessage, &out.CreatedAt)
+		Scan(&out.ID, &out.PluginCode, &out.Version, &out.MigrationName, &out.Checksum, &out.Status, &out.ExecutedAt, &out.ExecutionTimeMS, &out.ErrorMessage, &out.CreatedAt, &out.UpdatedAt)
+	out.MigrationVersion = out.Version
+	out.FinishedAt = out.ExecutedAt
+	out.DurationMS = out.ExecutionTimeMS
+	return out, nil
+}
+
+func (s *MySQLStore) AppendHookExecution(record domain.HookExecution) (domain.HookExecution, error) {
+	record.HookName = strings.TrimSpace(record.HookName)
+	record.PluginCode = strings.TrimSpace(record.PluginCode)
+	if record.HookName == "" || record.PluginCode == "" {
+		return domain.HookExecution{}, errors.New("hook_name 和 plugin_code 不能为空")
+	}
+	if record.StartedAt == "" {
+		record.StartedAt = Now()
+	}
+	if record.FinishedAt == "" {
+		record.FinishedAt = record.StartedAt
+	}
+	res, err := s.db.Exec(`INSERT INTO hook_executions
+		(hook_name,plugin_code,mode,content_type,content_id,community_id,category_id,actor_type,actor_id,user_id,admin_user_id,request_id,started_at,finished_at,duration_ms,success,error_message,blocking,metadata_json,created_at)
+		VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,NOW())`,
+		record.HookName, record.PluginCode, record.Mode, record.ContentType,
+		nullableInt64(record.ContentID), nullableInt64(record.CommunityID), nullableInt64(record.CategoryID),
+		record.ActorType, nullableInt64(record.ActorID), nullableInt64(record.UserID), nullableInt64(record.AdminUserID),
+		record.RequestID, record.StartedAt, record.FinishedAt, record.DurationMS, record.Success, record.ErrorMessage, record.Blocking, mysqlJSONArg(record.Metadata))
+	if err != nil {
+		return domain.HookExecution{}, err
+	}
+	id, _ := res.LastInsertId()
+	record.ID = id
+	record.CreatedAt = Now()
+	return record, nil
+}
+
+func (s *MySQLStore) HookExecutions(pluginCode string, limit int) ([]domain.HookExecution, error) {
+	pluginCode = strings.TrimSpace(pluginCode)
+	if limit <= 0 || limit > 100 {
+		limit = 50
+	}
+	where := ""
+	args := []any{}
+	if pluginCode != "" {
+		where = "WHERE plugin_code=?"
+		args = append(args, pluginCode)
+	}
+	args = append(args, limit)
+	rows, err := s.db.Query(`SELECT id,hook_name,plugin_code,mode,COALESCE(content_type,''),COALESCE(content_id,0),COALESCE(community_id,0),COALESCE(category_id,0),COALESCE(actor_type,''),COALESCE(actor_id,0),COALESCE(user_id,0),COALESCE(admin_user_id,0),COALESCE(request_id,''),DATE_FORMAT(started_at,'%Y-%m-%d %H:%i:%s'),COALESCE(DATE_FORMAT(finished_at,'%Y-%m-%d %H:%i:%s'),''),duration_ms,success,COALESCE(error_message,''),blocking,COALESCE(CAST(metadata_json AS CHAR),''),DATE_FORMAT(created_at,'%Y-%m-%d %H:%i:%s')
+		FROM hook_executions `+where+` ORDER BY id DESC LIMIT ?`, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := []domain.HookExecution{}
+	for rows.Next() {
+		var it domain.HookExecution
+		if err := rows.Scan(&it.ID, &it.HookName, &it.PluginCode, &it.Mode, &it.ContentType, &it.ContentID, &it.CommunityID, &it.CategoryID, &it.ActorType, &it.ActorID, &it.UserID, &it.AdminUserID, &it.RequestID, &it.StartedAt, &it.FinishedAt, &it.DurationMS, &it.Success, &it.ErrorMessage, &it.Blocking, &it.Metadata, &it.CreatedAt); err == nil {
+			out = append(out, it)
+		}
+	}
+	return out, nil
+}
+
+func (s *MySQLStore) HookStats(pluginCode string) ([]domain.HookStats, error) {
+	pluginCode = strings.TrimSpace(pluginCode)
+	where := ""
+	args := []any{}
+	if pluginCode != "" {
+		where = "WHERE plugin_code=?"
+		args = append(args, pluginCode)
+	}
+	rows, err := s.db.Query(`SELECT hook_name,plugin_code,mode,blocking,COUNT(*),SUM(CASE WHEN success=0 THEN 1 ELSE 0 END),COALESCE(AVG(duration_ms),0),MAX(finished_at),MAX(CASE WHEN success=0 THEN finished_at ELSE NULL END)
+		FROM hook_executions `+where+` GROUP BY hook_name,plugin_code,mode,blocking ORDER BY plugin_code,hook_name`, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := []domain.HookStats{}
+	for rows.Next() {
+		var it domain.HookStats
+		var lastExecuted, lastFailed sql.NullTime
+		if err := rows.Scan(&it.HookName, &it.PluginCode, &it.Mode, &it.Blocking, &it.ExecutionCount, &it.FailureCount, &it.AvgDurationMS, &lastExecuted, &lastFailed); err != nil {
+			continue
+		}
+		if lastExecuted.Valid {
+			it.LastExecutedAt = lastExecuted.Time.Format(TimeLayout)
+		}
+		if lastFailed.Valid {
+			it.LastFailedAt = lastFailed.Time.Format(TimeLayout)
+			_ = s.db.QueryRow(`SELECT COALESCE(error_message,'') FROM hook_executions WHERE plugin_code=? AND hook_name=? AND success=0 ORDER BY id DESC LIMIT 1`, it.PluginCode, it.HookName).Scan(&it.LastError)
+		}
+		out = append(out, it)
+	}
 	return out, nil
 }
 
@@ -234,22 +388,56 @@ func (s *MySQLStore) migrateSiteScopedAudit() error {
 	_, _ = s.db.Exec(`ALTER TABLE categories ADD COLUMN allowed_content_types JSON NULL AFTER plugin_code`)
 	_, _ = s.db.Exec(`ALTER TABLE categories ADD KEY idx_categories_plugin_status (plugin_code, status)`)
 	_, _ = s.db.Exec(`ALTER TABLE plugins ADD COLUMN config_json JSON NULL AFTER description`)
+	_, _ = s.db.Exec(`ALTER TABLE plugins MODIFY COLUMN status ENUM('discovered','installed','migrated','configured','enabled','disabled','running','config_invalid','migration_pending','dependency_missing') NOT NULL DEFAULT 'enabled'`)
 	_, _ = s.db.Exec(`CREATE TABLE IF NOT EXISTS plugin_migrations (
 		id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
 		plugin_code VARCHAR(64) NOT NULL,
 		version VARCHAR(32) NOT NULL DEFAULT '',
 		migration_name VARCHAR(128) NOT NULL,
 		checksum VARCHAR(128) NOT NULL DEFAULT '',
-		status ENUM('pending','success','failed') NOT NULL DEFAULT 'pending',
+		status ENUM('pending','running','success','failed') NOT NULL DEFAULT 'pending',
 		executed_at DATETIME NULL,
 		execution_time_ms INT NOT NULL DEFAULT 0,
 		error_message VARCHAR(1000) NOT NULL DEFAULT '',
 		created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+		updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
 		PRIMARY KEY (id),
 		UNIQUE KEY uk_plugin_migrations_unique (plugin_code, version, migration_name),
 		KEY idx_plugin_migrations_plugin (plugin_code),
 		KEY idx_plugin_migrations_status (status),
 		KEY idx_plugin_migrations_executed (executed_at)
+	) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci`)
+	_, _ = s.db.Exec(`ALTER TABLE plugin_migrations MODIFY COLUMN status ENUM('pending','running','success','failed') NOT NULL DEFAULT 'pending'`)
+	if !s.columnExists("plugin_migrations", "updated_at") {
+		_, _ = s.db.Exec(`ALTER TABLE plugin_migrations ADD COLUMN updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP`)
+	}
+	_, _ = s.db.Exec(`CREATE TABLE IF NOT EXISTS hook_executions (
+		id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+		hook_name VARCHAR(128) NOT NULL,
+		plugin_code VARCHAR(64) NOT NULL,
+		mode VARCHAR(32) NOT NULL DEFAULT 'non_blocking',
+		content_type VARCHAR(64) NOT NULL DEFAULT '',
+		content_id BIGINT UNSIGNED NULL,
+		community_id BIGINT UNSIGNED NULL,
+		category_id BIGINT UNSIGNED NULL,
+		actor_type VARCHAR(32) NOT NULL DEFAULT '',
+		actor_id BIGINT UNSIGNED NULL,
+		user_id BIGINT UNSIGNED NULL,
+		admin_user_id BIGINT UNSIGNED NULL,
+		request_id VARCHAR(128) NOT NULL DEFAULT '',
+		started_at DATETIME NOT NULL,
+		finished_at DATETIME NULL,
+		duration_ms INT NOT NULL DEFAULT 0,
+		success TINYINT(1) NOT NULL DEFAULT 1,
+		error_message TEXT NULL,
+		blocking TINYINT(1) NOT NULL DEFAULT 0,
+		metadata_json JSON NULL,
+		created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+		PRIMARY KEY (id),
+		KEY idx_hook_executions_plugin_hook (plugin_code, hook_name),
+		KEY idx_hook_executions_success (plugin_code, success, started_at),
+		KEY idx_hook_executions_content (content_id),
+		KEY idx_hook_executions_community (community_id)
 	) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci`)
 	_, _ = s.db.Exec(`UPDATE categories SET nav_visible=visible WHERE nav_visible=1`)
 	_, _ = s.db.Exec(`UPDATE categories SET type='document', plugin_code='docs', allowed_content_types=JSON_ARRAY('document','doc') WHERE type='doc' OR slug='docs'`)
@@ -1288,7 +1476,7 @@ func (s *MySQLStore) PluginByCode(code string) (domain.Plugin, bool) {
 
 func (s *MySQLStore) SetPluginStatus(code, status string) (domain.Plugin, error) {
 	status = strings.TrimSpace(status)
-	if status != pluginregistry.StatusInstalled && status != pluginregistry.StatusEnabled && status != pluginregistry.StatusDisabled {
+	if !pluginregistry.ValidGlobalStatus(status) {
 		return domain.Plugin{}, errors.New("插件状态不合法")
 	}
 	def, ok := pluginregistry.DefinitionByCode(code)
@@ -2770,12 +2958,20 @@ func (s *MySQLStore) PluginImpact(code string) (domain.PluginImpact, error) {
 		 WHERE cp.plugin_code=? AND cp.status='enabled' AND p.status='enabled'`,
 		code,
 	).Scan(&enabledCommunities)
+	totalCommunities := 0
+	_ = s.db.QueryRow(`SELECT COUNT(*) FROM communities WHERE deleted_at IS NULL`).Scan(&totalCommunities)
+	disabledCommunities := totalCommunities - enabledCommunities
+	if disabledCommunities < 0 {
+		disabledCommunities = 0
+	}
 
 	categories := 0
 	_ = s.db.QueryRow(`SELECT COUNT(*) FROM categories WHERE plugin_code=? AND deleted_at IS NULL`, code).Scan(&categories)
 
 	topics := 0
 	_ = s.db.QueryRow(`SELECT COUNT(*) FROM topics WHERE plugin_code=? AND deleted_at IS NULL`, code).Scan(&topics)
+	recent := 0
+	_ = s.db.QueryRow(`SELECT COUNT(*) FROM topics WHERE plugin_code=? AND deleted_at IS NULL AND created_at >= DATE_SUB(NOW(), INTERVAL 7 DAY)`, code).Scan(&recent)
 
 	// "pending" here maps to topics.status=2 (审核中) per schema comment.
 	pending := 0
@@ -2798,17 +2994,33 @@ func (s *MySQLStore) PluginImpact(code string) (domain.PluginImpact, error) {
 			moderatorMenus++
 		}
 	}
+	configs := 0
+	_ = s.db.QueryRow(`SELECT COUNT(*) FROM plugins WHERE plugin_code=? AND config_json IS NOT NULL`, code).Scan(&configs)
+	communityConfigs := 0
+	_ = s.db.QueryRow(`SELECT COUNT(*) FROM community_plugins WHERE plugin_code=? AND config_json IS NOT NULL`, code).Scan(&communityConfigs)
+	configs += communityConfigs
+	pendingMigrations := 0
+	_ = s.db.QueryRow(`SELECT COUNT(*) FROM plugin_migrations WHERE plugin_code=? AND status='pending'`, code).Scan(&pendingMigrations)
+	recentHookErrors := 0
+	_ = s.db.QueryRow(`SELECT COUNT(*) FROM hook_executions WHERE plugin_code=? AND success=0 AND started_at >= DATE_SUB(NOW(), INTERVAL 7 DAY)`, code).Scan(&recentHookErrors)
 
 	return domain.PluginImpact{
-		PluginCode:              code,
-		EnabledCommunitiesCount: enabledCommunities,
-		CategoriesCount:         categories,
-		TopicsCount:             topics,
-		PendingTopicsCount:      pending,
-		MenusCount:              len(plugin.Menus),
-		FrontendMenusCount:      frontendMenus,
-		ModeratorMenusCount:     moderatorMenus,
-		AdminMenusCount:         adminMenus,
+		PluginCode:               code,
+		ExistingContentsCount:    topics,
+		EnabledCommunitiesCount:  enabledCommunities,
+		DisabledCommunitiesCount: disabledCommunities,
+		CategoriesCount:          categories,
+		TopicsCount:              topics,
+		RecentContentsCount:      recent,
+		PendingTopicsCount:       pending,
+		PendingContentsCount:     pending,
+		MenusCount:               len(plugin.Menus),
+		FrontendMenusCount:       frontendMenus,
+		ModeratorMenusCount:      moderatorMenus,
+		AdminMenusCount:          adminMenus,
+		ConfigsCount:             configs,
+		PendingMigrationsCount:   pendingMigrations,
+		RecentHookErrorsCount:    recentHookErrors,
 	}, nil
 }
 
@@ -2841,11 +3053,29 @@ func (s *MySQLStore) CommunityPluginImpact(communityID int64, code string) (doma
 
 	pending := 0
 	_ = s.db.QueryRow(`SELECT COUNT(*) FROM topics WHERE community_id=? AND plugin_code=? AND deleted_at IS NULL AND status=2`, communityID, code).Scan(&pending)
+	recent := 0
+	_ = s.db.QueryRow(`SELECT COUNT(*) FROM topics WHERE community_id=? AND plugin_code=? AND deleted_at IS NULL AND created_at >= DATE_SUB(NOW(), INTERVAL 7 DAY)`, communityID, code).Scan(&recent)
+	configs := 0
+	_ = s.db.QueryRow(`SELECT COUNT(*) FROM plugins WHERE plugin_code=? AND config_json IS NOT NULL`, code).Scan(&configs)
+	communityConfigs := 0
+	_ = s.db.QueryRow(`SELECT COUNT(*) FROM community_plugins WHERE community_id=? AND plugin_code=? AND config_json IS NOT NULL`, communityID, code).Scan(&communityConfigs)
+	configs += communityConfigs
+	recentHookErrors := 0
+	_ = s.db.QueryRow(`SELECT COUNT(*) FROM hook_executions WHERE plugin_code=? AND community_id=? AND success=0 AND started_at >= DATE_SUB(NOW(), INTERVAL 7 DAY)`, code, communityID).Scan(&recentHookErrors)
 
 	impact.EnabledCommunitiesCount = enabledCommunities
+	impact.DisabledCommunitiesCount = 1 - enabledCommunities
+	if impact.DisabledCommunitiesCount < 0 {
+		impact.DisabledCommunitiesCount = 0
+	}
 	impact.CategoriesCount = categories
 	impact.TopicsCount = topics
+	impact.ExistingContentsCount = topics
+	impact.RecentContentsCount = recent
 	impact.PendingTopicsCount = pending
+	impact.PendingContentsCount = pending
+	impact.ConfigsCount = configs
+	impact.RecentHookErrorsCount = recentHookErrors
 	return impact, nil
 }
 
@@ -3128,6 +3358,14 @@ func mysqlJSONArg(raw string) any {
 		return nil
 	}
 	return json.RawMessage(encoded)
+}
+
+func nullableTimeString(raw string) any {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return nil
+	}
+	return raw
 }
 
 type scanner interface {

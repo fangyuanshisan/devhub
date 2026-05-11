@@ -2,7 +2,7 @@
 
 [返回文档入口](README.md)
 
-更新时间：2026-05-10
+更新时间：2026-05-11
 
 ## 版本定位
 
@@ -27,6 +27,50 @@ Core 只保留通用社区能力：
 - `topics` 是当前通用内容表，对应目标架构中的 `contents`。
 - `categories` 是当前通用板块表，对应目标架构中的 `channels`。
 
+## 当前插件平台基线对账
+
+本节是 2026-05-11 的真实代码基线，用于避免把预留能力误写成已完成能力。
+
+专项验收补充：2026-05-11 已完成一次插件系统专项验收与 E2E 回归归档。后端单测、Go 构建、后台 Docker 构建、前台 E2E、后台 E2E 和 `/topics/:id` / `/c/:slug` SEO curl 回归均已执行；后台 E2E 首次暴露的插件启停测试状态污染和影响分析旧文案断言已修复并复跑通过。该验收不改变架构边界：插件市场、插件上传、远程安装和 Go 动态加载仍是后续阶段能力，不属于当前已完成范围。
+
+当前定位：
+
+- DevHub 当前是内置系统插件平台：插件通过代码 registry / manifest 风格声明接入，由 Core 负责状态、权限、菜单、配置、Hook、发布校验和后台治理分发。
+- 当前不是第三方插件市场，不支持插件包上传、远程安装、在线更新或 Go 动态插件加载。
+- 当前真实表名仍是 `topics` / `categories`；`contents` / `channels` 是架构概念或长期目标命名，不能在本阶段强行改表。
+
+已完成：
+
+- 插件注册：`qa`、`docs`、`wiki`、`projects`、`jobs`、`ai_works` 均通过统一 registry 暴露 `code`、`plugin_code`、`content_types`、权限、菜单、路由、Hook 声明、`config_schema`、依赖和最小 Core 版本。
+- 内容类型归一：`doc -> document`、`wiki -> wiki_page` 和 `content_type -> plugin_code` 映射集中在 registry。
+- 全局状态：`plugins.status` 已扩展为插件运行治理状态模型，当前 schema / Store 接受 `discovered`、`installed`、`migrated`、`configured`、`enabled`、`disabled`、`running`、`config_invalid`、`migration_pending`、`dependency_missing`。
+- 发布可用性：当前只有 `plugins.status=enabled` 会放行新建内容；`running`、`configured` 等状态先作为生命周期 / 健康治理预留，不等价于可发布。
+- 子站状态：`community_plugins.status` 支持子站级 `enabled` / `disabled`，并叠加 `sort_order`、`config_json`。
+- 配置：`plugins.config_json`、`community_plugins.config_json`、`resolved_config.default/global/community/effective` 已落地；后端保存时执行简化 `config_schema` 校验，后台用 JSON Editor + Ajv 做客户端基础校验。
+- 权限：插件权限来自 manifest / registry；发布链路按内容类型读取 `create_permission`；菜单按全局状态、子站状态、权限和 scope 过滤。
+- HookBus：已有内置 HookBus 和最小 handler 注册；创建、更新、删除、评论、搜索、通知、SEO 以及插件启停会派发 Hook 事件。
+- 影响分析：已有轻量 impact API，返回启用子站数、板块数、内容数、待审核内容数和菜单数等计数。
+- 健康摘要：`GET /api/v1/admin/plugins` 返回轻量 `health`，由全局状态、配置校验、迁移记录、依赖状态和 Hook 失败统计计算。
+- 审计：插件启停、全局配置、子站启停、子站配置、排序、Hook 失败和带 plugin_code 的插件内容治理操作写入 `admin_logs.old_value`、`admin_logs.new_value`、`admin_logs.metadata_json`。
+- 迁移治理：`plugin_migrations` 表、MemoryStore / MySQLStore 读写能力、内置插件 migration 声明、up/no-op runner、失败记录、失败重试和迁移审计已存在；成功迁移不会重复执行。
+- 后台：`/admin-next/plugins` 已具备插件列表、详情抽屉、配置、impact 提示、审计 Tab、迁移 Tab 和通用插件内容页入口；`/admin-next/communities` 已具备子站插件配置抽屉。
+
+部分完成：
+
+- 生命周期：状态枚举已扩展，但尚未形成完整 `discovered -> installed -> migrated -> configured -> enabled -> running` 自动状态机；当前运行判断仍以 `plugins.status=enabled`、`community_plugins.status=enabled` 和 `plugin_migrations.status` 为准。
+- Hook 治理：Hook 可以执行，blocking hook 可阻断；`hook_executions` 已记录执行结果、最近错误、失败次数、平均耗时和失败率，失败会写入 `plugin.hook.failed` / `plugin.hook.blocked` 审计。当前已有轻量健康摘要；重试策略、告警和复杂业务处理器仍待后续。
+- 插件迁移：当前 runner 只支持内置插件 up/no-op 执行记录、失败记录和重试；尚无 migration down、真实 rollback、迁移前备份、外部插件迁移包或复杂迁移依赖排序。
+- 权限矩阵：发布和菜单已做最小权限码校验；角色可分配、按 community / category 作用域细分的完整权限矩阵和配置 UI 仍未完成。
+- 插件内容治理：已有通用 `PluginContent` 页和部分 E2E；专属详情、批量操作、审计跳转和更完整治理闭环仍待后续。
+- Projects / Jobs / AI Works：已接入 plugin_code、content_type、权限、菜单、状态和发布校验；专属扩展表、专属搜索、通知、SEO 和业务闭环未完成。
+
+预留：
+
+- 插件安装器、插件包 manifest 导入、本地插件包、插件升级、soft uninstall、hard uninstall。
+- 插件健康状态：`healthy`、`warning`、`error`、`disabled`、`migration_pending`、`config_invalid`、`dependency_missing` 已有轻量计算；独立健康 API、告警、自动恢复和可观测指标仍是后续能力。
+- 插件 SDK、生成模板、插件依赖解析、版本兼容检查、插件包签名和市场分发。
+- 动态路由加载、动态执行环境、沙箱和第三方 Hook 运行时。
+
 ## 完整插件系统路线
 
 本节是当前架构文档中的阶段摘要；更完整的目标流程、治理能力、后台能力、运行时能力、审计能力和 E2E 要求见 [完整插件系统长期完善路线图](PLUGIN_SYSTEM_ROADMAP.md)。
@@ -44,7 +88,7 @@ P0：插件平台收口
 - 菜单过滤。
 - `config_json`。
 - `config_schema` 基础校验。
-- HookBus 全调用点。
+- HookBus 全调用点与执行记录。
 - `admin_logs` 结构化审计。
 - migration 边界。
 - 测试矩阵。
@@ -131,7 +175,7 @@ P3：高级能力
 
 - manifest 只描述能力和元数据，不直接承载业务执行流程。
 - `qa/docs/wiki/projects/jobs/ai_works` 当前都通过统一 registry 返回相同结构。
-- `config_schema` 当前是预留元数据，方便后续为 `plugins.config_json` 和 `community_plugins.config_json` 增加更稳定的 schema 校验与表单 UI。
+- `config_schema` 当前已经用于全局 / 子站插件配置的简化后端校验，并供后台 JSON Editor / Ajv 做客户端基础校验；完整 JSON Schema、自动表单和配置版本能力仍是后续任务。
 
 ## 内容类型声明
 
@@ -235,6 +279,8 @@ HookBus 完整化属于插件平台 P0 收口任务。当前只服务内置系�
 - `HookDefinition` 是 manifest 声明层，描述插件希望参与的扩展点。
 - `v1.3.2` 起 HookBus 作为插件平台能力收口到 `internal/plugins`，并在 Service 的内容创建/更新/删除、评论创建、搜索、通知与 SEO 构建等流程中派发 Hook 事件。
 - HookBus 当前仅注册内置系统插件 Hook handlers（编译期内置注册，不支持第三方动态加载）。
+- `v1.3.2` 起 HookBus 执行结果会落入 `hook_executions`，后台可查询每个插件 Hook 的执行次数、失败次数、平均耗时、最近执行、最近失败和最近错误。
+- blocking hook 失败会阻断主流程，并写入 `plugin.hook.blocked` 审计；non-blocking hook 失败不阻断主流程，但会写入 `plugin.hook.failed` 审计。
 - 当前没有第三方动态注册，也没有插件包运行时加载；HookBus 仅服务内置系统插件和后续 Core 内部扩展。
 - 搜索、通知和 SEO 当前是最小调用点：已能派发事件，但还没有复杂索引、通知模板或结构化数据插件处理器。
 - 完整插件业务处理器、统一失败日志、重试策略和跨 Store 事务边界属于 P0/P1 继续收口项，不能降级为低优先级优化。
@@ -242,7 +288,7 @@ HookBus 完整化属于插件平台 P0 收口任务。当前只服务内置系�
 失败策略约定：
 
 - 关键 Hook：`BeforeCreateContent`、`BeforeUpdateContent`、`BeforeDeleteContent` 失败会阻断当前操作；当前没有跨 Store 事务回滚封装，后续如 Hook 写外部资源需单独设计事务边界。
-- 非关键 Hook：`AfterCreateContent`、`AfterUpdateContent`、`AfterDeleteContent`、`AfterCreateComment`、`OnSearchIndex`、`OnNotificationBuild`、`OnSEOBuild` 当前不阻断主流程；后续需要补统一日志和重试策略。
+- 非关键 Hook：`AfterCreateContent`、`AfterUpdateContent`、`AfterDeleteContent`、`AfterCreateComment`、`OnSearchIndex`、`OnNotificationBuild`、`OnSEOBuild` 当前不阻断主流程；当前会记录失败与审计，后续需要补重试策略、告警和健康评分。
 
 ## 配置优先级
 
@@ -256,10 +302,12 @@ HookBus 完整化属于插件平台 P0 收口任务。当前只服务内置系�
 
 当前真实实现说明：
 
+- `config_schema.properties.*.default` 会参与 `resolved_config.effective` 合并，作为最低优先级默认配置来源。
 - `plugins.config_json` 已落库，并可通过后台插件页和 `PUT /api/v1/admin/plugins/:code/config` 管理。
 - `community_plugins.config_json` 已落地，并可通过后台子站插件配置和 `PUT /api/v1/admin/communities/:id/plugins/:code/config` 管理。
 - API 返回的 `resolved_config` 以 `default`、`global`、`community`、`effective` 四段表达当前合并视图。
-- 当前已完成 JSON 合法性校验与简化 `config_schema` 基础校验；后台插件配置使用 JSON Editor + Ajv 做客户端校验，后端保存时仍会二次校验。后台自动表单渲染和更完整 JSON Schema 支持是 P1 任务。
+- 当前已完成 JSON 合法性校验与简化 `config_schema` 后端强校验；支持 `type`、`required`、`enum`、`object`、`boolean`、`string`、`number`、`integer`、`default` 和数字 `min/max`。后台插件配置使用 JSON Editor + Ajv 做客户端校验，后端保存时仍会二次校验。后台自动表单渲染、更完整 JSON Schema、配置版本回滚和敏感字段加密是后续任务。
+- 配置审计记录 `old_value`、`new_value` 和 `metadata_json.changed_keys`；当前 diff 为顶层 key diff，不做深层路径级 diff。
 
 ## 两层插件状态
 
@@ -355,6 +403,7 @@ v1.3.1 采用稳妥策略：后台编辑已存在内容时禁止修改归属和�
 
 - `plugins`
 - `community_plugins`
+- `plugin_migrations`
 - `qa_questions`
 - `qa_answers`
 - `docs_spaces`
@@ -368,6 +417,8 @@ v1.3.1 采用稳妥策略：后台编辑已存在内容时禁止修改归属和�
 - `topics.plugin_code`
 - `categories.plugin_code`
 - `categories.allowed_content_types`
+
+`plugin_migrations` 当前是插件迁移治理记录表。v1.3.2 已支持内置插件 migration 声明、查询、up/no-op 执行、失败记录、失败重试和审计；qa/docs/wiki 的第一批 migration 用于确认扩展表已经由主 schema / 启动迁移创建，不会重复破坏数据。migration down、真实 rollback、迁移前备份和外部插件迁移包仍是后续任务。
 
 ## API 与菜单
 
@@ -404,7 +455,9 @@ v1.3.1 采用稳妥策略：后台编辑已存在内容时禁止修改归属和�
   - `GET /api/v1/admin/plugins/:code/impact`
   - `GET /api/v1/admin/communities/:id/plugins/:code/impact`
   UI 在接口不可用时必须显示“待接口支持/暂不可用”，不得伪造数字。
-  同时插件详情抽屉提供“审计”Tab，复用 `GET /api/v1/admin/audit-logs`，按 `target=plugins#<code>` 前缀筛选展示。
+  当前返回字段包括历史内容数、启用/禁用子站数、绑定板块数、近 7 天内容数、审核中内容数、菜单声明数、配置覆盖数、待执行迁移数和近 7 天 Hook 失败数；`recent_hook_errors_count` 来自 `hook_executions`，仍只是轻量提示。
+  同时插件详情抽屉提供“审计”Tab，使用 `GET /api/v1/admin/plugins/:code/audit-logs` 展示插件启停、配置、Hook 失败和带 plugin_code 的内容治理审计。
+  插件列表与详情抽屉的“运行状态”展示轻量 `health` 摘要，覆盖 overall、config、migration、Hook、dependency、recent_error 与 suggested_action；这不是完整监控系统。
 
 ## 当前限制与阶段边界
 
@@ -414,5 +467,6 @@ v1.3.1 采用稳妥策略：后台编辑已存在内容时禁止修改归属和�
 - 子站插件配置和排序已有 API 与增强后的后台 UI，但仍需继续做真实浏览器矩阵验收。
 - 插件治理审计已新增 `admin_logs.old_value`、`admin_logs.new_value` 和 `admin_logs.metadata_json` 结构化字段，同时保留 `target` 文本摘要兼容旧展示；非插件历史日志可能仍没有结构化 diff。
 - 新装库已在 `db/mysql/001_schema.sql` 和 `internal/store/schema.go` 包含结构化审计字段；老库升级使用 `db/mysql/migrations/007_admin_logs_structured_plugin_audit.sql`，启动迁移辅助也会尝试补齐这些列。
-- `plugins.config_json` 与 `community_plugins.config_json` 已可写，但当前仅做 JSON 格式校验；`config_schema` 基础校验属于 P0，自动表单渲染属于 P1。
-- HookBus 当前是最小内部调度器；调用点已覆盖内容创建、更新、删除、评论、搜索、通知和 SEO，但搜索 / 通知 / SEO 仍是预留级事件派发，完整业务处理器和日志策略属于 P0/P1。
+- `plugins.config_json` 与 `community_plugins.config_json` 已可写，并已做 JSON 格式校验和简化 `config_schema` 基础校验；自动表单渲染、更完整 JSON Schema、配置 diff UI 和配置版本回滚属于 P1/P3。
+- HookBus 当前是内置插件运行时调度器；调用点已覆盖内容创建、更新、删除、评论、搜索、通知和 SEO，并记录执行结果与失败审计。搜索 / 通知 / SEO 仍是预留级事件派发，完整业务处理器、重试策略和健康状态属于 P0/P1。
+- 插件生命周期当前不是完整 discovered -> installed -> migrated -> configured -> enabled -> running 状态机；代码真实状态仍以 `plugins.status`、`community_plugins.status` 和 `plugin_migrations.status` 为准。

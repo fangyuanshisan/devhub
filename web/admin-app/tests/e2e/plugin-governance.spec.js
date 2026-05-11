@@ -3,6 +3,8 @@ import { ensurePluginEnabled } from './helpers/api.js';
 import { seedAdminSession } from './helpers/auth.js';
 
 test.describe('plugin governance center', () => {
+  test.describe.configure({ mode: 'serial' });
+
   test.beforeEach(async ({ page, request }) => {
     await ensurePluginEnabled(request, 'qa');
     await seedAdminSession(page);
@@ -38,18 +40,23 @@ test.describe('plugin governance center', () => {
     await expect(page.getByTestId('plugin-global-config-save')).toBeDisabled();
   });
 
-  test('shows impact before global disable and blocks community enable when globally disabled', async ({ page }) => {
-    await page.goto('/admin-next/plugins');
-    await page.getByTestId('plugin-disable-qa').click();
-    await expect(page.getByRole('dialog')).toContainText('历史内容详情页和 SEO 不受影响');
-    await expect(page.getByRole('dialog')).toContainText('将影响子站');
-    await page.getByRole('button', { name: '确认禁用' }).click();
-    await expect(page.getByText('插件状态已更新')).toBeVisible();
+  test('shows impact before global disable and blocks community enable when globally disabled', async ({ page, request }) => {
+    try {
+      await page.goto('/admin-next/plugins');
+      await page.getByTestId('plugin-disable-qa').click();
+      await expect(page.getByRole('dialog')).toContainText('历史内容详情页和 SEO 不受影响');
+      await expect(page.getByRole('dialog')).toContainText('当前启用子站');
+      await expect(page.getByRole('dialog')).toContainText('将阻止发布的板块');
+      await page.getByRole('button', { name: '确认禁用' }).click();
+      await expect(page.getByText('插件状态已更新')).toBeVisible();
 
-    await page.goto('/admin-next/communities');
-    await page.getByTestId('community-plugins-1').click();
-    await expect(page.getByTestId('community-plugin-drawer')).toBeVisible();
-    await expect(page.getByText('该插件已被全局禁用')).toBeVisible();
+      await page.goto('/admin-next/communities');
+      await page.getByTestId('community-plugins-1').click();
+      await expect(page.getByTestId('community-plugin-drawer')).toBeVisible();
+      await expect(page.getByText('该插件已被全局禁用')).toBeVisible();
+    } finally {
+      await ensurePluginEnabled(request, 'qa');
+    }
   });
 
   test('opens community plugin config and blocks invalid schema values', async ({ page }) => {

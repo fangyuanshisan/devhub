@@ -7,6 +7,7 @@
           <div class="hero-title">
             <h3>{{ plugin.name }}</h3>
             <el-tag :type="statusType(plugin.status)">{{ plugin.status }}</el-tag>
+            <el-tag :type="healthType(plugin.health?.status)">{{ plugin.health?.status || 'unknown' }}</el-tag>
             <el-tag v-if="plugin.is_system" type="primary">system</el-tag>
           </div>
           <p class="hero-desc">{{ plugin.description || '暂无插件说明' }}</p>
@@ -30,8 +31,10 @@
             <el-descriptions-item label="plugin_code">{{ plugin.code }}</el-descriptions-item>
             <el-descriptions-item label="version">{{ plugin.version }}</el-descriptions-item>
             <el-descriptions-item label="status">{{ plugin.status }}</el-descriptions-item>
+            <el-descriptions-item label="health">{{ plugin.health?.status || '-' }}</el-descriptions-item>
             <el-descriptions-item label="is_system">{{ plugin.is_system ? '是' : '否' }}</el-descriptions-item>
             <el-descriptions-item label="maturity">{{ maturityLabel(plugin) }}</el-descriptions-item>
+            <el-descriptions-item label="suggested_action">{{ plugin.health?.suggested_action || '-' }}</el-descriptions-item>
             <el-descriptions-item label="content_types" :span="2">{{ (plugin.content_types || []).join(', ') || '-' }}</el-descriptions-item>
           </el-descriptions>
           <el-alert
@@ -41,6 +44,39 @@
             :closable="false"
             title="成熟度说明：平台治理已接入表示已纳入插件状态/权限/配置/Hook 等平台能力；业务闭环是否完成仍以各插件专项验收为准。"
           />
+        </el-tab-pane>
+
+        <el-tab-pane label="运行状态" name="runtime">
+          <el-alert
+            type="info"
+            show-icon
+            :closable="false"
+            class="mb"
+            title="运行状态由全局启停、配置校验、迁移记录、依赖状态和 Hook 失败统计计算；禁用插件不会影响历史内容访问和 SEO。"
+          />
+          <el-descriptions :column="2" border>
+            <el-descriptions-item label="overall">
+              <el-tag :type="healthType(plugin.health?.status)">{{ plugin.health?.status || 'unknown' }}</el-tag>
+            </el-descriptions-item>
+            <el-descriptions-item label="suggested_action">{{ plugin.health?.suggested_action || '-' }}</el-descriptions-item>
+            <el-descriptions-item label="config_status">
+              <el-tag :type="metricType(plugin.health?.config_status)">{{ plugin.health?.config_status || '-' }}</el-tag>
+            </el-descriptions-item>
+            <el-descriptions-item label="migration_status">
+              <el-tag :type="metricType(plugin.health?.migration_status)">{{ plugin.health?.migration_status || '-' }}</el-tag>
+            </el-descriptions-item>
+            <el-descriptions-item label="hook_status">
+              <el-tag :type="metricType(plugin.health?.hook_status)">{{ plugin.health?.hook_status || '-' }}</el-tag>
+            </el-descriptions-item>
+            <el-descriptions-item label="dependency_status">
+              <el-tag :type="metricType(plugin.health?.dependency_status)">{{ plugin.health?.dependency_status || '-' }}</el-tag>
+            </el-descriptions-item>
+            <el-descriptions-item label="pending_migrations">{{ plugin.health?.pending_migrations_count ?? 0 }}</el-descriptions-item>
+            <el-descriptions-item label="failed_migrations">{{ plugin.health?.failed_migrations_count ?? 0 }}</el-descriptions-item>
+            <el-descriptions-item label="hook_failures">{{ plugin.health?.hook_failure_count ?? 0 }}</el-descriptions-item>
+            <el-descriptions-item label="updated_at">{{ plugin.health?.updated_at || '-' }}</el-descriptions-item>
+            <el-descriptions-item label="recent_error" :span="2">{{ plugin.health?.recent_error || '-' }}</el-descriptions-item>
+          </el-descriptions>
         </el-tab-pane>
 
         <el-tab-pane label="内容类型" name="contentTypes">
@@ -137,9 +173,9 @@
             show-icon
             :closable="false"
             class="mb"
-            title="说明：平台调用点=当前后端代码已确认存在 Dispatch 接入点；未知/未覆盖表示当前无法确认或尚未接入。handler 状态需要后端提供运行时观测，本页面不伪造。"
+            title="说明：平台调用点=当前后端代码已确认存在 Dispatch 接入点；运行统计来自 hook_executions。handler 状态仍不伪造，仅展示真实执行记录。"
           />
-          <el-table :data="hooksRows" border stripe>
+          <el-table v-loading="hooksLoading" :data="hooksRows" border stripe>
             <el-table-column prop="name" label="Hook" min-width="200" />
             <el-table-column label="manifest 声明" width="130">
               <template #default="{ row }">
@@ -153,11 +189,90 @@
             </el-table-column>
             <el-table-column label="handler" width="150">
               <template #default="{ row }">
-                <el-tag type="info">handler 状态未知</el-tag>
+                <el-tag :type="row.execution_count > 0 ? 'success' : 'info'">
+                  {{ row.execution_count > 0 ? '有执行记录' : '暂无记录' }}
+                </el-tag>
               </template>
             </el-table-column>
+            <el-table-column prop="mode" label="mode" width="120" />
+            <el-table-column label="执行/失败" width="130">
+              <template #default="{ row }">{{ row.execution_count || 0 }} / {{ row.failure_count || 0 }}</template>
+            </el-table-column>
+            <el-table-column label="失败率" width="100">
+              <template #default="{ row }">{{ failureRate(row) }}</template>
+            </el-table-column>
+            <el-table-column label="平均耗时" width="110">
+              <template #default="{ row }">{{ avgDuration(row) }}</template>
+            </el-table-column>
+            <el-table-column prop="last_executed_at" label="最近执行" min-width="160" />
+            <el-table-column prop="last_failed_at" label="最近失败" min-width="160" />
+            <el-table-column prop="last_error" label="最近错误" min-width="220" />
             <el-table-column prop="failure_policy" label="failure_policy" width="140" />
             <el-table-column prop="description" label="说明" min-width="240" />
+          </el-table>
+          <el-divider>最近执行</el-divider>
+          <el-table :data="hookRecent" border stripe empty-text="暂无 Hook 执行记录">
+            <el-table-column prop="finished_at" label="时间" width="170" />
+            <el-table-column prop="hook_name" label="Hook" min-width="180" />
+            <el-table-column prop="mode" label="mode" width="120" />
+            <el-table-column label="结果" width="90">
+              <template #default="{ row }">
+                <el-tag :type="row.success ? 'success' : 'danger'">{{ row.success ? 'success' : 'failed' }}</el-tag>
+              </template>
+            </el-table-column>
+            <el-table-column prop="content_type" label="content_type" width="140" />
+            <el-table-column prop="content_id" label="content_id" width="120" />
+            <el-table-column prop="community_id" label="community_id" width="130" />
+            <el-table-column prop="duration_ms" label="耗时(ms)" width="100" />
+            <el-table-column prop="error_message" label="错误" min-width="220" />
+          </el-table>
+        </el-tab-pane>
+
+        <el-tab-pane label="迁移" name="migrations">
+          <el-alert
+            type="info"
+            show-icon
+            :closable="false"
+            class="mb"
+            title="当前仅支持内置插件 up migration 的执行记录、失败记录与重试；rollback/down 先保留 rollback_supported 标识，不做真实回滚。"
+          />
+          <div class="sub-toolbar">
+            <el-tag type="info" effect="plain">total {{ migrationSummary.total || migrationRows.length }}</el-tag>
+            <el-tag type="success" effect="plain">success {{ migrationSummary.success || 0 }}</el-tag>
+            <el-tag type="warning" effect="plain">pending {{ migrationSummary.pending || 0 }}</el-tag>
+            <el-tag type="danger" effect="plain">failed {{ migrationSummary.failed || 0 }}</el-tag>
+            <el-button type="primary" size="small" @click="runMigrations">执行待迁移</el-button>
+            <el-button size="small" @click="loadMigrations">刷新</el-button>
+          </div>
+          <el-table v-loading="migrationsLoading" :data="migrationRows" border stripe empty-text="暂无迁移声明">
+            <el-table-column prop="migration_name" label="迁移" min-width="180" />
+            <el-table-column prop="migration_version" label="version" width="120" />
+            <el-table-column prop="direction" label="direction" width="100" />
+            <el-table-column label="状态" width="120">
+              <template #default="{ row }">
+                <el-tag :type="migrationStatusType(row.status)">{{ row.status || 'pending' }}</el-tag>
+              </template>
+            </el-table-column>
+            <el-table-column prop="finished_at" label="最近完成" min-width="160" />
+            <el-table-column label="耗时" width="110">
+              <template #default="{ row }">{{ row.duration_ms || row.execution_time_ms || 0 }}ms</template>
+            </el-table-column>
+            <el-table-column label="rollback" width="110">
+              <template #default="{ row }">
+                <el-tag :type="row.rollback_supported ? 'warning' : 'info'" effect="plain">
+                  {{ row.rollback_supported ? 'supported' : 'no' }}
+                </el-tag>
+              </template>
+            </el-table-column>
+            <el-table-column prop="error_message" label="失败原因" min-width="220" />
+            <el-table-column prop="description" label="说明" min-width="240" />
+            <el-table-column label="操作" width="120" fixed="right">
+              <template #default="{ row }">
+                <el-button link type="primary" :disabled="row.status === 'success'" @click="retryMigration(row)">
+                  {{ row.status === 'failed' ? '重试' : '执行' }}
+                </el-button>
+              </template>
+            </el-table-column>
           </el-table>
         </el-tab-pane>
 
@@ -175,7 +290,7 @@
             type="info"
             show-icon
             :closable="false"
-            title="本 Tab 复用“治理审计”数据源（admin_logs）。当前不伪造影响统计或 hook 运行时观测；仅按 plugin_code/子站/动作关键字做筛选展示。"
+            title="本 Tab 读取插件专用审计接口，覆盖插件启停、配置、Hook 失败和带 plugin_code 的内容治理操作。"
             class="mb"
           />
           <div class="sub-toolbar">
@@ -228,7 +343,7 @@
 import { computed, reactive, ref, watch } from 'vue';
 import { ElMessage } from 'element-plus';
 import PluginJsonEditor from './PluginJsonEditor.vue';
-import { auditLogs, updatePluginConfig } from '@/api/admin';
+import { pluginAuditLogs, pluginHooks, pluginMigrations, retryPluginMigration, runPluginMigrations, updatePluginConfig } from '@/api/admin';
 
 const props = defineProps({
   modelValue: { type: Boolean, required: true },
@@ -254,6 +369,12 @@ const permQ = ref('');
 const schemaErrors = ref([]);
 const configPanels = ref(['global']);
 const editableConfig = ref({});
+const hooksLoading = ref(false);
+const hookStats = ref([]);
+const hookRecent = ref([]);
+const migrationsLoading = ref(false);
+const migrationRows = ref([]);
+const migrationSummary = ref({});
 
 const title = computed(() => `${props.plugin?.name || ''} 插件详情`);
 
@@ -271,6 +392,12 @@ watch(
     auditQ.pageSize = 20;
     auditRows.value = [];
     auditTotal.value = 0;
+    hookStats.value = [];
+    hookRecent.value = [];
+    migrationRows.value = [];
+    migrationSummary.value = {};
+    if (visible.value && tab.value === 'hooks') loadHooks();
+    if (visible.value && tab.value === 'migrations') loadMigrations();
   },
   { immediate: true },
 );
@@ -282,8 +409,17 @@ watch(
     if (!t) return;
     tab.value = t;
     if (t === 'audit') loadAudit();
+    if (t === 'hooks') loadHooks();
+    if (t === 'migrations') loadMigrations();
   },
 );
+
+watch(tab, (t) => {
+  if (!visible.value) return;
+  if (t === 'audit') loadAudit();
+  if (t === 'hooks') loadHooks();
+  if (t === 'migrations') loadMigrations();
+});
 
 const filteredPermissions = computed(() => {
   const q = (permQ.value || '').trim().toLowerCase();
@@ -330,14 +466,23 @@ const platformDispatchedHooks = new Set([
 
 const hooksRows = computed(() => {
   const declared = new Map((props.plugin?.hooks || []).map((h) => [h.name, h]));
+  const stats = new Map((hookStats.value || []).map((h) => [h.hook_name, h]));
   return allHookNames.map((name) => {
     const hook = declared.get(name);
+    const stat = stats.get(name) || {};
     return {
       name,
       declared: Boolean(hook),
       platformHook: platformDispatchedHooks.has(name),
       failure_policy: hook?.failure_policy || '-',
       description: hook?.description || '-',
+      mode: stat.mode || (hook?.critical ? 'blocking' : 'non_blocking'),
+      execution_count: stat.execution_count || 0,
+      failure_count: stat.failure_count || 0,
+      avg_duration_ms: stat.avg_duration_ms || 0,
+      last_executed_at: stat.last_executed_at || '-',
+      last_failed_at: stat.last_failed_at || '-',
+      last_error: stat.last_error || '-',
     };
   });
 });
@@ -345,6 +490,28 @@ const hooksRows = computed(() => {
 function statusType(status) {
   if (status === 'enabled') return 'success';
   if (status === 'disabled') return 'danger';
+  return 'info';
+}
+
+function healthType(status) {
+  if (status === 'healthy') return 'success';
+  if (status === 'disabled') return 'info';
+  if (status === 'warning' || status === 'migration_pending') return 'warning';
+  if (status === 'error' || status === 'config_invalid' || status === 'dependency_missing') return 'danger';
+  return 'info';
+}
+
+function metricType(status) {
+  if (status === 'ok' || status === 'valid') return 'success';
+  if (status === 'warning' || status === 'pending') return 'warning';
+  if (status === 'failed' || status === 'invalid' || status === 'missing') return 'danger';
+  return 'info';
+}
+
+function migrationStatusType(status) {
+  if (status === 'success') return 'success';
+  if (status === 'failed') return 'danger';
+  if (status === 'running' || status === 'pending') return 'warning';
   return 'info';
 }
 
@@ -382,12 +549,9 @@ async function loadAudit() {
   if (!p || !p.code) return;
   auditLoading.value = true;
   try {
-    const targetPrefix = `plugins#${p.code}`;
-    const data = await auditLogs({
-      site: 'portal',
+    const data = await pluginAuditLogs(p.code, {
       type: 'all',
       action: auditQ.action || '',
-      target: targetPrefix,
       community_id: auditQ.communityId || 0,
       page: auditQ.page,
       page_size: auditQ.pageSize,
@@ -397,6 +561,84 @@ async function loadAudit() {
   } finally {
     auditLoading.value = false;
   }
+}
+
+async function loadHooks() {
+  const p = props.plugin;
+  if (!p || !p.code) return;
+  hooksLoading.value = true;
+  try {
+    const data = await pluginHooks(p.code);
+    hookStats.value = data.items || [];
+    hookRecent.value = data.recent_executions || [];
+  } catch (e) {
+    hookStats.value = [];
+    hookRecent.value = [];
+    ElMessage.warning(String(e?.message || e || 'Hook 统计暂不可用'));
+  } finally {
+    hooksLoading.value = false;
+  }
+}
+
+async function loadMigrations() {
+  const p = props.plugin;
+  if (!p || !p.code) return;
+  migrationsLoading.value = true;
+  try {
+    const data = await pluginMigrations(p.code);
+    migrationRows.value = data.items || [];
+    migrationSummary.value = data.summary || {};
+  } catch (e) {
+    migrationRows.value = [];
+    migrationSummary.value = {};
+    ElMessage.warning(String(e?.message || e || '迁移状态暂不可用'));
+  } finally {
+    migrationsLoading.value = false;
+  }
+}
+
+async function runMigrations() {
+  const p = props.plugin;
+  if (!p || !p.code) return;
+  migrationsLoading.value = true;
+  try {
+    await runPluginMigrations(p.code);
+    ElMessage.success('迁移执行完成');
+    await loadMigrations();
+    emit('refresh');
+  } catch (e) {
+    ElMessage.error(String(e?.message || e || '迁移执行失败'));
+  } finally {
+    migrationsLoading.value = false;
+  }
+}
+
+async function retryMigration(row) {
+  const p = props.plugin;
+  if (!p || !p.code || !row?.migration_name) return;
+  migrationsLoading.value = true;
+  try {
+    await retryPluginMigration(p.code, row.migration_name);
+    ElMessage.success(row.status === 'failed' ? '迁移重试完成' : '迁移执行完成');
+    await loadMigrations();
+    emit('refresh');
+  } catch (e) {
+    ElMessage.error(String(e?.message || e || '迁移执行失败'));
+  } finally {
+    migrationsLoading.value = false;
+  }
+}
+
+function failureRate(row) {
+  const total = Number(row.execution_count || 0);
+  if (!total) return '-';
+  return `${Math.round((Number(row.failure_count || 0) / total) * 100)}%`;
+}
+
+function avgDuration(row) {
+  const value = Number(row.avg_duration_ms || 0);
+  if (!Number.isFinite(value)) return '-';
+  return `${value.toFixed(value >= 10 ? 0 : 1)}ms`;
 }
 
 function formatJSON(value) {

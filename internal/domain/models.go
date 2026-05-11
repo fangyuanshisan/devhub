@@ -84,62 +84,148 @@ type HookDefinition struct {
 
 // PluginManifest 描述插件声明层，不直接承载运行时流程。
 type PluginManifest struct {
-	Code            string                  `json:"code"`
-	PluginCode      string                  `json:"plugin_code,omitempty"`
-	Name            string                  `json:"name"`
-	Version         string                  `json:"version"`
-	Description     string                  `json:"description,omitempty"`
-	IsSystem        bool                    `json:"is_system"`
-	ContentTypes    []string                `json:"content_types,omitempty"`
-	ContentTypeDefs []ContentTypeDefinition `json:"content_type_definitions,omitempty"`
-	Permissions     []PermissionDefinition  `json:"permissions,omitempty"`
-	Menus           []MenuDefinition        `json:"menus,omitempty"`
-	Routes          []RouteDefinition       `json:"routes,omitempty"`
-	ConfigSchema    any                     `json:"config_schema,omitempty"`
-	Dependencies    []string                `json:"dependencies,omitempty"`
-	MinCoreVersion  string                  `json:"min_core_version,omitempty"`
-	Hooks           []HookDefinition        `json:"hooks,omitempty"`
+	Code            string                      `json:"code"`
+	PluginCode      string                      `json:"plugin_code,omitempty"`
+	Name            string                      `json:"name"`
+	Version         string                      `json:"version"`
+	Description     string                      `json:"description,omitempty"`
+	IsSystem        bool                        `json:"is_system"`
+	ContentTypes    []string                    `json:"content_types,omitempty"`
+	ContentTypeDefs []ContentTypeDefinition     `json:"content_type_definitions,omitempty"`
+	Permissions     []PermissionDefinition      `json:"permissions,omitempty"`
+	Menus           []MenuDefinition            `json:"menus,omitempty"`
+	Routes          []RouteDefinition           `json:"routes,omitempty"`
+	ConfigSchema    any                         `json:"config_schema,omitempty"`
+	Dependencies    []string                    `json:"dependencies,omitempty"`
+	MinCoreVersion  string                      `json:"min_core_version,omitempty"`
+	Hooks           []HookDefinition            `json:"hooks,omitempty"`
+	Migrations      []PluginMigrationDefinition `json:"migrations,omitempty"`
+}
+
+// PluginMigrationDefinition describes a built-in plugin migration declaration.
+type PluginMigrationDefinition struct {
+	PluginCode        string   `json:"plugin_code"`
+	MigrationVersion  string   `json:"migration_version"`
+	MigrationName     string   `json:"migration_name"`
+	Direction         string   `json:"direction"`
+	Checksum          string   `json:"checksum,omitempty"`
+	Tables            []string `json:"tables,omitempty"`
+	RollbackSupported bool     `json:"rollback_supported"`
+	Description       string   `json:"description,omitempty"`
 }
 
 // PluginMigration represents a plugin migration execution record.
 type PluginMigration struct {
-	ID              int64  `json:"id"`
-	PluginCode      string `json:"plugin_code"`
-	Version         string `json:"version"`
-	MigrationName   string `json:"migration_name"`
-	Checksum        string `json:"checksum,omitempty"`
-	Status          string `json:"status"`
-	ExecutedAt      string `json:"executed_at,omitempty"`
-	ExecutionTimeMS int    `json:"execution_time_ms,omitempty"`
-	ErrorMessage    string `json:"error_message,omitempty"`
-	CreatedAt       string `json:"created_at,omitempty"`
+	ID                int64  `json:"id"`
+	PluginCode        string `json:"plugin_code"`
+	MigrationVersion  string `json:"migration_version"`
+	Version           string `json:"version,omitempty"`
+	MigrationName     string `json:"migration_name"`
+	Direction         string `json:"direction,omitempty"`
+	Checksum          string `json:"checksum,omitempty"`
+	Status            string `json:"status"`
+	StartedAt         string `json:"started_at,omitempty"`
+	FinishedAt        string `json:"finished_at,omitempty"`
+	DurationMS        int    `json:"duration_ms,omitempty"`
+	ExecutedAt        string `json:"executed_at,omitempty"`
+	ExecutionTimeMS   int    `json:"execution_time_ms,omitempty"`
+	ErrorMessage      string `json:"error_message,omitempty"`
+	Executor          string `json:"executor,omitempty"`
+	RollbackSupported bool   `json:"rollback_supported"`
+	Description       string `json:"description,omitempty"`
+	Declared          bool   `json:"declared"`
+	CreatedAt         string `json:"created_at,omitempty"`
+	UpdatedAt         string `json:"updated_at,omitempty"`
+}
+
+// HookExecution represents one built-in plugin HookBus handler execution.
+type HookExecution struct {
+	ID           int64  `json:"id"`
+	HookName     string `json:"hook_name"`
+	PluginCode   string `json:"plugin_code"`
+	Mode         string `json:"mode"`
+	ContentType  string `json:"content_type,omitempty"`
+	ContentID    int64  `json:"content_id,omitempty"`
+	CommunityID  int64  `json:"community_id,omitempty"`
+	CategoryID   int64  `json:"category_id,omitempty"`
+	ActorType    string `json:"actor_type,omitempty"`
+	ActorID      int64  `json:"actor_id,omitempty"`
+	UserID       int64  `json:"user_id,omitempty"`
+	AdminUserID  int64  `json:"admin_user_id,omitempty"`
+	RequestID    string `json:"request_id,omitempty"`
+	StartedAt    string `json:"started_at,omitempty"`
+	FinishedAt   string `json:"finished_at,omitempty"`
+	DurationMS   int    `json:"duration_ms"`
+	Success      bool   `json:"success"`
+	ErrorMessage string `json:"error_message,omitempty"`
+	Blocking     bool   `json:"blocking"`
+	Metadata     string `json:"metadata_json,omitempty"`
+	CreatedAt    string `json:"created_at,omitempty"`
+}
+
+// HookStats summarizes HookBus execution observability for a plugin hook.
+type HookStats struct {
+	HookName       string  `json:"hook_name"`
+	PluginCode     string  `json:"plugin_code"`
+	Mode           string  `json:"mode"`
+	Blocking       bool    `json:"blocking"`
+	ExecutionCount int     `json:"execution_count"`
+	FailureCount   int     `json:"failure_count"`
+	AvgDurationMS  float64 `json:"avg_duration_ms"`
+	LastExecutedAt string  `json:"last_executed_at,omitempty"`
+	LastFailedAt   string  `json:"last_failed_at,omitempty"`
+	LastError      string  `json:"last_error,omitempty"`
+}
+
+// PluginHealth summarizes the runtime governance health of a plugin.
+type PluginHealth struct {
+	Status                 string `json:"status"`
+	ConfigStatus           string `json:"config_status"`
+	MigrationStatus        string `json:"migration_status"`
+	HookStatus             string `json:"hook_status"`
+	DependencyStatus       string `json:"dependency_status"`
+	RecentError            string `json:"recent_error,omitempty"`
+	SuggestedAction        string `json:"suggested_action,omitempty"`
+	PendingMigrationsCount int    `json:"pending_migrations_count"`
+	FailedMigrationsCount  int    `json:"failed_migrations_count"`
+	HookFailureCount       int    `json:"hook_failure_count"`
+	LastHookError          string `json:"last_hook_error,omitempty"`
+	UpdatedAt              string `json:"updated_at,omitempty"`
 }
 
 // Plugin 描述系统插件的注册与运行状态。
 type Plugin struct {
 	PluginManifest
-	Status          string `json:"status"`
-	GlobalStatus    string `json:"global_status,omitempty"`
-	CommunityStatus string `json:"community_status,omitempty"`
-	SortOrder       int    `json:"sort_order,omitempty"`
-	ConfigJSON      string `json:"config_json,omitempty"`
-	ResolvedConfig  any    `json:"resolved_config,omitempty"`
-	CreatedAt       string `json:"created_at,omitempty"`
-	UpdatedAt       string `json:"updated_at,omitempty"`
+	Status          string        `json:"status"`
+	GlobalStatus    string        `json:"global_status,omitempty"`
+	CommunityStatus string        `json:"community_status,omitempty"`
+	SortOrder       int           `json:"sort_order,omitempty"`
+	ConfigJSON      string        `json:"config_json,omitempty"`
+	ResolvedConfig  any           `json:"resolved_config,omitempty"`
+	Health          *PluginHealth `json:"health,omitempty"`
+	CreatedAt       string        `json:"created_at,omitempty"`
+	UpdatedAt       string        `json:"updated_at,omitempty"`
 }
 
 // PluginImpact summarizes the governance impact scope for disabling/enabling a plugin.
 // It intentionally stays lightweight: only counts that are cheap and stable to compute.
 type PluginImpact struct {
-	PluginCode              string `json:"plugin_code"`
-	EnabledCommunitiesCount int    `json:"enabled_communities_count"`
-	CategoriesCount         int    `json:"categories_count"`
-	TopicsCount             int    `json:"topics_count"`
-	PendingTopicsCount      int    `json:"pending_topics_count"`
-	MenusCount              int    `json:"menus_count"`
-	FrontendMenusCount      int    `json:"frontend_menus_count"`
-	ModeratorMenusCount     int    `json:"moderator_menus_count"`
-	AdminMenusCount         int    `json:"admin_menus_count"`
+	PluginCode               string `json:"plugin_code"`
+	ExistingContentsCount    int    `json:"existing_contents_count"`
+	EnabledCommunitiesCount  int    `json:"enabled_communities_count"`
+	DisabledCommunitiesCount int    `json:"disabled_communities_count"`
+	CategoriesCount          int    `json:"categories_count"`
+	TopicsCount              int    `json:"topics_count"`
+	RecentContentsCount      int    `json:"recent_contents_count"`
+	PendingTopicsCount       int    `json:"pending_topics_count"`
+	PendingContentsCount     int    `json:"pending_contents_count"`
+	MenusCount               int    `json:"menus_count"`
+	FrontendMenusCount       int    `json:"frontend_menus_count"`
+	ModeratorMenusCount      int    `json:"moderator_menus_count"`
+	AdminMenusCount          int    `json:"admin_menus_count"`
+	ConfigsCount             int    `json:"configs_count"`
+	PendingMigrationsCount   int    `json:"pending_migrations_count"`
+	RecentHookErrorsCount    int    `json:"recent_hook_errors_count"`
 }
 
 // CommunityPlugin 表示子站对某个插件的启用状态与配置。

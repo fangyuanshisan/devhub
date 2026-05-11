@@ -2,7 +2,7 @@
 
 [返回文档入口](README.md)
 
-更新时间：2026-05-10（v1.3.2 文档口径同步）
+更新时间：2026-05-11（v1.3.2 插件系统专项验收归档）
 
 本文档只记录当前仓库真实可用 API。接口路径以 `internal/transport/httpapi/router.go` 为准；未实现能力集中放在“规划 / 未完成”小节，不写入当前真实 API 主体。
 
@@ -17,7 +17,7 @@
 
 ## 插件 API
 
-说明：后台全局插件管理页、子站插件配置抽屉和版主插件菜单均继续使用本节现有接口；本轮后台体验增强未新增插件 API，也未改变返回字段语义。
+说明：后台全局插件管理页、子站插件配置抽屉和版主插件菜单均继续使用本节现有接口。2026-05-11 插件系统专项验收未新增 API，也未改变返回字段语义；验收重点是确认现有插件启停、impact、config、Hook、audit、migration 和通用插件内容治理接口可支撑后台治理中心与 E2E 回归。
 
 ### 全局插件 API
 
@@ -50,7 +50,27 @@
 
 - 认证：后台 admin token。
 - 权限：`plugin.read`。
-- 返回：全部注册插件，包括 `installed`、`enabled`、`disabled`、`config_schema`、`config_json` 和 `resolved_config`。
+- 返回：全部注册插件，包括插件状态、`config_schema`、`config_json`、`resolved_config` 和轻量 `health` 摘要。
+- 状态口径：`plugins.status` 当前接受 `discovered`、`installed`、`migrated`、`configured`、`enabled`、`disabled`、`running`、`config_invalid`、`migration_pending`、`dependency_missing`；但发布可用性仍只以 `enabled` 为通过状态，其余状态均不会放行新建内容。
+- `health` 字段：后台治理摘要，由全局状态、配置校验、迁移记录、依赖状态和 Hook 失败统计计算；不是 Prometheus / Grafana 级监控。
+
+`health` 示例：
+
+```json
+{
+  "status": "warning",
+  "config_status": "valid",
+  "migration_status": "ok",
+  "hook_status": "warning",
+  "dependency_status": "ok",
+  "recent_error": "qa 插件仅允许创建 question",
+  "suggested_action": "查看 Hooks Tab 的最近失败记录",
+  "pending_migrations_count": 0,
+  "failed_migrations_count": 0,
+  "hook_failure_count": 1,
+  "last_hook_error": "qa 插件仅允许创建 question"
+}
+```
 
 `POST /api/v1/admin/plugins/:code/enable`
 
@@ -90,15 +110,19 @@
 }
 ```
 
-- 返回：更新后的插件对象，包含 `config_json` 和 `resolved_config`。
-- 校验：会按插件 `config_schema` 执行基础校验（简化 JSON Schema），至少覆盖 `type`、`required`、`enum`、`min/max` 与未知字段策略。
+- 返回：更新后的插件对象，包含 `config_json` 和 `resolved_config.default/global/community/effective`。
+- 校验：会按插件 `config_schema` 执行后端强校验（简化 JSON Schema），至少覆盖 `type`、`required`、`enum`、`object`、`boolean`、`string`、`number`、`integer`、`min/max`、`default` 与未知字段策略。
 - 审计：写入插件全局配置审计日志。
-  当前同时写入 `admin_logs.target` 文本摘要和 `old_value` / `new_value` / `metadata_json` 结构化字段。
+  当前同时写入 `admin_logs.target` 文本摘要和 `old_value` / `new_value` / `metadata_json` 结构化字段；`metadata_json.changed_keys` 记录本次变更的顶层配置键。
+- 清空：提交 `{"config_json": null}` 或空配置会清空全局覆盖配置，并同样写入配置审计。
 
 常见错误：
 
 - `400 {"error":"插件不存在"}`
 - `400 {"error":"config_json 必须是合法 JSON"}`
+- `400 {"error":"$ 缺少必填字段 ..."}`
+- `400 {"error":"$.field 必须是 boolean/string/number/integer/object"}`
+- `400 {"error":"$.field 值不在允许范围 enum 内"}`
 - `401 {"error":"未登录"}`
 - `403 {"error":"无权限"}`
 
@@ -114,16 +138,190 @@
 ```json
 {
   "plugin_code": "qa",
+  "existing_contents_count": 120,
   "enabled_communities_count": 3,
+  "disabled_communities_count": 1,
   "categories_count": 5,
   "topics_count": 120,
+  "recent_contents_count": 8,
   "pending_topics_count": 4,
+  "pending_contents_count": 4,
   "menus_count": 3,
   "frontend_menus_count": 1,
   "moderator_menus_count": 1,
-  "admin_menus_count": 1
+  "admin_menus_count": 1,
+  "configs_count": 4,
+  "pending_migrations_count": 0,
+  "recent_hook_errors_count": 0
 }
 ```
+
+当前统计边界：
+
+- `existing_contents_count` 与 `topics_count` 同步保留，前者是新治理口径，后者用于兼容旧 UI。
+- `recent_contents_count` 统计近 7 天内容。
+- `pending_contents_count` 与 `pending_topics_count` 同步保留。
+- `recent_hook_errors_count` 来自 `hook_executions` 最近 7 天失败记录；该字段是轻量健康提示，不等同于完整 Hook 健康状态或重试系统。
+
+`GET /api/v1/admin/plugins/:code/hooks`
+
+- 认证：后台 admin token。
+- 权限：`plugin.read`。
+- 用途：插件详情 Hooks Tab 展示运行时统计与最近执行记录。
+- 返回：`items` 为按 Hook 聚合的统计，`recent_executions` 为最近 20 条执行记录。
+
+响应示例：
+
+```json
+{
+  "items": [
+    {
+      "hook_name": "BeforeCreateContent",
+      "plugin_code": "qa",
+      "mode": "blocking",
+      "blocking": true,
+      "execution_count": 12,
+      "failure_count": 1,
+      "avg_duration_ms": 1.3,
+      "last_executed_at": "2026-05-11 15:30:01",
+      "last_failed_at": "2026-05-11 15:20:10",
+      "last_error": "qa 插件仅允许创建 question"
+    }
+  ],
+  "recent_executions": [
+    {
+      "id": 1,
+      "hook_name": "AfterCreateContent",
+      "plugin_code": "qa",
+      "mode": "non_blocking",
+      "content_type": "question",
+      "content_id": 123,
+      "community_id": 1,
+      "category_id": 101,
+      "actor_type": "user",
+      "actor_id": 2,
+      "started_at": "2026-05-11 15:30:01",
+      "finished_at": "2026-05-11 15:30:01",
+      "duration_ms": 0,
+      "success": true,
+      "blocking": false,
+      "metadata_json": "{\"handler_index\":0}"
+    }
+  ]
+}
+```
+
+常见错误：
+
+- `404 {"error":"插件不存在"}`
+- `401 {"error":"未登录"}`
+- `403 {"error":"无权限"}`
+
+`GET /api/v1/admin/plugins/:code/audit-logs`
+
+- 认证：后台 admin token。
+- 权限：`plugin.read`。
+- 用途：插件详情“审计”Tab 的专用查询入口。
+- 查询参数：
+  - `community_id`：可选，按子站过滤。
+  - `action`：可选，按动作关键字模糊过滤。
+  - `type`：可选，默认 `all`。
+  - `actor_type`：可选。
+  - `target`：可选，默认使用插件 code 模糊匹配。
+  - `page`、`page_size`：分页参数。
+- 返回：`domain.PageResponse`，items 为 `AdminLog`，包含 `old_value`、`new_value`、`metadata_json`。
+- 覆盖范围：插件启停、插件配置、子站插件配置、子站插件排序、Hook 失败审计，以及带 `plugin_code` 的插件内容治理操作。
+
+响应示例：
+
+```json
+{
+  "items": [
+    {
+      "id": 100,
+      "type": "system",
+      "actor_type": "admin_user",
+      "actor_id": 1,
+      "action": "更新插件状态",
+      "target": "plugins#qa",
+      "old_value": "{\"status\":\"enabled\"}",
+      "new_value": "{\"status\":\"disabled\"}",
+      "metadata_json": "{\"scope\":\"global\",\"plugin_code\":\"qa\",\"operation\":\"plugin_status\"}",
+      "created_at": "2026-05-11 16:00:00"
+    }
+  ],
+  "total": 1,
+  "page": 1,
+  "page_size": 20,
+  "has_more": false
+}
+```
+
+常见错误：
+
+- `404 {"error":"插件不存在"}`
+- `401 {"error":"未登录"}`
+- `403 {"error":"无权限"}`
+
+`GET /api/v1/admin/plugins/:code/migrations`
+
+- 认证：后台 admin token。
+- 权限：`plugin.read`。
+- 用途：插件详情“迁移”Tab 查询内置插件 migration 声明与执行记录。
+- 返回：`items` 为迁移列表，`summary` 为 success / pending / failed 计数。
+- 当前策略：只支持内置插件 up migration；已成功迁移不会重复执行；down / rollback 仅保留 `rollback_supported` 标识，不执行真实回滚。
+
+响应示例：
+
+```json
+{
+  "items": [
+    {
+      "plugin_code": "qa",
+      "migration_version": "1.0.0",
+      "migration_name": "qa_questions",
+      "direction": "up",
+      "checksum": "builtin:qa:qa_questions:v1",
+      "status": "success",
+      "finished_at": "2026-05-11 18:00:00",
+      "duration_ms": 0,
+      "rollback_supported": false,
+      "declared": true
+    }
+  ],
+  "summary": {
+    "plugin_code": "qa",
+    "total": 2,
+    "pending": 0,
+    "failed": 0,
+    "success": 2
+  }
+}
+```
+
+`POST /api/v1/admin/plugins/:code/migrations/run`
+
+- 认证：后台 admin token。
+- 权限：`plugin.write`。
+- 用途：执行该插件所有声明的待处理 migration。
+- 行为：内置 qa/docs/wiki migration 当前是幂等 no-op 校验记录；schema 表结构由 `001_schema.sql` 和启动迁移保证，runner 负责写入 running / success / failed 状态与审计。
+- 审计：写入 `plugin.migration.run` 与 `plugin.migration.success`；失败写入 `plugin.migration.failed`。
+
+`POST /api/v1/admin/plugins/:code/migrations/:name/retry`
+
+- 认证：后台 admin token。
+- 权限：`plugin.write`。
+- 用途：执行或重试单条 migration。
+- 行为：如果该 migration 已是 `success`，接口返回现有成功记录，不重复破坏数据。
+- 审计：写入 `plugin.migration.retry` 与 `plugin.migration.success`；失败写入 `plugin.migration.failed`。
+
+常见错误：
+
+- `404 {"error":"插件不存在"}`
+- `400 {"error":"迁移不存在"}`
+- `400 {"error":"当前仅支持 up migration"}`
+- `401 {"error":"未登录"}`
+- `403 {"error":"无权限"}`
 
 ### 前台子站插件展示 API
 
@@ -180,10 +378,11 @@
 }
 ```
 
-- 返回：更新后的插件对象。
-- 校验：会按插件 `config_schema` 执行基础校验（简化 JSON Schema），至少覆盖 `type`、`required`、`enum`、`min/max` 与未知字段策略。
+- 返回：更新后的插件对象，包含子站覆盖后的 `resolved_config.default/global/community/effective`。
+- 校验：会按插件 `config_schema` 执行后端强校验（简化 JSON Schema），至少覆盖 `type`、`required`、`enum`、`object`、`boolean`、`string`、`number`、`integer`、`min/max`、`default` 与未知字段策略。
 - 审计：写入子站插件配置审计日志。
-  当前同时写入 `admin_logs.target` 文本摘要和 `old_value` / `new_value` / `metadata_json` 结构化字段。
+  当前同时写入 `admin_logs.target` 文本摘要和 `old_value` / `new_value` / `metadata_json` 结构化字段；`metadata_json.changed_keys` 记录本次变更的顶层配置键。
+- 清空：提交 `{"config_json": null}` 或空配置会清空子站覆盖配置，并同样写入配置审计。
 
 `PUT /api/v1/admin/communities/:id/plugins/sort`
 
@@ -345,10 +544,37 @@
 当前说明：
 
 - 这是当前内置系统插件规范；完整插件系统是最高优先级长期主线。插件市场、插件包、远程安装、在线更新和动态加载进入 P2 / P3 路线，但不是当前真实 API。
-- `HookDefinition` 当前是扩展点声明；`Service` 已有最小内部 HookBus，当前调用点覆盖 `BeforeCreateContent`、`AfterCreateContent`、`BeforeUpdateContent`、`AfterUpdateContent`、`BeforeDeleteContent`、`AfterDeleteContent`、`AfterCreateComment`、`OnSearchIndex`、`OnNotificationBuild` 和 `OnSEOBuild`。
+- `HookDefinition` 当前是扩展点声明；`Service` 已有内部 HookBus，当前调用点覆盖 `BeforeCreateContent`、`AfterCreateContent`、`BeforeUpdateContent`、`AfterUpdateContent`、`BeforeDeleteContent`、`AfterDeleteContent`、`AfterCreateComment`、`OnSearchIndex`、`OnNotificationBuild` 和 `OnSEOBuild`。
+- HookBus 执行会写入 `hook_executions`；blocking hook 失败会返回错误并写入 `plugin.hook.blocked` 审计，non-blocking hook 失败不会阻断主流程但会写入 `plugin.hook.failed` 审计。
 - Search / Notification / SEO 当前只是最小事件派发，尚未实现复杂索引、通知模板或结构化 SEO 插件处理器。
 - 配置优先级按“默认配置 -> `plugins.config_json` -> `community_plugins.config_json`”合并；API 用 `resolved_config.default/global/community/effective` 表达合并视图。
-- 当前配置已完成 JSON 合法性校验；`config_schema` 基础校验是 P0 插件平台任务，后台自动表单渲染是 P1 插件平台任务。
+- 当前配置已完成 JSON 合法性校验和简化 `config_schema` 基础校验；后台自动表单渲染、更完整 JSON Schema、配置 diff UI 和配置版本回滚是后续插件平台任务。
+
+## 插件平台基线对账
+
+本节记录当前真实 API 与平台能力边界，避免把目标路线图误读为当前已完成接口。
+
+已完成：
+
+- 全局插件：`GET /api/v1/plugins`、`GET /api/v1/admin/plugins`、全局启用 / 禁用、全局配置、全局 impact。
+- 子站插件：前台子站插件展示、后台子站插件列表、启用 / 禁用、配置、排序、子站 impact。
+- 插件菜单：后台插件菜单和版主插件菜单会按插件状态、子站状态和权限过滤。
+- 插件配置：全局与子站配置 API 保存时会做 JSON 合法性校验和简化 `config_schema` 校验，返回 `resolved_config`。
+- 插件审计：插件启停、配置和排序操作写入 `old_value`、`new_value`、`metadata_json`。
+- 插件健康：`GET /api/v1/admin/plugins` 返回轻量 `health` 摘要；插件详情可通过“运行状态”Tab 查看配置、迁移、Hook、依赖和最近错误。
+- 插件迁移：`plugin_migrations` 记录表、内置 migration 声明、迁移查询 API、执行 / 重试 API、迁移审计和后台迁移 Tab 已完成第一阶段闭环。
+
+部分完成：
+
+- 插件权限矩阵：发布和菜单使用 manifest 权限码；完整权限分配 API、按 community / category 的权限配置 UI 和更细错误码仍未完成。
+- HookBus：已有内部调度、调用点、`hook_executions` 执行记录、Hook 统计 API、失败审计和轻量健康摘要；尚未实现重试 API、告警系统或第三方动态 Hook。
+- 插件迁移：当前 runner 只支持内置插件 up/no-op 执行记录、失败记录和失败重试；不支持 migration down、真实 rollback、迁移前备份或外部插件迁移包。
+- 插件后台治理：已有列表、详情、配置、impact、审计、运行状态、迁移 Tab 和通用内容页；告警、重试策略和影响对象明细仍未完成。
+
+预留 / 后续：
+
+- `discovered`、`migrated`、`configured`、`running`、`config_invalid`、`migration_pending`、`dependency_missing` 已是 `plugins.status` 可接受值；但完整自动状态机和独立健康治理 API 仍是后续能力。
+- 插件安装、卸载、升级、插件包上传、远程安装、市场、动态加载和沙箱均不是当前真实 API。
 
 ## 当前真实 API 索引
 
@@ -535,7 +761,7 @@ GET /robots.txt
 
 以下内容不是当前真实可用 API：
 
-- P0：`config_schema` 基础校验 API / 错误结构。
+- P0：`config_schema` 结构化错误响应、更完整 JSON Schema 能力和配置 diff / 版本 API。
 - P0/P1：HookBus 业务处理器、统一错误日志、插件搜索 / 通知 / SEO 扩展 API。
 - P1：插件 SDK / 开发规范、插件生成模板、插件依赖检查、插件版本兼容检查。
 - P2：本地插件包、插件安装、插件升级、soft uninstall、插件 migration runner、插件包签名校验和插件市场雏形。

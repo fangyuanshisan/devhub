@@ -15,11 +15,28 @@ import (
 )
 
 const (
-	StatusInstalled = "installed"
-	StatusEnabled   = "enabled"
-	StatusDisabled  = "disabled"
-	CoreCode        = "core"
+	StatusDiscovered        = "discovered"
+	StatusInstalled         = "installed"
+	StatusMigrated          = "migrated"
+	StatusConfigured        = "configured"
+	StatusEnabled           = "enabled"
+	StatusDisabled          = "disabled"
+	StatusRunning           = "running"
+	StatusConfigInvalid     = "config_invalid"
+	StatusMigrationPending  = "migration_pending"
+	StatusDependencyMissing = "dependency_missing"
+	CoreCode                = "core"
 )
+
+// ValidGlobalStatus reports whether a plugin status is accepted by the platform model.
+func ValidGlobalStatus(status string) bool {
+	switch strings.TrimSpace(status) {
+	case StatusDiscovered, StatusInstalled, StatusMigrated, StatusConfigured, StatusEnabled, StatusDisabled, StatusRunning, StatusConfigInvalid, StatusMigrationPending, StatusDependencyMissing:
+		return true
+	default:
+		return false
+	}
+}
 
 // Definitions returns built-in system plugin definitions.
 func Definitions() []domain.Plugin {
@@ -193,11 +210,34 @@ func HookDefinitions(code string) []domain.HookDefinition {
 	return append([]domain.HookDefinition(nil), def.Hooks...)
 }
 
-// ResolvePluginConfig merges default config schema, global config placeholder and community config placeholder.
+// MigrationDefinitions returns built-in migration declarations for a plugin.
+func MigrationDefinitions(code string) []domain.PluginMigrationDefinition {
+	def, ok := DefinitionByCode(code)
+	if !ok {
+		return nil
+	}
+	items := append([]domain.PluginMigrationDefinition(nil), def.Migrations...)
+	for i := range items {
+		if items[i].PluginCode == "" {
+			items[i].PluginCode = def.Code
+		}
+		if items[i].MigrationVersion == "" {
+			items[i].MigrationVersion = def.Version
+		}
+		if items[i].Direction == "" {
+			items[i].Direction = "up"
+		}
+	}
+	return items
+}
+
+// ResolvePluginConfig merges schema defaults, global config and community config.
 func ResolvePluginConfig(def domain.Plugin, globalConfigJSON, communityConfigJSON string) map[string]any {
 	out := map[string]any{}
+	defaults := map[string]any{}
 	if schema, ok := def.ConfigSchema.(map[string]any); ok {
 		out["default"] = schema
+		defaults = defaultsFromSchema(schema)
 	}
 	global, hasGlobal := parseConfigJSON(globalConfigJSON)
 	community, hasCommunity := parseConfigJSON(communityConfigJSON)
@@ -207,7 +247,22 @@ func ResolvePluginConfig(def domain.Plugin, globalConfigJSON, communityConfigJSO
 	if hasCommunity {
 		out["community"] = community
 	}
-	out["effective"] = mergeConfigValues(global, hasGlobal, community, hasCommunity)
+	out["effective"] = mergeConfigValues(defaults, len(defaults) > 0, global, hasGlobal, community, hasCommunity)
+	return out
+}
+
+func defaultsFromSchema(schema map[string]any) map[string]any {
+	out := map[string]any{}
+	props, _ := schema["properties"].(map[string]any)
+	for key, rawSchema := range props {
+		subSchema, ok := rawSchema.(map[string]any)
+		if !ok {
+			continue
+		}
+		if value, ok := subSchema["default"]; ok {
+			out[key] = value
+		}
+	}
 	return out
 }
 
@@ -223,8 +278,13 @@ func parseConfigJSON(raw string) (any, bool) {
 	return out, true
 }
 
-func mergeConfigValues(global any, hasGlobal bool, community any, hasCommunity bool) any {
+func mergeConfigValues(defaults any, hasDefaults bool, global any, hasGlobal bool, community any, hasCommunity bool) any {
 	merged := map[string]any{}
+	if d, ok := defaults.(map[string]any); ok {
+		for key, value := range d {
+			merged[key] = value
+		}
+	}
 	if g, ok := global.(map[string]any); ok {
 		for key, value := range g {
 			merged[key] = value
@@ -243,6 +303,9 @@ func mergeConfigValues(global any, hasGlobal bool, community any, hasCommunity b
 	}
 	if hasGlobal {
 		return global
+	}
+	if hasDefaults {
+		return defaults
 	}
 	return map[string]any{}
 }

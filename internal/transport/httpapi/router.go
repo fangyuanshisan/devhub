@@ -8,6 +8,7 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"reflect"
 	"sort"
 	"strconv"
 	"strings"
@@ -148,6 +149,11 @@ func NewRouter(svc *service.Service) *gin.Engine {
 			protected.GET("/plugins", srv.requirePermission("plugin.read"), srv.adminPlugins)
 			protected.GET("/plugin-menus", srv.adminPluginMenus)
 			protected.GET("/plugins/:code/impact", srv.requirePermission("plugin.read"), srv.adminPluginImpact)
+			protected.GET("/plugins/:code/hooks", srv.requirePermission("plugin.read"), srv.adminPluginHooks)
+			protected.GET("/plugins/:code/audit-logs", srv.requirePermission("plugin.read"), srv.adminPluginAuditLogs)
+			protected.GET("/plugins/:code/migrations", srv.requirePermission("plugin.read"), srv.adminPluginMigrations)
+			protected.POST("/plugins/:code/migrations/run", srv.requirePermission("plugin.write"), srv.runAdminPluginMigrations)
+			protected.POST("/plugins/:code/migrations/:name/retry", srv.requirePermission("plugin.write"), srv.retryAdminPluginMigration)
 			protected.POST("/plugins/:code/enable", srv.requirePermission("plugin.write"), srv.enableAdminPlugin)
 			protected.POST("/plugins/:code/disable", srv.requirePermission("plugin.write"), srv.disableAdminPlugin)
 			protected.PUT("/plugins/:code/config", srv.requirePermission("plugin.write"), srv.updateAdminPluginConfig)
@@ -1903,7 +1909,13 @@ func (s *Server) adminMe(c *gin.Context) {
 }
 
 func (s *Server) adminPlugins(c *gin.Context) {
-	c.JSON(http.StatusOK, gin.H{"items": s.svc.Plugins()})
+	items := s.svc.Plugins()
+	for i := range items {
+		if health, err := s.svc.PluginHealth(items[i].Code); err == nil {
+			items[i].Health = &health
+		}
+	}
+	c.JSON(http.StatusOK, gin.H{"items": items})
 }
 
 func (s *Server) adminPluginImpact(c *gin.Context) {
@@ -1914,6 +1926,134 @@ func (s *Server) adminPluginImpact(c *gin.Context) {
 		return
 	}
 	c.JSON(http.StatusOK, impact)
+}
+
+func (s *Server) adminPluginHooks(c *gin.Context) {
+	code := strings.TrimSpace(c.Param("code"))
+	if _, ok := s.svc.PluginByCode(code); !ok {
+		fail(c, http.StatusNotFound, "插件不存在")
+		return
+	}
+	stats, err := s.svc.HookStats(code)
+	if err != nil {
+		fail(c, http.StatusInternalServerError, err.Error())
+		return
+	}
+	recent, err := s.svc.HookExecutions(code, 20)
+	if err != nil {
+		fail(c, http.StatusInternalServerError, err.Error())
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"items": stats, "recent_executions": recent})
+}
+
+func (s *Server) adminPluginAuditLogs(c *gin.Context) {
+	code := strings.TrimSpace(c.Param("code"))
+	if _, ok := s.svc.PluginByCode(code); !ok {
+		fail(c, http.StatusNotFound, "插件不存在")
+		return
+	}
+	page, pageSize := pagination(c)
+	target := strings.TrimSpace(c.Query("target"))
+	if target == "" {
+		target = code
+	}
+	filter := domain.AdminLogFilter{
+		Site:        "portal",
+		Type:        strings.TrimSpace(c.DefaultQuery("type", "all")),
+		Action:      strings.TrimSpace(c.Query("action")),
+		Target:      target,
+		ActorType:   strings.TrimSpace(c.Query("actor_type")),
+		CommunityID: int64Query(c, "community_id", 0),
+		Page:        page,
+		PageSize:    pageSize,
+	}
+	items, total := s.svc.AdminLogsByFilter(filter)
+	c.JSON(http.StatusOK, domain.PageResponse{Items: items, Total: total, Page: page, PageSize: pageSize, HasMore: page*pageSize < total})
+}
+
+func (s *Server) adminPluginMigrations(c *gin.Context) {
+	code := strings.TrimSpace(c.Param("code"))
+	if _, ok := s.svc.PluginByCode(code); !ok {
+		fail(c, http.StatusNotFound, "插件不存在")
+		return
+	}
+	items, err := s.svc.PluginMigrations(code)
+	if err != nil {
+		fail(c, http.StatusBadRequest, err.Error())
+		return
+	}
+	pending, failed, success := 0, 0, 0
+	for _, item := range items {
+		switch item.Status {
+		case "pending", "running":
+			pending++
+		case "failed":
+			failed++
+		case "success":
+			success++
+		}
+	}
+	c.JSON(http.StatusOK, gin.H{
+		"items": items,
+		"summary": gin.H{
+			"plugin_code": code,
+			"total":       len(items),
+			"pending":     pending,
+			"failed":      failed,
+			"success":     success,
+		},
+	})
+}
+
+func (s *Server) runAdminPluginMigrations(c *gin.Context) {
+	code := strings.TrimSpace(c.Param("code"))
+	executor := auditActor(c)
+	items, err := s.svc.RunAllPluginMigrations(code, executor)
+	if err != nil {
+		s.auditStructured(c, "system", "plugin.migration.failed", fmt.Sprintf("plugins#%s/migrations", code),
+			nil,
+			gin.H{"status": "failed"},
+			gin.H{"plugin_code": code, "operation": "plugin_migration_run", "error": err.Error()})
+		fail(c, http.StatusBadRequest, err.Error())
+		return
+	}
+	s.auditStructured(c, "system", "plugin.migration.run", fmt.Sprintf("plugins#%s/migrations", code),
+		nil,
+		gin.H{"status": "success", "count": len(items)},
+		gin.H{"plugin_code": code, "operation": "plugin_migration_run", "count": len(items)})
+	s.auditStructured(c, "system", "plugin.migration.success", fmt.Sprintf("plugins#%s/migrations", code),
+		nil,
+		gin.H{"status": "success", "count": len(items)},
+		gin.H{"plugin_code": code, "operation": "plugin_migration_success", "count": len(items)})
+	c.JSON(http.StatusOK, gin.H{"items": items})
+}
+
+func (s *Server) retryAdminPluginMigration(c *gin.Context) {
+	code := strings.TrimSpace(c.Param("code"))
+	name, err := url.PathUnescape(strings.TrimSpace(c.Param("name")))
+	if err != nil {
+		name = strings.TrimSpace(c.Param("name"))
+	}
+	executor := auditActor(c)
+	item, err := s.svc.RunPluginMigration(code, name, executor)
+	if err != nil {
+		s.auditStructured(c, "system", "plugin.migration.failed", fmt.Sprintf("plugins#%s/migrations#%s", code, name),
+			nil,
+			gin.H{"status": "failed"},
+			gin.H{"plugin_code": code, "migration_name": name, "operation": "plugin_migration_retry", "error": err.Error()})
+		fail(c, http.StatusBadRequest, err.Error())
+		return
+	}
+	s.auditStructured(c, "system", "plugin.migration.retry", fmt.Sprintf("plugins#%s/migrations#%s", code, item.MigrationName),
+		nil,
+		gin.H{"status": item.Status, "migration_name": item.MigrationName},
+		gin.H{"plugin_code": code, "migration_name": item.MigrationName, "operation": "plugin_migration_retry"})
+	s.auditStructured(c, "system", "plugin.migration.success", fmt.Sprintf("plugins#%s/migrations#%s", code, item.MigrationName),
+		nil,
+		gin.H{"status": item.Status, "migration_name": item.MigrationName},
+		gin.H{"plugin_code": code, "migration_name": item.MigrationName, "operation": "plugin_migration_success"})
+	c.JSON(http.StatusOK, item)
 }
 
 func (s *Server) adminCommunityPluginImpact(c *gin.Context) {
@@ -2016,7 +2156,12 @@ func (s *Server) updateAdminPluginConfig(c *gin.Context) {
 	s.auditStructured(c, "system", "更新插件全局配置", fmt.Sprintf("plugins#%s", plugin.Code),
 		gin.H{"config_json": jsonAuditValue(before.ConfigJSON)},
 		gin.H{"config_json": jsonAuditValue(plugin.ConfigJSON)},
-		gin.H{"scope": "global", "plugin_code": plugin.Code, "operation": "plugin_config"})
+		gin.H{
+			"scope":        "global",
+			"plugin_code":  plugin.Code,
+			"operation":    "plugin_config",
+			"changed_keys": configChangedKeys(before.ConfigJSON, plugin.ConfigJSON),
+		})
 	c.JSON(http.StatusOK, plugin)
 }
 
@@ -2513,7 +2658,13 @@ func (s *Server) updateAdminCommunityPluginConfig(c *gin.Context) {
 	s.auditStructured(c, "system", "更新子站插件配置", fmt.Sprintf("community_plugins#%d:%s", id, plugin.Code),
 		gin.H{"config_json": jsonAuditValue(beforeConfig)},
 		gin.H{"config_json": jsonAuditValue(plugin.ConfigJSON)},
-		gin.H{"scope": "community", "community_id": id, "plugin_code": plugin.Code, "operation": "community_plugin_config"})
+		gin.H{
+			"scope":        "community",
+			"community_id": id,
+			"plugin_code":  plugin.Code,
+			"operation":    "community_plugin_config",
+			"changed_keys": configChangedKeys(beforeConfig, plugin.ConfigJSON),
+		})
 	c.JSON(http.StatusOK, plugin)
 }
 
@@ -3468,6 +3619,10 @@ func (s *Server) batchAdminTopics(c *gin.Context) {
 		} else {
 			item.OK = true
 			result.Updated++
+			s.auditPluginContentAction(c, "批量治理主题", topic, fmt.Sprintf("batch:%s", action),
+				gin.H{"action": action},
+				gin.H{"ok": true},
+				gin.H{"batch": true, "note": req.Note})
 		}
 		if !item.OK {
 			result.Failed++
@@ -3726,6 +3881,21 @@ func (s *Server) auditStructured(c *gin.Context, logType, action, target string,
 	})
 }
 
+func auditActor(c *gin.Context) string {
+	adminCtx, ok := currentAdminContext(c)
+	if !ok {
+		return "system"
+	}
+	actor := adminCtx.CurrentUser.Username
+	if actor == "" {
+		actor = adminCtx.CurrentUser.Nickname
+	}
+	if actor == "" {
+		actor = fmt.Sprintf("admin#%d", adminCtx.CurrentUser.ID)
+	}
+	return actor
+}
+
 func auditJSON(value any) string {
 	if value == nil {
 		return ""
@@ -3758,6 +3928,43 @@ func jsonAuditValue(raw string) any {
 		}
 	}
 	return raw
+}
+
+func configChangedKeys(oldRaw, newRaw string) []string {
+	oldObj := auditObjectMap(oldRaw)
+	newObj := auditObjectMap(newRaw)
+	seen := map[string]bool{}
+	keys := []string{}
+	for key := range oldObj {
+		seen[key] = true
+		keys = append(keys, key)
+	}
+	for key := range newObj {
+		if !seen[key] {
+			seen[key] = true
+			keys = append(keys, key)
+		}
+	}
+	out := []string{}
+	for _, key := range keys {
+		if !reflect.DeepEqual(oldObj[key], newObj[key]) {
+			out = append(out, key)
+		}
+	}
+	sort.Strings(out)
+	return out
+}
+
+func auditObjectMap(raw string) map[string]any {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return map[string]any{}
+	}
+	var value map[string]any
+	if err := json.Unmarshal([]byte(raw), &value); err != nil {
+		return map[string]any{}
+	}
+	return value
 }
 
 func (s *Server) moderatorUserForAdmin(user domain.AuthUser) (domain.AuthUser, bool) {
@@ -4128,7 +4335,12 @@ func (s *Server) toggleAdminTopicBool(c *gin.Context, action string) {
 		fail(c, http.StatusBadRequest, err.Error())
 		return
 	}
-	s.audit(c, "audit", map[string]string{"feature": "切换精华", "pin": "切换置顶"}[action], fmt.Sprintf("topics#%d", id))
+	auditAction := map[string]string{"feature": "切换精华", "pin": "切换置顶"}[action]
+	s.audit(c, "audit", auditAction, fmt.Sprintf("topics#%d", id))
+	s.auditPluginContentAction(c, auditAction, topic, action,
+		gin.H{"featured": topic.IsFeatured, "pinned": topic.IsPinned},
+		gin.H{"featured": updated.IsFeatured, "pinned": updated.IsPinned},
+		nil)
 	c.JSON(http.StatusOK, gin.H{"topic": updated, "changed": true})
 }
 
@@ -4205,6 +4417,10 @@ func (s *Server) setAdminTopicStatus(c *gin.Context, status int, action string) 
 		return
 	}
 	s.audit(c, "audit", action, fmt.Sprintf("topics#%d", id))
+	s.auditPluginContentAction(c, action, topic, "status",
+		gin.H{"status": topic.Status},
+		gin.H{"status": updated.Status},
+		nil)
 	c.JSON(http.StatusOK, gin.H{"topic": updated, "changed": true})
 }
 
@@ -4231,6 +4447,10 @@ func (s *Server) setAdminTopicLock(c *gin.Context, locked bool) {
 		action = "解锁评论"
 	}
 	s.audit(c, "audit", action, fmt.Sprintf("topics#%d", id))
+	s.auditPluginContentAction(c, action, topic, "comments_locked",
+		gin.H{"comment_locked": topic.CommentLocked},
+		gin.H{"comment_locked": updated.CommentLocked},
+		nil)
 	c.JSON(http.StatusOK, gin.H{"topic": updated, "changed": true})
 }
 
@@ -4262,7 +4482,35 @@ func (s *Server) setAdminCommentStatus(c *gin.Context, status string) {
 		action = "恢复评论"
 	}
 	s.audit(c, "audit", action, fmt.Sprintf("comments#%d", id))
+	s.auditPluginContentAction(c, action, topic, "comment_status",
+		gin.H{"comment_id": id, "status": comment.Status},
+		gin.H{"comment_id": id, "status": updated.Status},
+		nil)
 	c.JSON(http.StatusOK, gin.H{"comment": updated, "changed": true})
+}
+
+func (s *Server) auditPluginContentAction(c *gin.Context, action string, topic *domain.Topic, operation string, oldValue, newValue, metadata any) {
+	if topic == nil {
+		return
+	}
+	pluginCode := strings.TrimSpace(topic.PluginCode)
+	if pluginCode == "" || pluginCode == pluginregistry.CoreCode {
+		return
+	}
+	meta := gin.H{
+		"operation":    operation,
+		"plugin_code":  pluginCode,
+		"content_type": topic.ContentType,
+		"content_id":   topic.ID,
+		"community_id": topic.CommunityID,
+		"category_id":  topic.CategoryID,
+	}
+	if extra, ok := metadata.(gin.H); ok {
+		for k, v := range extra {
+			meta[k] = v
+		}
+	}
+	s.auditStructured(c, "audit", action, fmt.Sprintf("plugins#%s/topics#%d", pluginCode, topic.ID), oldValue, newValue, meta)
 }
 
 func (s *Server) moderatorCommunitiesForCurrentUser(c *gin.Context) []domain.Community {

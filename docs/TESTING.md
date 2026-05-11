@@ -2,7 +2,7 @@
 
 [返回文档入口](README.md)
 
-更新时间：2026-05-10
+更新时间：2026-05-11
 
 本文档只记录当前 v1.3.x 必测项和后续补测项。历史版本测试只保留必要回归，不再展开旧版本完整矩阵。
 
@@ -18,12 +18,22 @@
 
 插件 API：
 
+- `plugins.status` 支持扩展状态模型：`discovered`、`installed`、`migrated`、`configured`、`enabled`、`disabled`、`running`、`config_invalid`、`migration_pending`、`dependency_missing`。
+- 发布可用性只认全局 `enabled`；除 `enabled` 外的全局状态均不能新建该插件内容。
 - `GET /api/v1/plugins` 只返回全局 enabled 插件。
 - `GET /api/v1/plugins` 返回统一 manifest 风格的插件声明结构，包括内容类型、权限、菜单、路由和 `config_schema` 预留字段。
 - `GET /api/v1/plugins` 和 `GET /api/v1/communities/:slug/plugins` 不暴露 `config_json` / `resolved_config`。
 - `GET /api/v1/admin/plugins` 返回 `qa`、`docs`、`wiki` 的全局状态。
+- `GET /api/v1/admin/plugins` 返回轻量 `health` 摘要，至少包含 overall/config/migration/hook/dependency 状态、最近错误和建议操作。
+- `GET /api/v1/admin/plugins/:code/audit-logs` 可按插件 code 查询插件启停、配置、Hook 失败和插件内容治理审计。
+- `GET /api/v1/admin/plugins/:code/migrations` 可列出内置插件 migration 声明、执行状态、失败原因和 summary。
+- `POST /api/v1/admin/plugins/:code/migrations/run` 可执行该插件全部待处理 migration，并写入 `plugin.migration.run` / `plugin.migration.success` / `plugin.migration.failed` 审计。
+- `POST /api/v1/admin/plugins/:code/migrations/:name/retry` 可执行或重试单条 migration，并写入 `plugin.migration.retry` / `plugin.migration.success` / `plugin.migration.failed` 审计。
+- 已经 `success` 的 migration 再次执行不会重复破坏数据，应返回现有成功记录或保持 success。
 - `PUT /api/v1/admin/plugins/:code/config` 可以保存合法 JSON，非法 JSON 应返回 400，并写入审计日志。
+- `PUT /api/v1/admin/plugins/:code/config` 缺少 required、enum 非法、type 错误、integer 非整数、数字越界时应返回 400。
 - 插件启停、全局配置、子站启停、子站配置和子站排序审计日志应包含 `old_value`、`new_value`、`metadata_json` 结构化字段。
+- 配置审计 `metadata_json.changed_keys` 应记录本次变更的顶层配置键。
 - `POST /api/v1/admin/plugins/:code/disable` 可以禁用全局插件，并写入审计日志。
 - `POST /api/v1/admin/plugins/:code/enable` 可以启用全局插件，并写入审计日志。
 - `GET /api/v1/communities/:slug/plugins` 只返回该子站全局 enabled 且子站 enabled 的插件。
@@ -31,12 +41,15 @@
 - `POST /api/v1/admin/communities/:id/plugins/:code/disable` 可以禁用某个子站插件。
 - `POST /api/v1/admin/communities/:id/plugins/:code/enable` 可以启用某个子站插件。
 - `PUT /api/v1/admin/communities/:id/plugins/:code/config` 可以保存合法 JSON，非法 JSON 应返回 400，并写入审计日志。
+- `PUT /api/v1/admin/communities/:id/plugins/:code/config` 同样必须执行后端 `config_schema` 强校验，不能只依赖前端 Ajv。
 - `PUT /api/v1/admin/communities/:id/plugins/sort` 可以调整排序，并写入审计日志。
-- 全局 disabled 插件不能被子站启用。
+- 全局 disabled / `config_invalid` / `migration_pending` 插件不能被子站启用。
 - `GET /api/v1/moderator/plugin-menus` 只返回全局 enabled、子站 enabled 且当前用户有权限的插件菜单。
+- `GET /api/v1/admin/plugins/:code/impact` 返回历史内容数、启用/禁用子站数、绑定板块数、近 7 天内容数、审核中内容数、菜单声明数、配置覆盖数和待执行迁移数。
+- `GET /api/v1/admin/communities/:id/plugins/:code/impact` 返回同类字段，但内容、板块和子站状态计数应收敛到该子站范围。
 - 插件 manifest 结构一致性测试覆盖 `code/name/version/is_system/content_types/permissions/menus/routes/config_schema/min_core_version`。
 - `doc -> document`、`wiki -> wiki_page` 和 `content_type -> plugin_code` 映射测试应通过。
-- 插件配置合并测试覆盖默认配置、全局配置、子站配置和 `effective` 生效值。
+- 插件配置合并测试覆盖 schema 默认值、全局配置、子站配置和 `effective` 生效值。
 
 发布与板块：
 
@@ -59,11 +72,46 @@
 - 其他仍启用 `qa` 的子站可以继续发布 `question`。
 - 子站禁用 `docs` 后，该子站不能发布 `document`。
 - 子站禁用 `wiki` 后，该子站不能发布 `wiki_page`。
+- 全局 `config_invalid` / `migration_pending` 状态下，后端强传对应 `content_type` 也应拒绝创建。
 - 板块不能绑定当前子站未启用的插件。
 - `category.plugin_code` 与 `content_type` 对应插件不匹配时拒绝发布。
 - `content_type` 不在 `category.allowed_content_types` 内时拒绝发布。
 - 采纳回答后，`GET /api/v1/topics/:id/qa` 中的 `is_resolved`、`accepted_answer_id` 和回答接受状态会更新。
 - 编辑 `wiki_page` 后，`GET /api/v1/topics/:id/wiki/versions` 返回的版本数应增加。
+
+## 插件系统专项验收与 E2E 回归归档（2026-05-11）
+
+本轮执行了插件系统专项验收，目标是确认当前插件平台已经具备可治理、可配置、可启停、可审计、可观测、可迁移的基础形态，并把 E2E 回归结果归档为长期状态来源。
+
+已自动化并通过：
+
+- 后端基础：`go test ./...`、`go build -o .devhub/devhub .`、`bash -n dev.sh`。
+- 后台构建：`docker compose run --rm admin-e2e npm run build` 通过；Vite chunk size warning 不作为失败。
+- 前台 E2E：`./scripts/check-frontend.sh --frontend-only --e2e-only` 通过，14 passed。
+- 后台 E2E：`./scripts/check-frontend.sh --admin-only --e2e-only` 首次发现测试污染和旧文案断言，修复后通过，15 passed。
+- SEO curl：`/topics/1/` 可见 title、canonical、Article JSON-LD、article、h1；`/c/php/` 可见 title、description、canonical、h1 和结构化数据。
+
+本轮 E2E 已覆盖：
+
+- 插件启停：后台插件治理 E2E 覆盖全局禁用确认、影响分析提示、全局 disabled 时子站不能启用，并在测试结束恢复 `qa` enabled。
+- content_type 强校验：前台插件联动 E2E 覆盖禁用插件后发布入口不可用、后端强传禁用 content_type 被拒绝、非法 content_type 被拒绝。
+- 历史内容与 SEO：前台 E2E 和 curl 均确认禁用插件不影响历史 Topic 动态详情基础 SEO。
+- 权限边界：前台 E2E 覆盖普通用户不能访问版主工作台、版主只能访问授权页面，并包含跨子站 API 越权拦截。
+- 插件配置：后台 E2E 覆盖插件详情配置 Tab、JSON Editor / Ajv 错误提示、子站插件配置非法 schema 值拦截。
+- 后台插件中心：后台 E2E 覆盖插件列表筛选、详情 Tabs、影响分析、审计入口、子站插件配置、通用 PluginContent 页。
+- 后台细操作：后台 E2E 覆盖 reports 处理与审计、moderators 创建/更新/禁用 API 反映到列表、PluginContent 内容治理和审计。
+
+本轮发现并修复：
+
+- 后台插件治理 E2E 中，全局禁用 `qa` 的测试失败时没有恢复插件状态，导致并行运行的插件内容页测试被污染。已将该 describe 设为 serial，并在 `finally` 中恢复 `qa` enabled。
+- 影响分析弹窗已经展示“当前启用子站 / 将阻止发布的板块 / 已有历史内容”等真实字段，旧断言仍查找“将影响子站”。已同步测试断言。
+
+仍需后续补测：
+
+- 插件迁移：失败注入、重试成功、重复执行不破坏数据、审计定位的完整 E2E。
+- Hook 治理：blocking Hook 人为失败并阻断主流程、non-blocking Hook 失败不阻断但记录后台可见的完整 E2E。
+- 插件审计：按 plugin_code / community_id / action 的更多组合筛选，以及 old_value / new_value / metadata_json 的浏览器断言。
+- 插件健康状态：migration_pending、config_invalid、hook warning/error 等多状态 UI 回归。
 
 后台兼容入口：
 
@@ -97,12 +145,21 @@
 - `/admin-next/plugins` 支持打开插件详情抽屉，按基础信息、内容类型、权限、菜单、配置、路由和 Hooks 分区展示。
 - `/admin-next/plugins` 支持查看 `config_schema` 和 `resolved_config`，全局插件配置使用 JSON Editor + Ajv 做客户端基础校验，后端保存时继续按简化 `config_schema` 二次校验。
 - `/admin-next/plugins` 全局启用 / 禁用有确认提示，并明确 disabled 不影响历史内容详情和 SEO。
+- `/admin-next/plugins` 全局禁用确认会展示 impact 计数；Hook 错误统计来自 `hook_executions` 最近 7 天失败记录，不应伪造成完整健康评分。
 - `/admin-next/communities` 的插件配置抽屉支持启用 / 禁用、全局 / 子站双状态、全局禁用原因、`config_json` 编辑、schema 参考、JSON Editor、Ajv 基础校验和数字排序保存。
+- `/admin-next/communities` 子站禁用确认会展示该子站范围内的 impact 计数。
 - `/moderator` 可按当前子站显示插件治理入口；全局 disabled 或子站 disabled 插件不显示。
 
 HookBus 最小检查：
 
 - 创建 Topic 时触发 `BeforeCreateContent` 和 `AfterCreateContent`。
+- `BeforeCreateContent` blocking hook 返回错误时阻断创建，并写入 `hook_executions` 与 `plugin.hook.blocked` 审计。
+- `AfterCreateContent` non-blocking hook 返回错误时不阻断主流程，并写入 `hook_executions` 与 `plugin.hook.failed` 审计。
+- 插件详情 Hooks Tab 能展示执行次数、失败次数、失败率、平均耗时、最近执行、最近失败和最近错误。
+- 插件详情“运行状态”Tab 能展示 overall、config_status、migration_status、hook_status、dependency_status、pending/failed migrations、hook failures、recent_error 和 suggested_action。
+- 插件详情“迁移”Tab 能展示 migration 列表、状态、最近执行时间、失败原因、rollback_supported 标识，并提供执行/重试入口。
+- 插件详情“审计”Tab 使用插件专用审计接口，不再只依赖通用 audit-log target 前缀。
+- 插件内容治理操作（隐藏/恢复、置顶/取消置顶、加精/取消加精、评论治理等已有操作）应写入带 `plugin_code` 的结构化审计 metadata；Core 内容可继续使用普通审计。
 - 更新 Topic、置顶、精选、隐藏 / 恢复、评论锁时触发 `BeforeUpdateContent` 和 `AfterUpdateContent`。
 - 删除 Topic 时触发 `BeforeDeleteContent` 和 `AfterDeleteContent`。
 - 创建评论时触发 `AfterCreateComment`。
@@ -236,7 +293,7 @@ docker compose run --rm frontend-e2e
 ## 已实现但后续补测
 
 - 插件全局 `config_json` 和子站 `config_json` 接口已有自动化覆盖，仍需要真实 admin token 做联调补测。
-- 插件声明里的 `config_schema`、`dependencies`、`min_core_version` 和 `hooks` 已有结构测试，仍需要继续补测前后台展示或消费场景；`config_schema` 强校验当前不作为通过项。
+- 插件声明里的 `config_schema`、`dependencies`、`min_core_version` 和 `hooks` 已有结构测试；`config_schema` 已接入简化后端校验，仍需要继续补测前后台展示、错误提示、边界值和完整 JSON Schema 不支持场景。
 - 子站插件排序接口已有自动化覆盖，仍需要真实 admin token 和浏览器做联调补测。
 - 后台插件治理中心和核心后台页面已有 Docker 化 Playwright E2E runner；仍需继续补多浏览器、更多真实 UI 操作、视觉细节和 MySQLStore 场景。
 - 后台版主管理新增 / 编辑 / 停用当前通过真实 API + UI 列表验证组合覆盖；Element Plus 表单纯 UI 操作仍可作为后续更细浏览器用例。
@@ -251,13 +308,20 @@ docker compose run --rm frontend-e2e
 - 更细粒度的权限体系补测：例如 Core 兼容类型 `article` / `news` 的细分权限码、按子站/板块维度配置权限矩阵与更明确的错误码（当前发布链路已实现最小权限码校验）。
 - Projects / Jobs / AI Works 的专属扩展表、专属管理页和完整业务流程。
 - P0：HookBus 的完整业务处理器、关键 Hook 事务回滚、非关键 Hook 统一错误日志和重试策略。
-- P0：`config_schema` 基础强校验。
+- P0：`config_schema` 更多边界值、错误提示和完整浏览器矩阵。
 - P1：`config_schema` 配置表单自动渲染。
 - Docs 文档树专用编辑 UI、拖拽排序和批量排序。
 - Wiki 版本回滚和协作编辑交互。
 - QA 取消采纳最佳答案。
 
 ## 完整插件系统平台验收矩阵
+
+基线说明：
+
+- 当前插件平台是内置系统插件平台，不是第三方插件市场或动态插件加载环境。
+- v1.3.2 起 `discovered`、`migrated`、`configured`、`running`、`config_invalid`、`migration_pending`、`dependency_missing` 已进入全局状态枚举；但完整自动状态机仍未完成，当前发布判定仍只认 `enabled`。
+- `plugin_migrations` 当前支持内置 up/no-op runner、失败记录和失败重试；migration down、真实 rollback、迁移前备份和外部插件迁移包仍需后续补测。
+- HookBus 当前可派发并执行内置 handler；`hook_executions` 已记录执行结果、失败统计、最近错误和平均耗时，后台 Hooks Tab 已展示这些运行时字段。插件列表/详情已展示轻量健康摘要；独立健康 API、告警和重试策略仍需后续补测。
 
 P0 已实现或必测：
 
@@ -269,17 +333,18 @@ P0 已实现或必测：
 - 权限码校验：发布时使用 ContentTypeDefinition 中的 create_permission。
 - ActorContext 来源可信：由服务端 token / admin / moderator scope 计算，客户端请求体不能伪造。
 - 菜单过滤：前台、后台、版主菜单按全局状态、子站状态、权限和 scope 过滤。
-- `config_json` 合法性：非法 JSON 保存失败。
-- `admin_logs` old/new/metadata：插件启停、配置、排序写入 `old_value`、`new_value`、`metadata_json`。
+- `config_json` 合法性和简化 `config_schema` 校验：非法 JSON、缺少 required、enum 非法、类型错误、integer 非整数和数字越界应保存失败。
+- `resolved_config.effective`：schema 默认值 < 全局配置 < 子站配置。
+- `admin_logs` old/new/metadata：插件启停、配置、排序写入 `old_value`、`new_value`、`metadata_json`，配置变更包含 `changed_keys`。
 - disabled 插件历史内容访问：`/topics/:id` 不返回 404。
 - `/topics/:id` SEO 动态 HTML：title、description、h1、article、标签、JSON-LD 不丢失。
 - migration 新装 / 老库升级：`001_schema.sql`、`internal/store/schema.go` 和 migrations 字段口径一致。
 
 P0 待实现 / 待补测：
 
-- `config_schema` 基础校验：已接入（简化 JSON Schema），仍需用真实浏览器矩阵补测错误提示与边界值。
-- HookBus 业务处理器：Create / Update / Delete / Search / Notification / SEO 不仅能派发事件，还要具备插件处理器、错误日志和失败策略验收。
-- 插件 migration runner：当前新增 `plugin_migrations` 表用于记录执行状态，完整 runner 与后台一键执行仍待后续。
+- `config_schema` 浏览器矩阵：后端强校验已接入，仍需补更多真实浏览器错误提示、深层 diff 和完整 JSON Schema 不支持场景。
+- HookBus 业务处理器：Create / Update / Delete / Search / Notification / SEO 不仅能派发事件，还要继续补更多插件处理器、告警和重试策略验收。
+- 插件 migration runner：当前已支持内置插件 up/no-op 查询、执行、失败记录、重试和后台迁移 Tab；真实 rollback、down migration、迁移前备份仍待后续。
 - 完整真实 token 验收矩阵：全局禁用、子站禁用、跨子站发布、版主菜单、历史 SEO。
 
 P1 / P2 / P3 后续验收：

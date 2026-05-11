@@ -18,53 +18,55 @@ const TimeLayout = "2006-01-02 15:04:05"
 
 // MemoryStore 是线程安全的内存数据仓储，用于演示环境和本地开发。
 type MemoryStore struct {
-	mu               sync.RWMutex
-	nextPostID       int64
-	nextCommentID    int64
-	nextNoticeID     int64
-	nextLogID        int64
-	nextReactionID   int64
-	nextFavoriteID   int64
-	nextFollowID     int64
-	nextActivityID   int64
-	nextReportID     int64
-	nextModeratorID  int64
-	nextCommunityID  int64
-	nextCategoryID   int64
-	nextTagID        int64
-	nextTagAliasID   int64
-	nextUserID       int64
-	sites            map[string]domain.Site
-	boards           map[string]domain.Board
-	communities      map[int64]*domain.Community
-	categories       map[int64]*domain.Category
-	plugins          map[string]*domain.Plugin
-	communityPlugins map[int64]map[string]*domain.CommunityPlugin
-	pluginMigrations map[string][]domain.PluginMigration // plugin_code -> records
-	qaQuestions      map[int64]*domain.QAQuestion
-	qaAnswers        map[int64]*domain.QAAnswer
-	docsSpaces       map[int64]*domain.DocsSpace
-	docsDocuments    map[int64]*domain.DocsDocument
-	wikiPages        map[int64]*domain.WikiPage
-	wikiVersions     map[int64]*domain.WikiRevision
-	tags             map[int64]*domain.Tag
-	tagAliases       map[int64]*domain.TagAlias
-	boardOrder       []string
-	siteOrder        []string
-	posts            map[int64]*domain.Post
-	comments         map[int64]*domain.Comment
-	notices          map[int64]*domain.Notification
-	reactions        map[string]*domain.Reaction
-	favorites        map[string]*domain.Favorite
-	follows          map[string]*domain.Follow
-	activities       map[int64]*domain.Activity
-	reports          map[int64]*domain.Report
-	moderators       map[int64]*domain.CommunityModerator
-	commentLocks     map[int64]bool
-	users            map[int64]*domain.AdminUser
-	roles            map[int64]domain.AdminRole
-	settings         domain.AdminSettings
-	logs             []domain.AdminLog
+	mu                  sync.RWMutex
+	nextPostID          int64
+	nextCommentID       int64
+	nextNoticeID        int64
+	nextLogID           int64
+	nextReactionID      int64
+	nextFavoriteID      int64
+	nextFollowID        int64
+	nextActivityID      int64
+	nextReportID        int64
+	nextModeratorID     int64
+	nextCommunityID     int64
+	nextCategoryID      int64
+	nextTagID           int64
+	nextTagAliasID      int64
+	nextUserID          int64
+	nextHookExecutionID int64
+	sites               map[string]domain.Site
+	boards              map[string]domain.Board
+	communities         map[int64]*domain.Community
+	categories          map[int64]*domain.Category
+	plugins             map[string]*domain.Plugin
+	communityPlugins    map[int64]map[string]*domain.CommunityPlugin
+	pluginMigrations    map[string][]domain.PluginMigration // plugin_code -> records
+	hookExecutions      []domain.HookExecution
+	qaQuestions         map[int64]*domain.QAQuestion
+	qaAnswers           map[int64]*domain.QAAnswer
+	docsSpaces          map[int64]*domain.DocsSpace
+	docsDocuments       map[int64]*domain.DocsDocument
+	wikiPages           map[int64]*domain.WikiPage
+	wikiVersions        map[int64]*domain.WikiRevision
+	tags                map[int64]*domain.Tag
+	tagAliases          map[int64]*domain.TagAlias
+	boardOrder          []string
+	siteOrder           []string
+	posts               map[int64]*domain.Post
+	comments            map[int64]*domain.Comment
+	notices             map[int64]*domain.Notification
+	reactions           map[string]*domain.Reaction
+	favorites           map[string]*domain.Favorite
+	follows             map[string]*domain.Follow
+	activities          map[int64]*domain.Activity
+	reports             map[int64]*domain.Report
+	moderators          map[int64]*domain.CommunityModerator
+	commentLocks        map[int64]bool
+	users               map[int64]*domain.AdminUser
+	roles               map[int64]domain.AdminRole
+	settings            domain.AdminSettings
+	logs                []domain.AdminLog
 }
 
 func countPluginMenus(def domain.Plugin, area string) int {
@@ -92,18 +94,17 @@ func (s *MemoryStore) PluginImpact(code string) (domain.PluginImpact, error) {
 	}
 
 	enabledCommunities := 0
+	disabledCommunities := 0
+	globalEnabled := p.Status == pluginregistry.StatusEnabled
 	for id := range s.communities {
 		if id == 0 {
 			continue
 		}
-		// Enabled means: global enabled AND community enabled.
-		global, ok := s.plugins[code]
-		if !ok || global == nil || global.Status != pluginregistry.StatusEnabled {
-			continue
-		}
 		cp := s.communityPlugins[id][code]
-		if cp != nil && cp.Status == pluginregistry.StatusEnabled {
+		if globalEnabled && cp != nil && cp.Status == pluginregistry.StatusEnabled {
 			enabledCommunities++
+		} else {
+			disabledCommunities++
 		}
 	}
 
@@ -119,6 +120,8 @@ func (s *MemoryStore) PluginImpact(code string) (domain.PluginImpact, error) {
 
 	topics := 0
 	pending := 0
+	recent := 0
+	cutoff := time.Now().AddDate(0, 0, -7)
 	for _, post := range s.posts {
 		if post == nil {
 			continue
@@ -131,18 +134,44 @@ func (s *MemoryStore) PluginImpact(code string) (domain.PluginImpact, error) {
 		if memoryTopicStatus(post) == 2 {
 			pending++
 		}
+		if ts, err := time.Parse(TimeLayout, post.CreatedAt); err == nil && ts.After(cutoff) {
+			recent++
+		}
 	}
+	configs := 0
+	if strings.TrimSpace(p.ConfigJSON) != "" {
+		configs++
+	}
+	for _, byPlugin := range s.communityPlugins {
+		if cp := byPlugin[code]; cp != nil && strings.TrimSpace(cp.ConfigJSON) != "" {
+			configs++
+		}
+	}
+	pendingMigrations := 0
+	for _, item := range s.pluginMigrations[code] {
+		if item.Status == "pending" {
+			pendingMigrations++
+		}
+	}
+	recentHookErrors := s.recentHookErrorsCountLocked(code, 0)
 
 	return domain.PluginImpact{
-		PluginCode:              code,
-		EnabledCommunitiesCount: enabledCommunities,
-		CategoriesCount:         categories,
-		TopicsCount:             topics,
-		PendingTopicsCount:      pending,
-		MenusCount:              len(p.Menus),
-		FrontendMenusCount:      countPluginMenus(p, "frontend"),
-		ModeratorMenusCount:     countPluginMenus(p, "moderator"),
-		AdminMenusCount:         countPluginMenus(p, "admin"),
+		PluginCode:               code,
+		ExistingContentsCount:    topics,
+		EnabledCommunitiesCount:  enabledCommunities,
+		DisabledCommunitiesCount: disabledCommunities,
+		CategoriesCount:          categories,
+		TopicsCount:              topics,
+		RecentContentsCount:      recent,
+		PendingTopicsCount:       pending,
+		PendingContentsCount:     pending,
+		MenusCount:               len(p.Menus),
+		FrontendMenusCount:       countPluginMenus(p, "frontend"),
+		ModeratorMenusCount:      countPluginMenus(p, "moderator"),
+		AdminMenusCount:          countPluginMenus(p, "admin"),
+		ConfigsCount:             configs,
+		PendingMigrationsCount:   pendingMigrations,
+		RecentHookErrorsCount:    recentHookErrors,
 	}, nil
 }
 
@@ -161,11 +190,13 @@ func (s *MemoryStore) CommunityPluginImpact(communityID int64, code string) (dom
 
 	// Narrow counts to the specified community where possible.
 	enabledCommunities := 0
+	disabledCommunities := 1
 	global, ok := s.plugins[code]
 	if ok && global != nil && global.Status == pluginregistry.StatusEnabled {
 		cp := s.communityPlugins[communityID][code]
 		if cp != nil && cp.Status == pluginregistry.StatusEnabled {
 			enabledCommunities = 1
+			disabledCommunities = 0
 		}
 	}
 	categories := 0
@@ -179,6 +210,8 @@ func (s *MemoryStore) CommunityPluginImpact(communityID int64, code string) (dom
 	}
 	topics := 0
 	pending := 0
+	recent := 0
+	cutoff := time.Now().AddDate(0, 0, -7)
 	for _, post := range s.posts {
 		if post == nil {
 			continue
@@ -194,62 +227,98 @@ func (s *MemoryStore) CommunityPluginImpact(communityID int64, code string) (dom
 		if memoryTopicStatus(post) == 2 {
 			pending++
 		}
+		if ts, err := time.Parse(TimeLayout, post.CreatedAt); err == nil && ts.After(cutoff) {
+			recent++
+		}
+	}
+	configs := 0
+	if global, ok := s.plugins[code]; ok && global != nil && strings.TrimSpace(global.ConfigJSON) != "" {
+		configs++
+	}
+	if cp := s.communityPlugins[communityID][code]; cp != nil && strings.TrimSpace(cp.ConfigJSON) != "" {
+		configs++
 	}
 
 	impact.EnabledCommunitiesCount = enabledCommunities
+	impact.DisabledCommunitiesCount = disabledCommunities
 	impact.CategoriesCount = categories
 	impact.TopicsCount = topics
+	impact.ExistingContentsCount = topics
+	impact.RecentContentsCount = recent
 	impact.PendingTopicsCount = pending
+	impact.PendingContentsCount = pending
+	impact.ConfigsCount = configs
+	impact.RecentHookErrorsCount = s.recentHookErrorsCountLocked(code, communityID)
 	return impact, nil
+}
+
+func (s *MemoryStore) recentHookErrorsCountLocked(pluginCode string, communityID int64) int {
+	cutoff := time.Now().AddDate(0, 0, -7)
+	count := 0
+	for _, record := range s.hookExecutions {
+		if record.PluginCode != pluginCode || record.Success {
+			continue
+		}
+		if communityID > 0 && record.CommunityID != communityID {
+			continue
+		}
+		if ts, err := time.Parse(TimeLayout, record.FinishedAt); err == nil && ts.Before(cutoff) {
+			continue
+		}
+		count++
+	}
+	return count
 }
 
 // NewMemoryStore 创建内存仓储并写入演示数据。
 func NewMemoryStore() *MemoryStore {
 	s := &MemoryStore{
-		nextPostID:       1,
-		nextCommentID:    1,
-		nextNoticeID:     1,
-		nextLogID:        1,
-		nextReactionID:   1,
-		nextFavoriteID:   1,
-		nextFollowID:     1,
-		nextActivityID:   1,
-		nextReportID:     1,
-		nextModeratorID:  1,
-		nextCommunityID:  1,
-		nextCategoryID:   1,
-		nextTagID:        1,
-		nextTagAliasID:   1,
-		nextUserID:       1,
-		sites:            map[string]domain.Site{},
-		boards:           map[string]domain.Board{},
-		communities:      map[int64]*domain.Community{},
-		categories:       map[int64]*domain.Category{},
-		plugins:          map[string]*domain.Plugin{},
-		communityPlugins: map[int64]map[string]*domain.CommunityPlugin{},
-		pluginMigrations: map[string][]domain.PluginMigration{},
-		qaQuestions:      map[int64]*domain.QAQuestion{},
-		qaAnswers:        map[int64]*domain.QAAnswer{},
-		docsSpaces:       map[int64]*domain.DocsSpace{},
-		docsDocuments:    map[int64]*domain.DocsDocument{},
-		wikiPages:        map[int64]*domain.WikiPage{},
-		wikiVersions:     map[int64]*domain.WikiRevision{},
-		tags:             map[int64]*domain.Tag{},
-		tagAliases:       map[int64]*domain.TagAlias{},
-		boardOrder:       []string{"all", "community", "qa", "opensource", "ai", "jobs", "wiki", "docs"},
-		siteOrder:        []string{"php", "go", "java", "ai", "frontend"},
-		posts:            map[int64]*domain.Post{},
-		comments:         map[int64]*domain.Comment{},
-		notices:          map[int64]*domain.Notification{},
-		reactions:        map[string]*domain.Reaction{},
-		favorites:        map[string]*domain.Favorite{},
-		follows:          map[string]*domain.Follow{},
-		activities:       map[int64]*domain.Activity{},
-		reports:          map[int64]*domain.Report{},
-		moderators:       map[int64]*domain.CommunityModerator{},
-		commentLocks:     map[int64]bool{},
-		users:            map[int64]*domain.AdminUser{},
-		roles:            map[int64]domain.AdminRole{},
+		nextPostID:          1,
+		nextCommentID:       1,
+		nextNoticeID:        1,
+		nextLogID:           1,
+		nextReactionID:      1,
+		nextFavoriteID:      1,
+		nextFollowID:        1,
+		nextActivityID:      1,
+		nextReportID:        1,
+		nextModeratorID:     1,
+		nextCommunityID:     1,
+		nextCategoryID:      1,
+		nextTagID:           1,
+		nextTagAliasID:      1,
+		nextUserID:          1,
+		nextHookExecutionID: 1,
+		sites:               map[string]domain.Site{},
+		boards:              map[string]domain.Board{},
+		communities:         map[int64]*domain.Community{},
+		categories:          map[int64]*domain.Category{},
+		plugins:             map[string]*domain.Plugin{},
+		communityPlugins:    map[int64]map[string]*domain.CommunityPlugin{},
+		pluginMigrations:    map[string][]domain.PluginMigration{},
+		hookExecutions:      []domain.HookExecution{},
+		qaQuestions:         map[int64]*domain.QAQuestion{},
+		qaAnswers:           map[int64]*domain.QAAnswer{},
+		docsSpaces:          map[int64]*domain.DocsSpace{},
+		docsDocuments:       map[int64]*domain.DocsDocument{},
+		wikiPages:           map[int64]*domain.WikiPage{},
+		wikiVersions:        map[int64]*domain.WikiRevision{},
+		tags:                map[int64]*domain.Tag{},
+		tagAliases:          map[int64]*domain.TagAlias{},
+		boardOrder:          []string{"all", "community", "qa", "opensource", "ai", "jobs", "wiki", "docs"},
+		siteOrder:           []string{"php", "go", "java", "ai", "frontend"},
+		posts:               map[int64]*domain.Post{},
+		comments:            map[int64]*domain.Comment{},
+		notices:             map[int64]*domain.Notification{},
+		reactions:           map[string]*domain.Reaction{},
+		favorites:           map[string]*domain.Favorite{},
+		follows:             map[string]*domain.Follow{},
+		activities:          map[int64]*domain.Activity{},
+		reports:             map[int64]*domain.Report{},
+		moderators:          map[int64]*domain.CommunityModerator{},
+		commentLocks:        map[int64]bool{},
+		users:               map[int64]*domain.AdminUser{},
+		roles:               map[int64]domain.AdminRole{},
 		settings: domain.AdminSettings{
 			SiteName:          "DevHub",
 			Copyright:         "© 2026 DevHub",
@@ -280,10 +349,17 @@ func (s *MemoryStore) PluginMigrations(pluginCode string) ([]domain.PluginMigrat
 }
 
 func (s *MemoryStore) AppendPluginMigration(record domain.PluginMigration) (domain.PluginMigration, error) {
+	if record.MigrationVersion == "" {
+		record.MigrationVersion = record.Version
+	}
+	if record.Version == "" {
+		record.Version = record.MigrationVersion
+	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	record.PluginCode = strings.TrimSpace(record.PluginCode)
 	record.Version = strings.TrimSpace(record.Version)
+	record.MigrationVersion = strings.TrimSpace(record.MigrationVersion)
 	record.MigrationName = strings.TrimSpace(record.MigrationName)
 	if record.PluginCode == "" || record.MigrationName == "" {
 		return domain.PluginMigration{}, errors.New("plugin_code 和 migration_name 不能为空")
@@ -300,6 +376,146 @@ func (s *MemoryStore) AppendPluginMigration(record domain.PluginMigration) (doma
 	}
 	s.pluginMigrations[record.PluginCode] = append(s.pluginMigrations[record.PluginCode], record)
 	return record, nil
+}
+
+func (s *MemoryStore) SavePluginMigration(record domain.PluginMigration) (domain.PluginMigration, error) {
+	if record.MigrationVersion == "" {
+		record.MigrationVersion = record.Version
+	}
+	if record.Version == "" {
+		record.Version = record.MigrationVersion
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	record.PluginCode = strings.TrimSpace(record.PluginCode)
+	record.Version = strings.TrimSpace(record.Version)
+	record.MigrationVersion = strings.TrimSpace(record.MigrationVersion)
+	record.MigrationName = strings.TrimSpace(record.MigrationName)
+	if record.PluginCode == "" || record.MigrationName == "" {
+		return domain.PluginMigration{}, errors.New("plugin_code 和 migration_name 不能为空")
+	}
+	if record.Status == "" {
+		record.Status = "pending"
+	}
+	now := Now()
+	if record.CreatedAt == "" {
+		record.CreatedAt = now
+	}
+	record.UpdatedAt = now
+	items := s.pluginMigrations[record.PluginCode]
+	for i, it := range items {
+		if it.PluginCode == record.PluginCode && it.Version == record.Version && it.MigrationName == record.MigrationName {
+			record.ID = it.ID
+			if record.CreatedAt == "" {
+				record.CreatedAt = it.CreatedAt
+			}
+			if record.CreatedAt == "" {
+				record.CreatedAt = now
+			}
+			items[i] = record
+			s.pluginMigrations[record.PluginCode] = items
+			return record, nil
+		}
+	}
+	record.ID = int64(len(items) + 1)
+	s.pluginMigrations[record.PluginCode] = append(items, record)
+	return record, nil
+}
+
+func (s *MemoryStore) AppendHookExecution(record domain.HookExecution) (domain.HookExecution, error) {
+	record.HookName = strings.TrimSpace(record.HookName)
+	record.PluginCode = strings.TrimSpace(record.PluginCode)
+	if record.HookName == "" || record.PluginCode == "" {
+		return domain.HookExecution{}, errors.New("hook_name 和 plugin_code 不能为空")
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if record.ID == 0 {
+		record.ID = s.nextHookExecutionID
+		s.nextHookExecutionID++
+	}
+	if record.CreatedAt == "" {
+		record.CreatedAt = Now()
+	}
+	if record.StartedAt == "" {
+		record.StartedAt = record.CreatedAt
+	}
+	if record.FinishedAt == "" {
+		record.FinishedAt = record.StartedAt
+	}
+	s.hookExecutions = append(s.hookExecutions, record)
+	return record, nil
+}
+
+func (s *MemoryStore) HookExecutions(pluginCode string, limit int) ([]domain.HookExecution, error) {
+	pluginCode = strings.TrimSpace(pluginCode)
+	if limit <= 0 || limit > 100 {
+		limit = 50
+	}
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	out := make([]domain.HookExecution, 0)
+	for i := len(s.hookExecutions) - 1; i >= 0 && len(out) < limit; i-- {
+		record := s.hookExecutions[i]
+		if pluginCode != "" && record.PluginCode != pluginCode {
+			continue
+		}
+		out = append(out, record)
+	}
+	return out, nil
+}
+
+func (s *MemoryStore) HookStats(pluginCode string) ([]domain.HookStats, error) {
+	pluginCode = strings.TrimSpace(pluginCode)
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	type agg struct {
+		stat    domain.HookStats
+		totalMS int
+	}
+	items := map[string]*agg{}
+	for _, record := range s.hookExecutions {
+		if pluginCode != "" && record.PluginCode != pluginCode {
+			continue
+		}
+		key := record.PluginCode + "\x00" + record.HookName
+		item := items[key]
+		if item == nil {
+			item = &agg{stat: domain.HookStats{
+				HookName:   record.HookName,
+				PluginCode: record.PluginCode,
+				Mode:       record.Mode,
+				Blocking:   record.Blocking,
+			}}
+			items[key] = item
+		}
+		item.stat.ExecutionCount++
+		item.totalMS += record.DurationMS
+		if record.FinishedAt > item.stat.LastExecutedAt {
+			item.stat.LastExecutedAt = record.FinishedAt
+		}
+		if !record.Success {
+			item.stat.FailureCount++
+			if record.FinishedAt > item.stat.LastFailedAt {
+				item.stat.LastFailedAt = record.FinishedAt
+				item.stat.LastError = record.ErrorMessage
+			}
+		}
+	}
+	out := make([]domain.HookStats, 0, len(items))
+	for _, item := range items {
+		if item.stat.ExecutionCount > 0 {
+			item.stat.AvgDurationMS = float64(item.totalMS) / float64(item.stat.ExecutionCount)
+		}
+		out = append(out, item.stat)
+	}
+	sort.Slice(out, func(i, j int) bool {
+		if out[i].PluginCode == out[j].PluginCode {
+			return out[i].HookName < out[j].HookName
+		}
+		return out[i].PluginCode < out[j].PluginCode
+	})
+	return out, nil
 }
 
 // Now 返回符合接口格式的当前时间字符串。
@@ -1370,7 +1586,7 @@ func withResolvedPluginConfig(plugin domain.Plugin, globalConfigJSON, communityC
 // SetPluginStatus 设置插件运行状态。
 func (s *MemoryStore) SetPluginStatus(code, status string) (domain.Plugin, error) {
 	status = strings.TrimSpace(status)
-	if status != pluginregistry.StatusInstalled && status != pluginregistry.StatusEnabled && status != pluginregistry.StatusDisabled {
+	if !pluginregistry.ValidGlobalStatus(status) {
 		return domain.Plugin{}, errors.New("插件状态不合法")
 	}
 	s.mu.Lock()

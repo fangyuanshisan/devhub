@@ -6,17 +6,38 @@ DevHub v1.3.2 is the plugin platform governance enhancement release.
 
 ### Changed
 
+- Calibrated plugin-platform documentation to distinguish completed capabilities, partial capabilities, reserved concepts, and future roadmap items before continuing new plugin work.
 - Moved HookBus into the plugin platform layer (`internal/plugins`) and registered minimal built-in hook handlers for system plugins.
+- Added `hook_executions` runtime records for built-in HookBus execution, plus `/api/v1/admin/plugins/:code/hooks` for Hook statistics and recent executions.
+- Recorded blocking Hook failures as `plugin.hook.blocked` and non-blocking Hook failures as `plugin.hook.failed` audit entries.
+- Added lightweight plugin health summaries to admin plugin responses and the admin plugin governance UI.
+- Added `/api/v1/admin/plugins/:code/audit-logs` for plugin-scoped audit queries.
+- Added structured `plugin_code` audit metadata for plugin content governance actions such as hide/restore, pin/feature, comment governance, and batch topic moderation.
 - Enforced `config_schema` validation when saving plugin `config_json` (both global `plugins.config_json` and per-community `community_plugins.config_json`).
+- Added schema default values to `resolved_config.effective` and recorded plugin config audit diffs via `metadata_json.changed_keys`.
 - Added `plugin_migrations` table (schema + migration) for tracking plugin migration execution state.
+- Added built-in plugin migration declarations for qa/docs/wiki, plus admin APIs and UI for listing, running, and retrying first-stage up/no-op migrations.
+- Recorded plugin migration run/retry/success/failure actions in structured audit logs.
 - Enhanced `/admin-next/plugins` towards a plugin governance center baseline UI (stats cards, filter toolbar, clearer status/capability badges).
 - Upgraded the admin plugin detail drawer into a tabbed governance view and replaced the global-config textarea with a JSON editor powered by `json-editor-vue` + `Ajv` client-side schema validation.
 - Upgraded the admin community plugin drawer with filtering, clearer status/override indicators, and a JSON editor for `community_plugins.config_json` powered by `json-editor-vue` + `Ajv` schema validation.
 - Added lightweight plugin impact analysis endpoints and surfaced impact hints in disable confirmations; added an audit tab to the admin plugin detail drawer (backed by `admin/audit-logs`) and improved the generic PluginContent page with community/status filters.
+- Extended the plugin status model beyond `enabled` / `disabled` to support governance states such as `config_invalid` and `migration_pending`, while keeping content creation strictly gated on global `enabled` plus community `enabled`.
+- Expanded plugin impact analysis counts to include existing contents, enabled/disabled communities, recent contents, pending contents, config overrides, and pending migrations; disable confirmations now surface the richer impact context without implying historical content or SEO deletion.
 - Archived a plugin-governance acceptance pass covering Go tests/build, Docker Node admin build, impact APIs, audit logs, config schema failures, global/community plugin state limits, moderator menus, and `/topics/:id` SEO regression.
 - Added a fixed Docker-based admin Playwright E2E runner (`admin-e2e`) using `mcr.microsoft.com/playwright:v1.59.1-noble`, with containerized admin build and a minimal plugin-governance browser test suite.
 - Added a fixed Docker-based frontend Playwright E2E runner (`frontend-e2e`) with containerized frontend build and a first-stage public navigation / SEO smoke suite.
 - Expanded admin Playwright E2E coverage from the plugin-governance center to login, content, comments, communities, tags, and audit-log smoke paths.
+- Archived a plugin-system acceptance pass with Go tests/build, admin Docker build, frontend 14-test E2E pass, admin 15-test E2E pass, and `/topics/:id` / `/c/:slug` SEO curl regressions.
+- Fixed admin plugin-governance E2E state isolation by restoring globally disabled plugins in `finally` and aligning impact-dialog assertions with the current real impact fields.
+
+### Baseline Notes
+
+- Current plugin runtime state is still based on `plugins.status`, `community_plugins.status`, and `plugin_migrations.status`; the expanded statuses are accepted by schema/Store, but only global `enabled` is publish-enabled until a full lifecycle state machine is implemented.
+- `plugin_migrations` now supports built-in up/no-op migration listing, execution records, failed-state retry, audit, and an admin migration tab; migration down, real rollback, pre-migration backup, and external plugin migration packages remain follow-up work.
+- HookBus dispatch exists for built-in plugins and now persists execution records/statistics; retry policy, alerting, and external monitoring remain follow-up work.
+- Plugin health is a lightweight governance summary, not a Prometheus/Grafana-style monitoring system.
+- Plugin config diff is currently top-level `changed_keys`; deep-path diff, version history, rollback, and gray release remain follow-up work.
 
 ## v1.3.1
 

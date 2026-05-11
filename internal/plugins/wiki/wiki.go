@@ -53,8 +53,8 @@ func Definition() domain.Plugin {
 				"type":                 "object",
 				"additionalProperties": false,
 				"properties": map[string]any{
-					"enable_version_history": map[string]any{"type": "boolean", "description": "是否启用版本历史"},
-					"max_versions":           map[string]any{"type": "integer", "min": float64(1), "max": float64(200), "description": "保留最大版本数"},
+					"enable_version_history": map[string]any{"type": "boolean", "default": true, "description": "是否启用版本历史"},
+					"max_versions":           map[string]any{"type": "integer", "min": float64(1), "max": float64(200), "default": float64(50), "description": "保留最大版本数"},
 				},
 				"required": []any{"enable_version_history"},
 			},
@@ -62,6 +62,11 @@ func Definition() domain.Plugin {
 				{PluginCode: Code, Name: "BeforeUpdateContent", Description: "更新 Wiki 页面前预留版本快照校验", Critical: true, FailurePolicy: "rollback"},
 				{PluginCode: Code, Name: "AfterUpdateContent", Description: "更新 Wiki 页面后写入版本记录", Critical: false, FailurePolicy: "log"},
 				{PluginCode: Code, Name: "OnSEOBuild", Description: "构建 Wiki 详情 SEO 元信息", Critical: false, FailurePolicy: "log"},
+			},
+			Migrations: []domain.PluginMigrationDefinition{
+				{PluginCode: Code, MigrationVersion: "1.0.0", MigrationName: "wiki_spaces", Direction: "up", Checksum: "builtin:wiki:wiki_spaces:v1", Tables: []string{"wiki_spaces"}, RollbackSupported: false, Description: "确认 wiki_spaces Wiki 空间表"},
+				{PluginCode: Code, MigrationVersion: "1.0.0", MigrationName: "wiki_pages", Direction: "up", Checksum: "builtin:wiki:wiki_pages:v1", Tables: []string{"wiki_pages"}, RollbackSupported: false, Description: "确认 wiki_pages Wiki 页面表"},
+				{PluginCode: Code, MigrationVersion: "1.0.0", MigrationName: "wiki_page_versions", Direction: "up", Checksum: "builtin:wiki:wiki_page_versions:v1", Tables: []string{"wiki_page_versions"}, RollbackSupported: false, Description: "确认 wiki_page_versions Wiki 版本表"},
 			},
 		},
 		Status: "enabled",

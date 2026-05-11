@@ -54,14 +54,18 @@ func Definition() domain.Plugin {
 				"additionalProperties": false,
 				"properties": map[string]any{
 					"allow_anonymous_answer":    map[string]any{"type": "boolean", "description": "是否允许匿名回答"},
-					"require_accept_permission": map[string]any{"type": "boolean", "description": "采纳答案是否要求 qa.answer.accept 权限"},
-					"default_question_status":   map[string]any{"type": "string", "enum": []any{"publish", "review"}, "description": "问题默认状态"},
+					"require_accept_permission": map[string]any{"type": "boolean", "default": true, "description": "采纳答案是否要求 qa.answer.accept 权限"},
+					"default_question_status":   map[string]any{"type": "string", "enum": []any{"publish", "review"}, "default": "publish", "description": "问题默认状态"},
 				},
 				"required": []any{"allow_anonymous_answer", "default_question_status"},
 			},
 			Hooks: []domain.HookDefinition{
 				{PluginCode: Code, Name: "AfterCreateComment", Description: "回答创建后同步问答状态", Critical: false, FailurePolicy: "log"},
 				{PluginCode: Code, Name: "OnSEOBuild", Description: "构建问答详情页 SEO 元信息", Critical: false, FailurePolicy: "log"},
+			},
+			Migrations: []domain.PluginMigrationDefinition{
+				{PluginCode: Code, MigrationVersion: "1.0.0", MigrationName: "qa_questions", Direction: "up", Checksum: "builtin:qa:qa_questions:v1", Tables: []string{"qa_questions"}, RollbackSupported: false, Description: "确认 qa_questions 问题扩展表"},
+				{PluginCode: Code, MigrationVersion: "1.0.0", MigrationName: "qa_answers", Direction: "up", Checksum: "builtin:qa:qa_answers:v1", Tables: []string{"qa_answers"}, RollbackSupported: false, Description: "确认 qa_answers 回答扩展表"},
 			},
 		},
 		Status: "enabled",

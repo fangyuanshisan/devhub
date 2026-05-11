@@ -75,6 +75,14 @@
           <el-tag :type="statusType(row.status)" effect="light">{{ row.status }}</el-tag>
         </template>
       </el-table-column>
+      <el-table-column label="运行健康" min-width="170">
+        <template #default="{ row }">
+          <div class="health-cell">
+            <el-tag :type="healthType(row.health?.status)" effect="light">{{ row.health?.status || 'unknown' }}</el-tag>
+            <span class="muted">{{ row.health?.suggested_action || '暂无建议' }}</span>
+          </div>
+        </template>
+      </el-table-column>
       <el-table-column label="内容类型" min-width="180">
         <template #default="{ row }">
           <el-tag v-for="type in row.content_types || []" :key="type" class="mr-6" effect="plain">{{ type }}</el-tag>
@@ -90,7 +98,15 @@
               schema {{ hasConfigSchema(row) ? '有' : '无' }}
             </el-tag>
             <el-tag :type="(row.hooks || []).length ? 'success' : 'info'" effect="plain">hooks {{ (row.hooks || []).length }}</el-tag>
+            <el-tag :type="statusMetricType(row.health?.config_status)" effect="plain">配置 {{ row.health?.config_status || '-' }}</el-tag>
+            <el-tag :type="statusMetricType(row.health?.migration_status)" effect="plain">迁移 {{ row.health?.migration_status || '-' }}</el-tag>
+            <el-tag :type="statusMetricType(row.health?.hook_status)" effect="plain">Hook {{ row.health?.hook_status || '-' }}</el-tag>
           </div>
+        </template>
+      </el-table-column>
+      <el-table-column label="最近错误" min-width="220">
+        <template #default="{ row }">
+          <span class="muted">{{ row.health?.recent_error || '-' }}</span>
         </template>
       </el-table-column>
       <el-table-column prop="description" label="说明" min-width="260" />
@@ -187,11 +203,16 @@ async function setStatus(row, status) {
     }
     const lines = [];
     if (impact) {
-      lines.push(`将影响子站：${impact.enabled_communities_count}`);
-      lines.push(`将影响板块：${impact.categories_count}`);
-      lines.push(`已有内容：${impact.topics_count}（历史仍可访问，SEO 不受影响）`);
-      if (typeof impact.pending_topics_count === 'number') lines.push(`审核中内容：${impact.pending_topics_count}`);
+      lines.push(`当前启用子站：${impact.enabled_communities_count ?? 0}`);
+      lines.push(`当前未启用子站：${impact.disabled_communities_count ?? 0}`);
+      lines.push(`将阻止发布的板块：${impact.categories_count ?? 0}`);
+      lines.push(`已有历史内容：${impact.existing_contents_count ?? impact.topics_count ?? 0}（历史仍可访问，SEO 不受影响）`);
+      if (typeof impact.recent_contents_count === 'number') lines.push(`近 7 天内容：${impact.recent_contents_count}`);
+      if (typeof impact.pending_contents_count === 'number') lines.push(`审核中内容：${impact.pending_contents_count}`);
+      if (typeof impact.configs_count === 'number') lines.push(`配置覆盖记录：${impact.configs_count}`);
+      if (typeof impact.pending_migrations_count === 'number') lines.push(`待执行迁移：${impact.pending_migrations_count}`);
       lines.push(`菜单声明：${impact.menus_count}（frontend ${impact.frontend_menus_count} / moderator ${impact.moderator_menus_count} / admin ${impact.admin_menus_count}）`);
+      if (typeof impact.recent_hook_errors_count === 'number') lines.push(`近期 Hook 错误：${impact.recent_hook_errors_count}`);
     } else {
       lines.push('影响范围统计待后端接口支持或当前环境暂不可用。');
     }
@@ -245,6 +266,21 @@ function statusType(status) {
   return 'info';
 }
 
+function healthType(status) {
+  if (status === 'healthy') return 'success';
+  if (status === 'disabled') return 'info';
+  if (status === 'warning' || status === 'migration_pending') return 'warning';
+  if (status === 'error' || status === 'config_invalid' || status === 'dependency_missing') return 'danger';
+  return 'info';
+}
+
+function statusMetricType(status) {
+  if (status === 'ok' || status === 'valid') return 'success';
+  if (status === 'warning' || status === 'pending') return 'warning';
+  if (status === 'failed' || status === 'invalid' || status === 'missing') return 'danger';
+  return 'info';
+}
+
 function hasConfigSchema(row) {
   const schema = row?.config_schema;
   if (!schema) return false;
@@ -274,6 +310,7 @@ onMounted(load);
 .plugin-title strong { color: #0f172a; }
 .plugin-title span { color: #64748b; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 12px; }
 .metric-line { display: flex; flex-wrap: wrap; gap: 6px; }
+.health-cell { display: grid; gap: 6px; }
 .page-card :deep(.el-table__cell) { padding: 8px 0; }
 .page-card :deep(.el-table .cell) { line-height: 1.35; }
 .json-box { margin: 0; padding: 14px; border-radius: 12px; background: #0f172a; color: #dbeafe; max-height: 360px; overflow: auto; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 12px; line-height: 1.55; white-space: pre-wrap; }
