@@ -655,20 +655,31 @@ done
 - Go 单测覆盖恢复插件后默认进入 `disabled`，不会自动启用。
 - Go 单测覆盖 failed migration 会阻断恢复。
 - API 测试覆盖 `POST /api/v1/admin/plugins/:code/archive`、`restore`、归档后创建拦截、子站启用拦截、恢复后再启用和审计定位。
+- 前台 Playwright E2E 覆盖归档 `qa` 后发布页不再展示 `question`，对应问答板块不再可选。
+- 前台 Playwright E2E 覆盖强传归档插件 `content_type=question` 被后端拒绝。
+- 前台 Playwright E2E 覆盖子站启用归档插件被后端拒绝。
+- 前台 Playwright E2E 覆盖归档插件后历史 `/topics/2/` 仍可访问，`h1`、`article` 和动态 SEO 基础元素存在。
+- 后台 Playwright E2E 覆盖归档确认弹窗影响范围、归档 badge、详情归档时间和恢复后默认 `disabled` 提示。
+- 后台 Playwright E2E 覆盖归档插件历史内容仍可进入 PluginContent 查看，并显示只能治理历史内容、不能新建的提示。
+- 后台 Playwright E2E 覆盖归档态 PluginContent 历史内容批量隐藏 / 恢复仍按后台权限可用。
 
 手工 / 轻量冒烟：
 
 - 后台插件列表应显示生命周期字段和状态原因。
-- 归档确认弹窗应展示 impact 信息，并明确历史内容和 SEO 保留。
-- 恢复操作应提示恢复为 disabled，不自动 enabled。
 - 插件详情审计 Tab 可查 `plugin.archived` / `plugin.restored`。
 
 未覆盖 / 后续：
 
 - 生产 MySQL 大库归档 / 恢复耗时专项。
-- 归档后所有前台导航入口的完整浏览器矩阵。
+- 归档后所有插件、所有子站导航入口的完整浏览器矩阵；当前自动化以 `qa/question` 为代表路径。
+- PluginContent 归档态只自动化批量隐藏 / 恢复；批量审核、置顶、加精和完整只读策略仍待补。
 - 外部插件包安装、上传、远程安装、Go 动态加载、第三方沙箱和硬卸载均未实现，不能写成已验收。
 - P2：后台构建存在 Vite chunk size warning，主要来自 `PluginJsonEditor` 等大 chunk；后续可考虑按需加载或手动拆包。
+
+2026-05-12 归档态专项执行结果：
+
+- `./scripts/check-frontend.sh --frontend-only`：通过，前台 build 通过，前台 E2E `16 passed`；覆盖归档插件入口隐藏、强传拦截、子站启用阻断和历史 Topic SEO 回归。
+- `./scripts/check-frontend.sh --admin-only`：通过，后台 build 通过，后台 E2E `20 passed`；覆盖归档插件治理中心细节、PluginContent 历史治理提示和归档态批量隐藏 / 恢复。
 
 ## 2026-05-11：固定 DevHub 后台 E2E Docker 镜像
 

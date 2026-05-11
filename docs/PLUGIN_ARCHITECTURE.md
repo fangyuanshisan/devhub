@@ -584,7 +584,9 @@ P1 只作为规划边界，不在 v1.3.4 中实现：
 - `POST /api/v1/admin/plugins/:code/archive` 将插件置为 `archived`。
 - `POST /api/v1/admin/plugins/:code/restore` 将归档插件恢复为 `disabled`，不会自动启用。
 - 归档后禁止新建该插件内容、禁止子站启用、隐藏入口；历史内容、配置、迁移记录、审计记录和 SEO 均保留。
+- 归档插件仍允许后台进入通用 `PluginContent` 历史内容治理页；页面必须提示“插件已归档，只能治理历史内容，不能新建”，当前已覆盖批量隐藏 / 恢复，更多批量审核、置顶、加精策略后续补齐。
 - 归档 / 恢复写入 `plugin.archived`、`plugin.restored`、`plugin.archive.failed`、`plugin.restore.failed` 审计。
+- 2026-05-12 已补浏览器回归：前台发布页不展示归档插件 content_type、强传归档 content_type 被拒绝、子站不能启用归档插件、历史 `/topics/:id` SEO 不丢；后台覆盖归档 badge、影响范围、恢复后默认 disabled 提示和 PluginContent 归档态历史治理。
 
 内置插件 manifest 对照表：
 

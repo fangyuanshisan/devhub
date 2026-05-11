@@ -297,6 +297,7 @@ export default {
       batchConfirm: '确认对 {count} 条内容执行“{action}”？',
       batchDone: '批量操作已完成',
       disabledTip: '当前插件未启用，请先在系统插件中启用。',
+      archivedTip: '插件已归档：只能查看和治理历史内容，不能新建该插件内容；历史内容详情页和 SEO 不受影响。',
       noPermissionTip: '当前账号无权访问该插件管理页。',
       status: {
         publish: '已发布',

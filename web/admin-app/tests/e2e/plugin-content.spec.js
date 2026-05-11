@@ -1,5 +1,5 @@
 import { expect, test } from '@playwright/test';
-import { adminPost, ensurePluginEnabled } from './helpers/api.js';
+import { adminPost, archivePlugin, ensurePluginEnabled, restorePlugin } from './helpers/api.js';
 import { seedAdminSession } from './helpers/auth.js';
 
 test.describe('admin plugin content detailed flow', () => {
@@ -43,5 +43,38 @@ test.describe('admin plugin content detailed flow', () => {
     await page.getByTestId('admin-audit-action-search').fill('恢复主题');
     await page.getByRole('button', { name: '查询' }).first().click();
     await expect(page.locator('.el-table')).toContainText('恢复主题');
+  });
+
+  test('keeps archived plugin history manageable with batch hide and restore', async ({ page, request }) => {
+    try {
+      await archivePlugin(request, 'qa');
+
+      await page.goto('/admin-next/qa');
+      await expect(page.getByTestId('plugin-content-page')).toBeVisible();
+      await expect(page.getByTestId('plugin-content-archived-tip')).toContainText('只能查看和治理历史内容');
+      await page.getByTestId('plugin-content-search').fill('PHP-FPM');
+      await page.getByTestId('plugin-content-query').click();
+      await expect(page.getByTestId('plugin-content-table')).toContainText('PHP-FPM');
+
+      const firstRow = page.getByTestId('plugin-content-table').locator('.el-table__body-wrapper .el-table__row').first();
+      await firstRow.locator('.el-checkbox__input').click();
+      await expect(page.getByText('已选择 1 条内容')).toBeVisible();
+
+      await page.getByTestId('plugin-content-batch-hide').click();
+      await page.getByRole('button', { name: '确认' }).click();
+      await expect(page.locator('.el-message__content').filter({ hasText: '批量操作已完成' }).first()).toBeVisible();
+      await expect(page.getByTestId('plugin-content-table')).toBeVisible();
+
+      const hiddenRow = page.getByTestId('plugin-content-table').locator('.el-table__body-wrapper .el-table__row').first();
+      await hiddenRow.locator('.el-checkbox__input').click();
+      await page.getByTestId('plugin-content-batch-restore').click();
+      await page.getByRole('button', { name: '确认' }).click();
+      await expect(page.locator('.el-message__content').filter({ hasText: '批量操作已完成' }).first()).toBeVisible();
+      await page.getByTestId('plugin-content-back').click();
+      await expect(page).toHaveURL(/\/admin-next\/plugins/);
+    } finally {
+      await restorePlugin(request, 'qa').catch(() => {});
+      await ensurePluginEnabled(request, 'qa').catch(() => {});
+    }
   });
 });

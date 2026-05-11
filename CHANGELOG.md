@@ -13,6 +13,7 @@ Planned next-stage work continues the complete plugin-platform roadmap after `v1
 - Added plugin SDK/template documentation under `docs/plugins/`, including manifest, config schema, Hook, migration, permission, menu/route, and external ecosystem guides.
 - Added built-in plugin lifecycle response fields and soft-uninstall archive/restore APIs; archived plugins block new content and community enablement while preserving history, config, migrations, audit logs, and SEO.
 - Extended plugin status storage for `archived` and `migration_failed`, with matching MySQL schema/migration updates.
+- Added frontend and admin E2E coverage for archived-plugin entry linkage: archived plugin content types disappear from publish pages, direct archived `content_type` submissions fail, community enablement is blocked, historical topic SEO remains accessible, and PluginContent can still govern archived historical content.
 
 ## v1.3.4
 

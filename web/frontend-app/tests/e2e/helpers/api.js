@@ -65,6 +65,18 @@ export async function setPluginEnabled(request, code, enabled) {
   return response.json();
 }
 
+export async function archivePlugin(request, code) {
+  const response = await apiPost(request, `/api/v1/admin/plugins/${code}/archive`, {}, adminToken);
+  expect(response.ok(), await response.text()).toBeTruthy();
+  return response.json();
+}
+
+export async function restorePlugin(request, code) {
+  const response = await apiPost(request, `/api/v1/admin/plugins/${code}/restore`, {}, adminToken);
+  expect(response.ok(), await response.text()).toBeTruthy();
+  return response.json();
+}
+
 export async function setCategoryEnabled(request, categoryID, enabled) {
   const action = enabled ? 'enable' : 'disable';
   const response = await apiPost(request, `/api/v1/admin/categories/${categoryID}/${action}`, {}, adminToken);
@@ -74,9 +86,21 @@ export async function setCategoryEnabled(request, categoryID, enabled) {
 
 export async function ensurePluginStatus(request, code, status) {
   const plugin = await getPlugin(request, code);
+  if (plugin?.status === 'archived' && status !== 'archived') {
+    await restorePlugin(request, code).catch(() => {});
+  }
   if (!plugin || plugin.status !== status) {
     await setPluginEnabled(request, code, status === 'enabled');
   }
+}
+
+export async function enableCommunityPlugin(request, communityID, code, expectOK = true) {
+  const response = await apiPost(request, `/api/v1/admin/communities/${communityID}/plugins/${code}/enable`, {}, adminToken);
+  if (expectOK) {
+    expect(response.ok(), await response.text()).toBeTruthy();
+    return response.json();
+  }
+  return response;
 }
 
 export async function expectSeoBasics(page) {

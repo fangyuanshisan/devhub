@@ -1,5 +1,6 @@
 import { expect, test } from '@playwright/test';
 import {
+  archivePlugin,
   disableCommunityPlugin,
   disablePlugin,
   enableCommunityPlugin,
@@ -11,6 +12,7 @@ import {
   pluginMigrations,
   retryPluginMigration,
   setCategoryEnabled,
+  restorePlugin,
   userPost,
   uniqueTitle,
 } from './helpers/api.js';
@@ -58,6 +60,36 @@ test.describe('plugin governance center', () => {
     await globalPanel.getByTestId('plugin-global-config-clear').click();
     await expect(page.getByTestId('schema-error-box')).toContainText('required');
     await expect(page.getByTestId('plugin-global-config-save')).toBeDisabled();
+  });
+
+  test('archives plugin and shows archived state with restore entry', async ({ page, request }) => {
+    try {
+      await page.goto('/admin-next/plugins');
+      await page.getByTestId('plugin-archive-qa').click();
+      const dialog = page.getByRole('dialog');
+      await expect(dialog).toContainText('历史内容');
+      await expect(dialog).toContainText('当前启用子站');
+      await page.getByRole('button', { name: '确认归档' }).click();
+      await expect(page.getByText('插件已归档')).toBeVisible();
+      await page.reload();
+      await expect(page.getByText('已归档').first()).toBeVisible();
+      await page.getByTestId('plugin-detail-qa').click();
+      await expect(page.getByTestId('plugin-detail-drawer')).toBeVisible();
+      await page.getByRole('tab', { name: '概览' }).click();
+      await expect(page.getByText('归档时间')).toBeVisible();
+      await page.getByRole('button', { name: 'Close this dialog' }).click();
+      await expect(page.getByTestId('plugin-detail-drawer')).toBeHidden();
+      await page.getByTestId('plugin-restore-qa').click();
+      await expect(page.getByRole('dialog')).toContainText('不会自动启用');
+      await page.getByRole('button', { name: '确认恢复' }).click();
+      await expect(page.getByText('插件已恢复为已禁用状态')).toBeVisible();
+      await page.reload();
+      await expect(page.getByTestId('plugin-enable-qa')).toBeVisible();
+    } finally {
+      await restorePlugin(request, 'qa').catch(() => {});
+      await ensurePluginEnabled(request, 'qa').catch(() => {});
+      await enableCommunityPlugin(request, 1, 'qa').catch(() => {});
+    }
   });
 
   test('shows impact before global disable and blocks community enable when globally disabled', async ({ page, request }) => {

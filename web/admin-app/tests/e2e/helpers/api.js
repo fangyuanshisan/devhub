@@ -32,7 +32,23 @@ export async function userPost(request, url, data = {}, userID = 1) {
 }
 
 export async function ensurePluginEnabled(request, code) {
+  const plugin = await adminGet(request, '/api/v1/admin/plugins').then((response) => response.json()).then((body) => (body.items || []).find((item) => item.code === code));
+  if (plugin?.status === 'archived') {
+    await restorePlugin(request, code).catch(() => {});
+  }
   await adminPost(request, `/api/v1/admin/plugins/${code}/enable`);
+}
+
+export async function archivePlugin(request, code) {
+  const response = await adminPost(request, `/api/v1/admin/plugins/${code}/archive`);
+  if (!response.ok()) throw new Error(await response.text());
+  return response.json();
+}
+
+export async function restorePlugin(request, code) {
+  const response = await adminPost(request, `/api/v1/admin/plugins/${code}/restore`);
+  if (!response.ok()) throw new Error(await response.text());
+  return response.json();
 }
 
 export async function disablePlugin(request, code) {

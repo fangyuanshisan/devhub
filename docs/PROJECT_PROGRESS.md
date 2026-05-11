@@ -2102,3 +2102,58 @@ P1 规划边界：
 
 1. 为归档后的前台入口隐藏、PluginContent 历史内容查看和 SEO 回归补浏览器 E2E。
 2. 若进入外部插件生态，优先实现 manifest + 配置型插件校验器，而不是动态执行第三方代码。
+
+### 2026-05-12：补齐归档插件后的真实入口联动与后台历史治理 E2E
+
+修改范围：
+
+- 前台 E2E：`web/frontend-app/tests/e2e/plugin-visibility.spec.js`、`web/frontend-app/tests/e2e/helpers/api.js`。
+- 后台 E2E：`web/admin-app/tests/e2e/plugin-governance.spec.js`、`web/admin-app/tests/e2e/plugin-content.spec.js`、`web/admin-app/tests/e2e/helpers/api.js`。
+- 后台 UI：`web/admin-app/src/views/PluginContent.vue`、`web/admin-app/src/views/Plugins.vue`、`web/admin-app/src/i18n/zh-CN.js`。
+- 文档：`docs/PROJECT_PROGRESS.md`、`docs/TESTING.md`、`docs/PLUGIN_ARCHITECTURE.md`、`docs/releases/v1.3.4.md`、`CHANGELOG.md`。
+
+已完成事项：
+
+- 前台发布页 E2E 覆盖归档 `qa` 后 `question` 内容类型和对应问答板块不再可选。
+- 前台 API E2E 覆盖强传归档插件 `content_type=question` 创建失败，后端返回归档态错误。
+- 前台 API E2E 覆盖子站不能启用归档插件。
+- 前台 SEO E2E 覆盖归档插件后历史 `/topics/2/` 仍可访问，`h1`、`article` 和动态 SEO 基础元素不丢。
+- PluginContent 后台 E2E 覆盖归档插件历史内容仍可进入 `/admin-next/qa` 查看，并显示“插件已归档，只能治理历史内容，不能新建”的提示。
+- PluginContent 后台 E2E 覆盖归档态历史内容仍可按权限执行批量隐藏 / 恢复，操作后列表刷新。
+- 后台插件治理 E2E 覆盖归档 badge、归档确认影响范围、详情中的归档时间、恢复后默认 `disabled` 且不自动启用的提示。
+- 后台管理入口允许 `archived` 插件进入通用历史内容治理页，但继续禁止新建内容和子站启用。
+
+未完成事项：
+
+- 尚未补齐所有插件的归档态前台导航入口矩阵；本轮以 `qa/question` 为代表路径。
+- PluginContent 归档态只覆盖批量隐藏 / 恢复；批量审核、置顶、加精和更细粒度只读策略仍待后续。
+- 生产 MySQL 大库归档 / 恢复耗时专项仍未执行。
+
+已执行检查命令和结果：
+
+- `go test ./...`：通过。
+- `go build -o .devhub/devhub .`：通过。
+- `bash -n dev.sh`：通过。
+- `./scripts/check-frontend.sh --frontend-only`：通过；前台 build 通过，前台 E2E `16 passed`，日志目录 `.devhub/checks/20260512-000037/`。
+- `./scripts/check-frontend.sh --admin-only`：首次因旧严格断言命中多个“已禁用”失败；已收窄到 `plugin-enable-qa` 后复跑通过，后台 build 通过，后台 E2E `20 passed`，日志目录 `.devhub/checks/20260512-000131/`。
+- `bash -n scripts/check-frontend.sh`：通过。
+- `git diff --check`：通过。
+
+跳过项及原因：
+
+- 无本轮必须项跳过；本轮未执行生产 MySQL 大库专项和完整多浏览器矩阵，继续作为后续专项。
+
+影响范围：
+
+- API：无新增或调整；仅 E2E helper 支持“预期失败”的子站启用请求。
+- 数据库：无变更。
+- 权限：无后端变更；归档态批量治理继续走既有后台权限校验。
+- SEO：无实现变更；新增前台 E2E 覆盖归档后历史 Topic SEO 不丢。
+- 插件系统：归档 / 恢复验收从后端/API 扩展到前台入口、后台历史治理和 SEO 回归。
+- 前后台 UI：PluginContent 对归档插件增加历史治理提示；插件管理页允许归档插件进入历史内容治理入口。
+
+下一轮建议：
+
+1. 将归档态前台导航入口矩阵扩展到 docs/wiki/projects/jobs/ai_works。
+2. 为 PluginContent 归档态补批量审核、置顶、加精策略，明确哪些操作允许、哪些只读。
+3. 结合 MySQLStore 做归档 / 恢复生产大库耗时与审计检索专项。

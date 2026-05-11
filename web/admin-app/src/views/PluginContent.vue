@@ -28,6 +28,14 @@
         <el-button type="primary" data-testid="plugin-content-query" @click="load">{{ t('common.query') }}</el-button>
       </div>
     </div>
+    <el-alert
+      v-if="plugin?.status === 'archived'"
+      :title="t('plugin.content.archivedTip')"
+      type="warning"
+      show-icon
+      :closable="false"
+      data-testid="plugin-content-archived-tip"
+    />
     <div class="batch-bar">
       <span class="muted">{{ t('common.selected') }} {{ selectedRows.length }} {{ t('common.selectedItems') }}</span>
       <el-button type="warning" :disabled="!selectedRows.length" data-testid="plugin-content-batch-hide" @click="batchUpdate('hide')">{{ t('plugin.content.batchHide') }}</el-button>
@@ -108,7 +116,7 @@ const contentTypes = ref([]);
 async function load() {
   const pluginList = await plugins();
   const current = (pluginList.items || []).find((item) => item.code === route.meta.pluginCode);
-  if (!current || current.status !== 'enabled') {
+  if (!current || (current.status !== 'enabled' && current.status !== 'archived')) {
     ElMessage.warning(t('plugin.content.disabledTip'));
     router.replace('/plugins');
     return;
