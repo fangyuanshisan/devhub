@@ -64,7 +64,7 @@ MySQL 专项补充：2026-05-11 已完成 MySQLStore 与老库升级专项验证
 - Hook 治理：Hook 可以执行，blocking hook 可阻断；`hook_executions` 已记录执行结果、最近错误、失败次数、平均耗时和失败率，失败会写入 `plugin.hook.failed` / `plugin.hook.blocked` 审计。当前已有轻量健康摘要；重试策略、告警和复杂业务处理器仍待后续。
 - 插件迁移：当前 runner 只支持内置插件 up/no-op 执行记录、失败记录和重试；尚无 migration down、真实 rollback、迁移前备份、外部插件迁移包或复杂迁移依赖排序。
 - 权限矩阵：发布和菜单已做最小权限码校验；角色可分配、按 community / category 作用域细分的完整权限矩阵和配置 UI 仍未完成。
-- 插件内容治理：已有通用 `PluginContent` 页和部分 E2E；专属详情、批量操作、审计跳转和更完整治理闭环仍待后续。
+- 插件内容治理：已有通用 `PluginContent` 页和部分 E2E；基础详情抽屉、批量隐藏 / 恢复和审计跳转已接入，批量审核、置顶、加精、专属详情和更完整治理闭环仍待后续。
 - Projects / Jobs / AI Works：已接入 plugin_code、content_type、权限、菜单、状态和发布校验；专属扩展表、专属搜索、通知、SEO 和业务闭环未完成。
 
 预留：
@@ -100,7 +100,7 @@ P0：插件平台收口
 
 P1：插件平台增强
 
-- schema 自动表单。
+- schema 自动表单增强。
 - 插件 SDK 文档。
 - 插件生成模板。
 - 插件依赖检查。
@@ -180,7 +180,7 @@ P3：高级能力
 
 - manifest 只描述能力和元数据，不直接承载业务执行流程。
 - `qa/docs/wiki/projects/jobs/ai_works` 当前都通过统一 registry 返回相同结构。
-- `config_schema` 当前已经用于全局 / 子站插件配置的简化后端校验，并供后台 JSON Editor / Ajv 做客户端基础校验；完整 JSON Schema、自动表单和配置版本能力仍是后续任务。
+- `config_schema` 当前已经用于全局 / 子站插件配置的简化后端校验，并供后台基础自动表单、JSON 高级模式和 Ajv 做客户端基础校验；完整 JSON Schema、深层嵌套、字段分组和配置版本能力仍是后续任务。
 
 ## 内容类型声明
 
@@ -312,7 +312,7 @@ HookBus 完整化属于插件平台 P0 收口任务。当前只服务内置系�
 - `plugins.config_json` 已落库，并可通过后台插件页和 `PUT /api/v1/admin/plugins/:code/config` 管理。
 - `community_plugins.config_json` 已落地，并可通过后台子站插件配置和 `PUT /api/v1/admin/communities/:id/plugins/:code/config` 管理。
 - API 返回的 `resolved_config` 以 `default`、`global`、`community`、`effective` 四段表达当前合并视图。
-- 当前已完成 JSON 合法性校验与简化 `config_schema` 后端强校验；支持 `type`、`required`、`enum`、`object`、`boolean`、`string`、`number`、`integer`、`default` 和数字 `min/max`。后台插件配置使用 JSON Editor + Ajv 做客户端校验，后端保存时仍会二次校验。后台自动表单渲染、更完整 JSON Schema、配置版本回滚和敏感字段加密是后续任务。
+- 当前已完成 JSON 合法性校验与简化 `config_schema` 后端强校验；支持 `type`、`required`、`enum`、`object`、`boolean`、`string`、`number`、`integer`、`default` 和数字 `min/max`。后台插件配置支持基础自动表单 + JSON 高级模式，并用 Ajv 做客户端校验，后端保存时仍会二次校验。完整 JSON Schema、深层嵌套、字段分组、配置版本回滚和敏感字段加密是后续任务。
 - 配置审计记录 `old_value`、`new_value` 和 `metadata_json.changed_keys`；当前 diff 为顶层 key diff，不做深层路径级 diff。
 
 ## 两层插件状态
@@ -470,7 +470,7 @@ v1.3.1 采用稳妥策略：后台编辑已存在内容时禁止修改归属和�
 
 - `/admin-next/plugins` 展示全局插件列表、状态 badge、系统插件标识、内容类型、权限数量、菜单数量和 `config_schema` 摘要。
 - 插件详情使用抽屉分区展示基础信息、内容类型、权限、菜单、配置、路由和 Hooks，避免把 JSON 直接堆在表格中。
-- 全局插件配置已升级为 JSON Editor（`json-editor-vue`），并使用 Ajv 做 `config_schema` 基础校验；后续仍可增强为更完整的 schema 强校验与自动表单渲染。
+- 全局插件配置已升级为基础自动表单 + JSON 高级模式（`json-editor-vue`），并使用 Ajv 做 `config_schema` 基础校验；后续仍可增强为更完整的 JSON Schema、深层嵌套和字段分组。
 - `/admin-next/communities` 的子站插件配置抽屉展示全局状态和子站状态双 badge，并支持子站启用 / 禁用、`config_json` 编辑、JSON 格式化、数字排序和禁用原因提示。
 - 全局禁用和子站禁用都有二次确认，并明确 disabled 只影响新发布、导航、菜单和管理入口，不影响历史内容详情页和 SEO。
 - 插件影响范围统计已提供轻量 impact 计数接口：
@@ -489,7 +489,7 @@ v1.3.1 采用稳妥策略：后台编辑已存在内容时禁止修改归属和�
 - 子站插件配置和排序已有 API 与增强后的后台 UI，但仍需继续做真实浏览器矩阵验收。
 - 插件治理审计已新增 `admin_logs.old_value`、`admin_logs.new_value` 和 `admin_logs.metadata_json` 结构化字段，同时保留 `target` 文本摘要兼容旧展示；非插件历史日志可能仍没有结构化 diff。
 - 新装库已在 `db/mysql/001_schema.sql` 和 `internal/store/schema.go` 包含结构化审计字段；老库升级使用 `db/mysql/migrations/007_admin_logs_structured_plugin_audit.sql`，启动迁移辅助也会尝试补齐这些列。
-- `plugins.config_json` 与 `community_plugins.config_json` 已可写，并已做 JSON 格式校验和简化 `config_schema` 基础校验；自动表单渲染、更完整 JSON Schema、配置 diff UI 和配置版本回滚属于 P1/P3。
+- `plugins.config_json` 与 `community_plugins.config_json` 已可写，并已做 JSON 格式校验和简化 `config_schema` 基础校验；基础自动表单、配置 diff UI 和 effective config 预览已接入后台插件治理体验，更完整 JSON Schema、深层嵌套、字段分组和配置版本回滚属于 P1/P3。
 - HookBus 当前是内置插件运行时调度器；调用点已覆盖内容创建、更新、删除、评论、搜索、通知和 SEO，并记录执行结果与失败审计。搜索 / 通知 / SEO 仍是预留级事件派发，完整业务处理器、重试策略和健康状态属于 P0/P1。
 - 插件生命周期当前不是完整 discovered -> installed -> migrated -> configured -> enabled -> running 状态机；代码真实状态仍以 `plugins.status`、`community_plugins.status` 和 `plugin_migrations.status` 为准。
 - `v1.3.4` 的架构重点不是扩展新插件，而是验证异常治理：failed migration 必须阻断启用并可 retry 恢复，blocking Hook 必须能阻断主流程，non-blocking Hook 必须不阻断但可追踪，权限矩阵必须继续弱化 `post.create` 兼容桥，MySQLStore / 老库升级必须与 MemoryStore 口径一致。当前 MySQLStore / 老库升级专项已完成关键链路验证，剩余风险主要是生产大库备份、回滚、耗时和外部插件真实 DDL migration 设计。
@@ -535,9 +535,9 @@ v1.3.4 的完成口径是“插件异常治理与验收闭环”，不是体验�
 
 P1 只作为规划边界，不在 v1.3.4 中实现：
 
-- `config_schema` 自动表单和更完整 JSON Schema 表达。
+- `config_schema` 自动表单增强和更完整 JSON Schema 表达。
 - 插件 SDK、开发模板和 manifest 校验工具。
-- 插件内容治理页批量操作、更多审核操作和审计跳转。
+- 插件内容治理页更多批量操作、更多审核操作和审计定位增强。
 - Docs / Wiki 专用编辑体验、文档树拖拽、Wiki 回滚和协作体验。
 - 插件搜索、通知、SEO 扩展处理器。
 

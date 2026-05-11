@@ -8,6 +8,7 @@ Planned next-stage work continues the complete plugin-platform roadmap after `v1
 - Upgraded plugin config editing from JSON-only to a basic schema-driven form mode plus JSON advanced mode, with effective-config preview and config-diff display.
 - Enhanced the generic PluginContent governance page with content-type filtering, detail drawer, multi-select, batch hide, batch restore, and audit-log entry points while reusing the existing audited backend batch topic API.
 - Connected PluginContent audit-log entry points to the generic audit log page with prefilled action, target type, and plugin metadata filters.
+- Aligned Stage B documentation wording so basic schema-driven forms, effective config, config diff, PluginContent batch hide/restore, and audit-log jumps are treated as landed baseline capabilities, while deep schema support and advanced batch governance remain future work.
 
 ## v1.3.4
 

@@ -144,7 +144,7 @@
 
         <el-tab-pane :label="t('plugin.tabs.config')" name="config">
           <el-alert
-            title="当前已支持 JSON 合法性与 config_schema 的基础校验；更完整强校验与自动表单渲染仍属于后续插件平台能力。"
+            title="当前已支持表单模式、JSON 高级模式和 config_schema 基础校验；完整 JSON Schema、字段分组和配置版本仍属于后续插件平台能力。"
             type="info"
             show-icon
             :closable="false"

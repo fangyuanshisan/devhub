@@ -76,7 +76,7 @@ Core 保留用户、认证、子站、板块、通用内容、评论、标签、
 - Hook 治理：Hook 能执行，已有 `hook_executions`、失败统计、最近错误、平均耗时、失败率和 `plugin.hook.failed` / `plugin.hook.blocked` 审计；重试策略、告警和更多业务处理器仍待后续。
 - 插件迁移：已有内置插件 up/no-op runner、失败记录、失败重试、后台迁移 Tab 和迁移审计；migration down、真实 rollback、迁移前备份和外部插件迁移包仍未完成。
 - 权限矩阵：当前是最小权限码校验，不是完整 RBAC 矩阵；community/category 作用域、角色分配 UI 和权限配置 API 仍待后续。
-- 插件内容治理：通用页和代表操作已有，但专属详情、批量操作、审计跳转和完整内容治理闭环仍待后续。
+- 插件内容治理：通用页、基础详情抽屉、批量隐藏 / 恢复和审计跳转已接入；批量审核、置顶、加精、专属详情和完整权限矩阵仍待后续。
 
 预留能力：
 
@@ -87,7 +87,7 @@ Core 保留用户、认证、子站、板块、通用内容、评论、标签、
 后续规划：
 
 - P0 优先把插件影响范围明细、迁移 runner、权限矩阵、Hook 告警/重试和 E2E 强校验补成治理闭环。
-- P1/P2/P3 再推进自动表单、SDK、插件包、市场和高级运行时能力。
+- P1/P2/P3 再推进自动表单增强、SDK、插件包、市场和高级运行时能力。
 
 ## 当前部分完成
 
@@ -105,7 +105,7 @@ Core 保留用户、认证、子站、板块、通用内容、评论、标签、
 - Projects / Jobs / AI Works 业务体验：当前完成插件归属、发布校验、权限码和菜单声明；专属扩展表、专属管理页和完整业务流程仍待后续。
 - 插件路由：当前是注册描述 + Core 分发，不是真正动态运行时加载器。
 - Hook 机制：当前已有内置 HookBus，并覆盖创建、更新、删除、评论、搜索、通知和 SEO 调用点；执行结果已落入 `hook_executions`，失败会写入 `plugin.hook.blocked` / `plugin.hook.failed` 审计。Search / Notification / SEO 仍是预留级事件派发，尚未形成完整插件业务处理器、健康状态、告警和重试策略。
-- 配置校验：当前已完成默认配置、全局配置、子站配置三层合并，后端已按简化 `config_schema` 做基础校验，后台 JSON Editor 已接入 Ajv 客户端校验；自动表单渲染和更完整 JSON Schema 支持仍待后续。
+- 配置校验：当前已完成默认配置、全局配置、子站配置三层合并，后端已按简化 `config_schema` 做基础校验，后台已支持基础自动表单 + JSON 高级模式并接入 Ajv 客户端校验；完整 JSON Schema、深层嵌套、字段分组、配置版本和回滚仍待后续。
 - 验收覆盖：已做文档与路由核对；完整 Docker 启动、真实 token API、浏览器页面和 SEO curl 矩阵仍需按测试文档继续补测。
 
 ## 当前未完成
@@ -113,7 +113,7 @@ Core 保留用户、认证、子站、板块、通用内容、评论、标签、
 - 子站插件配置 UI 的完整浏览器验收矩阵，包括多子站、禁用提示、保存失败提示和排序持久化回归。
 - 更细粒度的权限体系：例如 Core 兼容类型 `article` / `news` 的细分权限码、按子站/板块维度配置权限矩阵、以及更明确的错误码与权限配置 API（当前仍为最小校验闭环）。
 - P0 插件平台收口：HookBus 的完整业务处理器、健康状态、告警和重试策略。Search / Notification / SEO 目前已有调用点和执行记录，但缺少实际插件处理器。
-- P1 插件平台增强：`config_schema` 后台自动表单渲染和更完整 JSON Schema 支持。
+- P1 插件平台增强：`config_schema` 自动表单增强、更完整 JSON Schema、字段分组、配置版本和回滚。
 - 非插件历史审计日志的结构化 diff：插件治理已写入 `old_value`、`new_value`、`metadata_json`，其他旧审计仍可能只有 `target` 文本。
 - `qa` 取消采纳最佳答案。
 - Docs 文档树专用编辑 UI。
@@ -145,7 +145,7 @@ P0：插件平台收口
 
 P1：插件平台增强
 
-- schema 自动表单。
+- schema 自动表单增强。
 - 插件 SDK 文档。
 - 插件生成模板。
 - 插件依赖检查。
@@ -289,7 +289,7 @@ P3：高级能力
 
 下一轮建议：
 
-- 继续做配置中心增强：深层 diff、配置版本记录、配置回滚或按 schema 自动表单。
+- 继续做配置中心增强：深层 diff、配置版本记录、配置回滚或 schema 自动表单复杂字段矩阵。
 
 ### 2026-05-11：插件状态模型、启停强拦截与影响分析
 
@@ -699,7 +699,7 @@ P3：高级能力
 
 - 将“当前阶段不做插件市场 / 插件包 / 远程安装 / 在线更新 / 动态加载”的口径改为“P2/P3 阶段能力，当前未实现”。
 - 将 HookBus 业务处理器、config_schema 基础校验和插件平台测试矩阵标为 P0 收口任务。
-- 将 config_schema 自动表单、SDK、模板、依赖和版本检查、搜索 / 通知 / SEO 扩展标为 P1。
+- 将 config_schema 自动表单增强、SDK、模板、依赖和版本检查、搜索 / 通知 / SEO 扩展标为 P1。
 - 将插件包、安装、升级、soft uninstall、migration runner、签名校验、市场雏形标为 P2。
 - 将远程市场、在线更新、动态加载能力评估、沙箱和权限隔离标为 P3。
 - 校准 `projects/jobs/ai_works` 状态：已接入插件平台治理和声明，不是 Core 兼容类型，也不是完整业务插件。
@@ -708,7 +708,7 @@ P3：高级能力
 
 - 本轮不实现插件市场、插件包、远程安装、动态加载或新增插件。
 - 本轮不补 QA / Docs / Wiki / Projects / Jobs / AI Works 的专属业务功能。
-- P0 中 HookBus 业务处理器、完整真实 token 验收矩阵仍待代码专项；`config_schema` 已完成简化基础校验，但结构化错误、更完整 JSON Schema 和自动表单仍待后续。
+- P0 中 HookBus 业务处理器、完整真实 token 验收矩阵仍待代码专项；`config_schema` 已完成简化基础校验，阶段 B 已补基础自动表单，但结构化错误、更完整 JSON Schema、复杂字段和字段分组仍待后续。
 
 新发现风险：
 
@@ -736,7 +736,7 @@ P3：高级能力
 
 1. P0：补 HookBus 业务处理器、统一错误日志和失败策略。
 2. P0：执行完整插件系统真实 token 验收矩阵。
-3. P1：继续增强 `config_schema` 自动表单渲染和更完整 JSON Schema 支持。
+3. P1：继续增强 `config_schema` 自动表单复杂字段、字段分组和更完整 JSON Schema 支持。
 
 ### 2026-05-10：后台插件管理界面体验增强
 
@@ -760,7 +760,7 @@ P3：高级能力
 
 - 当轮未新增插件影响范围统计接口，因此 UI 不展示绑定子站数量、启用子站列表或受影响板块数量；该能力已在后续“影响分析入口、审计入口与 PluginContent 轻量增强”任务中补齐轻量 impact 计数。
 - 当轮未引入自动浏览器测试；后续已新增 Docker 化 Playwright 最小 E2E runner，后台插件详情抽屉、子站配置抽屉和禁用确认已有核心路径覆盖，完整浏览器矩阵仍需继续扩展。
-- 当轮未做 `config_schema` 强校验或自动表单渲染；后续 `v1.3.2` 已补齐简化 schema 基础校验，自动表单渲染仍待后续。
+- 当轮未做 `config_schema` 强校验或自动表单渲染；后续 `v1.3.2` 已补齐简化 schema 基础校验，阶段 B 已补齐基础自动表单，复杂字段、字段分组和完整 JSON Schema 仍待后续。
 
 新发现风险：
 
@@ -792,7 +792,7 @@ P3：高级能力
 
 1. 扩展 `/admin-next/plugins` 和 `/admin-next/communities` 插件配置 E2E，覆盖多账号、多子站、配置保存持久化和视觉细节。
 2. 继续增强 impact 的受影响对象明细列表（当前已有轻量计数）。
-3. 继续推进 `config_schema` 自动表单渲染。
+3. 继续推进 `config_schema` 自动表单复杂字段、字段分组和完整 JSON Schema 能力。
 
 ### 2026-05-10：影响分析入口、审计入口与 PluginContent 轻量增强
 
@@ -847,7 +847,7 @@ P3：高级能力
 修改范围：
 
 - 本轮以验收和文档归档为主，小范围修正文档旧口径。
-- 校准 `config_schema` 与 impact 状态：当前已完成简化 schema 基础校验与轻量 impact 计数；仍未完成自动表单渲染、完整 JSON Schema 和受影响对象明细列表。
+- 校准 `config_schema` 与 impact 状态：当前已完成简化 schema 基础校验与轻量 impact 计数；后续阶段 B 已完成基础自动表单，完整 JSON Schema 和受影响对象明细列表仍待后续。
 - 更新 `docs/PROJECT_PROGRESS.md`、`docs/TESTING.md`、`docs/PLUGIN_ARCHITECTURE.md`、`docs/releases/v1.3.0.md` 和 `CHANGELOG.md`。
 
 已完成事项：
@@ -1884,7 +1884,7 @@ P3：高级能力
 
 P1 规划边界：
 
-- P1 只规划，不在本轮实现：`config_schema` 自动表单、插件 SDK / 模板、插件内容治理页批量操作、Docs / Wiki 专用体验、插件搜索 / 通知 / SEO 扩展。
+- P1 只规划，不在本轮实现：`config_schema` 自动表单增强、插件 SDK / 模板、插件内容治理页更多批量操作、Docs / Wiki 专用体验、插件搜索 / 通知 / SEO 扩展。
 - P1 不包含插件市场、插件上传安装、远程安装、在线更新、Go 动态加载或第三方插件沙箱。
 
 未完成事项：
@@ -1892,7 +1892,7 @@ P1 规划边界：
 - HookBus 的 Update/Delete/Search/Notification/SEO 异常注入矩阵仍待补。
 - 插件内容治理操作权限矩阵、完整 RBAC 分配 UI 和 category 级权限配置仍待后续。
 - MySQL 生产大库备份、回滚、耗时和历史 SEO 预发演练仍待后续。
-- `config_schema` 自动表单、深层 diff、配置版本与回滚仍待 P1。
+- `config_schema` 自动表单深层嵌套、完整 JSON Schema、配置版本与回滚仍待 P1。
 
 新发现风险：
 
@@ -2000,3 +2000,39 @@ P1 规划边界：
 1. 继续清理后台非插件页面残留英文文案。
 2. 如需要完整多语言，补齐 `en-US` 语言包和语言切换入口。
 3. 为 PluginContent 补齐批量审核、批量置顶、批量加精与审计筛选跳转的完整 E2E。
+
+### 2026-05-11：阶段 B 代码与文档口径对齐
+
+修改范围：
+
+- 后台：`web/admin-app/src/views/PluginContent.vue`、`web/admin-app/src/components/plugin/PluginDetailDrawer.vue`。
+- 文档：`README.md`、`CHANGELOG.md`、`docs/PROJECT_PROGRESS.md`、`docs/API.md`、`docs/TESTING.md`、`docs/PLUGIN_ARCHITECTURE.md`、`docs/PLUGIN_SYSTEM_ROADMAP.md`、`docs/releases/v1.3.4.md`。
+
+已完成事项：
+
+- 将 PluginContent 状态筛选下拉的 `publish` / `hidden` / `pending` 可见英文改为中文标签，保留后端提交值不变。
+- 修正插件详情配置 Tab 的提示文案：当前已支持表单模式、JSON 高级模式和 `config_schema` 基础校验；完整 JSON Schema、字段分组和配置版本仍是后续。
+- 对齐文档口径：基础自动表单、effective config 预览、配置 diff、PluginContent 批量隐藏 / 恢复和审计跳转已作为阶段 B 已落地能力记录；深层嵌套、字段分组、完整 JSON Schema、配置版本、更多批量治理动作和完整审计 E2E 继续列为后续。
+
+未完成事项：
+
+- 后台非插件页面残留英文文案仍需按模块继续清理。
+- PluginContent 批量审核、置顶、加精、完整审计跳转 E2E 和跨页面高亮仍待后续。
+
+已执行检查命令和结果：
+
+- `docker compose run --rm admin-e2e npm run build`：通过；仍有既有 Vite chunk size warning，不影响构建。
+- `git diff --check`：通过。
+
+跳过项及原因：
+
+- 未复跑 Go 测试和前台 E2E：本轮只修改后台文案与文档，不涉及 Go 逻辑、数据库、权限或前台运行时代码。
+
+影响范围：
+
+- API：无新增或调整。
+- 数据库：无变更。
+- 权限：无变更。
+- SEO：无变更。
+- 插件系统：阶段 B 能力口径对齐。
+- 前后台 UI：后台插件治理页少量中文化和提示文案修正。

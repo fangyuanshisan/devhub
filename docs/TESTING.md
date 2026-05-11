@@ -315,7 +315,7 @@ docker compose run --rm frontend-e2e
 - Projects / Jobs / AI Works 的专属扩展表、专属管理页和完整业务流程。
 - P0：HookBus 的完整业务处理器、关键 Hook 事务回滚、非关键 Hook 统一错误日志和重试策略。
 - P0：`config_schema` 更多边界值、错误提示和完整浏览器矩阵。
-- P1：`config_schema` 配置表单自动渲染。
+- P1：`config_schema` 配置表单增强，包括深层嵌套、字段分组、复杂数组和完整 JSON Schema 不支持场景。
 - Docs 文档树专用编辑 UI、拖拽排序和批量排序。
 - Wiki 版本回滚和协作编辑交互。
 - QA 取消采纳最佳答案。
@@ -361,7 +361,7 @@ P0 待实现 / 待补测：
 
 P1 / P2 / P3 后续验收：
 
-- P1：schema 自动表单、插件 SDK 文档、插件生成模板、依赖检查、版本兼容检查、插件搜索 / 通知 / SEO 扩展。
+- P1：schema 自动表单增强、插件 SDK 文档、插件生成模板、依赖检查、版本兼容检查、插件搜索 / 通知 / SEO 扩展。
 - P2：本地插件包、插件安装、插件升级、soft uninstall、插件 migration runner、插件包签名校验、插件市场雏形。
 
 ## v1.3.4 插件异常治理测试矩阵收口
@@ -401,7 +401,7 @@ P1 / P2 / P3 后续验收：
 - HookBus Update / Delete / Search / Notification / SEO 的异常注入矩阵。
 - Hook 重试、告警、自动恢复和外部监控。
 - 插件内容治理批量操作权限矩阵和完整 RBAC 分配 UI。
-- 深层 config diff、配置版本、配置回滚和自动表单。
+- 深层 config diff、配置版本、配置回滚和自动表单复杂字段矩阵。
 - 插件 SDK / 模板、插件包、安装、升级、soft uninstall、市场和动态加载。
 
 跳过项及原因：

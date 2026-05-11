@@ -635,7 +635,7 @@
 - HookBus 执行会写入 `hook_executions`；blocking hook 失败会返回错误并写入 `plugin.hook.blocked` 审计，non-blocking hook 失败不会阻断主流程但会写入 `plugin.hook.failed` 审计。
 - Search / Notification / SEO 当前只是最小事件派发，尚未实现复杂索引、通知模板或结构化 SEO 插件处理器。
 - 配置优先级按“默认配置 -> `plugins.config_json` -> `community_plugins.config_json`”合并；API 用 `resolved_config.default/global/community/effective` 表达合并视图。
-- 当前配置已完成 JSON 合法性校验和简化 `config_schema` 基础校验；后台自动表单渲染、更完整 JSON Schema、配置 diff UI 和配置版本回滚是后续插件平台任务。
+- 当前配置已完成 JSON 合法性校验和简化 `config_schema` 基础校验；后台基础自动表单、配置 diff UI 和 effective config 预览已接入插件治理体验。更完整 JSON Schema、深层嵌套、字段分组、配置版本回滚是后续插件平台任务。
 
 ## 插件平台基线对账
 
@@ -919,7 +919,7 @@ DEVHUB_MYSQL_TESTS=1 DB_HOST=127.0.0.1 DB_PORT=3307 DB_USER=devhub DB_PASSWORD=D
 以下内容不是当前真实可用 API：
 
 - P0：插件内容治理操作矩阵、完整 RBAC 分配 UI、community / category 级权限配置和更细错误码。
-- P0：`config_schema` 结构化错误响应、更完整 JSON Schema 能力和配置 diff / 版本 API。
+- P0/P1：`config_schema` 结构化错误响应、更完整 JSON Schema 能力、深层 diff 和配置版本 API。
 - P0/P1：HookBus 告警、失败重试、更多业务处理器、插件搜索 / 通知 / SEO 扩展 API。
 - P1：插件 SDK / 开发规范、插件生成模板、插件依赖检查、插件版本兼容检查。
 - P2：本地插件包、插件安装、插件升级、soft uninstall、插件 migration runner、插件包签名校验和插件市场雏形。

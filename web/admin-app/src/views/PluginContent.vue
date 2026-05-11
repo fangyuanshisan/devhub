@@ -15,10 +15,10 @@
           <el-option v-for="c in communities" :key="c.id" :label="`${c.name} /${c.slug}`" :value="c.id" />
         </el-select>
         <el-select v-model="filters.status" clearable placeholder="状态" style="width: 140px" data-testid="plugin-content-status-filter">
-          <el-option label="全部" value="all" />
-          <el-option label="publish" value="publish" />
-          <el-option label="hidden" value="hidden" />
-          <el-option label="pending" value="pending" />
+          <el-option :label="t('common.all')" value="all" />
+          <el-option :label="contentStatusLabel('publish')" value="publish" />
+          <el-option :label="contentStatusLabel('hidden')" value="hidden" />
+          <el-option :label="contentStatusLabel('pending')" value="pending" />
         </el-select>
         <el-select v-model="filters.contentType" clearable filterable :placeholder="t('plugin.contentType')" style="width: 160px" data-testid="plugin-content-type-filter">
           <el-option v-for="ct in contentTypes" :key="ct" :label="ct" :value="ct" />
