@@ -269,15 +269,16 @@ function statusType(status) {
 function healthType(status) {
   if (status === 'healthy') return 'success';
   if (status === 'disabled') return 'info';
-  if (status === 'warning' || status === 'migration_pending') return 'warning';
+  if (status === 'warning' || status === 'migration_pending' || status === 'hook_warning') return 'warning';
+  if (status === 'hook_error') return 'danger';
   if (status === 'error' || status === 'config_invalid' || status === 'dependency_missing') return 'danger';
   return 'info';
 }
 
 function statusMetricType(status) {
   if (status === 'ok' || status === 'valid') return 'success';
-  if (status === 'warning' || status === 'pending') return 'warning';
-  if (status === 'failed' || status === 'invalid' || status === 'missing') return 'danger';
+  if (status === 'warning' || status === 'pending' || status === 'hook_warning') return 'warning';
+  if (status === 'failed' || status === 'invalid' || status === 'missing' || status === 'hook_error') return 'danger';
   return 'info';
 }
 

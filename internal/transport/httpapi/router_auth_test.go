@@ -188,6 +188,195 @@ func TestPluginConfigAuditAndInvalidJSON(t *testing.T) {
 	}
 }
 
+func TestPluginMigrationFailureBlocksEnableAndRetryRestores(t *testing.T) {
+	t.Setenv("CMS_STORE", "memory")
+	router := NewRouter(service.New(store.NewMemoryStore()))
+	token := adminToken(t, router)
+
+	do := func(method, path, body string) *httptest.ResponseRecorder {
+		t.Helper()
+		req := httptest.NewRequest(method, path, bytes.NewBufferString(body))
+		req.Header.Set("Authorization", "Bearer "+token)
+		if body != "" {
+			req.Header.Set("Content-Type", "application/json")
+		}
+		w := httptest.NewRecorder()
+		router.ServeHTTP(w, req)
+		return w
+	}
+
+	if w := do(http.MethodPost, "/api/v1/admin/plugins/qa/disable", ""); w.Code != http.StatusOK {
+		t.Fatalf("expected qa global disable success, got %d: %s", w.Code, w.Body.String())
+	}
+	if w := do(http.MethodPost, "/api/v1/admin/communities/1/plugins/qa/disable", ""); w.Code != http.StatusOK {
+		t.Fatalf("expected qa community disable success, got %d: %s", w.Code, w.Body.String())
+	}
+	w := do(http.MethodPost, "/api/v1/admin/plugins/qa/migrations/qa_questions/e2e-fail", `{"error_message":"E2E forced migration failure"}`)
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected failed migration injection success, got %d: %s", w.Code, w.Body.String())
+	}
+	if !bytes.Contains(w.Body.Bytes(), []byte(`"status":"failed"`)) || !bytes.Contains(w.Body.Bytes(), []byte("E2E forced migration failure")) {
+		t.Fatalf("expected failed migration payload, got %s", w.Body.String())
+	}
+
+	w = do(http.MethodPost, "/api/v1/admin/plugins/qa/enable", "")
+	if w.Code != http.StatusBadRequest || !bytes.Contains(w.Body.Bytes(), []byte("失败迁移")) {
+		t.Fatalf("expected global enable blocked by failed migration, got %d: %s", w.Code, w.Body.String())
+	}
+	w = do(http.MethodPost, "/api/v1/admin/communities/1/plugins/qa/enable", "")
+	if w.Code != http.StatusBadRequest || !bytes.Contains(w.Body.Bytes(), []byte("失败迁移")) {
+		t.Fatalf("expected community enable blocked by failed migration, got %d: %s", w.Code, w.Body.String())
+	}
+
+	w = do(http.MethodGet, "/api/v1/admin/plugins/qa/migrations", "")
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected migrations list, got %d: %s", w.Code, w.Body.String())
+	}
+	if !bytes.Contains(w.Body.Bytes(), []byte(`"failed":1`)) || !bytes.Contains(w.Body.Bytes(), []byte("E2E forced migration failure")) {
+		t.Fatalf("expected failed migration summary, got %s", w.Body.String())
+	}
+
+	w = do(http.MethodPost, "/api/v1/admin/plugins/qa/migrations/qa_questions/retry", "")
+	if w.Code != http.StatusOK || !bytes.Contains(w.Body.Bytes(), []byte(`"status":"success"`)) {
+		t.Fatalf("expected retry success, got %d: %s", w.Code, w.Body.String())
+	}
+	w = do(http.MethodPost, "/api/v1/admin/plugins/qa/migrations/qa_questions/retry", "")
+	if w.Code != http.StatusOK || !bytes.Contains(w.Body.Bytes(), []byte(`"status":"success"`)) {
+		t.Fatalf("expected repeated retry to remain success/no-op, got %d: %s", w.Code, w.Body.String())
+	}
+	w = do(http.MethodGet, "/api/v1/admin/plugins/qa/migrations", "")
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected migrations list after retry, got %d: %s", w.Code, w.Body.String())
+	}
+	if !bytes.Contains(w.Body.Bytes(), []byte(`"failed":0`)) || !bytes.Contains(w.Body.Bytes(), []byte(`"success"`)) {
+		t.Fatalf("expected failed cleared after retry, got %s", w.Body.String())
+	}
+
+	if w = do(http.MethodPost, "/api/v1/admin/plugins/qa/enable", ""); w.Code != http.StatusOK {
+		t.Fatalf("expected global enable after retry, got %d: %s", w.Code, w.Body.String())
+	}
+	if w = do(http.MethodPost, "/api/v1/admin/communities/1/plugins/qa/enable", ""); w.Code != http.StatusOK {
+		t.Fatalf("expected community enable after retry, got %d: %s", w.Code, w.Body.String())
+	}
+
+	w = do(http.MethodGet, "/api/v1/admin/plugins/qa/audit-logs?action=plugin.migration&page_size=50", "")
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected plugin audit logs, got %d: %s", w.Code, w.Body.String())
+	}
+	for _, want := range [][]byte{
+		[]byte("plugin.migration.failed"),
+		[]byte("plugin.migration.retry"),
+		[]byte("plugin.migration.success"),
+		[]byte("plugin_migration_test_injection"),
+	} {
+		if !bytes.Contains(w.Body.Bytes(), want) {
+			t.Fatalf("expected audit marker %q in %s", want, w.Body.String())
+		}
+	}
+}
+
+func TestHookFailureInjectionBlocksAndRecordsNonBlockingFailures(t *testing.T) {
+	t.Setenv("CMS_STORE", "memory")
+	router := NewRouter(service.New(store.NewMemoryStore()))
+	admin := adminToken(t, router)
+	user := userToken(t, router, "admin")
+
+	adminDo := func(method, path, body string) *httptest.ResponseRecorder {
+		t.Helper()
+		req := httptest.NewRequest(method, path, bytes.NewBufferString(body))
+		req.Header.Set("Authorization", "Bearer "+admin)
+		if body != "" {
+			req.Header.Set("Content-Type", "application/json")
+		}
+		w := httptest.NewRecorder()
+		router.ServeHTTP(w, req)
+		return w
+	}
+	userDo := func(method, path, body string) *httptest.ResponseRecorder {
+		t.Helper()
+		req := httptest.NewRequest(method, path, bytes.NewBufferString(body))
+		req.Header.Set("Authorization", "Bearer "+user)
+		if body != "" {
+			req.Header.Set("Content-Type", "application/json")
+		}
+		w := httptest.NewRecorder()
+		router.ServeHTTP(w, req)
+		return w
+	}
+	createQuestion := func(title string) *httptest.ResponseRecorder {
+		t.Helper()
+		payload := map[string]any{
+			"community_id":   1,
+			"community_slug": "php",
+			"category_id":    102,
+			"content_type":   "question",
+			"title":          title,
+			"summary":        "E2E Hook API test summary",
+			"content":        "这是一段用于 HookBus API 测试的正文内容，长度满足发布校验。",
+			"tags":           []string{},
+		}
+		raw, _ := json.Marshal(payload)
+		return userDo(http.MethodPost, "/api/v1/topics", string(raw))
+	}
+
+	if w := adminDo(http.MethodPost, "/api/v1/admin/plugins/qa/enable", ""); w.Code != http.StatusOK {
+		t.Fatalf("expected qa global enable success, got %d: %s", w.Code, w.Body.String())
+	}
+	if w := adminDo(http.MethodPost, "/api/v1/admin/communities/1/plugins/qa/enable", ""); w.Code != http.StatusOK {
+		t.Fatalf("expected qa community enable success, got %d: %s", w.Code, w.Body.String())
+	}
+	if w := adminDo(http.MethodPost, "/api/v1/admin/categories/102/enable", ""); w.Code != http.StatusOK {
+		t.Fatalf("expected qa category enable success, got %d: %s", w.Code, w.Body.String())
+	}
+
+	blockingErr := "E2E blocking hook failure"
+	w := adminDo(http.MethodPost, "/api/v1/admin/plugins/qa/hooks/BeforeCreateContent/e2e-fail", `{"mode":"blocking","error_message":"`+blockingErr+`"}`)
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected blocking hook injection success, got %d: %s", w.Code, w.Body.String())
+	}
+	blockedTitle := "E2E Hook Blocked Topic"
+	w = createQuestion(blockedTitle)
+	if w.Code != http.StatusBadRequest || !bytes.Contains(w.Body.Bytes(), []byte(blockingErr)) {
+		t.Fatalf("expected blocking hook to reject create, got %d: %s", w.Code, w.Body.String())
+	}
+	w = adminDo(http.MethodGet, "/api/v1/admin/posts?q=E2E%20Hook%20Blocked%20Topic", "")
+	if w.Code == http.StatusOK && bytes.Contains(w.Body.Bytes(), []byte(blockedTitle)) {
+		t.Fatalf("blocking hook should not create dirty topic, got %s", w.Body.String())
+	}
+	w = adminDo(http.MethodGet, "/api/v1/admin/plugins/qa/hooks", "")
+	if w.Code != http.StatusOK || !bytes.Contains(w.Body.Bytes(), []byte("BeforeCreateContent")) || !bytes.Contains(w.Body.Bytes(), []byte(blockingErr)) || !bytes.Contains(w.Body.Bytes(), []byte(`"success":false`)) {
+		t.Fatalf("expected blocked hook execution in stats, got %d: %s", w.Code, w.Body.String())
+	}
+	w = adminDo(http.MethodGet, "/api/v1/admin/plugins/qa/audit-logs?action=plugin.hook.blocked&page_size=50", "")
+	if w.Code != http.StatusOK || !bytes.Contains(w.Body.Bytes(), []byte("plugin.hook.blocked")) || !bytes.Contains(w.Body.Bytes(), []byte(blockingErr)) {
+		t.Fatalf("expected plugin.hook.blocked audit, got %d: %s", w.Code, w.Body.String())
+	}
+	if w := adminDo(http.MethodPost, "/api/v1/admin/plugins/qa/hooks/BeforeCreateContent/e2e-fail", `{"clear":true}`); w.Code != http.StatusOK {
+		t.Fatalf("expected blocking hook injection clear success, got %d: %s", w.Code, w.Body.String())
+	}
+
+	nonBlockingErr := "E2E non-blocking hook failure"
+	w = adminDo(http.MethodPost, "/api/v1/admin/plugins/qa/hooks/AfterCreateContent/e2e-fail", `{"mode":"non_blocking","error_message":"`+nonBlockingErr+`"}`)
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected non-blocking hook injection success, got %d: %s", w.Code, w.Body.String())
+	}
+	w = createQuestion("E2E Hook NonBlocking Topic")
+	if w.Code != http.StatusCreated {
+		t.Fatalf("expected non-blocking hook not to block create, got %d: %s", w.Code, w.Body.String())
+	}
+	w = adminDo(http.MethodGet, "/api/v1/admin/plugins/qa/hooks", "")
+	if w.Code != http.StatusOK || !bytes.Contains(w.Body.Bytes(), []byte("AfterCreateContent")) || !bytes.Contains(w.Body.Bytes(), []byte(nonBlockingErr)) || !bytes.Contains(w.Body.Bytes(), []byte(`"success":false`)) {
+		t.Fatalf("expected failed non-blocking hook execution in stats, got %d: %s", w.Code, w.Body.String())
+	}
+	w = adminDo(http.MethodGet, "/api/v1/admin/plugins/qa/audit-logs?action=plugin.hook.failed&page_size=50", "")
+	if w.Code != http.StatusOK || !bytes.Contains(w.Body.Bytes(), []byte("plugin.hook.failed")) || !bytes.Contains(w.Body.Bytes(), []byte(nonBlockingErr)) {
+		t.Fatalf("expected plugin.hook.failed audit, got %d: %s", w.Code, w.Body.String())
+	}
+	if w := adminDo(http.MethodPost, "/api/v1/admin/plugins/qa/hooks/AfterCreateContent/e2e-fail", `{"clear":true}`); w.Code != http.StatusOK {
+		t.Fatalf("expected non-blocking hook injection clear success, got %d: %s", w.Code, w.Body.String())
+	}
+}
+
 func TestModeratorPluginMenusRespectCommunityScopeAndPluginStatus(t *testing.T) {
 	router := NewRouter(service.New(store.NewMemoryStore()))
 	admin := adminToken(t, router)
@@ -218,6 +407,20 @@ func TestModeratorPluginMenusRespectCommunityScopeAndPluginStatus(t *testing.T) 
 	router.ServeHTTP(w, req)
 	if w.Code != http.StatusForbidden {
 		t.Fatalf("expected cross-community moderator menu request to fail, got %d: %s", w.Code, w.Body.String())
+	}
+}
+
+func TestFrontendUserTokenCannotCallPluginGovernanceAPI(t *testing.T) {
+	router := NewRouter(service.New(store.NewMemoryStore()))
+	token := userToken(t, router, "admin")
+
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/admin/plugins/qa/disable", nil)
+	req.Header.Set("Authorization", "Bearer "+token)
+	w := httptest.NewRecorder()
+	router.ServeHTTP(w, req)
+
+	if w.Code != http.StatusUnauthorized && w.Code != http.StatusForbidden {
+		t.Fatalf("expected frontend user token to be rejected by plugin governance API, got %d: %s", w.Code, w.Body.String())
 	}
 }
 

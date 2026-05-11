@@ -183,6 +183,31 @@ func (s *Service) RegisterHookHandler(name, pluginCode string, handler pluginreg
 	s.hooks.Register(name, pluginCode, handler)
 }
 
+// SetHookFailureInjectionForTest configures a test/dev-only HookBus failure rule.
+func (s *Service) SetHookFailureInjectionForTest(pluginCode, hookName string, mode pluginregistry.HookMode, errorMessage string) error {
+	if s == nil || s.hooks == nil {
+		return nil
+	}
+	pluginCode = strings.TrimSpace(pluginCode)
+	hookName = strings.TrimSpace(hookName)
+	if pluginCode == "" || hookName == "" {
+		return errors.New("plugin_code 和 hook_name 不能为空")
+	}
+	if _, ok := s.repo.PluginByCode(pluginCode); !ok {
+		return errors.New("插件不存在")
+	}
+	if mode != "" && mode != pluginregistry.HookBlocking && mode != pluginregistry.HookNonBlocking {
+		return errors.New("hook mode 不合法")
+	}
+	s.hooks.SetFailureInjection(pluginregistry.HookFailureRule{
+		PluginCode: pluginCode,
+		HookName:   hookName,
+		Mode:       mode,
+		Error:      strings.TrimSpace(errorMessage),
+	})
+	return nil
+}
+
 func (s *Service) dispatchHook(event pluginregistry.HookEvent) error {
 	if s == nil || s.hooks == nil {
 		return nil
@@ -287,17 +312,18 @@ func (s *Service) auditHookFailure(record domain.HookExecution) {
 		action = "plugin.hook.blocked"
 	}
 	metadata, _ := json.Marshal(map[string]any{
-		"plugin_code":  record.PluginCode,
-		"hook_name":    record.HookName,
-		"mode":         record.Mode,
-		"blocking":     record.Blocking,
-		"content_type": record.ContentType,
-		"content_id":   record.ContentID,
-		"community_id": record.CommunityID,
-		"category_id":  record.CategoryID,
-		"request_id":   record.RequestID,
-		"error":        record.ErrorMessage,
-		"duration_ms":  record.DurationMS,
+		"plugin_code":   record.PluginCode,
+		"hook_name":     record.HookName,
+		"mode":          record.Mode,
+		"blocking":      record.Blocking,
+		"content_type":  record.ContentType,
+		"content_id":    record.ContentID,
+		"community_id":  record.CommunityID,
+		"category_id":   record.CategoryID,
+		"request_id":    record.RequestID,
+		"error":         record.ErrorMessage,
+		"duration_ms":   record.DurationMS,
+		"hook_metadata": record.Metadata,
 	})
 	site := "portal"
 	if record.CommunityID > 0 {
@@ -725,6 +751,36 @@ func (s *Service) AppendPluginMigration(record domain.PluginMigration) (domain.P
 	return s.repo.AppendPluginMigration(record)
 }
 
+// InjectFailedPluginMigrationForTest writes a failed built-in migration record
+// for E2E/API tests. It deliberately reuses the normal migration store path so
+// enable-readiness checks, retry and audit can exercise production behavior.
+func (s *Service) InjectFailedPluginMigrationForTest(pluginCode, migrationName, errorMessage, executor string) (domain.PluginMigration, error) {
+	pluginCode = strings.TrimSpace(pluginCode)
+	migrationName = strings.TrimSpace(migrationName)
+	if _, ok := s.repo.PluginByCode(pluginCode); !ok {
+		return domain.PluginMigration{}, errors.New("插件不存在")
+	}
+	defs := pluginregistry.MigrationDefinitions(pluginCode)
+	var def domain.PluginMigrationDefinition
+	for _, item := range defs {
+		if item.MigrationName == migrationName {
+			def = item
+			break
+		}
+	}
+	if def.MigrationName == "" {
+		return domain.PluginMigration{}, errors.New("迁移不存在")
+	}
+	now := time.Now()
+	record := migrationRecordFromDefinition(def, "failed")
+	record.Executor = firstNonBlank(executor, "e2e")
+	record.StartedAt = now.Format("2006-01-02 15:04:05")
+	record.FinishedAt = record.StartedAt
+	record.ExecutedAt = record.FinishedAt
+	record.ErrorMessage = firstNonBlank(errorMessage, "E2E injected failed migration")
+	return s.repo.SavePluginMigration(record)
+}
+
 func (s *Service) RunPluginMigration(pluginCode, migrationName, executor string) (domain.PluginMigration, error) {
 	pluginCode = strings.TrimSpace(pluginCode)
 	migrationName = strings.TrimSpace(migrationName)
@@ -903,6 +959,7 @@ func (s *Service) PluginHealth(code string) (domain.PluginHealth, error) {
 		HookStatus:       "ok",
 		DependencyStatus: "ok",
 		SuggestedAction:  "无需处理",
+		StatusReason:     "插件运行状态正常",
 		UpdatedAt:        time.Now().Format("2006-01-02 15:04:05"),
 	}
 
@@ -910,18 +967,22 @@ func (s *Service) PluginHealth(code string) (domain.PluginHealth, error) {
 	if disabled {
 		health.Status = "disabled"
 		health.SuggestedAction = "如需恢复新发布和入口展示，请启用插件"
+		health.StatusReason = "插件已全局禁用，仅影响新发布和入口展示"
 	} else if plugin.Status == pluginregistry.StatusConfigInvalid {
 		health.Status = "config_invalid"
 		health.ConfigStatus = "invalid"
 		health.SuggestedAction = "检查插件 config_json"
+		health.StatusReason = "插件状态标记为配置无效"
 	} else if plugin.Status == pluginregistry.StatusMigrationPending {
 		health.Status = "migration_pending"
 		health.MigrationStatus = "pending"
 		health.SuggestedAction = "执行或确认插件迁移"
+		health.StatusReason = "插件状态标记为存在待处理迁移"
 	} else if plugin.Status == pluginregistry.StatusDependencyMissing {
 		health.Status = "dependency_missing"
 		health.DependencyStatus = "missing"
 		health.SuggestedAction = "检查依赖插件状态"
+		health.StatusReason = "插件状态标记为依赖缺失"
 	}
 
 	if err := pluginregistry.ValidateConfigJSON(plugin, plugin.ConfigJSON); err != nil {
@@ -932,6 +993,7 @@ func (s *Service) PluginHealth(code string) (domain.PluginHealth, error) {
 		health.RecentError = err.Error()
 		if !disabled {
 			health.SuggestedAction = "修正插件全局配置"
+			health.StatusReason = "插件全局配置未通过 config_schema 校验"
 		}
 	}
 
@@ -950,6 +1012,7 @@ func (s *Service) PluginHealth(code string) (domain.PluginHealth, error) {
 			}
 			if !disabled {
 				health.SuggestedAction = "启用或修复依赖插件"
+				health.StatusReason = "依赖插件未启用或不可用"
 			}
 			break
 		}
@@ -975,11 +1038,13 @@ func (s *Service) PluginHealth(code string) (domain.PluginHealth, error) {
 			health.MigrationStatus = "failed"
 			if !disabled {
 				health.SuggestedAction = "查看并重试失败迁移"
+				health.StatusReason = "存在 failed migration"
 			}
 		} else if health.PendingMigrationsCount > 0 && health.Status == "healthy" && !disabled {
 			health.Status = "migration_pending"
 			health.MigrationStatus = "pending"
 			health.SuggestedAction = "确认并执行待处理迁移"
+			health.StatusReason = "存在待处理迁移记录"
 		}
 	}
 
@@ -993,10 +1058,16 @@ func (s *Service) PluginHealth(code string) (domain.PluginHealth, error) {
 			}
 		}
 		if health.HookFailureCount > 0 {
-			health.HookStatus = "warning"
+			health.HookStatus = "hook_warning"
+			hookStatus := "hook_warning"
+			if health.HookFailureCount >= 3 {
+				hookStatus = "hook_error"
+				health.HookStatus = "hook_error"
+			}
 			if health.Status == "healthy" && !disabled {
-				health.Status = "warning"
+				health.Status = hookStatus
 				health.SuggestedAction = "查看 Hooks Tab 的最近失败记录"
+				health.StatusReason = "存在 Hook 失败记录"
 			}
 		}
 	}
@@ -1326,7 +1397,7 @@ func (s *Service) CreateTopic(req domain.CreateTopicRequest) (*domain.Topic, err
 
 	if perm := requiredCreatePermission(normalizedType, pluginCode); perm != "" {
 		if !hasPermission(req.ActorPermissions, perm) {
-			return nil, errors.New("无权发布该类型内容")
+			return nil, fmt.Errorf("缺少权限 %s，不能创建该类型内容", perm)
 		}
 	}
 	if err := s.dispatchHook(pluginregistry.HookEvent{

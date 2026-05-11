@@ -17,9 +17,41 @@ CREATE TABLE IF NOT EXISTS plugins (
   KEY idx_plugins_status (status)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
-ALTER TABLE topics ADD COLUMN plugin_code VARCHAR(64) NOT NULL DEFAULT 'core' AFTER slug;
-ALTER TABLE categories ADD COLUMN plugin_code VARCHAR(64) NOT NULL DEFAULT 'core' AFTER type;
-ALTER TABLE categories ADD COLUMN allowed_content_types JSON NULL AFTER plugin_code;
+SET @topics_plugin_code_exists := (
+  SELECT COUNT(*) FROM INFORMATION_SCHEMA.COLUMNS
+  WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'topics' AND COLUMN_NAME = 'plugin_code'
+);
+SET @sql := IF(@topics_plugin_code_exists = 0,
+  'ALTER TABLE topics ADD COLUMN plugin_code VARCHAR(64) NOT NULL DEFAULT ''core'' AFTER slug',
+  'SELECT 1'
+);
+PREPARE stmt FROM @sql;
+EXECUTE stmt;
+DEALLOCATE PREPARE stmt;
+
+SET @categories_plugin_code_exists := (
+  SELECT COUNT(*) FROM INFORMATION_SCHEMA.COLUMNS
+  WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'categories' AND COLUMN_NAME = 'plugin_code'
+);
+SET @sql := IF(@categories_plugin_code_exists = 0,
+  'ALTER TABLE categories ADD COLUMN plugin_code VARCHAR(64) NOT NULL DEFAULT ''core'' AFTER type',
+  'SELECT 1'
+);
+PREPARE stmt FROM @sql;
+EXECUTE stmt;
+DEALLOCATE PREPARE stmt;
+
+SET @categories_allowed_content_types_exists := (
+  SELECT COUNT(*) FROM INFORMATION_SCHEMA.COLUMNS
+  WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'categories' AND COLUMN_NAME = 'allowed_content_types'
+);
+SET @sql := IF(@categories_allowed_content_types_exists = 0,
+  'ALTER TABLE categories ADD COLUMN allowed_content_types JSON NULL AFTER plugin_code',
+  'SELECT 1'
+);
+PREPARE stmt FROM @sql;
+EXECUTE stmt;
+DEALLOCATE PREPARE stmt;
 
 UPDATE topics SET content_type='document', plugin_code='docs' WHERE content_type='doc';
 UPDATE topics SET content_type='wiki_page', plugin_code='wiki' WHERE content_type='wiki';

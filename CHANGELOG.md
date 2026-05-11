@@ -2,12 +2,27 @@
 
 ## Next
 
-Planned next-stage work is tracked as `v1.3.4: Plugin failure-governance and acceptance closure`.
+Planned next-stage work continues the complete plugin-platform roadmap after `v1.3.4`, focusing on plugin content-governance operation permissions, RBAC assignment UI, production MySQL upgrade rehearsal, and P1 plugin-platform experience.
 
-- Prioritize plugin migration failure injection, enable-blocking, retry/recovery, and audit/E2E coverage.
-- Prioritize HookBus blocking/non-blocking failure injection, execution records, admin Hooks tab visibility, and audit/E2E coverage.
-- Continue tightening the plugin permission matrix while keeping `post.create` as a legacy compatibility bridge only.
-- Run a dedicated MySQLStore / legacy-database upgrade pass for plugin migrations, hook executions, audit logs, global/community plugin state, and historical SEO safety.
+## v1.3.4
+
+DevHub v1.3.4 is the plugin failure-governance and acceptance-closure release.
+
+- Added E2E/API-only failed plugin migration injection guarded by `DEVHUB_E2E_TESTING=1` or `CMS_STORE=memory`.
+- Verified failed plugin migrations block both global plugin enablement and per-community plugin enablement until retry succeeds.
+- Added audit coverage for migration failure injection, retry, and success recovery.
+- Added admin Playwright coverage for the migration tab failure reason, retry action, restore flow, and plugin audit lookup.
+- Added E2E/API-only HookBus failure injection guarded by `DEVHUB_E2E_TESTING=1` or `CMS_STORE=memory`.
+- Verified blocking Hook failures block content creation without dirty writes and record `hook_executions` plus `plugin.hook.blocked` audit.
+- Verified non-blocking Hook failures keep content creation successful while recording `hook_executions` plus `plugin.hook.failed` audit.
+- Added admin Playwright coverage for Hooks tab failure summaries and plugin audit lookup.
+- Tightened the plugin permission matrix around `ContentTypeDefinition.create_permission`; `post.create` now remains documented and tested only as a `core.topic.create` compatibility bridge, not as a plugin-content create permission.
+- Added API tests proving `post.create` cannot create plugin-owned content, plugin create permissions can create their own content types, and frontend user tokens cannot call plugin governance APIs.
+- Ran a dedicated MySQLStore / legacy-database upgrade pass for plugin platform schema, plugin migrations, hook executions, audit logs, global/community plugin state, failed migration readiness, and config schema validation.
+- Hardened MySQL plugin upgrade migrations: `004_community_plugins.sql` now tolerates numeric-order execution before `005`, and `005_core_plugins.sql` now adds plugin fields idempotently.
+- Added lightweight plugin health status reasons and Hook-derived `hook_warning` / `hook_error` summaries for the admin plugin governance center.
+- Expanded plugin audit filtering by plugin code, community, action, actor, target, metadata, request id, and time range.
+- Archived the v1.3.4 testing matrix into automated, partially automated, manual, uncovered, and skipped categories, and scoped P1 to plugin experience work rather than new plugin-market capabilities.
 - Keep plugin marketplace, package upload/install, remote install/update, Go dynamic loading, and third-party sandboxing out of the current implementation scope.
 
 ## v1.3.3

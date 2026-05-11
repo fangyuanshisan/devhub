@@ -1,6 +1,6 @@
 # DevHub 文档入口
 
-DevHub 当前文档只围绕 v1.3.3 真实状态维护。历史版本 Release Notes 只作追溯依据，不作为当前 Codex 必读主列表。
+DevHub 当前文档只围绕 v1.3.4 真实状态维护。历史版本 Release Notes 只作追溯依据，不作为当前 Codex 必读主列表。
 
 ## 当前有效文档
 
@@ -23,13 +23,13 @@ DevHub 当前文档只围绕 v1.3.3 真实状态维护。历史版本 Release No
    - Core 与 Plugins 边界、两层插件状态、qa / docs / wiki 内置插件和当前限制。
 
 7. [完整插件系统路线图](PLUGIN_SYSTEM_ROADMAP.md)
-   - 下一阶段最高优先级目标，定义插件生命周期、治理、运行时、审计、迁移、后台和 E2E 要求；当前下一阶段需求为 `v1.3.4` 插件迁移与 Hook 失败注入验收闭环。
+   - 长期最高优先级目标，定义插件生命周期、治理、运行时、审计、迁移、后台和 E2E 要求；当前阶段为 `v1.3.4` 插件异常治理与验收闭环。
 
 8. [测试文档](TESTING.md)
    - 已实现必测项、后续补测项、必要历史回归和 SEO 回归命令。
 
-9. [v1.3.3 Release Notes](releases/v1.3.3.md)
-   - 插件平台治理收口、生命周期 readiness、HookBus、config_schema、审计、迁移和当前限制。
+9. [v1.3.4 Release Notes](releases/v1.3.4.md)
+   - 插件异常治理、failed migration 阻断、Hook 失败注入、权限矩阵、MySQLStore 专项和当前限制。
 
 10. [部署启动文档](DEPLOYMENT.md)
    - 本地启动、构建行为、8090 端口排查、Go 模块网络和二进制排障启动。
@@ -50,6 +50,7 @@ DevHub 当前文档只围绕 v1.3.3 真实状态维护。历史版本 Release No
 - [v1.3.0 Release Notes](releases/v1.3.0.md)
 - [v1.3.1 Release Notes](releases/v1.3.1.md)
 - [v1.3.2 Release Notes](releases/v1.3.2.md)
+- [v1.3.3 Release Notes](releases/v1.3.3.md)
 
 ## 辅助文档
 

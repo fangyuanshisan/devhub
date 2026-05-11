@@ -35,6 +35,73 @@ export async function ensurePluginEnabled(request, code) {
   await adminPost(request, `/api/v1/admin/plugins/${code}/enable`);
 }
 
+export async function disablePlugin(request, code) {
+  const response = await adminPost(request, `/api/v1/admin/plugins/${code}/disable`);
+  if (!response.ok()) throw new Error(await response.text());
+  return response.json();
+}
+
+export async function enableCommunityPlugin(request, communityID, code) {
+  return adminPost(request, `/api/v1/admin/communities/${communityID}/plugins/${code}/enable`);
+}
+
+export async function disableCommunityPlugin(request, communityID, code) {
+  const response = await adminPost(request, `/api/v1/admin/communities/${communityID}/plugins/${code}/disable`);
+  if (!response.ok()) throw new Error(await response.text());
+  return response.json();
+}
+
+export async function injectFailedPluginMigration(request, code, migrationName, errorMessage = 'E2E forced migration failure') {
+  const response = await adminPost(request, `/api/v1/admin/plugins/${code}/migrations/${encodeURIComponent(migrationName)}/e2e-fail`, {
+    error_message: errorMessage,
+  });
+  if (!response.ok()) throw new Error(await response.text());
+  return response.json();
+}
+
+export async function retryPluginMigration(request, code, migrationName) {
+  const response = await adminPost(request, `/api/v1/admin/plugins/${code}/migrations/${encodeURIComponent(migrationName)}/retry`);
+  if (!response.ok()) throw new Error(await response.text());
+  return response.json();
+}
+
+export async function pluginMigrations(request, code) {
+  const response = await adminGet(request, `/api/v1/admin/plugins/${code}/migrations`);
+  if (!response.ok()) throw new Error(await response.text());
+  return response.json();
+}
+
+export async function pluginAuditLogs(request, code, params = {}) {
+  const search = new URLSearchParams(params);
+  const suffix = search.toString() ? `?${search.toString()}` : '';
+  const response = await adminGet(request, `/api/v1/admin/plugins/${code}/audit-logs${suffix}`);
+  if (!response.ok()) throw new Error(await response.text());
+  return response.json();
+}
+
+export async function pluginHooks(request, code) {
+  const response = await adminGet(request, `/api/v1/admin/plugins/${code}/hooks`);
+  if (!response.ok()) throw new Error(await response.text());
+  return response.json();
+}
+
+export async function injectFailedPluginHook(request, code, hookName, mode, errorMessage, clear = false) {
+  const response = await adminPost(request, `/api/v1/admin/plugins/${code}/hooks/${encodeURIComponent(hookName)}/e2e-fail`, {
+    mode,
+    error_message: errorMessage,
+    clear,
+  });
+  if (!response.ok()) throw new Error(await response.text());
+  return response.json();
+}
+
+export async function setCategoryEnabled(request, categoryID, enabled) {
+  const action = enabled ? 'enable' : 'disable';
+  const response = await adminPost(request, `/api/v1/admin/categories/${categoryID}/${action}`);
+  if (!response.ok()) throw new Error(await response.text());
+  return response.json();
+}
+
 export async function createTestTopic(request, overrides = {}) {
   const payload = {
     community_id: 1,

@@ -8,7 +8,7 @@
 
 ## 当前版本结论
 
-当前版本为 `v1.3.3`，主题是“插件平台治理收口版”。DevHub 当前定位为多子站通用开源社区程序，默认演示为开发者社区。
+当前版本为 `v1.3.4` 草稿线，主题是“插件异常治理与验收闭环版”。DevHub 当前定位为多子站通用开源社区程序，默认演示为开发者社区。
 
 Core 保留用户、认证、子站、板块、通用内容、评论、标签、搜索、通知、SEO、权限、审计、插件注册和分发能力。问答、文档、Wiki、项目、招聘、AI 作品已按内置系统插件建模：`qa -> question`、`docs -> document`、`wiki -> wiki_page`、`projects -> project`、`jobs -> job`、`ai_works -> ai_work`。
 
@@ -54,6 +54,7 @@ Core 保留用户、认证、子站、板块、通用内容、评论、标签、
 - 技术债收口：`Service.CreatePost` 已封口，不再作为业务写入口；`/api/v1/posts` 写接口继续废弃；后台 `admin/posts` 创建入口在兼容 `post.create` 基础权限之外，叠加真实内容类型对应的插件 create 权限。
 - 后台编辑边界：后台内容编辑已禁止修改子站、板块、`content_type` 和 `plugin_code` 归属字段；如后续需要迁移归属，必须走单独迁移专项和完整插件校验。
 - 插件系统专项验收：2026-05-11 已完成一次后端、后台构建、SEO curl、前台 E2E、后台 E2E 集中回归；前台 14 条 E2E 通过，后台 15 条 E2E 在修复状态污染后通过，详见本文末尾“插件系统专项验收与 E2E 回归清单归档”。
+- MySQLStore / 老库升级专项：2026-05-11 已验证 `plugins`、`community_plugins`、`plugin_migrations`、`hook_executions`、`admin_logs` 新装结构和 `topics.plugin_code`、`categories.plugin_code`、`categories.allowed_content_types` 升级字段；`004`-`010` 插件迁移 SQL 在测试库连续执行两轮通过；MySQLStore 下全局/子站插件启停强拦截、failed migration 阻断与 retry、Hook 记录、插件审计查询和 config_schema 校验均通过可选集成测试。
 
 ## 插件平台基线对账
 
@@ -1458,8 +1459,8 @@ P3：高级能力
 
 已完成事项：
 
-- 确认当前版本源头为仓库根目录 `VERSION = v1.3.3`。
-- 确认当前版本 Release Notes 为 `docs/releases/v1.3.3.md`，README、docs 入口、CHANGELOG 和 API/架构/测试文档主体均已指向 v1.3.3。
+- 当轮确认版本源头为仓库根目录 `VERSION = v1.3.3`。
+- 当轮确认 Release Notes 为 `docs/releases/v1.3.3.md`，README、docs 入口、CHANGELOG 和 API/架构/测试文档主体均已指向 v1.3.3。
 - 修正 `docs/BACKUP_AND_ROLLBACK.md` 中仍写旧版号 `v1.3.0` 的陈旧口径，改为以 `VERSION` 为准并标注当前为 `v1.3.3`。
 - 保留 `CHANGELOG.md`、历史 Release Notes 和 `docs/PROJECT_PROGRESS.md` 历史任务记录中的旧版本号，它们属于归档追溯，不是当前版本口径错误。
 
@@ -1554,7 +1555,7 @@ P3：高级能力
 已完成事项：
 
 - 以 `docs/PLUGIN_SYSTEM_ROADMAP.md` 和本文档为目标源头，统一其他文档的下一阶段口径。
-- 明确当前版本仍是 `v1.3.3`，下一阶段需求为 `v1.3.4：插件异常治理与验收闭环版`。
+- 当轮明确版本仍是 `v1.3.3`，下一阶段需求为 `v1.3.4：插件异常治理与验收闭环版`。
 - 在 README Roadmap、CHANGELOG Next、API 规划、插件架构、测试矩阵、SEO 红线和 v1.3.3 Release Notes 后续计划中同步 v1.3.4 目标。
 - 统一 v1.3.4 范围：
   - 插件迁移失败注入与启用阻断。
@@ -1595,3 +1596,340 @@ P3：高级能力
 
 1. 直接按 v1.3.4 需求启动代码实现：先做插件迁移失败注入、启用阻断、retry 恢复和审计 / E2E。
 2. 第二步做 HookBus blocking / non-blocking 失败注入与后台 Hooks Tab 可见性 E2E。
+
+### 2026-05-11：实现插件迁移失败注入与启用阻断闭环
+
+修改范围：
+
+- 后端：`internal/service/service.go`、`internal/transport/httpapi/router.go`、`internal/transport/httpapi/router_auth_test.go`。
+- 后台 E2E：`web/admin-app/tests/e2e/helpers/api.js`、`web/admin-app/tests/e2e/plugin-governance.spec.js`。
+- 文档：`docs/API.md`、`docs/PLUGIN_ARCHITECTURE.md`、`docs/TESTING.md`、`docs/releases/v1.3.4.md`、`CHANGELOG.md`、`docs/PROJECT_PROGRESS.md`。
+
+已完成事项：
+
+- 新增测试专用 failed migration 注入接口：`POST /api/v1/admin/plugins/:code/migrations/:name/e2e-fail`。
+- 注入接口仅在 `DEVHUB_E2E_TESTING=1` 或 `CMS_STORE=memory` 可用；它不是生产迁移治理入口。
+- 注入 failed migration 后，全局启用插件会被 Service readiness 阻断，错误包含“失败迁移”。
+- 注入 failed migration 后，子站启用同一插件也会被 Service readiness 阻断，且不会错误写入 `enabled`。
+- 迁移 Tab 能显示 failed migration 的名称、状态和错误信息，并可通过 retry 恢复为 `success`。
+- retry 成功后，全局插件和子站插件均可恢复启用。
+- 已 success 的 migration 再次 retry 保持成功记录，不重复破坏数据。
+- 注入失败、retry 和 success 恢复均写入插件审计，可通过插件审计接口定位。
+- 新增 API 测试覆盖阻断、重试、恢复和审计。
+- 新增后台 E2E 覆盖迁移 Tab 失败原因、retry 操作、启用恢复和审计定位。
+
+未完成事项：
+
+- HookBus blocking / non-blocking 失败注入仍未完成，是下一项 v1.3.4 P0 任务。
+- MySQLStore / 老库升级专项当轮未执行；已在后续 `2026-05-11：MySQLStore 与老库升级专项验证插件平台一致性` 中补测。
+- 当前 migration runner 仍是内置 up/no-op 记录型 runner，不支持 migration down、硬回滚、迁移前备份或外部插件迁移包。
+
+新发现风险：
+
+- 测试注入接口如果在生产环境误开会带来治理状态污染风险；因此必须保持 `DEVHUB_E2E_TESTING=1` 或 `CMS_STORE=memory` 的环境限制，并在文档中明确。
+- 迁移失败类 E2E 会切换全局和子站插件状态，必须继续保持串行和 `finally` 恢复。
+
+已执行检查命令和结果：
+
+- `gofmt -w internal/service/service.go internal/transport/httpapi/router.go internal/transport/httpapi/router_auth_test.go`：通过。
+- `go test ./...`：通过。
+- `go build -o .devhub/devhub .`：通过。
+- `docker compose run --rm admin-e2e npm run build`：通过；仍有既有 Vite chunk size warning，不影响构建结果。
+- `./scripts/check-frontend.sh --quick`：通过，前后台容器构建通过；日志目录 `.devhub/checks/20260511-182649/`。
+- `./scripts/check-frontend.sh --admin-only`：首次失败，原因是本地 DevHub 服务仍是旧路由，`e2e-fail` 返回“接口不存在”；执行 `./dev.sh restart --no-build --local-go` 重启到当前代码后重跑。
+- `./scripts/check-frontend.sh --admin-only`：第二次失败，原因是 E2E 选择器过宽，页面中运行状态和迁移 Tab 都出现 `failed`；已收窄到插件详情抽屉迁移面板。
+- `./scripts/check-frontend.sh --admin-only`：最终通过，后台 build 通过，后台 E2E `16 passed`；日志目录 `.devhub/checks/20260511-183007/`。
+- `git diff --check`：通过。
+
+失败项或跳过项及原因：
+
+- 已修复两次后台 E2E 失败：
+  - 旧服务未重启导致新接口不存在。
+  - Playwright strict mode 命中多个 `failed` 文本，已收窄选择器。
+- 未执行完整前台 E2E：本轮未修改前台代码；已执行 `./scripts/check-frontend.sh --quick` 覆盖前台构建。
+
+影响范围：
+
+- API：新增测试专用迁移失败注入接口；生产插件治理 API 语义不变。
+- 数据库：无 schema 变更。
+- 权限：注入接口需要后台 admin token 和 `plugin.write`，且受测试环境限制。
+- SEO：无运行时 SEO 变更；插件禁用后历史内容访问策略不变。
+- 插件系统：补齐 failed migration 对全局 / 子站启用的可验收闭环。
+- 前后台 UI：未改 UI 组件；新增后台 E2E 覆盖现有迁移 Tab。
+
+下一轮建议：
+
+1. 实现 HookBus blocking / non-blocking 失败注入和后台 Hooks Tab 可见性 E2E。
+2. 启动 MySQLStore / 老库升级专项，覆盖 plugin_migrations、hook_executions、admin_logs 和历史 SEO。
+
+### 2026-05-11：补齐 HookBus blocking / non-blocking 失败注入与后台可观测能力
+
+修改范围：
+
+- 后端：`internal/plugins/hookbus.go`、`internal/service/service.go`、`internal/transport/httpapi/router.go`、`internal/transport/httpapi/router_auth_test.go`。
+- 后台 E2E：`web/admin-app/tests/e2e/helpers/api.js`、`web/admin-app/tests/e2e/plugin-governance.spec.js`。
+- 文档：`docs/API.md`、`docs/PLUGIN_ARCHITECTURE.md`、`docs/TESTING.md`、`docs/releases/v1.3.4.md`、`CHANGELOG.md`、`docs/PROJECT_PROGRESS.md`。
+
+已完成事项：
+
+- 新增测试 / 开发环境专用 Hook 失败注入接口：`POST /api/v1/admin/plugins/:code/hooks/:name/e2e-fail`。
+- 注入接口仅在 `DEVHUB_E2E_TESTING=1` 或 `CMS_STORE=memory` 可用；它不是生产 Hook 治理入口。
+- HookBus 支持按 `plugin_code + hook_name` 注入失败规则，并可通过 `{"clear":true}` 清理。
+- `BeforeCreateContent` blocking Hook 注入失败时，Topic 创建被后端阻断，错误信息明确，且不会写入脏数据。
+- `AfterCreateContent` non-blocking Hook 注入失败时，Topic 创建仍成功，失败进入 `hook_executions`。
+- blocking 失败写入 `plugin.hook.blocked` 审计；non-blocking 失败写入 `plugin.hook.failed` 审计；注入 / 清理操作写入 `plugin.hook.test_injection`。
+- 后台 Hooks Tab 继续通过 `GET /api/v1/admin/plugins/:code/hooks` 展示执行次数、失败次数、最近执行、最近失败、平均耗时和最近错误。
+- 新增 API 测试覆盖 blocking 阻断、non-blocking 不阻断、执行记录查询和审计定位。
+- 新增后台 E2E 覆盖 Hook 失败注入、Hooks Tab 失败摘要、插件审计查询和注入清理。
+
+未完成事项：
+
+- Search / Notification / SEO Hook 当前仍是最小事件派发，尚未形成完整搜索索引、通知模板或结构化 SEO 插件业务处理器。
+- HookBus 仍不支持重试策略、告警、外部监控或第三方动态 Hook。
+- MySQLStore / 老库升级专项当轮未执行；已在后续 `2026-05-11：MySQLStore 与老库升级专项验证插件平台一致性` 中补测。
+
+新发现风险：
+
+- Hook 失败注入接口如果在生产环境误开会带来内容发布扰动风险；因此必须继续保持 `DEVHUB_E2E_TESTING=1` 或 `CMS_STORE=memory` 环境限制。
+- Hook 注入类 E2E 会改变运行时 HookBus 状态，必须继续串行执行并在 `finally` 中清理注入规则。
+
+已执行检查命令和结果：
+
+- `gofmt -w internal/plugins/hookbus.go internal/service/service.go internal/transport/httpapi/router.go internal/transport/httpapi/router_auth_test.go`：通过。
+- `go test ./...`：通过。
+- `go build -o .devhub/devhub .`：通过。
+- `docker compose run --rm admin-e2e npm run build`：通过；仍有既有 Vite chunk size warning，不影响构建结果。
+- `./dev.sh restart --no-build --local-go`：通过，用于让后台 E2E 命中新 Hook 注入路由。
+- `./scripts/check-frontend.sh --quick`：通过，前后台容器构建通过；日志目录 `.devhub/checks/20260511-185807/`。
+- `./scripts/check-frontend.sh --admin-only`：首次失败，原因是 Hooks Tab 中同一错误同时出现在运行状态和 Hooks 表格，Playwright strict mode 命中多个元素；已收窄到表格 cell 断言。
+- `./scripts/check-frontend.sh --admin-only`：最终通过，后台 build 通过，后台 E2E `17 passed`；日志目录 `.devhub/checks/20260511-185939/`。
+- `git diff --check`：通过。
+
+失败项或跳过项及原因：
+
+- 已修复一次后台 E2E 选择器失败：同一 Hook 错误在运行状态与 Hooks 表格重复出现，已改为断言表格 cell。
+- 未执行完整前台 E2E：本轮未修改前台代码；已执行 `./scripts/check-frontend.sh --quick` 覆盖前台构建。
+
+影响范围：
+
+- API：新增测试专用 Hook 失败注入接口；生产插件治理 API 语义不变。
+- 数据库：无 schema 变更，复用现有 `hook_executions` 和 `admin_logs`。
+- 权限：注入接口需要后台 admin token 和 `plugin.write`，且受测试环境限制。
+- SEO：无运行时 SEO 变更；Search / Notification / SEO Hook 仍按最小事件派发口径记录。
+- 插件系统：补齐 HookBus 异常路径的可验收闭环。
+- 前后台 UI：未改 UI 组件；新增后台 E2E 覆盖现有 Hooks Tab。
+
+下一轮建议：
+
+1. 启动 MySQLStore / 老库升级专项，覆盖 plugin_migrations、hook_executions、admin_logs 和历史 SEO。
+2. 继续收口插件权限矩阵，补后台创建、版主菜单和越权拦截的自动化验收。
+
+### 2026-05-11：收口插件权限矩阵，弱化 post.create 历史兼容地位
+
+修改范围：
+
+- 后端：`internal/service/service.go`、`internal/service/plugin_permission_test.go`、`internal/transport/httpapi/router_auth_test.go`。
+- 文档：`docs/API.md`、`docs/PLUGIN_ARCHITECTURE.md`、`docs/TESTING.md`、`docs/releases/v1.3.4.md`、`CHANGELOG.md`、`docs/PROJECT_PROGRESS.md`。
+
+已完成事项：
+
+- 确认内容创建权限来源统一为 `ContentTypeDefinition.create_permission`。
+- 新增 API / Service 测试覆盖 `question/document/wiki_page/project/job/ai_work/article/news` 的 create permission 映射。
+- 新增测试确认 `post.create` 只兼容 `core.topic.create`，不能替代 `qa.question.create` 创建 `question`。
+- 新增测试确认拥有 `qa.question.create` 可以创建 `question`。
+- `Service.CreateTopic` 缺少 create 权限时返回明确错误：`缺少权限 {permission}，不能创建该类型内容`。
+- 新增 HTTP API 测试确认普通前台 token 不能调用插件治理 API。
+- 复核版主插件菜单现有逻辑：继续按全局插件状态、子站插件状态、community scope 和插件权限码过滤。
+- 文档已统一口径：`post.create` 是历史兼容桥，不是长期主权限，也不是插件内容创建权限。
+
+未完成事项：
+
+- 本轮未新增完整 RBAC 分配 UI、category 级权限配置 UI 或插件内容治理操作矩阵。
+- MySQLStore / 老库升级专项当轮仍待单独验证；已在后续 `2026-05-11：MySQLStore 与老库升级专项验证插件平台一致性` 中补测核心链路。
+
+新发现风险：
+
+- 后台 `POST /api/v1/admin/posts` 仍保留第一层 `post.create` 兼容基础权限；真实插件 create 权限已在路由和 Service 层叠加校验，但后续角色配置迁移时仍需逐步弱化旧权限对运营人员的认知影响。
+
+已执行检查命令和结果：
+
+- `gofmt -w internal/service/service.go internal/service/plugin_permission_test.go internal/transport/httpapi/router_auth_test.go`：通过。
+- `go test ./...`：通过。
+- `go build -o .devhub/devhub .`：通过。
+- `docker compose run --rm admin-e2e npm run build`：通过；仍有既有 Vite chunk size warning，不影响构建结果。
+- `docker compose run --rm frontend-e2e npm run build`：通过。
+- `./dev.sh restart --no-build --local-go`：通过，用于让浏览器 E2E 命中当前本地 Go 二进制。
+- `./scripts/check-frontend.sh --quick`：通过，前后台容器构建通过；日志目录 `.devhub/checks/20260511-191607/`。
+- `./scripts/check-frontend.sh --admin-only`：通过，后台 build 通过，后台 E2E `17 passed`；日志目录 `.devhub/checks/20260511-191640/`。
+- `./scripts/check-frontend.sh --frontend-only`：通过，前台 build 通过，前台 E2E `14 passed`；日志目录 `.devhub/checks/20260511-191709/`。
+- `git diff --check`：通过。
+
+失败项或跳过项及原因：
+
+- 本轮无失败项；无跳过项。
+
+影响范围：
+
+- API：无新增生产 API；权限错误信息更明确。
+- 数据库：无 schema 变更。
+- 权限：插件内容创建权限矩阵测试收口；`post.create` 仅保留 Core 兼容桥。
+- SEO：无变更。
+- 插件系统：创建权限、后台创建和版主菜单口径更清晰。
+- 前后台 UI：无 UI 代码变更。
+
+下一轮建议：
+
+1. 做 MySQLStore / 老库升级专项，验证插件权限矩阵、迁移、Hook、审计和历史 SEO。
+2. 继续补插件内容治理操作权限矩阵和完整 RBAC 分配 UI。
+
+### 2026-05-11：MySQLStore 与老库升级专项验证插件平台一致性
+
+修改范围：
+
+- 数据库迁移：`db/mysql/migrations/004_community_plugins.sql`、`db/mysql/migrations/005_core_plugins.sql`。
+- 后端测试：`internal/service/mysql_integration_test.go`。
+- 文档：`docs/PROJECT_PROGRESS.md`、`docs/PLUGIN_ARCHITECTURE.md`、`docs/API.md`、`docs/TESTING.md`、`docs/releases/v1.3.4.md`、`CHANGELOG.md`。
+
+已完成事项：
+
+- `004_community_plugins.sql` 现在会先确保 `plugins` 表存在，避免老库按编号执行时因 `JOIN plugins` 失败。
+- `005_core_plugins.sql` 中 `topics.plugin_code`、`categories.plugin_code`、`categories.allowed_content_types` 改为 MySQL 8 `INFORMATION_SCHEMA + PREPARE` 幂等补列，避免重复执行失败。
+- 新增可选 MySQL 集成测试 `TestMySQLStorePluginPlatformConsistency`；默认跳过，仅当 `DEVHUB_MYSQL_TESTS=1` 且 `DB_NAME` 包含 `test` 时执行，避免误伤非测试库。
+- 集成测试覆盖新装库表结构：`plugins`、`community_plugins`、`plugin_migrations`、`hook_executions`、`admin_logs`。
+- 集成测试覆盖升级关键字段：`topics.plugin_code`、`categories.plugin_code`、`categories.allowed_content_types`。
+- MySQLStore 行为验证通过：
+  - 全局禁用 `qa` 后不能创建 `question`。
+  - 子站 1 禁用 `qa` 后仅子站 1 不能创建 `question`，子站 2 仍可创建。
+  - `qa_questions` failed migration 阻断全局启用和子站启用，retry 成功后恢复。
+  - 全局与子站插件配置保存执行 `config_schema` 校验，非法 enum / integer 类型被拒绝。
+  - Hook 执行记录可通过 `HookExecutions` 查询。
+  - 插件治理审计可通过 `AdminLogsByFilter` 查询。
+- 显式 SQL 升级验证：在 `devhub_upgrade_test` 测试库执行 `001_schema.sql` 后，`004`-`010` 插件迁移脚本连续执行两轮均通过。
+- migration 文件编号检查：`004`-`010` 插件相关迁移编号无冲突，`.down` 文件仅存在于早期 `002/003`，不构成编号冲突。
+
+未完成事项：
+
+- 本轮未模拟生产历史大库数据量、真实备份恢复耗时或跨版本业务数据污染场景。
+- MySQL 集成测试默认跳过，需要显式准备测试库并设置 `DEVHUB_MYSQL_TESTS=1`。
+- 插件 migration runner 仍是内置 up/no-op 记录型 runner，不支持 migration down、硬回滚或迁移前自动备份。
+
+新发现风险：
+
+- 老库手动升级仍需严格在备份后执行，并优先在预发测试库跑 `001_schema.sql` + `004`-`010` 验证；虽然本轮修复了 004/005 幂等性，但早期非插件迁移仍不代表完整迁移框架。
+- 手动 SQL 升级只补结构，内置插件定义、默认 `community_plugins` 回填仍依赖应用启动时 `seedPlugins` / 启动迁移辅助进行兜底。
+
+已执行检查命令和结果：
+
+- `gofmt -w internal/service/mysql_integration_test.go`：通过。
+- `go test ./internal/service`：通过。
+- `docker compose -f docker-compose.dev.yml up -d mysql`：通过，启动本地 MySQL 测试容器。
+- `DEVHUB_MYSQL_TESTS=1 DB_HOST=127.0.0.1 DB_PORT=3307 DB_USER=devhub DB_PASSWORD=Devhub_123456 DB_NAME=devhub_test go test ./internal/service -run TestMySQLStorePluginPlatformConsistency -count=1 -v`：通过。
+- `docker compose ... mysql devhub_upgrade_test < db/mysql/001_schema.sql`：通过。
+- `004_community_plugins.sql` 到 `010_hook_executions.sql` 在 `devhub_upgrade_test` 测试库连续执行两轮：通过。
+- `go test ./...`：通过。
+- `go build -o .devhub/devhub .`：通过。
+- `docker compose run --rm admin-e2e npm run build`：通过；仍有既有 Vite chunk size warning，不影响构建结果。
+- `./scripts/check-frontend.sh --quick`：通过，前后台容器构建通过；日志目录 `.devhub/checks/20260511-194101/`。
+- `git diff --check`：通过。
+
+失败项或跳过项及原因：
+
+- MySQL 集成测试首次失败一次，原因是测试断言只匹配“类型”，而实际后端错误为“必须是 integer”；功能正确，已修正断言并复跑通过。
+
+影响范围：
+
+- API：无新增生产 API；补充 MySQLStore / 老库升级验收说明。
+- 数据库：修复 `004` / `005` 插件迁移脚本幂等性；不做破坏性迁移。
+- 权限：无权限模型变更；验证 MySQLStore 下插件 create 权限链路依旧由 Service 强校验。
+- SEO：无 SEO 路由变更；本轮未发现插件禁用影响历史内容访问的 MySQLStore 差异。
+- 插件系统：补齐 MySQLStore 与 MemoryStore 在插件状态、迁移、Hook、审计、配置校验关键链路上的一致性验证。
+- 前后台 UI：无 UI 代码变更。
+
+下一轮建议：
+
+1. 继续补插件内容治理操作权限矩阵和完整 RBAC 分配 UI。
+2. 若准备生产升级，基于本轮命令在预发库执行一次完整备份、升级、启动、回滚演练。
+
+### 2026-05-11：收口 v1.3.4 插件异常治理，并规划 P1 插件体验增强边界
+
+修改范围：
+
+- 后端：`internal/domain/models.go`、`internal/service/service.go`、`internal/store/memory.go`、`internal/store/mysql.go`、`internal/transport/httpapi/router.go`、`internal/service/hookbus_test.go`。
+- 后台：`web/admin-app/src/components/plugin/PluginDetailDrawer.vue`、`web/admin-app/src/views/Plugins.vue`、`web/admin-app/tests/e2e/plugin-governance.spec.js`。
+- 文档：`docs/API.md`、`docs/PLUGIN_ARCHITECTURE.md`、`docs/TESTING.md`、`docs/releases/v1.3.4.md`、`CHANGELOG.md`、`docs/PROJECT_PROGRESS.md`。
+
+已完成事项：
+
+- 收口 v1.3.4 已完成能力：failed migration 注入与启用阻断、HookBus blocking / non-blocking 失败注入、插件权限矩阵、MySQLStore / 老库升级专项、插件健康状态和插件审计筛选。
+- 插件健康摘要新增 `status_reason`，后台运行状态 Tab 可以展示主要异常原因。
+- 健康状态补充 `hook_warning` / `hook_error`：Hook 失败存在时进入 warning，当前失败次数达到轻量阈值（`>= 3`）时进入 hook error。
+- 插件审计筛选增强：插件详情审计接口和通用审计接口支持 `plugin_code`、`community_id`、`action`、`actor`、`target_type`、`target_id`、`metadata`、`request_id`、时间范围等筛选条件。
+- Hook 失败审计把 Hook metadata 写入 `metadata_json.hook_metadata`，便于按 request_id / metadata 定位异常。
+- MemoryStore 与 MySQLStore 的审计筛选口径同步；MemoryStore 额外兼容 `site=community:<id>` 的 community_id 过滤。
+- 后台插件详情“审计”Tab 增加 actor、target、metadata、request_id 和时间范围筛选；插件列表与运行状态 badge 识别 `hook_warning` / `hook_error`。
+- 后台插件详情审计筛选补充稳定 `data-testid` 包裹节点，避免 Element Plus 内部 DOM 结构导致 E2E 选择器漂移。
+- 后台插件治理 E2E 的 `beforeEach` 增加 `qa_answers` migration retry，避免健康状态因待处理迁移误判而污染用例。
+- `docs/TESTING.md` 新增 v1.3.4 测试矩阵收口，按“已自动化 / 部分自动化 / 手工验证 / 未覆盖 / 跳过项及原因”归档。
+- `docs/API.md` 明确插件迁移 API、Hook 执行记录 API、插件健康字段、插件审计筛选参数和权限错误返回格式。
+- `docs/PLUGIN_ARCHITECTURE.md` 明确生命周期、迁移治理、Hook 治理、权限矩阵、健康状态、审计定位和 MySQLStore 注意事项。
+- `docs/releases/v1.3.4.md` 从草稿口径调整为 v1.3.4 Release Notes，并补充健康状态、审计定位、已知限制和 P1 边界。
+
+测试覆盖结果：
+
+- 已自动化：迁移失败阻断 / retry、Hook blocking / non-blocking 异常、插件权限矩阵、MySQLStore 专项、健康状态来源和审计筛选核心组合。
+- 部分自动化：`hook_warning` / `hook_error` UI、插件审计筛选 UI、`config_invalid` 持久状态、MySQLStore 浏览器 / SEO 矩阵。
+- 手工验证：生产大库升级演练、多子站多账号插件导航/版主菜单视觉矩阵、后台插件详情大数据量可读性。
+- 未覆盖：HookBus Update/Delete/Search/Notification/SEO 异常注入矩阵、Hook 重试/告警、插件内容治理批量操作权限矩阵、深层配置 diff 和自动表单。
+- 跳过项：插件市场、插件上传、远程安装、Go 动态加载、第三方沙箱、migration down、硬回滚和具体业务插件闭环不属于 v1.3.4 范围。
+
+P1 规划边界：
+
+- P1 只规划，不在本轮实现：`config_schema` 自动表单、插件 SDK / 模板、插件内容治理页批量操作、Docs / Wiki 专用体验、插件搜索 / 通知 / SEO 扩展。
+- P1 不包含插件市场、插件上传安装、远程安装、在线更新、Go 动态加载或第三方插件沙箱。
+
+未完成事项：
+
+- HookBus 的 Update/Delete/Search/Notification/SEO 异常注入矩阵仍待补。
+- 插件内容治理操作权限矩阵、完整 RBAC 分配 UI 和 category 级权限配置仍待后续。
+- MySQL 生产大库备份、回滚、耗时和历史 SEO 预发演练仍待后续。
+- `config_schema` 自动表单、深层 diff、配置版本与回滚仍待 P1。
+
+新发现风险：
+
+- 插件健康状态当前是轻量摘要，不是完整监控系统；`hook_error` 阈值后续如果接入告警策略，需要重新校准。
+- 审计筛选目前基于文本 / JSON 字段 LIKE 或内存匹配；生产大规模审计日志需要索引、归档和查询性能专项。
+- E2E 注入失败迁移和 Hook 失败会改变全局状态，必须保持 serial 和 finally 恢复，避免污染后续测试。
+
+已执行检查命令和结果：
+
+- `gofmt -w internal/domain/models.go internal/service/service.go internal/store/memory.go internal/store/mysql.go internal/transport/httpapi/router.go internal/service/hookbus_test.go`：通过。
+- `go test ./...`：通过。
+- `go build -o .devhub/devhub .`：通过。
+- `bash -n dev.sh`：通过。
+- `bash -n scripts/check-frontend.sh`：通过。
+- `./scripts/check-frontend.sh --quick`：通过，日志目录 `.devhub/checks/20260511-201304/`。
+- `./scripts/check-frontend.sh --admin-only`：通过，后台 build 通过，后台 E2E `18 passed`，日志目录 `.devhub/checks/20260511-203009/`。
+- `./scripts/check-frontend.sh --frontend-only`：通过，前台 build 通过，前台 E2E `14 passed`，日志目录 `.devhub/checks/20260511-203051/`。
+- `git diff --check`：通过。
+
+失败项或跳过项及原因：
+
+- 后台 E2E 首轮曾失败在插件健康 / 审计筛选用例：原因分别是健康基线受 QA 历史 Hook 失败污染、迁移错误文案断言过窄、`hook_status` UI 展示为 `warning/error` 而非完整枚举、Element Plus 组件 `data-testid` 不稳定、审计筛选组合过度依赖 community scope。已分别修正为 docs 健康基线、宽松迁移原因断言、真实 UI 文案断言、稳定 wrapper 选择器，以及 UI 筛选反馈 + API 精确断言组合。
+- `./scripts/check-frontend.sh --quick` 与前后台 E2E 均出现 Docker Compose orphan `sns-mysql-1` 警告；不影响检查结果，可后续用 `--remove-orphans` 清理。
+- 后台 Vite build 仍提示部分 chunk 超过 500 kB；这是既有打包体积警告，不影响本轮通过，后续可在前端性能专项处理。
+- 前台 Astro build 输出 telemetry 提示；不影响构建和 E2E。
+
+影响范围：
+
+- API：插件审计筛选参数口径扩展；`GET /api/v1/admin/plugins` 的 `health` 增加 `status_reason`。
+- 数据库：无新增 schema；复用 `admin_logs`、`hook_executions` 和 `plugin_migrations`。
+- 权限：无权限模型变更；文档继续明确 `post.create` 只是兼容桥。
+- SEO：无 SEO 行为变更；禁用插件不影响历史内容和 `/topics/:id` 动态 SEO。
+- 插件系统：v1.3.4 异常治理能力收口，并明确 P1 体验增强边界。
+- 前后台 UI：后台插件详情审计筛选和运行状态展示增强；前台 UI 无变更。
+
+下一轮建议：
+
+1. 进入 P1 前先补 HookBus Update/Delete/Search/Notification/SEO 异常注入矩阵，降低后续扩展风险。
+2. 再做插件内容治理操作权限矩阵和批量操作边界。
+3. 最后推进 `config_schema` 自动表单和插件 SDK / 模板，避免 UI 体验先行但平台契约不稳。

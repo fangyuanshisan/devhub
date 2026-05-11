@@ -186,6 +186,7 @@ type PluginHealth struct {
 	DependencyStatus       string `json:"dependency_status"`
 	RecentError            string `json:"recent_error,omitempty"`
 	SuggestedAction        string `json:"suggested_action,omitempty"`
+	StatusReason           string `json:"status_reason,omitempty"`
 	PendingMigrationsCount int    `json:"pending_migrations_count"`
 	FailedMigrationsCount  int    `json:"failed_migrations_count"`
 	HookFailureCount       int    `json:"hook_failure_count"`
@@ -1095,9 +1096,15 @@ type AdminLogFilter struct {
 	Action      string `json:"action"`
 	Target      string `json:"target"`
 	TargetType  string `json:"target_type"`
+	TargetID    int64  `json:"target_id"`
+	PluginCode  string `json:"plugin_code"`
 	Actor       string `json:"actor"`
 	ActorID     int64  `json:"actor_user_id"`
 	CommunityID int64  `json:"community_id"`
+	Metadata    string `json:"metadata"`
+	RequestID   string `json:"request_id"`
+	StartTime   string `json:"start_time"`
+	EndTime     string `json:"end_time"`
 	Page        int    `json:"page"`
 	PageSize    int    `json:"page_size"`
 }

@@ -2,7 +2,7 @@
 
 [返回文档入口](README.md)
 
-更新时间：2026-05-11（v1.3.3 插件平台治理收口）
+更新时间：2026-05-11（v1.3.4 插件异常治理与验收闭环）
 
 本文档只记录当前仓库真实可用 API。接口路径以 `internal/transport/httpapi/router.go` 为准；未实现能力集中放在“规划 / 未完成”小节，不写入当前真实 API 主体。
 
@@ -13,11 +13,12 @@
 - 前台用户 token：`token_type=user`，用于发帖、评论、关注、举报、用户中心和 `/api/v1/moderator/*`。
 - 后台管理员 token：`token_type=admin`，用于 `/api/v1/admin/*`。
 - 错误响应：`{"error":"错误信息"}`。
+- 权限错误统一返回 `403`，典型格式为 `{"error":"无权限"}` 或 `{"error":"缺少权限 <permission_code>，不能创建该类型内容"}`；插件内容创建必须以 `ContentTypeDefinition.create_permission` 为准，`post.create` 只作为 `core.topic.create` 的历史兼容桥。
 - 分页参数：`page`、`page_size`，默认按接口实现处理，建议 `page_size <= 50`。
 
 ## 插件 API
 
-说明：后台全局插件管理页、子站插件配置抽屉和版主插件菜单均继续使用本节现有接口。2026-05-11 插件系统专项验收未新增 API，也未改变返回字段语义；验收重点是确认现有插件启停、impact、config、Hook、audit、migration 和通用插件内容治理接口可支撑后台治理中心与 E2E 回归。
+说明：后台全局插件管理页、子站插件配置抽屉和版主插件菜单均继续使用本节现有接口。2026-05-11 插件系统专项验收未新增 API，也未改变返回字段语义；验收重点是确认现有插件启停、impact、config、Hook、audit、migration 和通用插件内容治理接口可支撑后台治理中心与 E2E 回归。2026-05-11 MySQLStore / 老库升级专项同样未新增生产 API，验证的是 MySQLStore 下这些接口背后的状态、迁移、Hook、审计与配置校验链路和 MemoryStore 口径一致。
 
 ### 全局插件 API
 
@@ -58,10 +59,11 @@
 
 ```json
 {
-  "status": "warning",
+  "status": "hook_warning",
+  "status_reason": "存在 Hook 失败记录",
   "config_status": "valid",
   "migration_status": "ok",
-  "hook_status": "warning",
+  "hook_status": "hook_warning",
   "dependency_status": "ok",
   "recent_error": "qa 插件仅允许创建 question",
   "suggested_action": "查看 Hooks Tab 的最近失败记录",
@@ -71,6 +73,19 @@
   "last_hook_error": "qa 插件仅允许创建 question"
 }
 ```
+
+健康状态当前支持：
+
+- `healthy`：配置、迁移、依赖和 Hook 摘要均正常。
+- `disabled`：全局插件已禁用，只影响新发布和入口展示，不影响历史内容。
+- `config_invalid`：插件配置未通过 `config_schema` 校验或被显式标记为配置无效。
+- `migration_pending`：存在待处理迁移记录；当前内置 no-op pending 不阻断启用，但会提示治理风险。
+- `error`：存在 failed migration 等阻断性异常。
+- `dependency_missing`：依赖插件缺失或未启用。
+- `hook_warning`：存在 Hook 失败记录，但尚未达到错误阈值。
+- `hook_error`：Hook 失败次数达到当前轻量阈值（当前为失败次数 `>= 3`）。
+
+说明：`health.status_reason` 会返回当前主要状态原因，供后台运行状态 Tab 展示。该健康摘要是轻量治理提示，不是完整监控系统。
 
 `POST /api/v1/admin/plugins/:code/enable`
 
@@ -219,6 +234,44 @@
 - `401 {"error":"未登录"}`
 - `403 {"error":"无权限"}`
 
+`POST /api/v1/admin/plugins/:code/hooks/:name/e2e-fail`
+
+- 认证：后台 admin token。
+- 权限：`plugin.write`。
+- 用途：仅用于 E2E / API 测试注入 Hook 失败，验证 blocking / non-blocking Hook 异常治理闭环。
+- 启用条件：仅在 `DEVHUB_E2E_TESTING=1` 或 `CMS_STORE=memory` 的测试 / 开发环境可用；生产环境不应依赖该接口。
+- 请求：
+
+```json
+{
+  "mode": "blocking",
+  "error_message": "E2E blocking hook failure"
+}
+```
+
+- 清除注入：
+
+```json
+{
+  "clear": true
+}
+```
+
+- 行为：
+  - `BeforeCreateContent` 等 blocking Hook 注入失败后，内容创建会被后端阻断，不写入脏数据，并写入 `hook_executions`。
+  - `AfterCreateContent` 等 non-blocking Hook 注入失败后，主流程继续，内容仍可创建，并写入 `hook_executions`。
+  - blocking 失败写入 `plugin.hook.blocked` 审计；non-blocking 失败写入 `plugin.hook.failed` 审计。
+  - 注入 / 清除操作本身写入 `plugin.hook.test_injection` 审计。
+- 说明：这是测试 helper，不是普通生产治理接口；真实 Hook 失败由内置 HookBus handler 返回错误产生。
+
+常见错误：
+
+- `404 {"error":"测试 Hook 注入接口未启用"}`
+- `404 {"error":"插件不存在"}`
+- `400 {"error":"hook mode 不合法"}`
+- `401 {"error":"未登录"}`
+- `403 {"error":"无权限"}`
+
 `GET /api/v1/admin/plugins/:code/audit-logs`
 
 - 认证：后台 admin token。
@@ -229,6 +282,14 @@
   - `action`：可选，按动作关键字模糊过滤。
   - `type`：可选，默认 `all`。
   - `actor_type`：可选。
+  - `actor`：可选，按 `actor_type` 模糊过滤。
+  - `actor_user_id`：可选，按 `actor_id` 精确过滤。
+  - `target_type`：可选，按 target 文本中的 target type 片段过滤。
+  - `target_id`：可选，按 target 文本中的 target id 片段过滤。
+  - `plugin_code`：可选，默认使用路径中的 `code`，同时匹配 target / metadata / old_value / new_value。
+  - `metadata`：可选，按 `metadata_json` 关键字过滤。
+  - `request_id`：可选，按 `metadata_json` 里的 request id 或 request id 字符串过滤。
+  - `start_time`、`end_time`：可选，按 `created_at` 字符串时间范围过滤。
   - `target`：可选，默认使用插件 code 模糊匹配。
   - `page`、`page_size`：分页参数。
 - 返回：`domain.PageResponse`，items 为 `AdminLog`，包含 `old_value`、`new_value`、`metadata_json`。
@@ -246,9 +307,10 @@
       "actor_id": 1,
       "action": "更新插件状态",
       "target": "plugins#qa",
+      "site": "community:1",
       "old_value": "{\"status\":\"enabled\"}",
       "new_value": "{\"status\":\"disabled\"}",
-      "metadata_json": "{\"scope\":\"global\",\"plugin_code\":\"qa\",\"operation\":\"plugin_status\"}",
+      "metadata_json": "{\"scope\":\"global\",\"plugin_code\":\"qa\",\"operation\":\"plugin_status\",\"request_id\":\"req-xxx\"}",
       "created_at": "2026-05-11 16:00:00"
     }
   ],
@@ -317,11 +379,30 @@
 - 行为：如果该 migration 已是 `success`，接口返回现有成功记录，不重复破坏数据。
 - 审计：写入 `plugin.migration.retry` 与 `plugin.migration.success`；失败写入 `plugin.migration.failed`。
 
+`POST /api/v1/admin/plugins/:code/migrations/:name/e2e-fail`
+
+- 认证：后台 admin token。
+- 权限：`plugin.write`。
+- 用途：仅用于 E2E / API 测试构造 failed migration，验证失败迁移阻断全局启用和子站启用。
+- 启用条件：仅在 `DEVHUB_E2E_TESTING=1` 或 `CMS_STORE=memory` 的测试 / 开发环境可用；生产 MySQL 环境不应依赖该接口。
+- 请求：
+
+```json
+{
+  "error_message": "E2E forced migration failure"
+}
+```
+
+- 行为：写入或覆盖该内置 migration 的 `failed` 记录；随后 `POST /api/v1/admin/plugins/:code/enable` 与 `POST /api/v1/admin/communities/:id/plugins/:code/enable` 都会被 Service readiness 拦截。
+- 审计：写入 `plugin.migration.failed`，`metadata_json.operation=plugin_migration_test_injection`。
+- 说明：这是测试 helper，不是普通生产治理接口；真实生产失败由 migration runner 写入。
+
 常见错误：
 
 - `404 {"error":"插件不存在"}`
 - `400 {"error":"迁移不存在"}`
 - `400 {"error":"当前仅支持 up migration"}`
+- `404 {"error":"测试迁移注入接口未启用"}`
 - `401 {"error":"未登录"}`
 - `403 {"error":"无权限"}`
 
@@ -467,6 +548,9 @@
 
 常见错误：
 
+- `403 {"error":"缺少权限 qa.question.create，不能创建该类型内容"}`
+- `403 {"error":"缺少权限 docs.document.create，不能创建该类型内容"}`
+- `403 {"error":"缺少权限 wiki.page.create，不能创建该类型内容"}`
 - `400 {"error":"内容类型不能为空"}`
 - `400 {"error":"内容类型不合法"}`
 - `400 {"error":"插件全局未启用"}`
@@ -583,8 +667,8 @@
 - `v1.3.4` 的优先级是插件异常治理与验收闭环，不新增插件市场或动态加载 API。
 - 插件迁移方向：补 failed migration 注入、启用阻断、retry 恢复和审计定位的 API / E2E；现有 `GET /api/v1/admin/plugins/:code/migrations`、`POST /api/v1/admin/plugins/:code/migrations/run`、`POST /api/v1/admin/plugins/:code/migrations/:name/retry` 需要覆盖失败与恢复场景。
 - HookBus 方向：补 blocking / non-blocking Hook 失败注入、`hook_executions` 可见性、后台 Hooks Tab 断言和审计定位；不引入第三方 Hook、远程 Hook 或 Webhook。
-- 权限矩阵方向：继续确保内容创建、后台创建、版主菜单和插件内容治理都按 `ContentTypeDefinition.create_permission` 与插件权限码判断；`post.create` 仍只是历史兼容桥。
-- MySQLStore 方向：补老库升级和 MySQLStore 下插件迁移、Hook 执行、审计、全局 / 子站启停、历史 SEO 的专项验收。
+- 权限矩阵：内容创建、后台创建、版主菜单均按 `ContentTypeDefinition.create_permission` 与插件权限码判断；API 测试已覆盖 `post.create` 只能桥接 `core.topic.create`，不能替代 `qa/docs/wiki/projects/jobs/ai_works` 的 create 权限。后续仍需补更细 RBAC 分配 UI 与插件内容治理操作矩阵。
+- MySQLStore 方向：老库升级和 MySQLStore 下插件迁移、Hook 执行、审计、全局 / 子站启停、配置 schema 校验已完成专项验证；后续继续补生产大库备份 / 回滚演练和历史 SEO 的 MySQL 端完整浏览器矩阵。
 
 ## 当前真实 API 索引
 
@@ -715,6 +799,25 @@ GET  /api/v1/admin/audit-logs
 - `new_value`：操作后 JSON diff，例如新状态或新配置。
 - `metadata_json`：操作上下文，例如 `plugin_code`、`community_id`、`operation`。
 
+当前通用审计接口支持的筛选参数包括：
+
+- `type`
+- `actor_type`
+- `actor`
+- `actor_user_id`
+- `action`
+- `target`
+- `target_type`
+- `target_id`
+- `plugin_code`
+- `community_id`
+- `metadata`
+- `request_id`
+- `start_time`
+- `end_time`
+- `page`
+- `page_size`
+
 说明：非插件历史日志可能仍只有 `target` 文本摘要。
 
 版主工作台：
@@ -767,11 +870,33 @@ GET /sitemap.xml
 GET /robots.txt
 ```
 
+## MySQLStore / 老库升级验收说明
+
+本轮没有新增专用生产 API；MySQLStore 专项通过可选集成测试和 SQL 升级脚本验证现有插件 API 的真实后端能力。
+
+已验证范围：
+
+- 新装 schema 包含 `plugins`、`community_plugins`、`plugin_migrations`、`hook_executions`、结构化 `admin_logs`。
+- 老库升级字段包含 `topics.plugin_code`、`categories.plugin_code`、`categories.allowed_content_types`。
+- MySQLStore 下全局禁用插件会阻断对应 `content_type` 创建。
+- MySQLStore 下子站禁用插件只阻断该子站创建，其他子站不受影响。
+- failed migration 会阻断全局启用和子站启用，retry 成功后可恢复。
+- Hook 执行记录可查询，插件治理审计可查询。
+- 全局 / 子站插件配置保存都会执行后端 `config_schema` 校验。
+
+建议验证命令：
+
+```bash
+docker compose -f docker-compose.dev.yml up -d mysql
+docker compose -f docker-compose.dev.yml exec -T mysql mysql -uroot -pDevhub_root_123456 -e "DROP DATABASE IF EXISTS devhub_test; CREATE DATABASE devhub_test CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci; GRANT ALL PRIVILEGES ON devhub_test.* TO 'devhub'@'%'; FLUSH PRIVILEGES;"
+DEVHUB_MYSQL_TESTS=1 DB_HOST=127.0.0.1 DB_PORT=3307 DB_USER=devhub DB_PASSWORD=Devhub_123456 DB_NAME=devhub_test go test ./internal/service -run TestMySQLStorePluginPlatformConsistency -count=1 -v
+```
+
 ## 规划 / 未完成
 
 以下内容不是当前真实可用 API：
 
-- v1.3.4 / P0：插件迁移失败注入、启用阻断、retry 恢复、HookBus blocking / non-blocking 失败注入、权限矩阵收口和 MySQLStore / 老库升级专项验收。
+- P0：插件内容治理操作矩阵、完整 RBAC 分配 UI、community / category 级权限配置和更细错误码。
 - P0：`config_schema` 结构化错误响应、更完整 JSON Schema 能力和配置 diff / 版本 API。
 - P0/P1：HookBus 告警、失败重试、更多业务处理器、插件搜索 / 通知 / SEO 扩展 API。
 - P1：插件 SDK / 开发规范、插件生成模板、插件依赖检查、插件版本兼容检查。

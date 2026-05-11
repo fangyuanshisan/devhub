@@ -29,6 +29,7 @@
 - `GET /api/v1/admin/plugins/:code/migrations` 可列出内置插件 migration 声明、执行状态、失败原因和 summary。
 - `POST /api/v1/admin/plugins/:code/migrations/run` 可执行该插件全部待处理 migration，并写入 `plugin.migration.run` / `plugin.migration.success` / `plugin.migration.failed` 审计。
 - `POST /api/v1/admin/plugins/:code/migrations/:name/retry` 可执行或重试单条 migration，并写入 `plugin.migration.retry` / `plugin.migration.success` / `plugin.migration.failed` 审计。
+- `POST /api/v1/admin/plugins/:code/migrations/:name/e2e-fail` 仅在 `DEVHUB_E2E_TESTING=1` 或 `CMS_STORE=memory` 可用于 E2E/API 测试注入 failed migration；注入后全局启用和子站启用必须被后端阻断。
 - 已经 `success` 的 migration 再次执行不会重复破坏数据，应返回现有成功记录或保持 success。
 - `PUT /api/v1/admin/plugins/:code/config` 可以保存合法 JSON，非法 JSON 应返回 400，并写入审计日志。
 - `PUT /api/v1/admin/plugins/:code/config` 缺少 required、enum 非法、type 错误、integer 非整数、数字越界时应返回 400。
@@ -157,6 +158,7 @@ HookBus 最小检查：
 - 创建 Topic 时触发 `BeforeCreateContent` 和 `AfterCreateContent`。
 - `BeforeCreateContent` blocking hook 返回错误时阻断创建，并写入 `hook_executions` 与 `plugin.hook.blocked` 审计。
 - `AfterCreateContent` non-blocking hook 返回错误时不阻断主流程，并写入 `hook_executions` 与 `plugin.hook.failed` 审计。
+- `POST /api/v1/admin/plugins/:code/hooks/:name/e2e-fail` 仅在 `DEVHUB_E2E_TESTING=1` 或 `CMS_STORE=memory` 可用于 E2E/API 测试注入 Hook 失败；自动化覆盖 blocking 失败阻断创建、non-blocking 失败不阻断创建、执行记录查询、审计定位和后台 Hooks Tab 失败摘要。
 - 插件详情 Hooks Tab 能展示执行次数、失败次数、失败率、平均耗时、最近执行、最近失败和最近错误。
 - 插件详情“运行状态”Tab 能展示 overall、config_status、migration_status、hook_status、dependency_status、pending/failed migrations、hook failures、recent_error 和 suggested_action。
 - 插件详情“迁移”Tab 能展示 migration 列表、状态、最近执行时间、失败原因、rollback_supported 标识，并提供执行/重试入口。
@@ -289,6 +291,7 @@ docker compose run --rm frontend-e2e
 - 用户中心联动：`/notifications`、`/me/activities`、`/me/favorites`、`/me/follows` 登录态访问。
 - 登录发布流程：必填校验、发布 `article` 成功并打开新详情页。
 - 插件状态联动：临时启用 QA 板块后验证 `question` 可选；全局禁用 `qa` 后发布页隐藏入口，API 强传 `question` 被拒绝，非法 `content_type` 被拒绝，历史 `/topics/:id` SEO 仍可访问；测试结束恢复插件和板块状态。
+- 插件迁移异常联动：后台 E2E 通过测试 helper 注入 `qa_questions` failed migration，验证全局启用和子站启用被后端阻断，迁移 Tab 能看到失败原因，retry 后迁移变为 success，插件恢复启用，审计可查到 `plugin.migration.failed/retry/success`。
 - 版主工作台边界：普通前台用户访问 `/moderator*` 无权限；PHP 版主可访问授权页面；API 强传 Go 子站 `community_id` 被 403 拦截。
 - `/tags/go/` 与 `/c/php/tags/laravel/` 标签页打开，并检查 canonical 基础 SEO 元素。
 
@@ -303,14 +306,11 @@ docker compose run --rm frontend-e2e
 - 前台发布页按全局插件状态和当前板块状态已有浏览器覆盖；仍需继续补“子站 A 禁用 / 子站 B 启用”的跨子站矩阵。
 - 子站导航按插件状态显示仍需继续做多子站浏览器验收。
 - 版主菜单按子站插件状态和权限过滤已有 PHP 版主基础覆盖；仍需继续补多版主账号、多子站插件启停组合和 UI 操作。
-- MySQL 老库执行 `db/mysql/migrations/004_community_plugins.sql` 后，需要补测历史板块与历史内容兼容。
+- MySQL 老库插件平台结构与核心行为已通过专项验证；仍需在接入真实生产数据前做预发库备份 / 回滚演练和历史内容 SEO 的 MySQL 端浏览器矩阵。
 
 ## 待实现后补测
 
-- v1.3.4 / P0：插件迁移失败注入、启用阻断、retry 恢复、审计定位和后台迁移 Tab 可见性。
-- v1.3.4 / P0：HookBus blocking / non-blocking 失败注入，覆盖主流程阻断、非阻断失败不影响主流程、`hook_executions` 记录、后台 Hooks Tab 可见性和审计定位。
-- v1.3.4 / P0：插件权限矩阵继续收口，覆盖缺少对应 create 权限时前台发布 / 后台创建 / 版主菜单均被拒绝或隐藏。
-- v1.3.4 / P0：MySQLStore / 老库升级专项，覆盖 `plugins`、`community_plugins`、`plugin_migrations`、`hook_executions`、`admin_logs` 和历史 SEO 安全。
+- 插件权限矩阵后续补测：缺少对应 create 权限时前台发布 / 后台创建 / 版主菜单均被拒绝或隐藏的更多角色组合。
 - 更细粒度的权限体系补测：例如 Core 兼容类型 `article` / `news` 的细分权限码、按子站/板块维度配置权限矩阵与更明确的错误码（当前发布链路已实现最小权限码校验）。
 - Projects / Jobs / AI Works 的专属扩展表、专属管理页和完整业务流程。
 - P0：HookBus 的完整业务处理器、关键 Hook 事务回滚、非关键 Hook 统一错误日志和重试策略。
@@ -345,13 +345,15 @@ P0 已实现或必测：
 - disabled 插件历史内容访问：`/topics/:id` 不返回 404。
 - `/topics/:id` SEO 动态 HTML：title、description、h1、article、标签、JSON-LD 不丢失。
 - migration 新装 / 老库升级：`001_schema.sql`、`internal/store/schema.go` 和 migrations 字段口径一致。
+- v1.3.4 MySQLStore 专项：可选集成测试已覆盖 `plugins`、`community_plugins`、`plugin_migrations`、`hook_executions`、`admin_logs` 新装结构，`topics.plugin_code`、`categories.plugin_code`、`categories.allowed_content_types` 升级字段，全局 / 子站插件启停强拦截、failed migration 阻断与 retry、Hook 记录、插件审计查询和 config_schema 校验。
+- v1.3.4 插件迁移异常链路：failed migration 阻断全局启用和子站启用，retry 成功后恢复启用，已 success 的 migration 不重复破坏数据，审计可定位，后台迁移 Tab 可见失败原因。
+- v1.3.4 插件权限矩阵链路：`ContentTypeDefinition.create_permission` 已覆盖 question/document/wiki_page/project/job/ai_work/core；`post.create` 只桥接 `core.topic.create`，不能创建插件内容；普通前台 token 不能调用插件治理 API；版主插件菜单继续受全局状态、子站状态、community scope 和插件权限过滤。
 
 P0 待实现 / 待补测：
 
-- v1.3.4 插件迁移异常链路：failed migration 阻断全局启用和子站启用，retry 成功后恢复启用，已 success 的 migration 不重复破坏数据，审计可定位。
-- v1.3.4 HookBus 异常链路：blocking Hook 失败阻断创建 / 更新，non-blocking Hook 失败不阻断主流程，两者均写入 `hook_executions` 和审计，后台 Hooks Tab 可见。
-- v1.3.4 权限矩阵链路：缺少插件 create 权限时前台发布、后台创建和插件内容治理应失败；`post.create` 只作为 `core.topic.create` 兼容桥。
-- v1.3.4 MySQLStore 链路：老库升级后插件启停、配置校验、迁移记录、Hook 记录、审计和历史 SEO 与 MemoryStore 一致。
+- HookBus 更多事件矩阵：v1.3.4 已自动化覆盖创建链路的 blocking / non-blocking 失败注入、`hook_executions`、审计和后台 Hooks Tab；更新 / 删除 / Search / Notification / SEO 仍需补更多异常矩阵。
+- 权限矩阵后续补测：后台插件内容治理的细粒度操作权限、完整 RBAC 分配 UI、community / category 级权限配置仍需后续覆盖。
+- MySQLStore 后续矩阵：插件平台结构和核心 Service 行为已自动化验证；仍需补真实 MySQL 服务下 `/topics/:id`、`/c/:slug` SEO 浏览器 / curl 矩阵和生产大库升级演练。
 - `config_schema` 浏览器矩阵：后端强校验已接入，仍需补更多真实浏览器错误提示、深层 diff 和完整 JSON Schema 不支持场景。
 - HookBus 业务处理器：Create / Update / Delete / Search / Notification / SEO 不仅能派发事件，还要继续补更多插件处理器、告警和重试策略验收。
 - 插件 migration runner：当前已支持内置插件 up/no-op 查询、执行、失败记录、重试和后台迁移 Tab；真实 rollback、down migration、迁移前备份仍待后续。
@@ -361,6 +363,92 @@ P1 / P2 / P3 后续验收：
 
 - P1：schema 自动表单、插件 SDK 文档、插件生成模板、依赖检查、版本兼容检查、插件搜索 / 通知 / SEO 扩展。
 - P2：本地插件包、插件安装、插件升级、soft uninstall、插件 migration runner、插件包签名校验、插件市场雏形。
+
+## v1.3.4 插件异常治理测试矩阵收口
+
+本节用于归档 v1.3.4 的真实覆盖状态。分类含义：
+
+- 已自动化：已有 Go 测试或 Playwright E2E，并在本阶段执行过或纳入最低检查。
+- 部分自动化：已有 API / 单元测试或单一路径 E2E，但未覆盖完整角色 / Store / 浏览器矩阵。
+- 手工验证：已有明确命令或页面步骤，但本阶段未完整自动化。
+- 未覆盖：尚无稳定测试保护，需后续补测。
+- 跳过项：本阶段明确不做或缺少环境。
+
+已自动化：
+
+- 插件迁移失败注入与启用阻断：API 测试和后台 E2E 覆盖 failed migration、全局启用阻断、子站启用阻断、retry 恢复、success 不重复破坏和审计定位。
+- HookBus 异常链路：API 测试和后台 E2E 覆盖 `BeforeCreateContent` blocking 失败阻断、`AfterCreateContent` non-blocking 失败不阻断、`hook_executions` 查询、审计定位和 Hooks Tab 失败摘要。
+- 插件权限矩阵：Go/API 测试覆盖 `question/document/wiki_page/project/job/ai_work/article/news` 的 create permission 映射、`post.create` 只能桥接 `core.topic.create`、普通前台 token 不能访问插件治理 API。
+- MySQLStore 专项：可选集成测试覆盖新装结构、升级字段、全局/子站启停强拦截、failed migration 阻断与 retry、Hook 记录、插件治理审计查询和 `config_schema` 校验。
+- 插件健康状态：Go 测试覆盖 `healthy`、`config_invalid`、failed migration `error`、Hook 多次失败 `hook_error`。
+- 审计筛选：Go 测试覆盖 `plugin_code`、`action`、`community_id`、`metadata`、`request_id` 组合筛选；后台 E2E 覆盖插件详情审计 Tab 的 action/community/metadata 查询。
+
+部分自动化：
+
+- `hook_warning` / `hook_error` 前端 UI：后台 E2E 覆盖 Hook 失败后运行状态可见；更多插件、多 Hook 名称、多时间范围组合仍待补。
+- 插件审计筛选 UI：已覆盖插件详情抽屉中的核心筛选；通用 `/admin-next/audit-logs` 的 target_type/target_id/request_id/time range 浏览器矩阵仍待补。
+- `config_invalid` 状态：后端拒绝非法配置并有 Go 测试覆盖显式状态；常规 UI/API 不会持久化非法配置，因此“配置无效持久状态”的浏览器场景仍属于治理预留。
+- MySQLStore 浏览器矩阵：Service 层 MySQL 集成测试已覆盖核心行为；真实 MySQL 服务下 `/topics/:id`、`/c/:slug` SEO 浏览器 / curl 矩阵仍待补。
+
+手工验证：
+
+- 生产大库升级前备份、预发执行 `004`-`010`、启动应用、抽样验证历史内容和回滚预案。
+- 插件禁用后前台导航、发布页和版主菜单在多子站、多账号组合下的视觉矩阵。
+- 后台插件详情的迁移、Hooks、审计、运行状态 Tabs 在慢网和大日志量下的可读性。
+
+未覆盖：
+
+- HookBus Update / Delete / Search / Notification / SEO 的异常注入矩阵。
+- Hook 重试、告警、自动恢复和外部监控。
+- 插件内容治理批量操作权限矩阵和完整 RBAC 分配 UI。
+- 深层 config diff、配置版本、配置回滚和自动表单。
+- 插件 SDK / 模板、插件包、安装、升级、soft uninstall、市场和动态加载。
+
+跳过项及原因：
+
+- 插件市场、插件上传、远程安装、Go 动态加载和第三方沙箱：不属于 v1.3.4 范围。
+- migration down、硬回滚、迁移前自动备份：当前 runner 是内置 up/no-op 记录型 runner，后续 P2/P3 再设计。
+- Projects / Jobs / AI Works 专属业务闭环：当前只验收平台治理归属，不补专属扩展表或专属页面。
+
+## MySQLStore / 老库升级专项命令
+
+用途：验证插件平台在真实 MySQLStore 和老库显式 SQL 升级路径下与 MemoryStore 口径一致。测试必须使用一次性测试库，库名建议包含 `test`。
+
+准备 MySQL 测试库：
+
+```bash
+docker compose -f docker-compose.dev.yml up -d mysql
+docker compose -f docker-compose.dev.yml exec -T mysql mysql -uroot -pDevhub_root_123456 -e "DROP DATABASE IF EXISTS devhub_test; CREATE DATABASE devhub_test CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci; GRANT ALL PRIVILEGES ON devhub_test.* TO 'devhub'@'%'; FLUSH PRIVILEGES;"
+```
+
+运行 MySQLStore 插件平台一致性测试：
+
+```bash
+DEVHUB_MYSQL_TESTS=1 DB_HOST=127.0.0.1 DB_PORT=3307 DB_USER=devhub DB_PASSWORD=Devhub_123456 DB_NAME=devhub_test go test ./internal/service -run TestMySQLStorePluginPlatformConsistency -count=1 -v
+```
+
+验证显式插件迁移 SQL 可重复执行：
+
+```bash
+docker compose -f docker-compose.dev.yml exec -T mysql mysql -uroot -pDevhub_root_123456 -e "DROP DATABASE IF EXISTS devhub_upgrade_test; CREATE DATABASE devhub_upgrade_test CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci; GRANT ALL PRIVILEGES ON devhub_upgrade_test.* TO 'devhub'@'%'; FLUSH PRIVILEGES;"
+docker compose -f docker-compose.dev.yml exec -T mysql mysql -udevhub -pDevhub_123456 devhub_upgrade_test < db/mysql/001_schema.sql
+for round in 1 2; do
+  for f in db/mysql/migrations/004_community_plugins.sql db/mysql/migrations/005_core_plugins.sql db/mysql/migrations/006_plugin_config_json.sql db/mysql/migrations/007_admin_logs_structured_plugin_audit.sql db/mysql/migrations/008_plugin_migrations.sql db/mysql/migrations/009_plugin_status_model.sql db/mysql/migrations/010_hook_executions.sql; do
+    docker compose -f docker-compose.dev.yml exec -T mysql mysql -udevhub -pDevhub_123456 devhub_upgrade_test < "$f"
+  done
+done
+```
+
+已验证范围：
+
+- 新装结构：`plugins`、`community_plugins`、`plugin_migrations`、`hook_executions`、`admin_logs`。
+- 升级字段：`topics.plugin_code`、`categories.plugin_code`、`categories.allowed_content_types`。
+- 行为一致性：全局禁用强拦截、子站禁用仅影响当前子站、failed migration 阻断启用、retry 恢复、Hook 记录查询、插件治理审计查询、配置 schema 校验。
+
+注意：
+
+- 该测试默认跳过，必须显式设置 `DEVHUB_MYSQL_TESTS=1`；测试代码还会拒绝在库名不含 `test` 的数据库上运行。
+- 生产升级仍需备份、预发演练和回滚预案；当前内置 plugin migration 仍是 up/no-op 记录型 runner，不支持 migration down 或硬回滚。
 - P3：远程插件市场、在线更新、动态加载能力评估、插件沙箱、插件权限隔离。
 
 ## 必要历史回归

@@ -2894,6 +2894,16 @@ func (s *MySQLStore) AdminLogsByFilter(filter domain.AdminLogFilter) ([]domain.A
 		where += ` AND target LIKE ?`
 		args = append(args, strings.TrimSpace(filter.TargetType)+"%")
 	}
+	if filter.TargetID > 0 {
+		where += ` AND (target LIKE ? OR target LIKE ?)`
+		idText := strconv.FormatInt(filter.TargetID, 10)
+		args = append(args, "%#"+idText+"%", "%:"+idText+"%")
+	}
+	if strings.TrimSpace(filter.PluginCode) != "" {
+		needle := "%" + strings.TrimSpace(filter.PluginCode) + "%"
+		where += ` AND (target LIKE ? OR COALESCE(CAST(metadata_json AS CHAR),'') LIKE ? OR COALESCE(CAST(old_value AS CHAR),'') LIKE ? OR COALESCE(CAST(new_value AS CHAR),'') LIKE ?)`
+		args = append(args, needle, needle, needle, needle)
+	}
 	if strings.TrimSpace(filter.ActorType) != "" && filter.ActorType != "all" {
 		where += ` AND actor_type=?`
 		args = append(args, strings.TrimSpace(filter.ActorType))
@@ -2921,6 +2931,22 @@ func (s *MySQLStore) AdminLogsByFilter(filter domain.AdminLogFilter) ([]domain.A
 	if strings.TrimSpace(filter.Target) != "" {
 		where += ` AND target LIKE ?`
 		args = append(args, "%"+strings.TrimSpace(filter.Target)+"%")
+	}
+	if strings.TrimSpace(filter.Metadata) != "" {
+		where += ` AND COALESCE(CAST(metadata_json AS CHAR),'') LIKE ?`
+		args = append(args, "%"+strings.TrimSpace(filter.Metadata)+"%")
+	}
+	if strings.TrimSpace(filter.RequestID) != "" {
+		where += ` AND COALESCE(CAST(metadata_json AS CHAR),'') LIKE ?`
+		args = append(args, "%"+strings.TrimSpace(filter.RequestID)+"%")
+	}
+	if strings.TrimSpace(filter.StartTime) != "" {
+		where += ` AND created_at >= ?`
+		args = append(args, strings.TrimSpace(filter.StartTime))
+	}
+	if strings.TrimSpace(filter.EndTime) != "" {
+		where += ` AND created_at <= ?`
+		args = append(args, strings.TrimSpace(filter.EndTime))
 	}
 	var total int
 	_ = s.db.QueryRow(`SELECT COUNT(*) FROM admin_logs`+where, args...).Scan(&total)

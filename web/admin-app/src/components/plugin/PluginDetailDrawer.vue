@@ -76,6 +76,7 @@
             <el-descriptions-item label="hook_failures">{{ plugin.health?.hook_failure_count ?? 0 }}</el-descriptions-item>
             <el-descriptions-item label="updated_at">{{ plugin.health?.updated_at || '-' }}</el-descriptions-item>
             <el-descriptions-item label="recent_error" :span="2">{{ plugin.health?.recent_error || '-' }}</el-descriptions-item>
+            <el-descriptions-item label="status_reason" :span="2">{{ plugin.health?.status_reason || '-' }}</el-descriptions-item>
           </el-descriptions>
         </el-tab-pane>
 
@@ -294,8 +295,31 @@
             class="mb"
           />
           <div class="sub-toolbar">
-            <el-input v-model="auditQ.action" placeholder="动作关键字（可选）" clearable style="max-width: 260px" />
-            <el-input-number v-model="auditQ.communityId" :min="0" placeholder="community_id（可选）" controls-position="right" style="width: 200px" />
+            <span data-testid="plugin-audit-action-filter" class="audit-filter-wrap">
+              <el-input v-model="auditQ.action" placeholder="动作关键字（可选）" clearable style="max-width: 260px" />
+            </span>
+            <span data-testid="plugin-audit-community-filter" class="audit-filter-wrap">
+              <el-input-number v-model="auditQ.communityId" :min="0" placeholder="community_id（可选）" controls-position="right" style="width: 200px" />
+            </span>
+            <el-input v-model="auditQ.actor" placeholder="actor（可选）" clearable style="max-width: 180px" />
+            <el-input v-model="auditQ.targetType" placeholder="target_type（可选）" clearable style="max-width: 180px" />
+            <span data-testid="plugin-audit-target-filter" class="audit-filter-wrap">
+              <el-input-number v-model="auditQ.targetId" :min="0" placeholder="target_id（可选）" controls-position="right" style="width: 180px" />
+            </span>
+            <span data-testid="plugin-audit-metadata-filter" class="audit-filter-wrap">
+              <el-input v-model="auditQ.metadata" placeholder="metadata 关键字（可选）" clearable style="max-width: 220px" />
+            </span>
+            <span data-testid="plugin-audit-request-filter" class="audit-filter-wrap">
+              <el-input v-model="auditQ.requestId" placeholder="request_id（可选）" clearable style="max-width: 200px" />
+            </span>
+            <el-date-picker
+              v-model="auditQ.range"
+              type="datetimerange"
+              start-placeholder="开始时间"
+              end-placeholder="结束时间"
+              value-format="YYYY-MM-DD HH:mm:ss"
+              style="width: 360px"
+            />
             <el-button @click="loadAudit">查询</el-button>
           </div>
           <el-table v-loading="auditLoading" :data="auditRows" border stripe empty-text="暂无审计记录">
@@ -308,9 +332,16 @@
               </template>
             </el-table-column>
             <el-table-column prop="action" label="动作" min-width="180" />
+            <el-table-column label="scope" min-width="160">
+              <template #default="{ row }">
+                <div>community {{ row.community_id || '-' }}</div>
+                <div class="muted">request {{ metadataValue(row, 'request_id') || '-' }}</div>
+              </template>
+            </el-table-column>
             <el-table-column label="目标" min-width="220">
               <template #default="{ row }">
                 <div class="mono">{{ row.target || '-' }}</div>
+                <div class="muted">{{ row.target_type || '-' }} / {{ row.target_id || '-' }}</div>
               </template>
             </el-table-column>
             <el-table-column label="diff" min-width="260">
@@ -388,6 +419,12 @@ watch(
     // Reset audit query state for new plugin target.
     auditQ.action = '';
     auditQ.communityId = 0;
+    auditQ.actor = '';
+    auditQ.targetType = '';
+    auditQ.targetId = 0;
+    auditQ.metadata = '';
+    auditQ.requestId = '';
+    auditQ.range = [];
     auditQ.page = 1;
     auditQ.pageSize = 20;
     auditRows.value = [];
@@ -496,15 +533,16 @@ function statusType(status) {
 function healthType(status) {
   if (status === 'healthy') return 'success';
   if (status === 'disabled') return 'info';
-  if (status === 'warning' || status === 'migration_pending') return 'warning';
+  if (status === 'warning' || status === 'migration_pending' || status === 'hook_warning') return 'warning';
+  if (status === 'hook_error') return 'danger';
   if (status === 'error' || status === 'config_invalid' || status === 'dependency_missing') return 'danger';
   return 'info';
 }
 
 function metricType(status) {
   if (status === 'ok' || status === 'valid') return 'success';
-  if (status === 'warning' || status === 'pending') return 'warning';
-  if (status === 'failed' || status === 'invalid' || status === 'missing') return 'danger';
+  if (status === 'warning' || status === 'pending' || status === 'hook_warning') return 'warning';
+  if (status === 'failed' || status === 'invalid' || status === 'missing' || status === 'hook_error') return 'danger';
   return 'info';
 }
 
@@ -540,6 +578,12 @@ const auditTotal = ref(0);
 const auditQ = reactive({
   action: '',
   communityId: null,
+  actor: '',
+  targetType: '',
+  targetId: null,
+  metadata: '',
+  requestId: '',
+  range: [],
   page: 1,
   pageSize: 20,
 });
@@ -553,6 +597,13 @@ async function loadAudit() {
       type: 'all',
       action: auditQ.action || '',
       community_id: auditQ.communityId || 0,
+      actor: auditQ.actor || '',
+      target_type: auditQ.targetType || '',
+      target_id: auditQ.targetId || 0,
+      metadata: auditQ.metadata || '',
+      request_id: auditQ.requestId || '',
+      start_time: Array.isArray(auditQ.range) ? auditQ.range[0] || '' : '',
+      end_time: Array.isArray(auditQ.range) ? auditQ.range[1] || '' : '',
       page: auditQ.page,
       page_size: auditQ.pageSize,
     });
@@ -649,6 +700,11 @@ function formatJSON(value) {
   }
 }
 
+function metadataValue(row, key) {
+  const meta = jsonValue(row?.metadata_json);
+  return meta?.[key] || '';
+}
+
 async function copyText(text) {
   try {
     await navigator.clipboard.writeText(String(text || ''));
@@ -740,9 +796,14 @@ async function saveConfig() {
 }
 .sub-toolbar {
   display: flex;
-  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 8px;
+  justify-content: flex-start;
   align-items: center;
   margin-bottom: 10px;
+}
+.audit-filter-wrap {
+  display: inline-flex;
 }
 .mono {
   font-family: ui-monospace, SFMono-Regular, Menlo, monospace;

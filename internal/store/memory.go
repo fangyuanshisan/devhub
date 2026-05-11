@@ -2995,12 +2995,18 @@ func adminLogMatches(log domain.AdminLog, filter domain.AdminLogFilter) bool {
 	if filter.TargetType != "" && filter.TargetType != "all" && !strings.EqualFold(log.TargetType, filter.TargetType) {
 		return false
 	}
+	if filter.TargetID > 0 && log.TargetID != filter.TargetID {
+		return false
+	}
+	if filter.PluginCode != "" && !adminLogContainsPluginCode(log, filter.PluginCode) {
+		return false
+	}
 	if filter.ActorID > 0 && log.ActorUserID != filter.ActorID {
 		return false
 	}
 	if filter.CommunityID > 0 {
 		site := fallbackSiteByCommunityID(filter.CommunityID)
-		if site == "" || !logInSite(log, site) {
+		if site == "" || (!logInSite(log, site) && !logInSite(log, fmt.Sprintf("community:%d", filter.CommunityID))) {
 			return false
 		}
 	}
@@ -3010,7 +3016,33 @@ func adminLogMatches(log domain.AdminLog, filter domain.AdminLogFilter) bool {
 	if filter.Target != "" && !strings.Contains(strings.ToLower(log.Target), strings.ToLower(filter.Target)) {
 		return false
 	}
+	if filter.Metadata != "" && !strings.Contains(strings.ToLower(log.Metadata), strings.ToLower(filter.Metadata)) {
+		return false
+	}
+	if filter.RequestID != "" && !strings.Contains(strings.ToLower(log.Metadata), strings.ToLower(filter.RequestID)) {
+		return false
+	}
+	if filter.StartTime != "" && log.CreatedAt < filter.StartTime {
+		return false
+	}
+	if filter.EndTime != "" && log.CreatedAt > filter.EndTime {
+		return false
+	}
 	return true
+}
+
+func adminLogContainsPluginCode(log domain.AdminLog, pluginCode string) bool {
+	pluginCode = strings.ToLower(strings.TrimSpace(pluginCode))
+	if pluginCode == "" {
+		return true
+	}
+	haystack := strings.ToLower(strings.Join([]string{
+		log.Target,
+		log.Metadata,
+		log.OldValue,
+		log.NewValue,
+	}, " "))
+	return strings.Contains(haystack, pluginCode)
 }
 
 // hasTag 判断标签列表是否包含指定标签，大小写不敏感。

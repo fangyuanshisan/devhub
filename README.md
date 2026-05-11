@@ -2,7 +2,7 @@
 
 DevHub 是一个面向多子站场景的通用开源社区程序，采用 Core + Plugins 架构。Core 提供用户、认证、子站、板块、通用内容、评论、标签、搜索、通知、SEO、权限、审计和插件分发能力；问答、文档、Wiki 通过 qa、docs、wiki 内置系统插件扩展。
 
-当前版本：`v1.3.3`，版本主题为“插件平台治理收口版”。
+当前版本：`v1.3.4`，版本主题为“插件异常治理与验收闭环版”。
 
 当前只维护两个入口：
 
@@ -27,7 +27,7 @@ DevHub 是一个面向多子站场景的通用开源社区程序，采用 Core +
 - [BACKUP_AND_ROLLBACK.md](docs/BACKUP_AND_ROLLBACK.md)
 - [SEO.md](docs/SEO.md)
 - [PLUGIN_ARCHITECTURE.md](docs/PLUGIN_ARCHITECTURE.md)
-- [docs/releases/v1.3.3.md](docs/releases/v1.3.3.md)
+- [docs/releases/v1.3.4.md](docs/releases/v1.3.4.md)
 - [CHANGELOG.md](CHANGELOG.md)
 
 ## 当前能力
@@ -41,19 +41,19 @@ DevHub 是一个面向多子站场景的通用开源社区程序，采用 Core +
 - 治理与后台：支持举报、版主子站范围治理、内容治理、评论治理、子站管理、板块管理、系统插件管理和审计日志。
 - 存储模式：MemoryStore 与 MySQLStore。
 
-## v1.3.3 定位
+## v1.3.4 定位
 
-DevHub v1.3.3 是“插件平台治理收口版”。本版本在 v1.3.2 的 HookBus、config_schema、审计、迁移和后台治理中心基础上，补齐插件启用 readiness 检查，并把生命周期、配置、Hook、迁移、权限矩阵和后台治理中心的当前能力边界统一收口。
+DevHub v1.3.4 是“插件异常治理与验收闭环版”。本版本在 v1.3.3 的插件启用 readiness 和治理中心基础上，补齐 failed migration 阻断与 retry、HookBus blocking / non-blocking 失败注入、权限矩阵收口，以及 MySQLStore / 老库升级专项验证。
 
 完整插件系统是当前最高优先级长期主线。Core 只保留通用社区底座，业务能力逐步通过插件声明、状态、权限、菜单、配置、Hook、migration、API、SEO、通知、搜索和测试矩阵扩展；插件包、插件市场、远程安装和动态加载进入后续阶段路线，但不是当前已实现能力。
 
-本版本范围和当前限制以 [v1.3.3 Release Notes](docs/releases/v1.3.3.md) 为准，长期滚动状态见 [项目进度](docs/PROJECT_PROGRESS.md)。
+本版本范围和当前限制以 [v1.3.4 Release Notes](docs/releases/v1.3.4.md) 为准，长期滚动状态见 [项目进度](docs/PROJECT_PROGRESS.md)。
 
 历史版本说明见 `docs/README.md` 的“历史版本归档”。
 
 ## Roadmap
 
-- v1.3.4 / P0：插件异常治理与验收闭环，优先覆盖插件迁移失败注入、启用阻断、HookBus blocking / non-blocking 失败注入、插件权限矩阵继续收口、MySQLStore / 老库升级专项。
+- v1.3.4 / P0：插件异常治理与验收闭环，已覆盖插件迁移失败注入、启用阻断、HookBus blocking / non-blocking 失败注入、插件权限矩阵继续收口、MySQLStore / 老库升级专项。
 - v1.3.x / P0：插件平台收口，包括 Manifest、Registry、ActorContext、权限码、两层插件状态、板块绑定、发布校验、菜单过滤、config_json、config_schema 基础校验、HookBus、结构化审计、migration 边界和测试矩阵。
 - v1.4.x / P1：插件平台增强，包括 schema 自动表单、插件 SDK 文档、插件生成模板、依赖和版本兼容检查、插件事件 / 通知模板、搜索索引和 SEO 扩展。
 - v1.5.x / P2：插件分发能力，包括本地插件包、安装、升级、soft uninstall、插件 migration runner、签名校验和插件市场雏形。
@@ -436,16 +436,16 @@ git status
 
 本地没有 `npm` 时，可使用 `dev.sh` 或 Docker Node 构建；构建产物由脚本生成，不需要提交。
 
-v1.3.3 归档建议命令：
+v1.3.4 归档建议命令：
 
 ```bash
 git status
 git diff
 git add .
-git commit -m "chore: release DevHub v1.3.3"
-git tag v1.3.3
+git commit -m "chore: release DevHub v1.3.4"
+git tag v1.3.4
 git push origin main
-git push origin v1.3.3
+git push origin v1.3.4
 ```
 
 打 tag 前必须先确认工作区没有未审阅差异，且测试矩阵通过。

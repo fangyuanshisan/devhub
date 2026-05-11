@@ -118,3 +118,102 @@ func TestSetPluginStatusEnabledChecksMigrationReadiness(t *testing.T) {
 		t.Fatalf("expected failed migration to block community enable, got %v", err)
 	}
 }
+
+func TestPluginHealthStatusSourcesAndAuditFilters(t *testing.T) {
+	repo := store.NewMemoryStore()
+	svc := New(repo)
+
+	if _, err := svc.RunPluginMigration("docs", "docs_spaces", "test"); err != nil {
+		t.Fatalf("run docs_spaces migration: %v", err)
+	}
+	if _, err := svc.RunPluginMigration("docs", "docs_documents", "test"); err != nil {
+		t.Fatalf("run docs_documents migration: %v", err)
+	}
+	health, err := svc.PluginHealth("docs")
+	if err != nil {
+		t.Fatalf("PluginHealth docs: %v", err)
+	}
+	if health.Status != "healthy" {
+		t.Fatalf("expected healthy docs, got %#v", health)
+	}
+
+	if _, err := svc.SetPluginConfig("qa", `{"default_question_status":123}`); err == nil {
+		t.Fatal("expected invalid config to be rejected")
+	}
+	_, _ = repo.SetPluginStatus("qa", pluginregistry.StatusConfigInvalid)
+	health, err = svc.PluginHealth("qa")
+	if err != nil {
+		t.Fatalf("PluginHealth qa config invalid: %v", err)
+	}
+	if health.Status != "config_invalid" || health.ConfigStatus != "invalid" {
+		t.Fatalf("expected config_invalid health, got %#v", health)
+	}
+
+	_, _ = repo.SetPluginStatus("qa", pluginregistry.StatusEnabled)
+	_, err = repo.SavePluginMigration(domain.PluginMigration{
+		PluginCode:       "qa",
+		MigrationVersion: "1.0.0",
+		Version:          "1.0.0",
+		MigrationName:    "qa_questions",
+		Direction:        "up",
+		Status:           "failed",
+		ErrorMessage:     "health failed migration",
+	})
+	if err != nil {
+		t.Fatalf("seed failed migration: %v", err)
+	}
+	health, err = svc.PluginHealth("qa")
+	if err != nil {
+		t.Fatalf("PluginHealth qa migration failed: %v", err)
+	}
+	if health.Status != "error" || health.MigrationStatus != "failed" {
+		t.Fatalf("expected migration error health, got %#v", health)
+	}
+
+	if _, err := svc.RunPluginMigration("qa", "qa_questions", "test"); err != nil {
+		t.Fatalf("retry migration: %v", err)
+	}
+	if _, err := svc.RunPluginMigration("qa", "qa_answers", "test"); err != nil {
+		t.Fatalf("run qa_answers migration: %v", err)
+	}
+	for i := 0; i < 3; i++ {
+		err = svc.DispatchHook(pluginregistry.HookEvent{
+			Name: pluginregistry.HookBeforeCreateContent,
+			Mode: pluginregistry.HookBlocking,
+			Ctx: pluginregistry.HookContext{
+				PluginCode:  "qa",
+				ContentType: "document",
+				CommunityID: 1,
+				CategoryID:  101,
+				ActorType:   pluginregistry.HookActorUser,
+				ActorID:     1,
+				RequestID:   "req-health-filter",
+				Metadata:    map[string]any{"marker": "health-filter-meta"},
+				Actor:       domain.ActorContext{UserID: 1},
+			},
+		})
+		if err == nil {
+			t.Fatal("expected blocking hook failure")
+		}
+	}
+	health, err = svc.PluginHealth("qa")
+	if err != nil {
+		t.Fatalf("PluginHealth qa hook error: %v", err)
+	}
+	if health.Status != "hook_error" || health.HookStatus != "hook_error" {
+		t.Fatalf("expected hook_error health, got %#v", health)
+	}
+
+	logs, total := repo.AdminLogsByFilter(domain.AdminLogFilter{
+		PluginCode:  "qa",
+		Action:      "plugin.hook.blocked",
+		CommunityID: 1,
+		Metadata:    "health-filter-meta",
+		RequestID:   "req-health-filter",
+		Page:        1,
+		PageSize:    10,
+	})
+	if total == 0 || len(logs) == 0 {
+		t.Fatalf("expected filtered audit logs, total=%d logs=%#v", total, logs)
+	}
+}

@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+	"sync"
 	"time"
 
 	"devhub-gin-backend/internal/domain"
@@ -105,10 +106,59 @@ type HookExecutionResult struct {
 // It is NOT a third-party dynamic plugin execution environment.
 type HookBus struct {
 	handlers map[string]map[string][]HookHandler // name -> plugin_code -> handlers
+	failures map[string]HookFailureRule
+	mu       sync.RWMutex
 }
 
 func NewHookBus() *HookBus {
-	return &HookBus{handlers: map[string]map[string][]HookHandler{}}
+	return &HookBus{
+		handlers: map[string]map[string][]HookHandler{},
+		failures: map[string]HookFailureRule{},
+	}
+}
+
+// HookFailureRule is a test/dev-only failure injection rule.
+// It is used to exercise HookBus governance without changing built-in plugin code.
+type HookFailureRule struct {
+	PluginCode string
+	HookName   string
+	Mode       HookMode
+	Error      string
+}
+
+func hookFailureKey(pluginCode, hookName string) string {
+	return strings.TrimSpace(pluginCode) + "\x00" + strings.TrimSpace(hookName)
+}
+
+// SetFailureInjection sets or clears a test/dev-only HookBus failure rule.
+func (b *HookBus) SetFailureInjection(rule HookFailureRule) {
+	if b == nil {
+		return
+	}
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	key := hookFailureKey(rule.PluginCode, rule.HookName)
+	if key == "\x00" {
+		return
+	}
+	if strings.TrimSpace(rule.Error) == "" {
+		delete(b.failures, key)
+		return
+	}
+	if rule.Mode == "" {
+		rule.Mode = HookBlocking
+	}
+	b.failures[key] = rule
+}
+
+func (b *HookBus) failureInjection(pluginCode, hookName string) (HookFailureRule, bool) {
+	if b == nil {
+		return HookFailureRule{}, false
+	}
+	b.mu.RLock()
+	defer b.mu.RUnlock()
+	rule, ok := b.failures[hookFailureKey(pluginCode, hookName)]
+	return rule, ok
 }
 
 // Register registers a handler for a hook name and plugin code.
@@ -155,10 +205,16 @@ func (b *HookBus) DispatchWithResults(event HookEvent) ([]HookExecutionResult, e
 	}
 	group := b.handlers[name]
 	if len(group) == 0 {
+		if rule, ok := b.failureInjection(pluginCode, name); ok {
+			return injectedFailureResult(event, rule)
+		}
 		return nil, nil
 	}
 	handlers := group[pluginCode]
 	if len(handlers) == 0 {
+		if rule, ok := b.failureInjection(pluginCode, name); ok {
+			return injectedFailureResult(event, rule)
+		}
 		return nil, nil
 	}
 
@@ -193,6 +249,16 @@ func (b *HookBus) DispatchWithResults(event HookEvent) ([]HookExecutionResult, e
 			nonBlockingErrs = append(nonBlockingErrs, err)
 		}
 	}
+	if rule, ok := b.failureInjection(pluginCode, name); ok {
+		injected, injectedErr := injectedFailureResult(event, rule)
+		results = append(results, injected...)
+		if injectedErr != nil {
+			if len(injected) > 0 && injected[0].Blocking {
+				return results, injectedErr
+			}
+			nonBlockingErrs = append(nonBlockingErrs, injectedErr)
+		}
+	}
 	if len(nonBlockingErrs) == 0 {
 		return results, nil
 	}
@@ -200,4 +266,31 @@ func (b *HookBus) DispatchWithResults(event HookEvent) ([]HookExecutionResult, e
 		return results, nonBlockingErrs[0]
 	}
 	return results, errors.New(fmt.Sprintf("hook %s non-blocking errors: %v", name, nonBlockingErrs))
+}
+
+func injectedFailureResult(event HookEvent, rule HookFailureRule) ([]HookExecutionResult, error) {
+	started := time.Now()
+	finished := time.Now()
+	message := strings.TrimSpace(rule.Error)
+	if message == "" {
+		message = "injected hook failure"
+	}
+	err := errors.New(message)
+	mode := event.Mode
+	if rule.Mode != "" {
+		mode = rule.Mode
+	}
+	result := HookExecutionResult{
+		HookName:     strings.TrimSpace(event.Name),
+		PluginCode:   strings.TrimSpace(event.Ctx.PluginCode),
+		Mode:         mode,
+		Blocking:     mode == HookBlocking,
+		HandlerIndex: -1,
+		StartedAt:    started,
+		FinishedAt:   finished,
+		DurationMS:   int(finished.Sub(started).Milliseconds()),
+		Success:      false,
+		ErrorMessage: message,
+	}
+	return []HookExecutionResult{result}, err
 }

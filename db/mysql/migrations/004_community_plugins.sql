@@ -1,6 +1,24 @@
 -- v1.3.0 patch: per-community plugin enablement.
 -- Safe to run repeatedly.
 
+-- This migration can be applied to old databases before 005_core_plugins.sql.
+-- Keep a minimal plugins table definition here so the default backfill below
+-- does not fail when operators follow numeric migration order.
+CREATE TABLE IF NOT EXISTS plugins (
+  id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+  plugin_code VARCHAR(64) NOT NULL,
+  name VARCHAR(128) NOT NULL,
+  version VARCHAR(32) NOT NULL DEFAULT '',
+  status ENUM('discovered','installed','migrated','configured','enabled','disabled','running','config_invalid','migration_pending','dependency_missing') NOT NULL DEFAULT 'enabled',
+  description VARCHAR(500) NOT NULL DEFAULT '',
+  config_json JSON NULL,
+  created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  PRIMARY KEY (id),
+  UNIQUE KEY uk_plugins_code (plugin_code),
+  KEY idx_plugins_status (status)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
 CREATE TABLE IF NOT EXISTS community_plugins (
   id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
   community_id BIGINT UNSIGNED NOT NULL,

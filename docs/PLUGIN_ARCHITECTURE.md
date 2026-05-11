@@ -33,6 +33,8 @@ Core 只保留通用社区能力：
 
 专项验收补充：2026-05-11 已完成一次插件系统专项验收与 E2E 回归归档。后端单测、Go 构建、后台 Docker 构建、前台 E2E、后台 E2E 和 `/topics/:id` / `/c/:slug` SEO curl 回归均已执行；后台 E2E 首次暴露的插件启停测试状态污染和影响分析旧文案断言已修复并复跑通过。该验收不改变架构边界：插件市场、插件上传、远程安装和 Go 动态加载仍是后续阶段能力，不属于当前已完成范围。
 
+MySQL 专项补充：2026-05-11 已完成 MySQLStore 与老库升级专项验证。`db/mysql/001_schema.sql` 与 `internal/store/schema.go` 包含 `plugins`、`community_plugins`、`plugin_migrations`、`hook_executions`、结构化 `admin_logs` 以及 `topics.plugin_code`、`categories.plugin_code`、`categories.allowed_content_types`。`db/mysql/migrations/004_community_plugins.sql` 到 `010_hook_executions.sql` 已在测试库连续执行两轮通过；MySQLStore 可选集成测试覆盖全局 / 子站插件启停强拦截、failed migration 阻断与 retry、Hook 记录查询、插件治理审计查询和 `config_schema` 校验。该专项不是完整外部迁移框架，仍不包含 migration down、硬回滚或迁移前自动备份。
+
 当前定位：
 
 - DevHub 当前是内置系统插件平台：插件通过代码 registry / manifest 风格声明接入，由 Core 负责状态、权限、菜单、配置、Hook、发布校验和后台治理分发。
@@ -51,7 +53,7 @@ Core 只保留通用社区能力：
 - 权限：插件权限来自 manifest / registry；发布链路按内容类型读取 `create_permission`；菜单按全局状态、子站状态、权限和 scope 过滤。
 - HookBus：已有内置 HookBus 和最小 handler 注册；创建、更新、删除、评论、搜索、通知、SEO 以及插件启停会派发 Hook 事件。
 - 影响分析：已有轻量 impact API，返回启用子站数、板块数、内容数、待审核内容数和菜单数等计数。
-- 健康摘要：`GET /api/v1/admin/plugins` 返回轻量 `health`，由全局状态、配置校验、迁移记录、依赖状态和 Hook 失败统计计算。
+- 健康摘要：`GET /api/v1/admin/plugins` 返回轻量 `health`，由全局状态、配置校验、迁移记录、依赖状态和 Hook 失败统计计算；当前额外返回 `status_reason` 解释主要异常原因。
 - 审计：插件启停、全局配置、子站启停、子站配置、排序、Hook 失败和带 plugin_code 的插件内容治理操作写入 `admin_logs.old_value`、`admin_logs.new_value`、`admin_logs.metadata_json`。
 - 迁移治理：`plugin_migrations` 表、MemoryStore / MySQLStore 读写能力、内置插件 migration 声明、up/no-op runner、失败记录、失败重试和迁移审计已存在；成功迁移不会重复执行。
 - 后台：`/admin-next/plugins` 已具备插件列表、详情抽屉、配置、impact 提示、审计 Tab、迁移 Tab 和通用插件内容页入口；`/admin-next/communities` 已具备子站插件配置抽屉。
@@ -68,7 +70,7 @@ Core 只保留通用社区能力：
 预留：
 
 - 插件安装器、插件包 manifest 导入、本地插件包、插件升级、soft uninstall、hard uninstall。
-- 插件健康状态：`healthy`、`warning`、`error`、`disabled`、`migration_pending`、`config_invalid`、`dependency_missing` 已有轻量计算；独立健康 API、告警、自动恢复和可观测指标仍是后续能力。
+- 插件健康状态：`healthy`、`warning`、`error`、`disabled`、`migration_pending`、`config_invalid`、`dependency_missing`、`hook_warning`、`hook_error` 已有轻量计算；`hook_error` 当前基于 Hook 失败次数阈值（当前为 `>= 3`）判断。独立健康 API、告警、自动恢复和可观测指标仍是后续能力。
 - 插件 SDK、生成模板、插件依赖解析、版本兼容检查、插件包签名和市场分发。
 - 动态路由加载、动态执行环境、沙箱和第三方 Hook 运行时。
 
@@ -284,6 +286,7 @@ HookBus 完整化属于插件平台 P0 收口任务。当前只服务内置系�
 - HookBus 当前仅注册内置系统插件 Hook handlers（编译期内置注册，不支持第三方动态加载）。
 - `v1.3.2` 起 HookBus 执行结果会落入 `hook_executions`，后台可查询每个插件 Hook 的执行次数、失败次数、平均耗时、最近执行、最近失败和最近错误。
 - blocking hook 失败会阻断主流程，并写入 `plugin.hook.blocked` 审计；non-blocking hook 失败不阻断主流程，但会写入 `plugin.hook.failed` 审计。
+- `v1.3.4` 起提供测试 / 开发环境专用 Hook 失败注入接口：`POST /api/v1/admin/plugins/:code/hooks/:name/e2e-fail`。该接口仅在 `DEVHUB_E2E_TESTING=1` 或 `CMS_STORE=memory` 可用，用于自动化验证 blocking 失败阻断主流程、non-blocking 失败不阻断主流程、`hook_executions` 和审计可追踪；它不是生产治理接口。
 - 当前没有第三方动态注册，也没有插件包运行时加载；HookBus 仅服务内置系统插件和后续 Core 内部扩展。
 - 搜索、通知和 SEO 当前是最小调用点：已能派发事件，但还没有复杂索引、通知模板或结构化数据插件处理器。
 - 完整插件业务处理器、统一失败日志、重试策略和跨 Store 事务边界属于 P0/P1 继续收口项，不能降级为低优先级优化。
@@ -367,7 +370,7 @@ HookBus 完整化属于插件平台 P0 收口任务。当前只服务内置系�
 当前真实状态：
 
 - 步骤 1-8 已在 `ValidateTopicPluginAccess` 和 Store 层板块校验中落地。
-- 步骤 9 已接入最小权限码校验：
+- 步骤 9 已接入插件权限矩阵校验，权限来源统一为 `ContentTypeDefinition.create_permission`：
   - `question -> qa.question.create`
   - `document -> docs.document.create`
   - `wiki_page -> wiki.page.create`
@@ -375,6 +378,7 @@ HookBus 完整化属于插件平台 P0 收口任务。当前只服务内置系�
   - `job -> jobs.job.create`
   - `ai_work -> ai_works.work.create`
   - Core 兼容类型 `article`、`news` 当前仍为粗粒度 `core.topic.create`（兼容旧 `post.create`）。
+- `post.create` 只能作为 `core.topic.create` 的历史兼容桥；不能替代任何插件 create 权限。
 - `Service.CreateTopic` 是业务创建安全入口；`Service.CreatePost` 已封口，不再允许旧 posts 业务链路绕过插件校验。
 - `repo.CreateTopic` / `repo.CreatePost` 属于仓储层裸写入或兼容能力，可以保留防御性归一，但不应被 HTTP / Service 常规业务链路当作权限入口。
 
@@ -406,6 +410,7 @@ v1.3.1 采用稳妥策略：后台编辑已存在内容时禁止修改归属和�
 
 - `post.create` 不是长期主权限。
 - 插件内容类型必须使用自己的 create 权限，例如 `qa.question.create`、`docs.document.create`、`wiki.page.create`。
+- API 测试已覆盖：仅拥有 `post.create` / `core.topic.create` 时不能创建 `question`；拥有 `qa.question.create` 时才能创建 `question`；`post.create` 继续兼容 Core `article`。
 - `article` / `news` 后续要么明确作为 Core 内容定义继续存在，要么拆为插件，再逐步移除 `post.create` 兼容桥。
 
 ## 数据结构
@@ -429,7 +434,13 @@ v1.3.1 采用稳妥策略：后台编辑已存在内容时禁止修改归属和�
 - `categories.plugin_code`
 - `categories.allowed_content_types`
 
-`plugin_migrations` 当前是插件迁移治理记录表。v1.3.2 已支持内置插件 migration 声明、查询、up/no-op 执行、失败记录、失败重试和审计；qa/docs/wiki 的第一批 migration 用于确认扩展表已经由主 schema / 启动迁移创建，不会重复破坏数据。migration down、真实 rollback、迁移前备份和外部插件迁移包仍是后续任务。
+`plugin_migrations` 当前是插件迁移治理记录表。v1.3.2 已支持内置插件 migration 声明、查询、up/no-op 执行、失败记录、失败重试和审计；qa/docs/wiki 的第一批 migration 用于确认扩展表已经由主 schema / 启动迁移创建，不会重复破坏数据。v1.3.4 已补齐测试专用 failed migration 注入和启用阻断验收：当某插件存在 `failed` migration 时，全局启用和子站启用都会在 Service readiness 阶段失败，必须 retry 成功后才能恢复启用。migration down、真实 rollback、迁移前备份和外部插件迁移包仍是后续任务。
+
+测试 helper：
+
+- `POST /api/v1/admin/plugins/:code/migrations/:name/e2e-fail` 仅在 `DEVHUB_E2E_TESTING=1` 或 `CMS_STORE=memory` 可用。
+- 该接口只用于自动化测试构造 failed migration，不是生产迁移入口。
+- 注入操作写入 `plugin.migration.failed` 审计，metadata 中标记 `test_injection=true`。
 
 ## API 与菜单
 
@@ -467,8 +478,8 @@ v1.3.1 采用稳妥策略：后台编辑已存在内容时禁止修改归属和�
   - `GET /api/v1/admin/communities/:id/plugins/:code/impact`
   UI 在接口不可用时必须显示“待接口支持/暂不可用”，不得伪造数字。
   当前返回字段包括历史内容数、启用/禁用子站数、绑定板块数、近 7 天内容数、审核中内容数、菜单声明数、配置覆盖数、待执行迁移数和近 7 天 Hook 失败数；`recent_hook_errors_count` 来自 `hook_executions`，仍只是轻量提示。
-  同时插件详情抽屉提供“审计”Tab，使用 `GET /api/v1/admin/plugins/:code/audit-logs` 展示插件启停、配置、Hook 失败和带 plugin_code 的内容治理审计。
-  插件列表与详情抽屉的“运行状态”展示轻量 `health` 摘要，覆盖 overall、config、migration、Hook、dependency、recent_error 与 suggested_action；这不是完整监控系统。
+  同时插件详情抽屉提供“审计”Tab，使用 `GET /api/v1/admin/plugins/:code/audit-logs` 展示插件启停、配置、Hook 失败和带 plugin_code 的内容治理审计；筛选支持 action、community_id、actor、target_type、target_id、metadata、request_id 和时间范围。
+  插件列表与详情抽屉的“运行状态”展示轻量 `health` 摘要，覆盖 overall、status_reason、config、migration、Hook、dependency、recent_error 与 suggested_action；这不是完整监控系统。
 
 ## 当前限制与阶段边界
 
@@ -481,4 +492,53 @@ v1.3.1 采用稳妥策略：后台编辑已存在内容时禁止修改归属和�
 - `plugins.config_json` 与 `community_plugins.config_json` 已可写，并已做 JSON 格式校验和简化 `config_schema` 基础校验；自动表单渲染、更完整 JSON Schema、配置 diff UI 和配置版本回滚属于 P1/P3。
 - HookBus 当前是内置插件运行时调度器；调用点已覆盖内容创建、更新、删除、评论、搜索、通知和 SEO，并记录执行结果与失败审计。搜索 / 通知 / SEO 仍是预留级事件派发，完整业务处理器、重试策略和健康状态属于 P0/P1。
 - 插件生命周期当前不是完整 discovered -> installed -> migrated -> configured -> enabled -> running 状态机；代码真实状态仍以 `plugins.status`、`community_plugins.status` 和 `plugin_migrations.status` 为准。
-- 下一阶段 `v1.3.4` 的架构重点不是扩展新插件，而是验证异常治理：failed migration 必须阻断启用并可 retry 恢复，blocking Hook 必须能阻断主流程，non-blocking Hook 必须不阻断但可追踪，权限矩阵必须继续弱化 `post.create` 兼容桥，MySQLStore / 老库升级必须与 MemoryStore 口径一致。
+- `v1.3.4` 的架构重点不是扩展新插件，而是验证异常治理：failed migration 必须阻断启用并可 retry 恢复，blocking Hook 必须能阻断主流程，non-blocking Hook 必须不阻断但可追踪，权限矩阵必须继续弱化 `post.create` 兼容桥，MySQLStore / 老库升级必须与 MemoryStore 口径一致。当前 MySQLStore / 老库升级专项已完成关键链路验证，剩余风险主要是生产大库备份、回滚、耗时和外部插件真实 DDL migration 设计。
+
+## MySQLStore 与老库升级边界
+
+新装库结构：
+
+- 权威 schema：`db/mysql/001_schema.sql` 与 `internal/store/schema.go`。
+- 插件平台表：`plugins`、`community_plugins`、`plugin_migrations`、`hook_executions`。
+- 审计表：`admin_logs` 已包含 `old_value`、`new_value`、`metadata_json`。
+- 内容 / 板块兼容字段：`topics.plugin_code`、`categories.plugin_code`、`categories.allowed_content_types`。
+
+老库升级顺序建议：
+
+1. 先备份数据库，确认可恢复。
+2. 在预发或临时测试库执行 `db/mysql/001_schema.sql`，确认新装 schema 可重复执行。
+3. 按编号执行 `db/mysql/migrations/004_community_plugins.sql` 到 `010_hook_executions.sql`。
+4. 启动应用，让 MySQLStore 启动迁移辅助与 `seedPlugins` 兜底补齐内置插件记录和默认子站插件关系。
+5. 执行 MySQLStore 专项测试或等价手工验收，确认插件启停、配置校验、迁移记录、Hook 记录和审计查询可用。
+
+当前已验证：
+
+- `004` 会确保 `plugins` 表存在，避免按编号执行时 `community_plugins` 回填依赖缺表。
+- `005` 使用 MySQL 8 `INFORMATION_SCHEMA + PREPARE` 幂等补齐 `topics.plugin_code`、`categories.plugin_code` 和 `categories.allowed_content_types`。
+- `004`-`010` 插件迁移脚本在测试库连续执行两轮通过。
+- 可选集成测试 `DEVHUB_MYSQL_TESTS=1 ... go test ./internal/service -run TestMySQLStorePluginPlatformConsistency -count=1 -v` 已覆盖 MySQLStore 与 MemoryStore 关键插件平台行为一致性。
+
+仍需保留的风险说明：
+
+- 当前迁移体系不引入复杂外部 migration runner；生产升级仍需手工备份、预发演练和回滚预案。
+- 当前内置 plugin migration 仍是 up/no-op 记录型 runner；外部插件阶段如需真实 DDL runner，必须重新设计事务边界、失败恢复、备份和回滚。
+
+## v1.3.4 收口与 P1 边界
+
+v1.3.4 的完成口径是“插件异常治理与验收闭环”，不是体验增强或插件生态实现。本阶段已经收口：
+
+- failed migration 注入、启用阻断、retry 恢复和迁移审计。
+- HookBus blocking / non-blocking 失败注入、执行记录、审计和后台 Hooks Tab 失败摘要。
+- `ContentTypeDefinition.create_permission` 驱动的创建权限矩阵，`post.create` 继续降级为 `core.topic.create` 兼容桥。
+- MySQLStore / 老库升级专项验证，覆盖插件平台结构和核心行为一致性。
+- 插件健康状态和审计定位能力，包含 `hook_warning` / `hook_error` 与插件审计多维筛选。
+
+P1 只作为规划边界，不在 v1.3.4 中实现：
+
+- `config_schema` 自动表单和更完整 JSON Schema 表达。
+- 插件 SDK、开发模板和 manifest 校验工具。
+- 插件内容治理页批量操作、更多审核操作和审计跳转。
+- Docs / Wiki 专用编辑体验、文档树拖拽、Wiki 回滚和协作体验。
+- 插件搜索、通知、SEO 扩展处理器。
+
+以下能力仍不属于当前实现范围：插件市场、上传安装、远程安装、在线更新、Go 动态加载和第三方插件沙箱。

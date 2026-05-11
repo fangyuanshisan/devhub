@@ -150,10 +150,12 @@ func NewRouter(svc *service.Service) *gin.Engine {
 			protected.GET("/plugin-menus", srv.adminPluginMenus)
 			protected.GET("/plugins/:code/impact", srv.requirePermission("plugin.read"), srv.adminPluginImpact)
 			protected.GET("/plugins/:code/hooks", srv.requirePermission("plugin.read"), srv.adminPluginHooks)
+			protected.POST("/plugins/:code/hooks/:name/e2e-fail", srv.requirePermission("plugin.write"), srv.injectFailedAdminPluginHookForTest)
 			protected.GET("/plugins/:code/audit-logs", srv.requirePermission("plugin.read"), srv.adminPluginAuditLogs)
 			protected.GET("/plugins/:code/migrations", srv.requirePermission("plugin.read"), srv.adminPluginMigrations)
 			protected.POST("/plugins/:code/migrations/run", srv.requirePermission("plugin.write"), srv.runAdminPluginMigrations)
 			protected.POST("/plugins/:code/migrations/:name/retry", srv.requirePermission("plugin.write"), srv.retryAdminPluginMigration)
+			protected.POST("/plugins/:code/migrations/:name/e2e-fail", srv.requirePermission("plugin.write"), srv.injectFailedAdminPluginMigrationForTest)
 			protected.POST("/plugins/:code/enable", srv.requirePermission("plugin.write"), srv.enableAdminPlugin)
 			protected.POST("/plugins/:code/disable", srv.requirePermission("plugin.write"), srv.disableAdminPlugin)
 			protected.PUT("/plugins/:code/config", srv.requirePermission("plugin.write"), srv.updateAdminPluginConfig)
@@ -1947,6 +1949,47 @@ func (s *Server) adminPluginHooks(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"items": stats, "recent_executions": recent})
 }
 
+func (s *Server) injectFailedAdminPluginHookForTest(c *gin.Context) {
+	if !pluginTestInjectionEnabled() {
+		fail(c, http.StatusNotFound, "测试 Hook 注入接口未启用")
+		return
+	}
+	code := strings.TrimSpace(c.Param("code"))
+	name, err := url.PathUnescape(strings.TrimSpace(c.Param("name")))
+	if err != nil {
+		name = strings.TrimSpace(c.Param("name"))
+	}
+	var req struct {
+		Mode         string `json:"mode"`
+		ErrorMessage string `json:"error_message"`
+		Clear        bool   `json:"clear"`
+	}
+	if c.Request.Body != nil {
+		_ = c.ShouldBindJSON(&req)
+	}
+	message := strings.TrimSpace(req.ErrorMessage)
+	if req.Clear {
+		message = ""
+	}
+	mode := pluginregistry.HookMode(strings.TrimSpace(req.Mode))
+	if mode == "" {
+		mode = pluginregistry.HookBlocking
+	}
+	if err := s.svc.SetHookFailureInjectionForTest(code, name, mode, message); err != nil {
+		fail(c, http.StatusBadRequest, err.Error())
+		return
+	}
+	operation := "hook_failure_test_injection"
+	if req.Clear {
+		operation = "hook_failure_test_injection_clear"
+	}
+	s.auditStructured(c, "system", "plugin.hook.test_injection", fmt.Sprintf("hooks#%s:%s", code, name),
+		nil,
+		gin.H{"mode": string(mode), "hook_name": name, "enabled": !req.Clear},
+		gin.H{"plugin_code": code, "hook_name": name, "mode": string(mode), "operation": operation, "test_injection": true, "error": message})
+	c.JSON(http.StatusOK, gin.H{"plugin_code": code, "hook_name": name, "mode": string(mode), "enabled": !req.Clear})
+}
+
 func (s *Server) adminPluginAuditLogs(c *gin.Context) {
 	code := strings.TrimSpace(c.Param("code"))
 	if _, ok := s.svc.PluginByCode(code); !ok {
@@ -1963,8 +2006,17 @@ func (s *Server) adminPluginAuditLogs(c *gin.Context) {
 		Type:        strings.TrimSpace(c.DefaultQuery("type", "all")),
 		Action:      strings.TrimSpace(c.Query("action")),
 		Target:      target,
+		TargetType:  strings.TrimSpace(c.Query("target_type")),
+		TargetID:    int64Query(c, "target_id", 0),
+		PluginCode:  strings.TrimSpace(c.DefaultQuery("plugin_code", code)),
 		ActorType:   strings.TrimSpace(c.Query("actor_type")),
+		Actor:       strings.TrimSpace(c.Query("actor")),
+		ActorID:     int64Query(c, "actor_user_id", 0),
 		CommunityID: int64Query(c, "community_id", 0),
+		Metadata:    strings.TrimSpace(c.Query("metadata")),
+		RequestID:   strings.TrimSpace(c.Query("request_id")),
+		StartTime:   strings.TrimSpace(c.Query("start_time")),
+		EndTime:     strings.TrimSpace(c.Query("end_time")),
 		Page:        page,
 		PageSize:    pageSize,
 	}
@@ -2054,6 +2106,43 @@ func (s *Server) retryAdminPluginMigration(c *gin.Context) {
 		gin.H{"status": item.Status, "migration_name": item.MigrationName},
 		gin.H{"plugin_code": code, "migration_name": item.MigrationName, "operation": "plugin_migration_success"})
 	c.JSON(http.StatusOK, item)
+}
+
+func (s *Server) injectFailedAdminPluginMigrationForTest(c *gin.Context) {
+	if !pluginMigrationFailureInjectionEnabled() {
+		fail(c, http.StatusNotFound, "测试迁移注入接口未启用")
+		return
+	}
+	code := strings.TrimSpace(c.Param("code"))
+	name, err := url.PathUnescape(strings.TrimSpace(c.Param("name")))
+	if err != nil {
+		name = strings.TrimSpace(c.Param("name"))
+	}
+	var req struct {
+		ErrorMessage string `json:"error_message"`
+	}
+	if c.Request.Body != nil {
+		_ = c.ShouldBindJSON(&req)
+	}
+	executor := auditActor(c)
+	item, err := s.svc.InjectFailedPluginMigrationForTest(code, name, req.ErrorMessage, executor)
+	if err != nil {
+		fail(c, http.StatusBadRequest, err.Error())
+		return
+	}
+	s.auditStructured(c, "system", "plugin.migration.failed", fmt.Sprintf("plugins#%s/migrations#%s", code, item.MigrationName),
+		nil,
+		gin.H{"status": "failed", "migration_name": item.MigrationName, "error_message": item.ErrorMessage},
+		gin.H{"plugin_code": code, "migration_name": item.MigrationName, "operation": "plugin_migration_test_injection", "test_injection": true, "error": item.ErrorMessage})
+	c.JSON(http.StatusOK, item)
+}
+
+func pluginMigrationFailureInjectionEnabled() bool {
+	return pluginTestInjectionEnabled()
+}
+
+func pluginTestInjectionEnabled() bool {
+	return os.Getenv("DEVHUB_E2E_TESTING") == "1" || os.Getenv("CMS_STORE") == "memory"
 }
 
 func (s *Server) adminCommunityPluginImpact(c *gin.Context) {
@@ -3176,9 +3265,15 @@ func (s *Server) adminAuditLogs(c *gin.Context) {
 		Action:      strings.TrimSpace(c.Query("action")),
 		Target:      strings.TrimSpace(c.Query("target")),
 		TargetType:  strings.TrimSpace(c.Query("target_type")),
+		TargetID:    int64Query(c, "target_id", 0),
+		PluginCode:  strings.TrimSpace(c.Query("plugin_code")),
 		Actor:       strings.TrimSpace(c.Query("actor")),
 		ActorID:     int64Query(c, "actor_user_id", 0),
 		CommunityID: int64Query(c, "community_id", 0),
+		Metadata:    strings.TrimSpace(c.Query("metadata")),
+		RequestID:   strings.TrimSpace(c.Query("request_id")),
+		StartTime:   strings.TrimSpace(c.Query("start_time")),
+		EndTime:     strings.TrimSpace(c.Query("end_time")),
 		Page:        page,
 		PageSize:    pageSize,
 	}
