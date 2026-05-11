@@ -9,6 +9,8 @@ export const plugins = () => http.get('/admin/plugins');
 export const pluginMenus = () => http.get('/admin/plugin-menus');
 export const enablePlugin = (code) => http.post(`/admin/plugins/${code}/enable`);
 export const disablePlugin = (code) => http.post(`/admin/plugins/${code}/disable`);
+export const archivePlugin = (code) => http.post(`/admin/plugins/${code}/archive`);
+export const restorePlugin = (code) => http.post(`/admin/plugins/${code}/restore`);
 export const updatePluginConfig = (code, payload) => http.put(`/admin/plugins/${code}/config`, payload);
 export const pluginImpact = (code) => http.get(`/admin/plugins/${code}/impact`);
 export const pluginHooks = (code) => http.get(`/admin/plugins/${code}/hooks`);

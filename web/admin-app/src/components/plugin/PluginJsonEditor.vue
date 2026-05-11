@@ -20,7 +20,7 @@
     <el-alert type="info" show-icon :closable="false" :title="t('plugin.config.tip')" />
 
     <div v-if="mode === 'form'" class="form-mode" data-testid="plugin-config-form-mode">
-      <el-empty v-if="!schemaFields.length" description="暂无可表单化的配置模型，请使用 JSON 高级模式。" />
+      <el-empty v-if="!schemaFields.length" :description="t('plugin.config.noFormSchema')" />
       <el-form v-else label-width="170px">
         <el-form-item v-for="field in schemaFields" :key="field.key" :required="field.required">
           <template #label>
@@ -46,7 +46,7 @@
             :model-value="arrayToText(localValue[field.key])"
             type="textarea"
             :rows="2"
-            placeholder="逗号分隔，例如 a,b,c"
+            :placeholder="t('plugin.config.arrayPlaceholder')"
             @update:model-value="(v) => setArrayField(field.key, v)"
           />
           <el-input
@@ -77,7 +77,7 @@
         <el-collapse-item :title="t('plugin.config.configDiff')" name="diff">
           <div class="diff-summary">
             <el-tag v-if="changedKeys.length" type="warning" effect="plain">{{ t('plugin.config.changedKeys') }}：{{ changedKeys.join(', ') }}</el-tag>
-            <el-tag v-else type="success" effect="plain">没有配置变更</el-tag>
+            <el-tag v-else type="success" effect="plain">{{ t('plugin.config.noChanges') }}</el-tag>
           </div>
           <div class="preview-grid">
             <div>
@@ -163,7 +163,7 @@ const schemaErrors = computed(() => {
     emit('schema-errors', out);
     return out;
   } catch (e) {
-    const out = [`schema 编译失败：${String(e?.message || e)}`];
+    const out = [`${t('plugin.config.compileFailed')}：${String(e?.message || e)}`];
     emit('schema-errors', out);
     return out;
   }
@@ -201,9 +201,9 @@ const maskedLocal = computed(() => maskSensitiveConfig(safeJSON(localValue.value
 async function copy() {
   try {
     await navigator.clipboard.writeText(JSON.stringify(localValue.value ?? {}, null, 2));
-    ElMessage.success('已复制');
+    ElMessage.success(t('common.copied'));
   } catch {
-    ElMessage.warning('当前浏览器不支持自动复制');
+    ElMessage.warning(t('common.copyUnsupported'));
   }
 }
 
@@ -212,15 +212,15 @@ function format() {
   // 但为了“可预期”，我们通过 stringify/parse 规整 key 顺序与缩进。
   try {
     localValue.value = JSON.parse(JSON.stringify(localValue.value ?? {}));
-    ElMessage.success('已格式化');
+    ElMessage.success(t('common.formatDone'));
   } catch {
-    ElMessage.error('格式化失败');
+    ElMessage.error(t('common.formatFailed'));
   }
 }
 
 function clearObject() {
   localValue.value = {};
-  ElMessage.success('已清空');
+  ElMessage.success(t('common.clearDone'));
 }
 
 function normalizeType(field) {

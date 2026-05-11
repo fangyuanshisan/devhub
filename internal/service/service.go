@@ -701,11 +701,59 @@ func (s *Service) SetPluginStatus(code, status string) (domain.Plugin, error) {
 	return s.repo.SetPluginStatus(code, status)
 }
 
+// ArchivePlugin soft-uninstalls a plugin from runtime creation paths while
+// preserving content, config, migrations and audit history.
+func (s *Service) ArchivePlugin(code string) (domain.Plugin, error) {
+	code = strings.TrimSpace(code)
+	plugin, ok := s.repo.PluginByCode(code)
+	if !ok || plugin.Code == "" {
+		return domain.Plugin{}, errors.New("插件不存在")
+	}
+	if plugin.Status == pluginregistry.StatusArchived {
+		return plugin, nil
+	}
+	return s.repo.SetPluginStatus(code, pluginregistry.StatusArchived)
+}
+
+// RestorePlugin brings an archived plugin back to an installed/disabled state.
+// It deliberately does not auto-enable the plugin; admins must re-enable it
+// after readiness checks pass.
+func (s *Service) RestorePlugin(code string) (domain.Plugin, error) {
+	code = strings.TrimSpace(code)
+	if err := s.validatePluginRestoreReadiness(code); err != nil {
+		return domain.Plugin{}, err
+	}
+	return s.repo.SetPluginStatus(code, pluginregistry.StatusDisabled)
+}
+
 func (s *Service) validatePluginEnableReadiness(code string) error {
 	plugin, ok := s.repo.PluginByCode(code)
 	if !ok || plugin.Code == "" {
 		return errors.New("插件不存在")
 	}
+	switch strings.TrimSpace(plugin.Status) {
+	case pluginregistry.StatusDiscovered:
+		return errors.New("插件尚未安装，不能启用")
+	case pluginregistry.StatusArchived:
+		return errors.New("插件已归档，请先恢复后再启用")
+	case pluginregistry.StatusMigrationFailed:
+		return errors.New("插件存在失败迁移，请先处理")
+	}
+	return s.validatePluginRuntimeReadiness(plugin)
+}
+
+func (s *Service) validatePluginRestoreReadiness(code string) error {
+	plugin, ok := s.repo.PluginByCode(code)
+	if !ok || plugin.Code == "" {
+		return errors.New("插件不存在")
+	}
+	if plugin.Status != pluginregistry.StatusArchived {
+		return errors.New("插件未归档，无需恢复")
+	}
+	return s.validatePluginRuntimeReadiness(plugin)
+}
+
+func (s *Service) validatePluginRuntimeReadiness(plugin domain.Plugin) error {
 	if err := pluginregistry.ValidateConfigJSON(plugin, plugin.ConfigJSON); err != nil {
 		return fmt.Errorf("插件配置无效：%w", err)
 	}
@@ -718,7 +766,7 @@ func (s *Service) validatePluginEnableReadiness(code string) error {
 			return fmt.Errorf("插件依赖缺失：%s", dep)
 		}
 	}
-	migrations, err := s.pluginMigrationsWithDefinitions(code)
+	migrations, err := s.pluginMigrationsWithDefinitions(plugin.Code)
 	if err != nil {
 		return fmt.Errorf("插件迁移状态不可用：%w", err)
 	}
@@ -963,8 +1011,12 @@ func (s *Service) PluginHealth(code string) (domain.PluginHealth, error) {
 		UpdatedAt:        time.Now().Format("2006-01-02 15:04:05"),
 	}
 
-	disabled := plugin.Status == pluginregistry.StatusDisabled
-	if disabled {
+	disabled := plugin.Status == pluginregistry.StatusDisabled || plugin.Status == pluginregistry.StatusArchived
+	if plugin.Status == pluginregistry.StatusArchived {
+		health.Status = "archived"
+		health.SuggestedAction = "如需恢复插件治理能力，请先恢复插件，再手动启用"
+		health.StatusReason = "插件已归档，新发布和入口已关闭，历史内容与 SEO 保留"
+	} else if plugin.Status == pluginregistry.StatusDisabled {
 		health.Status = "disabled"
 		health.SuggestedAction = "如需恢复新发布和入口展示，请启用插件"
 		health.StatusReason = "插件已全局禁用，仅影响新发布和入口展示"
@@ -978,6 +1030,11 @@ func (s *Service) PluginHealth(code string) (domain.PluginHealth, error) {
 		health.MigrationStatus = "pending"
 		health.SuggestedAction = "执行或确认插件迁移"
 		health.StatusReason = "插件状态标记为存在待处理迁移"
+	} else if plugin.Status == pluginregistry.StatusMigrationFailed {
+		health.Status = "error"
+		health.MigrationStatus = "failed"
+		health.SuggestedAction = "查看并重试失败迁移"
+		health.StatusReason = "插件状态标记为存在失败迁移"
 	} else if plugin.Status == pluginregistry.StatusDependencyMissing {
 		health.Status = "dependency_missing"
 		health.DependencyStatus = "missing"

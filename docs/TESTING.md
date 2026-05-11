@@ -572,6 +572,8 @@ done
 
 - 后台构建会覆盖 i18n 挂载、插件详情抽屉、配置编辑器和 PluginContent 编译可用性。
 - 既有后台 E2E 继续覆盖 `/admin-next/plugins`、插件详情 Tabs、JSON/Ajv 校验、禁用确认、子站插件配置和 PluginContent 入口。
+- 2026-05-11 复查截图暴露的漏网英文后，已补齐插件详情概览 / 运行状态 / 内容类型 / Hook / 迁移 / 路由 / 审计 Tab，以及子站插件配置弹窗中的 `config_schema`、`config_json`、`resolved_config` 标签中文化；后台 E2E 同步断言当前中文文案并通过 `18 passed`。
+- 本轮命令结果：`go test ./...`、`go build -o .devhub/devhub .`、`bash -n dev.sh`、`bash -n scripts/check-frontend.sh`、`./scripts/check-frontend.sh --quick`、`./scripts/check-frontend.sh --admin-only --e2e-only` 均通过；`--quick` 最新日志目录 `.devhub/checks/20260511-225223/`，后台 E2E 最新日志目录 `.devhub/checks/20260511-225516/`。
 
 需要手工确认：
 
@@ -589,6 +591,7 @@ done
    - 继续展示全局状态和子站状态；
    - 配置编辑器同样支持表单 / JSON 模式、差异和最终生效配置预览；
    - 子站配置覆盖全局配置的提示仍可见。
+   - `配置模型`、`子站配置`、`最终生效配置` 等标签应显示中文；JSON key 和插件技术值可以保留英文。
 5. PluginContent：
    - 支持子站、状态、关键词和内容类型筛选；
    - 列表展示插件编码、内容类型、子站、状态、更新时间和评论数；
@@ -639,6 +642,32 @@ done
 
 - P0：未发现。
 - P1：未发现会阻塞插件治理中心基础可用性的后端/API/SEO 问题。
+
+## 阶段 C/D/E/F 插件生命周期与软卸载验收
+
+本节用于阶段 C/D/E/F 的最小验收，不扩展成大规模 E2E。
+
+已自动化：
+
+- Go 单测覆盖内置插件归档后 `plugins.status=archived`、`lifecycle_status=archived`。
+- Go 单测覆盖归档插件不能通过 `ValidateTopicPluginAccess` 新建内容。
+- Go 单测覆盖归档插件不能被子站启用。
+- Go 单测覆盖恢复插件后默认进入 `disabled`，不会自动启用。
+- Go 单测覆盖 failed migration 会阻断恢复。
+- API 测试覆盖 `POST /api/v1/admin/plugins/:code/archive`、`restore`、归档后创建拦截、子站启用拦截、恢复后再启用和审计定位。
+
+手工 / 轻量冒烟：
+
+- 后台插件列表应显示生命周期字段和状态原因。
+- 归档确认弹窗应展示 impact 信息，并明确历史内容和 SEO 保留。
+- 恢复操作应提示恢复为 disabled，不自动 enabled。
+- 插件详情审计 Tab 可查 `plugin.archived` / `plugin.restored`。
+
+未覆盖 / 后续：
+
+- 生产 MySQL 大库归档 / 恢复耗时专项。
+- 归档后所有前台导航入口的完整浏览器矩阵。
+- 外部插件包安装、上传、远程安装、Go 动态加载、第三方沙箱和硬卸载均未实现，不能写成已验收。
 - P2：后台构建存在 Vite chunk size warning，主要来自 `PluginJsonEditor` 等大 chunk；后续可考虑按需加载或手动拆包。
 
 ## 2026-05-11：固定 DevHub 后台 E2E Docker 镜像

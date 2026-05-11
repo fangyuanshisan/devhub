@@ -158,6 +158,8 @@ func NewRouter(svc *service.Service) *gin.Engine {
 			protected.POST("/plugins/:code/migrations/:name/e2e-fail", srv.requirePermission("plugin.write"), srv.injectFailedAdminPluginMigrationForTest)
 			protected.POST("/plugins/:code/enable", srv.requirePermission("plugin.write"), srv.enableAdminPlugin)
 			protected.POST("/plugins/:code/disable", srv.requirePermission("plugin.write"), srv.disableAdminPlugin)
+			protected.POST("/plugins/:code/archive", srv.requirePermission("plugin.write"), srv.archiveAdminPlugin)
+			protected.POST("/plugins/:code/restore", srv.requirePermission("plugin.write"), srv.restoreAdminPlugin)
 			protected.PUT("/plugins/:code/config", srv.requirePermission("plugin.write"), srv.updateAdminPluginConfig)
 			protected.GET("/overview", srv.requirePermission("dashboard.read"), srv.adminOverview)
 			protected.GET("/communities", srv.requirePermission("site.read"), srv.adminCommunities)
@@ -2184,6 +2186,45 @@ func (s *Server) enableAdminPlugin(c *gin.Context) {
 
 func (s *Server) disableAdminPlugin(c *gin.Context) {
 	s.setAdminPluginStatus(c, pluginregistry.StatusDisabled)
+}
+
+func (s *Server) archiveAdminPlugin(c *gin.Context) {
+	code := strings.TrimSpace(c.Param("code"))
+	before, _ := s.svc.PluginByCode(code)
+	impact, _ := s.svc.PluginImpact(code)
+	plugin, err := s.svc.ArchivePlugin(code)
+	if err != nil {
+		s.auditStructured(c, "system", "plugin.archive.failed", fmt.Sprintf("plugins#%s", code),
+			gin.H{"status": before.Status},
+			gin.H{"status": before.Status},
+			gin.H{"scope": "global", "plugin_code": code, "operation": "plugin_archive_failed", "error": err.Error(), "impact_summary": impact})
+		fail(c, http.StatusBadRequest, err.Error())
+		return
+	}
+	s.auditStructured(c, "system", "plugin.archived", fmt.Sprintf("plugins#%s", plugin.Code),
+		gin.H{"status": before.Status},
+		gin.H{"status": plugin.Status},
+		gin.H{"scope": "global", "plugin_code": plugin.Code, "operation": "plugin_archive", "impact_summary": impact})
+	c.JSON(http.StatusOK, plugin)
+}
+
+func (s *Server) restoreAdminPlugin(c *gin.Context) {
+	code := strings.TrimSpace(c.Param("code"))
+	before, _ := s.svc.PluginByCode(code)
+	plugin, err := s.svc.RestorePlugin(code)
+	if err != nil {
+		s.auditStructured(c, "system", "plugin.restore.failed", fmt.Sprintf("plugins#%s", code),
+			gin.H{"status": before.Status},
+			gin.H{"status": before.Status},
+			gin.H{"scope": "global", "plugin_code": code, "operation": "plugin_restore_failed", "error": err.Error()})
+		fail(c, http.StatusBadRequest, err.Error())
+		return
+	}
+	s.auditStructured(c, "system", "plugin.restored", fmt.Sprintf("plugins#%s", plugin.Code),
+		gin.H{"status": before.Status},
+		gin.H{"status": plugin.Status},
+		gin.H{"scope": "global", "plugin_code": plugin.Code, "operation": "plugin_restore"})
+	c.JSON(http.StatusOK, plugin)
 }
 
 func (s *Server) setAdminPluginStatus(c *gin.Context, status string) {

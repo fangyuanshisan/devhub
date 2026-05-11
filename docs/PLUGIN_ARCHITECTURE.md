@@ -46,7 +46,7 @@ MySQL 专项补充：2026-05-11 已完成 MySQLStore 与老库升级专项验证
 - 插件注册：`qa`、`docs`、`wiki`、`projects`、`jobs`、`ai_works` 均通过统一 registry 暴露 `code`、`plugin_code`、`content_types`、权限、菜单、路由、Hook 声明、`config_schema`、依赖和最小 Core 版本。
 - 内容类型归一：`doc -> document`、`wiki -> wiki_page` 和 `content_type -> plugin_code` 映射集中在 registry。
 - 全局状态：`plugins.status` 已扩展为插件运行治理状态模型，当前 schema / Store 接受 `discovered`、`installed`、`migrated`、`configured`、`enabled`、`disabled`、`running`、`config_invalid`、`migration_pending`、`dependency_missing`。
-- 发布可用性：当前只有 `plugins.status=enabled` 会放行新建内容；`running`、`configured` 等状态先作为生命周期 / 健康治理预留，不等价于可发布。
+- 发布可用性：当前只有 `plugins.status=enabled` 会放行新建内容；`running`、`configured` 等状态先作为生命周期 / 健康治理预留，不等价于可发布。`archived` 表示软卸载 / 归档，必须和 disabled 一样阻断新发布和子站启用，但不影响历史内容访问和 SEO。
 - 启用 readiness：`v1.3.3` 起，全局启用和子站启用都会在 Service 层检查插件存在、全局配置有效、依赖插件已启用、没有 `failed` 迁移记录；当前内置 up/no-op 的 `pending` migration 不阻断启用，只通过健康状态和迁移 Tab 提示。
 - 子站状态：`community_plugins.status` 支持子站级 `enabled` / `disabled`，并叠加 `sort_order`、`config_json`。
 - 配置：`plugins.config_json`、`community_plugins.config_json`、`resolved_config.default/global/community/effective` 已落地；后端保存时执行简化 `config_schema` 校验，后台用 JSON Editor + Ajv 做客户端基础校验。
@@ -60,7 +60,7 @@ MySQL 专项补充：2026-05-11 已完成 MySQLStore 与老库升级专项验证
 
 部分完成：
 
-- 生命周期：状态枚举已扩展，但尚未形成完整 `discovered -> installed -> migrated -> configured -> enabled -> running` 自动状态机；当前运行判断仍以 `plugins.status=enabled`、`community_plugins.status=enabled` 和 `plugin_migrations.status` 为准。
+- 生命周期：状态枚举已扩展，并已为内置插件派生 `install_status`、`lifecycle_status`、`status_reason`、`installed_at`、`archived_at`、`last_health_check_at` 等后台展示字段。当前不是外部插件安装器，运行判断仍以 `plugins.status=enabled`、`community_plugins.status=enabled` 和 `plugin_migrations.status` 为准。
 - Hook 治理：Hook 可以执行，blocking hook 可阻断；`hook_executions` 已记录执行结果、最近错误、失败次数、平均耗时和失败率，失败会写入 `plugin.hook.failed` / `plugin.hook.blocked` 审计。当前已有轻量健康摘要；重试策略、告警和复杂业务处理器仍待后续。
 - 插件迁移：当前 runner 只支持内置插件 up/no-op 执行记录、失败记录和重试；尚无 migration down、真实 rollback、迁移前备份、外部插件迁移包或复杂迁移依赖排序。
 - 权限矩阵：发布和菜单已做最小权限码校验；角色可分配、按 community / category 作用域细分的完整权限矩阵和配置 UI 仍未完成。
@@ -548,6 +548,7 @@ P1 只作为规划边界，不在 v1.3.4 中实现：
 阶段 B 开始把 P1 中的部分体验能力落到后台插件治理中心，但仍不改变插件平台安全边界：
 
 - 后台插件治理相关页面接入 `vue-i18n`，默认语言为 `zh-CN`。用户可见标签、按钮、状态、筛选项和提示文案应集中到 `web/admin-app/src/i18n` 管理；`plugin_code`、`content_type`、`hook_name`、权限码和 JSON key 等技术值继续保留原始值。
+- 当前已补齐插件中心、插件详情抽屉、子站插件配置抽屉、配置编辑器、通用 PluginContent 和审计列表中的主要插件治理文案；其中 `config_schema`、`config_json`、`resolved_config` 等作为用户可见标签时显示为“配置模型 / 子站配置 / 最终生效配置”，作为 JSON key 或接口字段时仍保持原值，便于调试。
 - 插件配置编辑器支持“表单模式 + JSON 高级模式”。表单模式根据 `config_schema.properties` 做基础浅层渲染，支持 string、number、integer、boolean、array、object 和 enum；复杂配置仍可使用 JSON 高级模式。
 - 配置编辑器展示配置差异和最终生效配置。差异预览只用于管理员确认，保存仍以后端 `config_schema` 校验为准；敏感字段会在预览中脱敏。
 - 通用 PluginContent 页开始支持多选、批量隐藏和批量恢复，并提供审计入口。审计入口会跳转到通用治理审计页并预填 `action`、`target_type` 和插件编码 metadata，便于定位本次插件内容批量操作。权限、插件状态、内容归属和审计仍由后端批量治理接口强制校验，前端隐藏或按钮禁用不能替代权限控制。
@@ -557,3 +558,43 @@ P1 只作为规划边界，不在 v1.3.4 中实现：
 - 当前 `en-US` 只是占位语言包；若后续需要完整多语言生态，需要补齐翻译和语言切换入口。
 - 自动表单是基础版本，不包含完整 JSON Schema、字段分组、配置版本、配置回滚或敏感字段加密。
 - PluginContent 当前只落地批量隐藏 / 恢复；批量审核、置顶、加精和更细粒度权限矩阵仍待后续。通用审计页已能读取 PluginContent 带入的 query 筛选，但更完整的审计筛选 E2E 和跨页面高亮仍待后续补测。
+
+## 阶段 C/D/E/F：SDK 模板、生命周期、软卸载和外部生态设计
+
+本阶段继续沿插件平台主线推进，但仍不实现插件市场、上传安装、远程安装、Go 动态加载或第三方沙箱。
+
+阶段 C 已新增插件 SDK / 模板规范：
+
+- [manifest 示例](plugins/manifest.example.json)
+- [插件目录模板](plugins/plugin-template.md)
+- [config_schema 开发指南](plugins/config-schema-guide.md)
+- [Hook 开发指南](plugins/hook-guide.md)
+- [migration 开发指南](plugins/migration-guide.md)
+- [权限开发指南](plugins/permission-guide.md)
+- [菜单与路由指南](plugins/menu-route-guide.md)
+
+阶段 D 已为内置插件补齐安装生命周期展示模型：
+
+- 内置插件仍通过 Go registry 注册，启动 / store 初始化时同步到 `plugins` 表。
+- `plugins.status` 支持 `archived` 和 `migration_failed`，并派生 `install_status`、`lifecycle_status`、`status_reason`、`installed_at`、`archived_at`、`last_health_check_at` 给后台展示。
+- 启用前会检查插件存在、未归档、配置有效、依赖可用、无 failed migration；当前内置 pending/no-op migration 仍作为治理提示，不阻断启用。
+
+阶段 E 已实现插件软卸载 / 归档 / 恢复最小闭环：
+
+- `POST /api/v1/admin/plugins/:code/archive` 将插件置为 `archived`。
+- `POST /api/v1/admin/plugins/:code/restore` 将归档插件恢复为 `disabled`，不会自动启用。
+- 归档后禁止新建该插件内容、禁止子站启用、隐藏入口；历史内容、配置、迁移记录、审计记录和 SEO 均保留。
+- 归档 / 恢复写入 `plugin.archived`、`plugin.restored`、`plugin.archive.failed`、`plugin.restore.failed` 审计。
+
+内置插件 manifest 对照表：
+
+| 插件 | content_types | 权限 | 菜单 | 路由 | Hook | config_schema | migrations | 生命周期 |
+|---|---|---|---|---|---|---|---|---|
+| `qa` | `question` | `qa.question.create` 等 | 前台 / 后台 / 版主 | 声明级 | 创建前后等 | 已声明 | `qa_questions` / `qa_answers` | installed / enabled / archived 等 |
+| `docs` | `document` | `docs.document.create` 等 | 前台 / 后台 / 版主 | 声明级 | 创建前后等 | 已声明 | `docs_spaces` / `docs_documents` | installed / enabled / archived 等 |
+| `wiki` | `wiki_page` | `wiki.page.create` 等 | 前台 / 后台 / 版主 | 声明级 | 创建 / 更新等 | 已声明 | `wiki_spaces` / `wiki_pages` / `wiki_page_versions` | installed / enabled / archived 等 |
+| `projects` | `project` | `projects.project.create` 等 | 前台 / 后台 | 声明级 | 平台 Hook | 已声明 | 平台记录 | 平台治理已接入，业务闭环待完善 |
+| `jobs` | `job` | `jobs.job.create` 等 | 前台 / 后台 | 声明级 | 平台 Hook | 已声明 | 平台记录 | 平台治理已接入，业务闭环待完善 |
+| `ai_works` | `ai_work` | `ai_works.work.create` 等 | 前台 / 后台 | 声明级 | 平台 Hook | 已声明 | 平台记录 | 平台治理已接入，业务闭环待完善 |
+
+阶段 F 已新增 [外部插件生态评估与预备设计](plugins/external-plugin-ecosystem.md)。推荐路线是 manifest + 配置型插件，再评估外部服务型插件；Go 动态插件暂不推荐。

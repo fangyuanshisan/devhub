@@ -388,7 +388,7 @@ func (s *MySQLStore) migrateSiteScopedAudit() error {
 	_, _ = s.db.Exec(`ALTER TABLE categories ADD COLUMN allowed_content_types JSON NULL AFTER plugin_code`)
 	_, _ = s.db.Exec(`ALTER TABLE categories ADD KEY idx_categories_plugin_status (plugin_code, status)`)
 	_, _ = s.db.Exec(`ALTER TABLE plugins ADD COLUMN config_json JSON NULL AFTER description`)
-	_, _ = s.db.Exec(`ALTER TABLE plugins MODIFY COLUMN status ENUM('discovered','installed','migrated','configured','enabled','disabled','running','config_invalid','migration_pending','dependency_missing') NOT NULL DEFAULT 'enabled'`)
+	_, _ = s.db.Exec(`ALTER TABLE plugins MODIFY COLUMN status ENUM('discovered','installed','migrated','configured','enabled','disabled','running','archived','config_invalid','migration_pending','migration_failed','dependency_missing') NOT NULL DEFAULT 'enabled'`)
 	_, _ = s.db.Exec(`CREATE TABLE IF NOT EXISTS plugin_migrations (
 		id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
 		plugin_code VARCHAR(64) NOT NULL,
@@ -1431,7 +1431,12 @@ func (s *MySQLStore) UpdateBoard(key string, req domain.Board) (domain.Board, bo
 func (s *MySQLStore) Plugins() []domain.Plugin {
 	rows, err := s.db.Query(`SELECT plugin_code,name,version,status,COALESCE(description,''),COALESCE(CAST(config_json AS CHAR),''),DATE_FORMAT(created_at,'%Y-%m-%d %H:%i:%s'),DATE_FORMAT(updated_at,'%Y-%m-%d %H:%i:%s') FROM plugins ORDER BY plugin_code`)
 	if err != nil {
-		return pluginregistry.Definitions()
+		defs := pluginregistry.Definitions()
+		for i := range defs {
+			defs[i].ResolvedConfig = pluginregistry.ResolvePluginConfig(defs[i], "", "")
+			defs[i] = pluginregistry.ApplyLifecycle(defs[i])
+		}
+		return defs
 	}
 	defer rows.Close()
 	runtime := map[string]domain.Plugin{}
@@ -1447,11 +1452,11 @@ func (s *MySQLStore) Plugins() []domain.Plugin {
 		if item, ok := runtime[def.Code]; ok {
 			merged := pluginregistry.MergeRuntimeState(def, item)
 			merged.ResolvedConfig = pluginregistry.ResolvePluginConfig(merged, item.ConfigJSON, "")
-			out = append(out, merged)
+			out = append(out, pluginregistry.ApplyLifecycle(merged))
 			continue
 		}
 		def.ResolvedConfig = pluginregistry.ResolvePluginConfig(def, "", "")
-		out = append(out, def)
+		out = append(out, pluginregistry.ApplyLifecycle(def))
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i].Code < out[j].Code })
 	return out
@@ -1466,12 +1471,13 @@ func (s *MySQLStore) PluginByCode(code string) (domain.Plugin, bool) {
 	err := s.db.QueryRow(`SELECT plugin_code,name,version,status,COALESCE(description,''),COALESCE(CAST(config_json AS CHAR),''),DATE_FORMAT(created_at,'%Y-%m-%d %H:%i:%s'),DATE_FORMAT(updated_at,'%Y-%m-%d %H:%i:%s') FROM plugins WHERE plugin_code=?`, def.Code).
 		Scan(&runtime.Code, &runtime.Name, &runtime.Version, &runtime.Status, &runtime.Description, &runtime.ConfigJSON, &runtime.CreatedAt, &runtime.UpdatedAt)
 	if err != nil {
-		return def, true
+		def.ResolvedConfig = pluginregistry.ResolvePluginConfig(def, "", "")
+		return pluginregistry.ApplyLifecycle(def), true
 	}
 	runtime.PluginCode = runtime.Code
 	merged := pluginregistry.MergeRuntimeState(def, runtime)
 	merged.ResolvedConfig = pluginregistry.ResolvePluginConfig(merged, runtime.ConfigJSON, "")
-	return merged, true
+	return pluginregistry.ApplyLifecycle(merged), true
 }
 
 func (s *MySQLStore) SetPluginStatus(code, status string) (domain.Plugin, error) {
@@ -1559,7 +1565,7 @@ func (s *MySQLStore) CommunityPlugins(communityID int64) ([]domain.Plugin, error
 		} else {
 			item.Status = pluginregistry.StatusDisabled
 		}
-		out = append(out, item)
+		out = append(out, pluginregistry.ApplyLifecycle(item))
 	}
 	sort.Slice(out, func(i, j int) bool {
 		if out[i].SortOrder != out[j].SortOrder {

@@ -29,7 +29,7 @@
       </el-form-item>
       <el-form-item label="动作"><el-input v-model="query.action" clearable placeholder="动作关键词" style="width: 150px" data-testid="admin-audit-action-search" /></el-form-item>
       <el-form-item label="目标"><el-input v-model="query.target" clearable placeholder="topics#1" style="width: 150px" /></el-form-item>
-      <el-form-item label="元数据"><el-input v-model="query.metadata" clearable placeholder="plugin_code / request_id" style="width: 180px" /></el-form-item>
+      <el-form-item label="元数据"><el-input v-model="query.metadata" clearable placeholder="插件编码 / 请求 ID" style="width: 180px" /></el-form-item>
       <el-form-item><el-button type="primary" @click="load">查询</el-button><el-button @click="reset">重置</el-button></el-form-item>
     </el-form>
   </section>
@@ -40,7 +40,7 @@
       <el-table-column prop="id" label="ID" width="90" />
       <el-table-column label="操作人" width="170"><template #default="{ row }">{{ row.actor || '-' }}<div class="content-meta">{{ actorTypeName(row.actor_type) }} / ID {{ row.actor_id || row.actor_user_id || '-' }}</div></template></el-table-column>
       <el-table-column label="类型" width="110"><template #default="{ row }"><el-tag :type="typeTag(row.type)">{{ typeName(row.type) }}</el-tag></template></el-table-column>
-      <el-table-column prop="action" label="动作" min-width="160" />
+      <el-table-column label="动作" min-width="160"><template #default="{ row }">{{ auditActionLabel(row.action) }}</template></el-table-column>
       <el-table-column label="目标" min-width="190"><template #default="{ row }"><span>{{ row.target || '-' }}</span><div class="content-meta">{{ targetInfo(row) }}</div></template></el-table-column>
       <el-table-column label="站点" width="120"><template #default="{ row }">{{ row.site || '-' }}<div class="content-meta">CID {{ row.community_id || '-' }}</div></template></el-table-column>
       <el-table-column prop="ip" label="IP" width="140" />
@@ -54,6 +54,7 @@
 import { reactive, ref } from 'vue';
 import { useRoute } from 'vue-router';
 import { auditLogs } from '@/api/admin';
+import { auditActionLabel } from '@/i18n/formatters';
 
 const route = useRoute();
 const query = reactive({
@@ -81,8 +82,8 @@ function actorTypeName(type) {
   return { admin_user: '后台人员', moderator: '子站版主', system: '系统' }[type] || type || '未知身份';
 }
 function targetInfo(row) {
-  if (row.target_type || row.target_id) return `target_type=${row.target_type || '-'} / target_id=${row.target_id || '-'}`;
-  return 'target_type / target_id：未结构化';
+  if (row.target_type || row.target_id) return `目标类型=${row.target_type || '-'} / 目标 ID=${row.target_id || '-'}`;
+  return '目标类型 / 目标 ID：未结构化';
 }
 async function load() {
   const data = await auditLogs(query);

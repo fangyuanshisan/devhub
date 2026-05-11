@@ -10,7 +10,7 @@
             <el-tag :type="healthType(plugin.health?.status)">{{ pluginHealthLabel(plugin.health?.status) }}</el-tag>
             <el-tag v-if="plugin.is_system" type="primary">{{ t('plugin.system') }}</el-tag>
           </div>
-          <p class="hero-desc">{{ plugin.description || '暂无插件说明' }}</p>
+          <p class="hero-desc">{{ plugin.description || t('plugin.noDescription') }}</p>
           <div class="hero-metrics">
             <el-tag type="info" effect="plain">{{ t('plugin.contentTypes') }} {{ (plugin.content_types || []).length }}</el-tag>
             <el-tag type="info" effect="plain">{{ t('plugin.capability.permissions') }} {{ (plugin.permissions || []).length }}</el-tag>
@@ -39,6 +39,11 @@
             <el-descriptions-item :label="t('plugin.isSystem')">{{ plugin.is_system ? t('common.yes') : t('common.no') }}</el-descriptions-item>
             <el-descriptions-item :label="t('plugin.maturity')">{{ maturityLabel(plugin) }}</el-descriptions-item>
             <el-descriptions-item :label="t('plugin.suggestedAction')">{{ plugin.health?.suggested_action || '-' }}</el-descriptions-item>
+            <el-descriptions-item :label="t('plugin.lifecycle.installStatus')">{{ pluginStatusLabel(plugin.install_status) }}</el-descriptions-item>
+            <el-descriptions-item :label="t('plugin.lifecycle.lifecycleStatus')">{{ pluginStatusLabel(plugin.lifecycle_status) }}</el-descriptions-item>
+            <el-descriptions-item :label="t('plugin.lifecycle.installedAt')">{{ plugin.installed_at || '-' }}</el-descriptions-item>
+            <el-descriptions-item :label="t('plugin.lifecycle.archivedAt')">{{ plugin.archived_at || '-' }}</el-descriptions-item>
+            <el-descriptions-item :label="t('plugin.lifecycle.statusReason')" :span="2">{{ plugin.status_reason || '-' }}</el-descriptions-item>
             <el-descriptions-item :label="t('plugin.contentTypes')" :span="2">{{ (plugin.content_types || []).join(', ') || '-' }}</el-descriptions-item>
           </el-descriptions>
           <el-alert
@@ -46,7 +51,7 @@
             type="info"
             show-icon
             :closable="false"
-            title="成熟度说明：平台治理已接入表示已纳入插件状态/权限/配置/Hook 等平台能力；业务闭环是否完成仍以各插件专项验收为准。"
+            :title="t('plugin.maturityNote')"
           />
         </el-tab-pane>
 
@@ -56,36 +61,36 @@
             show-icon
             :closable="false"
             class="mb"
-            title="运行状态由全局启停、配置校验、迁移记录、依赖状态和 Hook 失败统计计算；禁用插件不会影响历史内容访问和 SEO。"
+            :title="t('plugin.runtimeNote')"
           />
           <el-descriptions :column="2" border>
-            <el-descriptions-item label="整体状态">
+            <el-descriptions-item :label="t('plugin.runtime.overallStatus')">
               <el-tag :type="healthType(plugin.health?.status)">{{ pluginHealthLabel(plugin.health?.status) }}</el-tag>
             </el-descriptions-item>
-            <el-descriptions-item label="建议操作">{{ plugin.health?.suggested_action || '-' }}</el-descriptions-item>
-            <el-descriptions-item label="配置状态">
+            <el-descriptions-item :label="t('plugin.runtime.suggestedAction')">{{ plugin.health?.suggested_action || '-' }}</el-descriptions-item>
+            <el-descriptions-item :label="t('plugin.runtime.configStatus')">
               <el-tag :type="metricType(plugin.health?.config_status)">{{ pluginHealthLabel(plugin.health?.config_status) }}</el-tag>
             </el-descriptions-item>
-            <el-descriptions-item label="迁移状态">
+            <el-descriptions-item :label="t('plugin.runtime.migrationStatus')">
               <el-tag :type="metricType(plugin.health?.migration_status)">{{ pluginHealthLabel(plugin.health?.migration_status) }}</el-tag>
             </el-descriptions-item>
-            <el-descriptions-item label="Hook 状态">
+            <el-descriptions-item :label="t('plugin.runtime.hookStatus')">
               <el-tag :type="metricType(plugin.health?.hook_status)">{{ pluginHealthLabel(plugin.health?.hook_status) }}</el-tag>
             </el-descriptions-item>
-            <el-descriptions-item label="依赖状态">
+            <el-descriptions-item :label="t('plugin.runtime.dependencyStatus')">
               <el-tag :type="metricType(plugin.health?.dependency_status)">{{ pluginHealthLabel(plugin.health?.dependency_status) }}</el-tag>
             </el-descriptions-item>
-            <el-descriptions-item label="待执行迁移">{{ plugin.health?.pending_migrations_count ?? 0 }}</el-descriptions-item>
-            <el-descriptions-item label="失败迁移">{{ plugin.health?.failed_migrations_count ?? 0 }}</el-descriptions-item>
-            <el-descriptions-item label="Hook 失败">{{ plugin.health?.hook_failure_count ?? 0 }}</el-descriptions-item>
+            <el-descriptions-item :label="t('plugin.runtime.pendingMigrations')">{{ plugin.health?.pending_migrations_count ?? 0 }}</el-descriptions-item>
+            <el-descriptions-item :label="t('plugin.runtime.failedMigrations')">{{ plugin.health?.failed_migrations_count ?? 0 }}</el-descriptions-item>
+            <el-descriptions-item :label="t('plugin.runtime.hookFailures')">{{ plugin.health?.hook_failure_count ?? 0 }}</el-descriptions-item>
             <el-descriptions-item :label="t('field.updated_at')">{{ plugin.health?.updated_at || '-' }}</el-descriptions-item>
             <el-descriptions-item :label="t('plugin.recentError')" :span="2">{{ plugin.health?.recent_error || '-' }}</el-descriptions-item>
-            <el-descriptions-item label="状态原因" :span="2">{{ plugin.health?.status_reason || '-' }}</el-descriptions-item>
+            <el-descriptions-item :label="t('plugin.runtime.statusReason')" :span="2">{{ plugin.health?.status_reason || '-' }}</el-descriptions-item>
           </el-descriptions>
         </el-tab-pane>
 
         <el-tab-pane :label="t('plugin.tabs.contentTypes')" name="contentTypes">
-          <el-table :data="plugin.content_type_definitions || []" border stripe empty-text="暂无内容类型定义">
+          <el-table :data="plugin.content_type_definitions || []" border stripe :empty-text="`暂无${t('plugin.tabs.contentTypes')}`">
             <el-table-column prop="type" :label="t('field.type')" width="140" />
             <el-table-column prop="name" :label="t('field.name')" width="140" />
             <el-table-column prop="plugin_code" :label="t('field.plugin_code')" width="120" />
@@ -106,9 +111,9 @@
 
         <el-tab-pane :label="t('plugin.tabs.permissions')" name="permissions">
           <div class="sub-toolbar">
-            <el-input v-model="permQ" placeholder="按权限码搜索" clearable style="max-width: 320px" />
+            <el-input v-model="permQ" :placeholder="t('plugin.permissionsSearchPlaceholder')" clearable style="max-width: 320px" />
           </div>
-          <el-table :data="filteredPermissions" border stripe empty-text="暂无权限定义">
+          <el-table :data="filteredPermissions" border stripe :empty-text="`暂无${t('plugin.tabs.permissions')}`">
             <el-table-column prop="code" :label="t('field.code')" min-width="240">
               <template #default="{ row }">
                 <div class="mono">{{ row.code }}</div>
@@ -119,7 +124,7 @@
             <el-table-column prop="description" :label="t('field.description')" min-width="220" />
             <el-table-column :label="t('plugin.action')" width="90">
               <template #default="{ row }">
-                <el-button link type="primary" @click="copyText(row.code)">复制</el-button>
+                <el-button link type="primary" @click="copyText(row.code)">{{ t('common.copy') }}</el-button>
               </template>
             </el-table-column>
           </el-table>
@@ -130,10 +135,10 @@
             type="info"
             show-icon
             :closable="false"
-            title="菜单最终展示会受插件全局状态、子站状态与当前用户权限影响。"
+            :title="t('plugin.menuVisibilityNote')"
             class="mb"
           />
-          <el-table :data="plugin.menus || []" border stripe empty-text="暂无菜单声明">
+          <el-table :data="plugin.menus || []" border stripe :empty-text="`暂无${t('plugin.tabs.menus')}`">
             <el-table-column prop="area" :label="t('field.area')" width="120" />
             <el-table-column prop="title" :label="t('field.title')" width="160" />
             <el-table-column prop="path" :label="t('field.path')" min-width="220" />
@@ -144,7 +149,7 @@
 
         <el-tab-pane :label="t('plugin.tabs.config')" name="config">
           <el-alert
-            title="当前已支持表单模式、JSON 高级模式和 config_schema 基础校验；完整 JSON Schema、字段分组和配置版本仍属于后续插件平台能力。"
+            :title="t('plugin.configCapabilityNote')"
             type="info"
             show-icon
             :closable="false"
@@ -195,10 +200,10 @@
             show-icon
             :closable="false"
             class="mb"
-            title="说明：平台调用点=当前后端代码已确认存在 Dispatch 接入点；运行统计来自 hook_executions。handler 状态仍不伪造，仅展示真实执行记录。"
+            :title="t('plugin.hooksNote')"
           />
           <el-table v-loading="hooksLoading" :data="hooksRows" border stripe>
-            <el-table-column prop="name" label="Hook" min-width="200" />
+            <el-table-column prop="name" :label="t('plugin.tabs.hooks')" min-width="200" />
             <el-table-column :label="t('plugin.hook.declared')" width="130">
               <template #default="{ row }">
                 <el-tag :type="row.declared ? 'success' : 'info'">{{ row.declared ? t('plugin.hook.declaredYes') : t('plugin.hook.declaredNo') }}</el-tag>
@@ -235,9 +240,9 @@
             <el-table-column prop="description" :label="t('field.description')" min-width="240" />
           </el-table>
           <el-divider>{{ t('plugin.hook.recentExecutions') }}</el-divider>
-          <el-table :data="hookRecent" border stripe empty-text="暂无 Hook 执行记录">
+          <el-table :data="hookRecent" border stripe :empty-text="`暂无${t('plugin.hook.recentExecutions')}`">
             <el-table-column prop="finished_at" :label="t('plugin.audit.time')" width="170" />
-            <el-table-column prop="hook_name" label="Hook" min-width="180" />
+            <el-table-column prop="hook_name" :label="t('plugin.tabs.hooks')" min-width="180" />
             <el-table-column prop="mode" :label="t('plugin.hook.mode')" width="120">
               <template #default="{ row }">{{ row.mode === 'blocking' ? t('plugin.hook.blocking') : t('plugin.hook.nonBlocking') }}</template>
             </el-table-column>
@@ -247,7 +252,7 @@
               </template>
             </el-table-column>
             <el-table-column prop="content_type" :label="t('plugin.contentType')" width="140" />
-            <el-table-column prop="content_id" label="内容 ID" width="120" />
+            <el-table-column prop="content_id" :label="`${t('plugin.content.contentManagement')} ID`" width="120" />
             <el-table-column prop="community_id" :label="t('field.community_id')" width="130" />
             <el-table-column prop="duration_ms" :label="t('plugin.hook.durationMs')" width="100" />
             <el-table-column prop="error_message" :label="t('plugin.hook.error')" min-width="220" />
@@ -260,17 +265,17 @@
             show-icon
             :closable="false"
             class="mb"
-            title="当前仅支持内置插件 up migration 的执行记录、失败记录与重试；rollback/down 先保留 rollback_supported 标识，不做真实回滚。"
+            :title="t('plugin.migrationNote')"
           />
           <div class="sub-toolbar">
             <el-tag type="info" effect="plain">{{ t('common.total') }} {{ migrationSummary.total || migrationRows.length }}</el-tag>
             <el-tag type="success" effect="plain">{{ pluginHealthLabel('success') }} {{ migrationSummary.success || 0 }}</el-tag>
-            <el-tag type="warning" effect="plain">{{ pluginHealthLabel('pending') }} {{ migrationSummary.pending || 0 }}</el-tag>
+            <el-tag type="warning" effect="plain">{{ t('plugin.migration.pending') }} {{ migrationSummary.pending || 0 }}</el-tag>
             <el-tag type="danger" effect="plain">{{ pluginHealthLabel('failed') }} {{ migrationSummary.failed || 0 }}</el-tag>
             <el-button type="primary" size="small" @click="runMigrations">{{ t('plugin.migration.runPending') }}</el-button>
             <el-button size="small" @click="loadMigrations">{{ t('common.refresh') }}</el-button>
           </div>
-          <el-table v-loading="migrationsLoading" :data="migrationRows" border stripe empty-text="暂无迁移声明">
+          <el-table v-loading="migrationsLoading" :data="migrationRows" border stripe :empty-text="`暂无${t('plugin.tabs.migrations')}`">
             <el-table-column prop="migration_name" :label="t('plugin.migration.title')" min-width="180" />
             <el-table-column prop="migration_version" :label="t('plugin.version')" width="120" />
             <el-table-column prop="direction" :label="t('plugin.migration.direction')" width="100" />
@@ -295,7 +300,7 @@
             <el-table-column :label="t('field.action')" width="120" fixed="right">
               <template #default="{ row }">
                 <el-button link type="primary" :disabled="row.status === 'success'" @click="retryMigration(row)">
-                  {{ row.status === 'failed' ? '重试' : '执行' }}
+                  {{ row.status === 'failed' ? t('common.retry') : t('common.run') }}
                 </el-button>
               </template>
             </el-table-column>
@@ -303,7 +308,7 @@
         </el-tab-pane>
 
         <el-tab-pane :label="t('plugin.tabs.routes')" name="routes">
-          <el-table :data="plugin.routes || []" border stripe empty-text="暂无路由声明">
+          <el-table :data="plugin.routes || []" border stripe :empty-text="`暂无${t('plugin.tabs.routes')}`">
             <el-table-column prop="area" :label="t('field.area')" width="120" />
             <el-table-column prop="method" :label="t('field.method')" width="110" />
             <el-table-column prop="path" :label="t('field.path')" min-width="240" />
@@ -316,7 +321,7 @@
             type="info"
             show-icon
             :closable="false"
-            title="本 Tab 读取插件专用审计接口，覆盖插件启停、配置、Hook 失败和带 plugin_code 的内容治理操作。"
+            :title="t('plugin.auditNote')"
             class="mb"
           />
           <div class="sub-toolbar">
@@ -335,7 +340,7 @@
               <el-input v-model="auditQ.metadata" :placeholder="`${t('plugin.audit.metadata')}关键字（可选）`" clearable style="max-width: 220px" />
             </span>
             <span data-testid="plugin-audit-request-filter" class="audit-filter-wrap">
-              <el-input v-model="auditQ.requestId" placeholder="request_id（可选）" clearable style="max-width: 200px" />
+              <el-input v-model="auditQ.requestId" :placeholder="`${t('plugin.audit.requestId')}（可选）`" clearable style="max-width: 200px" />
             </span>
             <el-date-picker
               v-model="auditQ.range"
@@ -347,7 +352,7 @@
             />
             <el-button @click="loadAudit">{{ t('common.query') }}</el-button>
           </div>
-          <el-table v-loading="auditLoading" :data="auditRows" border stripe empty-text="暂无审计记录">
+          <el-table v-loading="auditLoading" :data="auditRows" border stripe :empty-text="`暂无${t('plugin.tabs.audit')}`">
             <el-table-column prop="id" label="ID" width="90" />
             <el-table-column prop="created_at" :label="t('plugin.audit.time')" width="170" />
             <el-table-column :label="t('plugin.audit.actor')" width="170">
@@ -365,7 +370,7 @@
             <el-table-column :label="t('plugin.audit.scope')" min-width="160">
               <template #default="{ row }">
                 <div>{{ t('field.community_id') }} {{ row.community_id || '-' }}</div>
-                <div class="muted">request {{ metadataValue(row, 'request_id') || '-' }}</div>
+                <div class="muted">{{ t('plugin.audit.requestId') }} {{ metadataValue(row, 'request_id') || '-' }}</div>
               </template>
             </el-table-column>
             <el-table-column :label="t('plugin.audit.targetType')" min-width="220">
@@ -377,7 +382,7 @@
             <el-table-column :label="t('plugin.audit.diff')" min-width="260">
               <template #default="{ row }">
                 <details>
-                  <summary class="muted">查看原配置 / 新配置 / 元数据</summary>
+                  <summary class="muted">{{ t('common.view') }}{{ t('plugin.audit.diff') }} / {{ t('plugin.audit.metadata') }}</summary>
                   <pre class="json-box compact">{{ formatJSON(jsonValue(row.old_value)) }}</pre>
                   <pre class="json-box compact">{{ formatJSON(jsonValue(row.new_value)) }}</pre>
                   <pre class="json-box compact">{{ formatJSON(jsonValue(row.metadata_json)) }}</pre>
@@ -439,7 +444,7 @@ const migrationsLoading = ref(false);
 const migrationRows = ref([]);
 const migrationSummary = ref({});
 
-const title = computed(() => `${props.plugin?.name || ''} 插件详情`);
+const title = computed(() => `${props.plugin?.name || ''} ${t('plugin.detailTitle')}`);
 
 watch(
   () => props.plugin,
@@ -559,15 +564,16 @@ const hooksRows = computed(() => {
 function statusType(status) {
   if (status === 'enabled') return 'success';
   if (status === 'disabled') return 'danger';
+  if (status === 'archived') return 'info';
   return 'info';
 }
 
 function healthType(status) {
   if (status === 'healthy') return 'success';
-  if (status === 'disabled') return 'info';
+  if (status === 'disabled' || status === 'archived') return 'info';
   if (status === 'warning' || status === 'migration_pending' || status === 'hook_warning') return 'warning';
   if (status === 'hook_error') return 'danger';
-  if (status === 'error' || status === 'config_invalid' || status === 'dependency_missing') return 'danger';
+  if (status === 'error' || status === 'migration_failed' || status === 'config_invalid' || status === 'dependency_missing') return 'danger';
   return 'info';
 }
 
@@ -651,7 +657,7 @@ async function loadHooks() {
   } catch (e) {
     hookStats.value = [];
     hookRecent.value = [];
-    ElMessage.warning(String(e?.message || e || 'Hook 统计暂不可用'));
+    ElMessage.warning(String(e?.message || e || t('plugin.hook.unavailable')));
   } finally {
     hooksLoading.value = false;
   }
@@ -668,7 +674,7 @@ async function loadMigrations() {
   } catch (e) {
     migrationRows.value = [];
     migrationSummary.value = {};
-    ElMessage.warning(String(e?.message || e || '迁移状态暂不可用'));
+    ElMessage.warning(String(e?.message || e || t('plugin.migration.unavailable')));
   } finally {
     migrationsLoading.value = false;
   }
@@ -680,11 +686,11 @@ async function runMigrations() {
   migrationsLoading.value = true;
   try {
     await runPluginMigrations(p.code);
-    ElMessage.success('迁移执行完成');
+    ElMessage.success(t('plugin.migration.executeDone'));
     await loadMigrations();
     emit('refresh');
   } catch (e) {
-    ElMessage.error(String(e?.message || e || '迁移执行失败'));
+    ElMessage.error(String(e?.message || e || t('plugin.migration.executeFailed')));
   } finally {
     migrationsLoading.value = false;
   }
@@ -696,11 +702,11 @@ async function retryMigration(row) {
   migrationsLoading.value = true;
   try {
     await retryPluginMigration(p.code, row.migration_name);
-    ElMessage.success(row.status === 'failed' ? '迁移重试完成' : '迁移执行完成');
+    ElMessage.success(row.status === 'failed' ? t('plugin.migration.retryDone') : t('plugin.migration.executeDone'));
     await loadMigrations();
     emit('refresh');
   } catch (e) {
-    ElMessage.error(String(e?.message || e || '迁移执行失败'));
+    ElMessage.error(String(e?.message || e || t('plugin.migration.executeFailed')));
   } finally {
     migrationsLoading.value = false;
   }
@@ -734,9 +740,9 @@ function metadataValue(row, key) {
 async function copyText(text) {
   try {
     await navigator.clipboard.writeText(String(text || ''));
-    ElMessage.success('已复制');
+    ElMessage.success(t('common.copied'));
   } catch {
-    ElMessage.warning('当前浏览器不支持自动复制');
+    ElMessage.warning(t('common.copyUnsupported'));
   }
 }
 
@@ -746,12 +752,12 @@ function onSchemaErrors(errs) {
 
 function reloadConfig() {
   editableConfig.value = jsonValue(props.plugin?.config_json);
-  ElMessage.success('已重置');
+  ElMessage.success(t('common.resetDone'));
 }
 
 function clearGlobalConfig() {
   editableConfig.value = {};
-  ElMessage.success('已清空');
+  ElMessage.success(t('common.clearDone'));
 }
 
 async function saveConfig() {
@@ -759,10 +765,10 @@ async function saveConfig() {
   if (!p) return;
   try {
     await updatePluginConfig(p.code, { config_json: editableConfig.value || {} });
-    ElMessage.success('插件全局配置已保存');
+    ElMessage.success(t('plugin.config.globalSaved'));
     emit('refresh');
   } catch (e) {
-    ElMessage.error(String(e?.message || e || '保存失败'));
+    ElMessage.error(String(e?.message || e || t('common.saveFailed')));
   }
 }
 </script>

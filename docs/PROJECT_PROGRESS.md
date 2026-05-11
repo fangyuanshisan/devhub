@@ -1946,7 +1946,9 @@ P1 规划边界：
 - 后台引入 `vue-i18n`，默认语言为 `zh-CN`，提供 `t()` / `$t()` 和插件治理专用中文文案映射。
 - 插件中心、插件详情抽屉、配置编辑器、子站插件配置和 PluginContent 页的主要用户可见英文状态值已中文化；`plugin_code`、`content_type`、`hook_name`、JSON key 等技术值继续保留原始值。
 - 根据 UI 复查截图，补齐插件详情抽屉“概览”表格和邻近 Tab 的漏网英文：`name/status/health/maturity/suggested_action`、内容类型定义列、Hook 统计列、迁移列、路由列和审计列均改为中文标签；状态值 `enabled/healthy` 通过 formatter 展示为中文。
+- 根据后续截图复查，继续补齐子站插件配置抽屉和插件详情抽屉的漏网英文：`config_schema`、`config_json`、`resolved_config`、`version`、`plugin_code`、`content_types` 等用户可见标签已统一改为中文；保留 JSON key、插件编码、内容类型和 Hook 名称等技术值原样展示。
 - `PluginJsonEditor` 从纯 JSON Editor 升级为“表单模式 + JSON 高级模式”，支持 `string`、`number`、`integer`、`boolean`、`array`、`object`、`enum`、`required`、`minimum`、`maximum`、`default`、`title` 和 `description` 的基础渲染。
+- `PluginJsonEditor` 的提示文案、复制 / 格式化 / 清空提示、schema 编译失败、无配置模型、无变更和数组占位提示均改为 i18n 字典；`PluginContent` 状态展示统一使用 `contentStatusLabel`，审计 action 展示统一使用 `auditActionLabel`。
 - 配置编辑器新增配置差异预览，展示原配置、新配置和变更字段；`token`、`password`、`secret`、`key` 等敏感字段在预览中脱敏。
 - 配置编辑器展示最终生效配置预览；全局插件配置和子站插件配置都复用同一编辑器。
 - `PluginContent` 增强为基础通用治理页：展示插件编码、内容类型、状态、子站、更新时间、评论数；新增内容类型筛选、详情抽屉、多选、批量隐藏、批量恢复和“查看审计日志”入口。
@@ -1979,11 +1981,14 @@ P1 规划边界：
 - `./scripts/check-frontend.sh --admin-only --e2e-only`：通过，后台 E2E `18 passed`；日志目录 `.devhub/checks/20260511-213806/`。
 - `./scripts/check-frontend.sh --quick`：本轮补齐审计跳转后复跑通过，前后台构建通过；日志目录 `.devhub/checks/20260511-220601/`。
 - `./scripts/check-frontend.sh --admin-only --e2e-only`：本轮补齐审计跳转后复跑通过，后台 E2E `18 passed`；日志目录 `.devhub/checks/20260511-220624/`。
+- `./scripts/check-frontend.sh --quick`：补齐插件详情 / 子站插件配置漏网英文后复跑通过，前后台构建通过；日志目录 `.devhub/checks/20260511-225223/`。
+- `./scripts/check-frontend.sh --admin-only --e2e-only`：补齐中文化后首次因 E2E 仍断言旧文案“子站 config_json”失败；已同步为当前中文文案“子站配置”并复跑通过，后台 E2E `18 passed`；日志目录 `.devhub/checks/20260511-225516/`。
 - `git diff --check`：通过。
 
 失败项或跳过项：
 
 - `./scripts/check-frontend.sh --admin-only --e2e-only` 调试过程中曾因旧英文断言和 `vue-i18n` 将“清空为 {}`”解析为插值表达式而失败；已改为中文断言、稳定 testid，并将按钮文案调整为“清空为空对象”。
+- 本轮复查中，后台 E2E 曾因旧断言继续查找“子站 config_json”失败；已按当前 UI 中文化口径更新为“子站配置”，未回退页面中文化结果。
 - 未执行 `./scripts/check-frontend.sh --frontend-only --e2e-only`：本轮未修改前台运行时代码或前台 UI，已通过 `--quick` 覆盖前台构建。
 
 影响范围：
@@ -2036,3 +2041,64 @@ P1 规划边界：
 - SEO：无变更。
 - 插件系统：阶段 B 能力口径对齐。
 - 前后台 UI：后台插件治理页少量中文化和提示文案修正。
+
+### 2026-05-11：一次性完成插件系统后续基础能力：SDK 模板规范、内置插件生命周期、软卸载/归档/恢复和外部生态设计
+
+修改范围：
+
+- 后端：`internal/domain/models.go`、`internal/plugins/registry.go`、`internal/service/service.go`、`internal/store/memory.go`、`internal/store/mysql.go`、`internal/store/schema.go`、`internal/transport/httpapi/router.go`、`internal/service/hookbus_test.go`、`internal/transport/httpapi/router_auth_test.go`。
+- 数据库：`db/mysql/001_schema.sql`、`db/mysql/migrations/004_community_plugins.sql`、`005_core_plugins.sql`、`009_plugin_status_model.sql`、新增 `011_plugin_archive_lifecycle.sql`。
+- 后台：`web/admin-app/src/api/admin.js`、`web/admin-app/src/views/Plugins.vue`、`web/admin-app/src/components/plugin/PluginDetailDrawer.vue`、`web/admin-app/src/i18n/zh-CN.js`、`web/admin-app/src/i18n/formatters.js`。
+- 文档：新增 `docs/plugins/*` 插件 SDK / 模板规范，并更新 API、插件架构、路线图、测试、Release Notes、CHANGELOG 和项目进度。
+
+已完成事项：
+
+- 新增插件 manifest 示例、插件目录模板、config_schema、Hook、migration、权限、菜单路由和外部插件生态设计文档。
+- 内置插件 API 返回安装生命周期派生字段：`install_status`、`lifecycle_status`、`status_reason`、`installed_at`、`archived_at`、`last_health_check_at`。
+- `plugins.status` 增加 `archived` 与 `migration_failed`，新装 schema、启动迁移和老库迁移脚本同步。
+- 新增 `POST /api/v1/admin/plugins/:code/archive` 和 `POST /api/v1/admin/plugins/:code/restore`。
+- 归档插件禁止新建内容和子站启用；历史内容、配置、迁移记录、审计记录和 SEO 保留。
+- 恢复插件会先校验配置、依赖和 failed migration，成功后恢复为 `disabled`，不会自动 enabled。
+- 归档 / 恢复成功与失败均写入插件审计。
+- 后台插件列表增加归档 / 恢复操作，插件详情展示生命周期状态和原因。
+
+未完成事项：
+
+- 外部插件包上传、安装、远程安装、动态加载、第三方沙箱、硬卸载和 migration down 仍未实现，仅有设计文档。
+- 当前生命周期字段为基于 `plugins.status` / 时间戳 / 健康状态的派生展示，不是完整外部插件安装器状态机。
+- 归档后前台导航和后台菜单完整浏览器矩阵仍需后续 E2E 扩展。
+
+新发现风险：
+
+- `archived` 属于全局插件状态，子站状态仍只允许 `enabled/disabled`；后续如果扩展子站软卸载，需要单独设计，不能混入当前 `community_plugins.status`。
+- 生产 MySQL 老库升级需要执行新增 `011_plugin_archive_lifecycle.sql`，升级前仍需备份和预发演练。
+
+已执行检查命令和结果：
+
+- `gofmt`：已执行，Go 文件格式化完成。
+- `go test ./...`：通过。
+- `go build -o .devhub/devhub .`：通过。
+- `bash -n dev.sh`：通过。
+- `bash -n scripts/check-frontend.sh`：通过。
+- `docker compose run --rm admin-e2e npm run build`：通过；仅出现 compose orphan container 提示，不影响构建结果。
+- `./scripts/check-frontend.sh --quick`：通过；后台和前台 build 均通过，日志目录为 `.devhub/checks/20260511-232555/`。
+- `./scripts/check-frontend.sh --admin-only`：通过；后台 build 通过，后台 E2E `18 passed`，日志目录为 `.devhub/checks/20260511-232622/`。
+- `git diff --check`：通过。
+
+跳过项及原因：
+
+- 未单独执行 `docker compose run --rm frontend-e2e npm run build` 和 `./scripts/check-frontend.sh --frontend-only`；本轮未修改前台代码，且 `./scripts/check-frontend.sh --quick` 已覆盖前台 build。
+
+影响范围：
+
+- API：新增全局插件归档 / 恢复 API；插件列表响应新增生命周期派生字段。
+- 数据库：扩展 `plugins.status` enum，新增老库升级迁移 `011_plugin_archive_lifecycle.sql`。
+- 权限：归档 / 恢复复用 `plugin.write`；普通用户和版主不能调用后台全局插件治理 API。
+- SEO：归档不影响历史内容详情和 `/topics/:id` SEO。
+- 插件系统：新增 SDK 文档、生命周期派生字段和软卸载最小闭环。
+- 前后台 UI：后台插件中心新增归档 / 恢复操作和生命周期展示；前台无代码变更。
+
+下一轮建议：
+
+1. 为归档后的前台入口隐藏、PluginContent 历史内容查看和 SEO 回归补浏览器 E2E。
+2. 若进入外部插件生态，优先实现 manifest + 配置型插件校验器，而不是动态执行第三方代码。

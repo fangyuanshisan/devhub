@@ -87,7 +87,7 @@ test.describe('plugin governance center', () => {
 
     await page.getByTestId('community-plugin-config-qa').click();
     await expect(page.getByTestId('community-plugin-config-dialog')).toBeVisible();
-    await expect(page.getByTestId('plugin-json-editor').getByText('子站 config_json')).toBeVisible();
+    await expect(page.getByTestId('plugin-json-editor').getByText('子站配置')).toBeVisible();
     await page.getByTestId('json-clear-object').click();
     await expect(page.getByTestId('schema-error-box')).toContainText('required');
     await expect(page.getByTestId('community-plugin-config-save')).toBeDisabled();

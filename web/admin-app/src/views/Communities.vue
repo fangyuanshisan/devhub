@@ -109,27 +109,27 @@
     <div class="drawer-head">
       <div>
         <h3 class="drawer-title">{{ currentCommunity.name }} <span class="muted">/{{ currentCommunity.slug }}</span></h3>
-        <p class="muted">插件需同时满足“全局 enabled + 子站 enabled”才可用于发布与菜单展示。禁用不影响历史内容访问，只限制新发布与入口。</p>
+        <p class="muted">{{ t('plugin.communityConfig.note') }}</p>
       </div>
       <div>
-        <el-button class="mr-6" @click="loadPlugins">刷新</el-button>
+        <el-button class="mr-6" @click="loadPlugins">{{ t('common.refresh') }}</el-button>
         <el-button type="primary" :disabled="pluginRows.length < 2" @click="savePluginOrder">保存排序</el-button>
       </div>
     </div>
     <div class="plugin-summary">
-      <div><strong>{{ enabledCommunityPlugins }}</strong><span>子站已启用</span></div>
-      <div><strong>{{ disabledCommunityPlugins }}</strong><span>子站未启用</span></div>
-      <div><strong>{{ globallyDisabledPlugins }}</strong><span>全局禁用</span></div>
+      <div><strong>{{ enabledCommunityPlugins }}</strong><span>{{ t('plugin.communityConfig.enabledCount') }}</span></div>
+      <div><strong>{{ disabledCommunityPlugins }}</strong><span>{{ t('plugin.communityConfig.disabledCount') }}</span></div>
+      <div><strong>{{ globallyDisabledPlugins }}</strong><span>{{ t('plugin.communityConfig.globalDisabledCount') }}</span></div>
     </div>
     <div class="plugin-toolbar">
       <el-segmented v-model="pluginFilters.mode" :options="pluginFilterModes" />
-      <el-input v-model="pluginFilters.q" placeholder="搜索插件名称 / 编码" clearable style="width: 220px" />
-      <el-select v-model="pluginFilters.contentType" placeholder="内容类型" clearable filterable style="width: 200px">
+      <el-input v-model="pluginFilters.q" :placeholder="t('plugin.communityConfig.searchPlaceholder')" clearable style="width: 220px" />
+      <el-select v-model="pluginFilters.contentType" :placeholder="t('plugin.contentType')" clearable filterable style="width: 200px">
         <el-option v-for="ct in allPluginContentTypes" :key="ct" :label="ct" :value="ct" />
       </el-select>
     </div>
 
-    <el-table v-loading="pluginLoading" :data="filteredPluginRows" border stripe empty-text="暂无插件">
+    <el-table v-loading="pluginLoading" :data="filteredPluginRows" border stripe :empty-text="`暂无${t('plugin.pluginColumn')}`">
       <el-table-column prop="sort_order" label="排序" width="150">
         <template #default="{ row, $index }">
           <el-input-number v-model="row.sort_order" :min="0" size="small" controls-position="right" class="sort-input" />
@@ -153,60 +153,60 @@
           </div>
         </template>
       </el-table-column>
-      <el-table-column label="内容类型" min-width="180">
+      <el-table-column :label="t('plugin.contentType')" min-width="180">
         <template #default="{ row }">
           <el-tag v-for="type in row.content_types || []" :key="type" class="mr-6" effect="plain">{{ type }}</el-tag>
-          <span v-if="!(row.content_types || []).length" class="muted">无</span>
+          <span v-if="!(row.content_types || []).length" class="muted">{{ t('common.none') }}</span>
         </template>
       </el-table-column>
-      <el-table-column label="状态" width="190">
+      <el-table-column :label="t('plugin.status')" width="190">
         <template #default="{ row }">
           <div class="status-stack">
-            <span><em>全局</em><el-tag :type="statusType(globalStatus(row))">{{ pluginStatusLabel(globalStatus(row)) }}</el-tag></span>
-            <span><em>子站</em><el-tag :type="statusType(communityStatus(row))">{{ pluginStatusLabel(communityStatus(row)) }}</el-tag></span>
+            <span><em>{{ t('plugin.communityConfig.globalStatus') }}</em><el-tag :type="statusType(globalStatus(row))">{{ pluginStatusLabel(globalStatus(row)) }}</el-tag></span>
+            <span><em>{{ t('plugin.communityConfig.communityStatus') }}</em><el-tag :type="statusType(communityStatus(row))">{{ pluginStatusLabel(communityStatus(row)) }}</el-tag></span>
           </div>
         </template>
       </el-table-column>
-      <el-table-column label="说明" min-width="230">
+      <el-table-column :label="t('plugin.descriptionLabel')" min-width="230">
         <template #default="{ row }">
           <span :class="globalStatus(row) !== 'enabled' ? 'danger-text' : 'muted'">{{ pluginAvailabilityText(row) }}</span>
         </template>
       </el-table-column>
-      <el-table-column label="配置覆盖" width="140">
+      <el-table-column :label="t('plugin.communityConfig.overrideStatus')" width="140">
         <template #default="{ row }">
-          <el-tag v-if="hasCommunityConfigOverride(row)" type="warning" effect="plain">已覆盖</el-tag>
-          <el-tag v-else type="info" effect="plain">默认</el-tag>
+          <el-tag v-if="hasCommunityConfigOverride(row)" type="warning" effect="plain">{{ t('plugin.communityConfig.overridden') }}</el-tag>
+          <el-tag v-else type="info" effect="plain">{{ t('plugin.communityConfig.defaultConfig') }}</el-tag>
         </template>
       </el-table-column>
-      <el-table-column label="操作" fixed="right" width="210">
+      <el-table-column :label="t('plugin.action')" fixed="right" width="210">
         <template #default="{ row }">
-          <el-button v-if="communityStatus(row) !== 'enabled'" link type="success" :data-testid="`community-plugin-enable-${row.code}`" :disabled="globalStatus(row) !== 'enabled'" @click="setCommunityPlugin(row, 'enabled')">启用</el-button>
-          <el-button v-else link type="warning" :data-testid="`community-plugin-disable-${row.code}`" @click="setCommunityPlugin(row, 'disabled')">禁用</el-button>
-          <el-button link type="primary" :data-testid="`community-plugin-config-${row.code}`" @click="openPluginConfig(row)">配置</el-button>
+          <el-button v-if="communityStatus(row) !== 'enabled'" link type="success" :data-testid="`community-plugin-enable-${row.code}`" :disabled="globalStatus(row) !== 'enabled'" @click="setCommunityPlugin(row, 'enabled')">{{ t('common.enable') }}</el-button>
+          <el-button v-else link type="warning" :data-testid="`community-plugin-disable-${row.code}`" @click="setCommunityPlugin(row, 'disabled')">{{ t('common.disable') }}</el-button>
+          <el-button link type="primary" :data-testid="`community-plugin-config-${row.code}`" @click="openPluginConfig(row)">{{ t('plugin.config.title') }}</el-button>
         </template>
       </el-table-column>
     </el-table>
   </el-drawer>
 
-  <el-dialog v-model="pluginConfigDialog" :title="`${pluginConfigTarget?.name || ''} 配置`" width="820px" data-testid="community-plugin-config-dialog">
+  <el-dialog v-model="pluginConfigDialog" :title="`${pluginConfigTarget?.name || ''} ${t('plugin.communityConfig.dialogTitle')}`" width="820px" data-testid="community-plugin-config-dialog">
     <el-form label-width="110px">
       <el-alert
-        title="子站 config_json 会覆盖全局配置；保存前会校验 JSON 合法性，并在可用时按 config_schema 做基础校验。"
+        :title="t('plugin.communityConfig.overrideTip')"
         type="info"
         show-icon
         :closable="false"
         class="mb"
       />
-      <el-form-item label="状态">
+      <el-form-item :label="t('plugin.status')">
         <div class="config-status">
-          <el-tag :type="statusType(globalStatus(pluginConfigTarget || {}))">全局 {{ pluginStatusLabel(globalStatus(pluginConfigTarget || {})) }}</el-tag>
-          <el-tag :type="statusType(communityStatus(pluginConfigTarget || {}))">子站 {{ pluginStatusLabel(communityStatus(pluginConfigTarget || {})) }}</el-tag>
+          <el-tag :type="statusType(globalStatus(pluginConfigTarget || {}))">{{ t('plugin.communityConfig.globalStatus') }} {{ pluginStatusLabel(globalStatus(pluginConfigTarget || {})) }}</el-tag>
+          <el-tag :type="statusType(communityStatus(pluginConfigTarget || {}))">{{ t('plugin.communityConfig.communityStatus') }} {{ pluginStatusLabel(communityStatus(pluginConfigTarget || {})) }}</el-tag>
         </div>
       </el-form-item>
-      <el-form-item label="config_schema">
+      <el-form-item :label="t('plugin.config.schema')">
         <pre class="json-box compact">{{ formatJSON(pluginConfigTarget?.config_schema || {}) }}</pre>
       </el-form-item>
-      <el-form-item label="config_json">
+      <el-form-item :label="t('plugin.communityConfig.communityConfigJson')">
         <PluginJsonEditor
           v-model="pluginConfigValue"
           :schema="pluginConfigTarget?.config_schema || null"
@@ -214,22 +214,22 @@
           :resolved-config="pluginConfigTarget?.resolved_config?.effective || pluginConfigTarget?.resolved_config || {}"
           @schema-errors="onCommunityConfigSchemaErrors"
         >
-          <template #title><strong>子站 config_json</strong></template>
+          <template #title><strong>{{ t('plugin.communityConfig.communityConfigJson') }}</strong></template>
         </PluginJsonEditor>
         <div class="config-actions">
-          <el-button data-testid="json-clear-object" @click="clearPluginConfig">清空为 {}</el-button>
-          <el-button type="primary" data-testid="community-plugin-config-save" :disabled="communityConfigSchemaErrors.length > 0" @click="savePluginConfig">保存</el-button>
+          <el-button data-testid="json-clear-object" @click="clearPluginConfig">{{ t('common.clearObject') }}</el-button>
+          <el-button type="primary" data-testid="community-plugin-config-save" :disabled="communityConfigSchemaErrors.length > 0" @click="savePluginConfig">{{ t('common.save') }}</el-button>
         </div>
       </el-form-item>
-      <el-form-item label="resolved_config">
+      <el-form-item :label="t('plugin.config.effectiveConfig')">
         <pre class="json-box compact">{{ formatJSON(pluginConfigTarget?.resolved_config?.effective || pluginConfigTarget?.resolved_config || {}) }}</pre>
       </el-form-item>
-      <el-alert title="禁用提示" type="info" show-icon :closable="false">
-        <template #default>禁用子站插件只影响新发布、导航、菜单和管理入口，不影响历史内容访问。</template>
+      <el-alert :title="t('common.disable')" type="info" show-icon :closable="false">
+        <template #default>{{ t('plugin.communityConfig.disabledHistoryTip') }}</template>
       </el-alert>
     </el-form>
     <template #footer>
-      <el-button @click="pluginConfigDialog = false">关闭</el-button>
+      <el-button @click="pluginConfigDialog = false">{{ t('common.close') }}</el-button>
     </template>
   </el-dialog>
 
@@ -277,6 +277,7 @@ import {
 } from '@/api/admin';
 import PluginJsonEditor from '@/components/plugin/PluginJsonEditor.vue';
 import { pluginStatusLabel } from '@/i18n/formatters';
+import { t } from '@/i18n';
 
 const router = useRouter();
 const keyword = ref('');
@@ -295,12 +296,12 @@ const pluginConfigTarget = ref(null);
 const pluginConfigValue = ref({});
 const communityConfigSchemaErrors = ref([]);
 const pluginFilters = reactive({ mode: 'all', q: '', contentType: '' });
-const pluginFilterModes = [
-  { label: '全部', value: 'all' },
-  { label: '子站已启用', value: 'community_enabled' },
-  { label: '子站未启用', value: 'community_disabled' },
-  { label: '全局已禁用', value: 'global_disabled' },
-];
+const pluginFilterModes = computed(() => [
+  { label: t('common.all'), value: 'all' },
+  { label: t('plugin.communityConfig.enabledCount'), value: 'community_enabled' },
+  { label: t('plugin.communityConfig.disabledCount'), value: 'community_disabled' },
+  { label: t('plugin.communityConfig.globalDisabledCount'), value: 'global_disabled' },
+]);
 const form = reactive(blankCommunity());
 const categoryForm = reactive(blankCategory());
 const contentTypes = [
@@ -424,36 +425,36 @@ async function setCommunityPlugin(row, status) {
     }
     const lines = [];
     if (impact) {
-      lines.push(`当前子站启用状态：${(impact.enabled_communities_count ?? 0) > 0 ? 'enabled' : 'disabled'}`);
-      lines.push(`将阻止发布的板块：${impact.categories_count ?? 0}`);
-      lines.push(`已有历史内容：${impact.existing_contents_count ?? impact.topics_count ?? 0}（历史仍可访问，SEO 不受影响）`);
-      if (typeof impact.recent_contents_count === 'number') lines.push(`近 7 天内容：${impact.recent_contents_count}`);
-      if (typeof impact.pending_contents_count === 'number') lines.push(`审核中内容：${impact.pending_contents_count}`);
-      if (typeof impact.configs_count === 'number') lines.push(`配置覆盖记录：${impact.configs_count}`);
-      if (typeof impact.pending_migrations_count === 'number') lines.push(`待执行迁移：${impact.pending_migrations_count}`);
-      lines.push('近期 Hook 错误：执行记录统计暂未接入，不作为本次禁用判断。');
+      lines.push(`${t('plugin.communityConfig.statusLine')}：${(impact.enabled_communities_count ?? 0) > 0 ? pluginStatusLabel('enabled') : pluginStatusLabel('disabled')}`);
+      lines.push(`${t('plugin.impact.blockedCategories')}：${impact.categories_count ?? 0}`);
+      lines.push(`${t('plugin.impact.existingContents')}：${impact.existing_contents_count ?? impact.topics_count ?? 0}（${t('plugin.impact.historySeoSafe')}）`);
+      if (typeof impact.recent_contents_count === 'number') lines.push(`${t('plugin.impact.recentContents')}：${impact.recent_contents_count}`);
+      if (typeof impact.pending_contents_count === 'number') lines.push(`${t('plugin.impact.pendingContents')}：${impact.pending_contents_count}`);
+      if (typeof impact.configs_count === 'number') lines.push(`${t('plugin.impact.configOverrides')}：${impact.configs_count}`);
+      if (typeof impact.pending_migrations_count === 'number') lines.push(`${t('plugin.impact.pendingMigrations')}：${impact.pending_migrations_count}`);
+      lines.push(t('plugin.communityConfig.hookStatsPending'));
     } else {
-      lines.push('影响范围统计待后端接口支持或当前环境暂不可用。');
+      lines.push(t('plugin.impact.unavailable'));
     }
     await ElMessageBox.confirm(
-      `禁用该子站插件后，仅当前子站不能新发布该插件内容，当前子站导航、发布入口、版主菜单会隐藏。历史内容详情页和 SEO 不受影响。\n\n${lines.join('\n')}`,
-      '禁用确认',
-      { type: 'warning', confirmButtonText: '确认禁用', cancelButtonText: '取消' },
+      `${t('plugin.communityConfig.disableConfirmText')}\n\n${lines.join('\n')}`,
+      t('plugin.disableConfirmTitle'),
+      { type: 'warning', confirmButtonText: t('plugin.confirmDisable'), cancelButtonText: t('common.cancel') },
     );
   } else {
     if (globalStatus(row) !== 'enabled') {
-      ElMessage.warning('该插件已被全局禁用，不能在子站启用。');
+      ElMessage.warning(t('plugin.communityConfig.globalDisabledReason'));
       return;
     }
-    await ElMessageBox.confirm('启用后，当前子站可以在允许的板块中发布该插件内容，并显示对应导航与菜单入口。是否继续？', '启用确认', {
+    await ElMessageBox.confirm(t('plugin.communityConfig.enableConfirmText'), t('plugin.enableConfirmTitle'), {
       type: 'info',
-      confirmButtonText: '确认启用',
-      cancelButtonText: '取消',
+      confirmButtonText: t('plugin.confirmEnable'),
+      cancelButtonText: t('common.cancel'),
     });
   }
   if (status === 'enabled') await enableCommunityPlugin(currentCommunity.value.id, row.code);
   else await disableCommunityPlugin(currentCommunity.value.id, row.code);
-  ElMessage.success('子站插件已更新');
+  ElMessage.success(t('plugin.communityConfig.updated'));
   await loadPlugins();
   if (categoryDrawer.value) await loadCategories();
 }
@@ -484,7 +485,7 @@ async function savePluginOrder() {
     .sort((a, b) => Number(a.sort_order || 0) - Number(b.sort_order || 0))
     .map((p) => p.code);
   await reorderCommunityPlugins(currentCommunity.value.id, { codes });
-  ElMessage.success('插件排序已保存');
+  ElMessage.success(t('plugin.communityConfig.sortSaved'));
   await loadPlugins();
 }
 
@@ -503,18 +504,18 @@ async function savePluginConfig() {
   const row = pluginConfigTarget.value;
   if (!row) return;
   if (communityConfigSchemaErrors.value.length > 0) {
-    ElMessage.error('config_schema 校验失败，无法保存');
+    ElMessage.error(t('plugin.communityConfig.configSchemaFailed'));
     return;
   }
   await updateCommunityPluginConfig(currentCommunity.value.id, row.code, { config_json: pluginConfigValue.value || {} });
-  ElMessage.success('插件配置已保存');
+  ElMessage.success(t('plugin.communityConfig.configSaved'));
   pluginConfigDialog.value = false;
   await loadPlugins();
 }
 
 function clearPluginConfig() {
   pluginConfigValue.value = {};
-  ElMessage.success('已清空');
+  ElMessage.success(t('common.clearDone'));
 }
 
 function normalizePluginSortOrder() {
@@ -536,9 +537,9 @@ function statusType(status) {
 }
 
 function pluginAvailabilityText(row) {
-  if (globalStatus(row) !== 'enabled') return '该插件已被全局禁用，不能在子站启用。';
-  if (communityStatus(row) !== 'enabled') return '当前子站未启用，不能新发布对应内容。';
-  return '当前子站已启用，可用于发布入口、导航和版主菜单。';
+  if (globalStatus(row) !== 'enabled') return t('plugin.communityConfig.globalDisabledReason');
+  if (communityStatus(row) !== 'enabled') return t('plugin.communityConfig.communityDisabledReason');
+  return t('plugin.communityConfig.enabledReason');
 }
 
 function formatJSON(value) {

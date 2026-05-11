@@ -275,6 +275,66 @@ func TestPluginMigrationFailureBlocksEnableAndRetryRestores(t *testing.T) {
 	}
 }
 
+func TestPluginArchiveRestoreAPIBlocksCreationAndAudits(t *testing.T) {
+	t.Setenv("CMS_STORE", "memory")
+	router := NewRouter(service.New(store.NewMemoryStore()))
+	admin := adminToken(t, router)
+	user := userToken(t, router, "admin")
+
+	adminDo := func(method, path, body string) *httptest.ResponseRecorder {
+		t.Helper()
+		req := httptest.NewRequest(method, path, bytes.NewBufferString(body))
+		req.Header.Set("Authorization", "Bearer "+admin)
+		if body != "" {
+			req.Header.Set("Content-Type", "application/json")
+		}
+		w := httptest.NewRecorder()
+		router.ServeHTTP(w, req)
+		return w
+	}
+	userDo := func(method, path, body string) *httptest.ResponseRecorder {
+		t.Helper()
+		req := httptest.NewRequest(method, path, bytes.NewBufferString(body))
+		req.Header.Set("Authorization", "Bearer "+user)
+		if body != "" {
+			req.Header.Set("Content-Type", "application/json")
+		}
+		w := httptest.NewRecorder()
+		router.ServeHTTP(w, req)
+		return w
+	}
+
+	w := adminDo(http.MethodPost, "/api/v1/admin/plugins/qa/archive", "")
+	if w.Code != http.StatusOK || !bytes.Contains(w.Body.Bytes(), []byte(`"status":"archived"`)) {
+		t.Fatalf("expected archive success, got %d: %s", w.Code, w.Body.String())
+	}
+	w = userDo(http.MethodPost, "/api/v1/topics", `{"community_id":1,"category_id":101,"content_type":"question","title":"Archived QA should fail","content":"body should be long enough for validation"}`)
+	if w.Code != http.StatusBadRequest || !bytes.Contains(w.Body.Bytes(), []byte("archived")) {
+		t.Fatalf("expected archived plugin to block question creation, got %d: %s", w.Code, w.Body.String())
+	}
+	w = adminDo(http.MethodPost, "/api/v1/admin/communities/1/plugins/qa/enable", "")
+	if w.Code != http.StatusBadRequest || !bytes.Contains(w.Body.Bytes(), []byte("归档")) {
+		t.Fatalf("expected archived plugin to block community enable, got %d: %s", w.Code, w.Body.String())
+	}
+	w = adminDo(http.MethodPost, "/api/v1/admin/plugins/qa/restore", "")
+	if w.Code != http.StatusOK || !bytes.Contains(w.Body.Bytes(), []byte(`"status":"disabled"`)) {
+		t.Fatalf("expected restore to disabled, got %d: %s", w.Code, w.Body.String())
+	}
+	w = adminDo(http.MethodPost, "/api/v1/admin/plugins/qa/enable", "")
+	if w.Code != http.StatusOK || !bytes.Contains(w.Body.Bytes(), []byte(`"status":"enabled"`)) {
+		t.Fatalf("expected enable after restore, got %d: %s", w.Code, w.Body.String())
+	}
+	w = adminDo(http.MethodGet, "/api/v1/admin/plugins/qa/audit-logs?action=plugin.&page_size=80", "")
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected plugin audit logs, got %d: %s", w.Code, w.Body.String())
+	}
+	for _, want := range [][]byte{[]byte("plugin.archived"), []byte("plugin.restored")} {
+		if !bytes.Contains(w.Body.Bytes(), want) {
+			t.Fatalf("expected audit marker %q in %s", want, w.Body.String())
+		}
+	}
+}
+
 func TestHookFailureInjectionBlocksAndRecordsNonBlockingFailures(t *testing.T) {
 	t.Setenv("CMS_STORE", "memory")
 	router := NewRouter(service.New(store.NewMemoryStore()))

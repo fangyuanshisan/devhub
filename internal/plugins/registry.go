@@ -22,8 +22,10 @@ const (
 	StatusEnabled           = "enabled"
 	StatusDisabled          = "disabled"
 	StatusRunning           = "running"
+	StatusArchived          = "archived"
 	StatusConfigInvalid     = "config_invalid"
 	StatusMigrationPending  = "migration_pending"
+	StatusMigrationFailed   = "migration_failed"
 	StatusDependencyMissing = "dependency_missing"
 	CoreCode                = "core"
 )
@@ -31,10 +33,88 @@ const (
 // ValidGlobalStatus reports whether a plugin status is accepted by the platform model.
 func ValidGlobalStatus(status string) bool {
 	switch strings.TrimSpace(status) {
-	case StatusDiscovered, StatusInstalled, StatusMigrated, StatusConfigured, StatusEnabled, StatusDisabled, StatusRunning, StatusConfigInvalid, StatusMigrationPending, StatusDependencyMissing:
+	case StatusDiscovered, StatusInstalled, StatusMigrated, StatusConfigured, StatusEnabled, StatusDisabled, StatusRunning, StatusArchived, StatusConfigInvalid, StatusMigrationPending, StatusMigrationFailed, StatusDependencyMissing:
 		return true
 	default:
 		return false
+	}
+}
+
+// ApplyLifecycle derives the current lifecycle fields from the persisted
+// plugin status. These fields are response-level metadata so we can expose the
+// lifecycle model without forcing a destructive schema rewrite.
+func ApplyLifecycle(plugin domain.Plugin) domain.Plugin {
+	status := strings.TrimSpace(plugin.Status)
+	if status == "" {
+		status = StatusDiscovered
+	}
+	plugin.Status = status
+	if plugin.InstallStatus == "" {
+		if status == StatusDiscovered {
+			plugin.InstallStatus = StatusDiscovered
+		} else {
+			plugin.InstallStatus = StatusInstalled
+		}
+	}
+	if plugin.InstalledAt == "" {
+		plugin.InstalledAt = plugin.CreatedAt
+	}
+	if plugin.LastHealthCheckAt == "" {
+		plugin.LastHealthCheckAt = plugin.UpdatedAt
+	}
+	if status == StatusArchived && plugin.ArchivedAt == "" {
+		plugin.ArchivedAt = plugin.UpdatedAt
+	}
+	if plugin.LifecycleStatus == "" {
+		plugin.LifecycleStatus = lifecycleStatusFor(status)
+	}
+	if plugin.StatusReason == "" {
+		plugin.StatusReason = lifecycleReasonFor(status)
+	}
+	return plugin
+}
+
+func lifecycleStatusFor(status string) string {
+	switch strings.TrimSpace(status) {
+	case StatusEnabled, StatusRunning:
+		return StatusRunning
+	case StatusDisabled, StatusInstalled, StatusMigrated, StatusConfigured:
+		return StatusInstalled
+	case StatusArchived:
+		return StatusArchived
+	case StatusConfigInvalid:
+		return StatusConfigInvalid
+	case StatusMigrationPending:
+		return StatusMigrationPending
+	case StatusMigrationFailed:
+		return StatusMigrationFailed
+	case StatusDependencyMissing:
+		return StatusDependencyMissing
+	default:
+		return StatusDiscovered
+	}
+}
+
+func lifecycleReasonFor(status string) string {
+	switch strings.TrimSpace(status) {
+	case StatusEnabled, StatusRunning:
+		return "插件已启用并可参与新发布、菜单和治理入口"
+	case StatusDisabled:
+		return "插件已安装但全局禁用，仅影响新发布和入口展示"
+	case StatusInstalled, StatusMigrated, StatusConfigured:
+		return "插件已安装，等待启用或进一步治理"
+	case StatusArchived:
+		return "插件已归档，禁止新建内容；历史内容、配置、迁移和审计记录保留"
+	case StatusConfigInvalid:
+		return "插件配置未通过校验"
+	case StatusMigrationPending:
+		return "插件存在待处理迁移"
+	case StatusMigrationFailed:
+		return "插件存在失败迁移"
+	case StatusDependencyMissing:
+		return "插件依赖缺失"
+	default:
+		return "系统已发现插件定义，尚未完成安装生命周期"
 	}
 }
 
@@ -418,5 +498,5 @@ func MergeRuntimeState(def domain.Plugin, runtime domain.Plugin) domain.Plugin {
 	}
 	def.CreatedAt = runtime.CreatedAt
 	def.UpdatedAt = runtime.UpdatedAt
-	return def
+	return ApplyLifecycle(def)
 }

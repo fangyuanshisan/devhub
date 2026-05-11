@@ -1,7 +1,7 @@
 <template>
   <section class="page-card" data-testid="admin-plugins-page">
     <el-alert
-      title="插件系统用于扩展 DevHub 的内容类型、权限、菜单、配置和子站能力。禁用插件不会影响历史内容访问，只影响新发布和入口展示。"
+      :title="t('plugin.description')"
       type="info"
       show-icon
       :closable="false"
@@ -10,7 +10,7 @@
 
     <div class="stats-grid" data-testid="plugin-stats">
       <div class="stat-card">
-        <div class="stat-k">全部插件</div>
+        <div class="stat-k">{{ t('plugin.stats.total') }}</div>
         <div class="stat-v">{{ stats.total }}</div>
       </div>
       <div class="stat-card">
@@ -33,8 +33,8 @@
 
     <div class="toolbar">
       <div>
-        <h2>系统插件</h2>
-        <p>Core 保留通用底座，业务能力通过系统插件声明、启停、权限、菜单和配置扩展。</p>
+        <h2>{{ t('plugin.title') }}</h2>
+        <p>{{ t('plugin.coreNote') }}</p>
       </div>
       <div class="tool-actions">
         <el-input v-model="filters.q" data-testid="plugin-search" :placeholder="t('plugin.filters.searchPlaceholder')" clearable style="width: 220px" />
@@ -56,11 +56,11 @@
           <el-option :label="t('plugin.filters.hasSchema')" value="yes" />
           <el-option :label="t('plugin.filters.noSchema')" value="no" />
         </el-select>
-        <el-button @click="load">刷新</el-button>
+        <el-button @click="load">{{ t('common.refresh') }}</el-button>
       </div>
     </div>
-    <el-table v-loading="loading" :data="filteredItems" border stripe empty-text="暂无插件">
-      <el-table-column label="插件" min-width="210">
+    <el-table v-loading="loading" :data="filteredItems" border stripe :empty-text="`暂无${t('plugin.pluginColumn')}`">
+      <el-table-column :label="t('plugin.pluginColumn')" min-width="210">
         <template #default="{ row }">
           <div class="plugin-title">
             <strong>{{ row.name }}</strong>
@@ -69,56 +69,58 @@
           <el-tag v-if="row.is_system" size="small" type="primary">{{ t('plugin.system') }}</el-tag>
         </template>
       </el-table-column>
-      <el-table-column prop="version" label="版本" width="100" />
-      <el-table-column label="状态" width="120">
+      <el-table-column prop="version" :label="t('plugin.version')" width="100" />
+      <el-table-column :label="t('plugin.status')" width="120">
         <template #default="{ row }">
           <el-tag :type="statusType(row.status)" effect="light">{{ pluginStatusLabel(row.status) }}</el-tag>
         </template>
       </el-table-column>
-      <el-table-column label="运行健康" min-width="170">
+      <el-table-column :label="t('plugin.health')" min-width="170">
         <template #default="{ row }">
           <div class="health-cell">
             <el-tag :type="healthType(row.health?.status)" effect="light">{{ pluginHealthLabel(row.health?.status) }}</el-tag>
-            <span class="muted">{{ row.health?.suggested_action || '暂无建议' }}</span>
+            <span class="muted">{{ row.health?.suggested_action || t('plugin.noneSuggestion') }}</span>
           </div>
         </template>
       </el-table-column>
-      <el-table-column label="内容类型" min-width="180">
+      <el-table-column :label="t('plugin.contentType')" min-width="180">
         <template #default="{ row }">
           <el-tag v-for="type in row.content_types || []" :key="type" class="mr-6" effect="plain">{{ type }}</el-tag>
-          <span v-if="!(row.content_types || []).length" class="muted">无</span>
+          <span v-if="!(row.content_types || []).length" class="muted">{{ t('common.none') }}</span>
         </template>
       </el-table-column>
-      <el-table-column label="能力摘要" min-width="220">
+      <el-table-column :label="t('plugin.capabilitySummary')" min-width="220">
         <template #default="{ row }">
           <div class="metric-line">
-            <el-tag type="info" effect="plain">权限 {{ (row.permissions || []).length }}</el-tag>
-            <el-tag type="info" effect="plain">菜单 {{ (row.menus || []).length }}</el-tag>
+            <el-tag type="info" effect="plain">{{ t('plugin.capability.permissions') }} {{ (row.permissions || []).length }}</el-tag>
+            <el-tag type="info" effect="plain">{{ t('plugin.capability.menus') }} {{ (row.menus || []).length }}</el-tag>
             <el-tag :type="hasConfigSchema(row) ? 'success' : 'info'" effect="plain">
-              {{ t('plugin.capability.schema') }} {{ hasConfigSchema(row) ? '有' : '无' }}
+              {{ t('plugin.capability.schema') }} {{ hasConfigSchema(row) ? t('common.yes') : t('common.no') }}
             </el-tag>
             <el-tag :type="(row.hooks || []).length ? 'success' : 'info'" effect="plain">{{ t('plugin.capability.hooks') }} {{ (row.hooks || []).length }}</el-tag>
-            <el-tag :type="statusMetricType(row.health?.config_status)" effect="plain">配置 {{ pluginHealthLabel(row.health?.config_status) }}</el-tag>
-            <el-tag :type="statusMetricType(row.health?.migration_status)" effect="plain">迁移 {{ pluginHealthLabel(row.health?.migration_status) }}</el-tag>
-            <el-tag :type="statusMetricType(row.health?.hook_status)" effect="plain">Hook {{ pluginHealthLabel(row.health?.hook_status) }}</el-tag>
+            <el-tag :type="statusMetricType(row.health?.config_status)" effect="plain">{{ t('plugin.config.title') }} {{ pluginHealthLabel(row.health?.config_status) }}</el-tag>
+            <el-tag :type="statusMetricType(row.health?.migration_status)" effect="plain">{{ t('plugin.migration.title') }} {{ pluginHealthLabel(row.health?.migration_status) }}</el-tag>
+            <el-tag :type="statusMetricType(row.health?.hook_status)" effect="plain">{{ t('plugin.capability.hook') }} {{ pluginHealthLabel(row.health?.hook_status) }}</el-tag>
           </div>
         </template>
       </el-table-column>
-      <el-table-column label="最近错误" min-width="220">
+      <el-table-column :label="t('plugin.recentError')" min-width="220">
         <template #default="{ row }">
           <span class="muted">{{ row.health?.recent_error || '-' }}</span>
         </template>
       </el-table-column>
-      <el-table-column prop="description" label="说明" min-width="260" />
-      <el-table-column label="操作" fixed="right" width="300">
+      <el-table-column prop="description" :label="t('plugin.descriptionLabel')" min-width="260" />
+      <el-table-column :label="t('plugin.action')" fixed="right" width="300">
         <template #default="{ row }">
-          <el-button link type="primary" :data-testid="`plugin-detail-${row.code}`" @click="openManifest(row)">详情</el-button>
-          <el-button link type="info" @click="openManifest(row, 'permissions')">权限</el-button>
-          <el-button link type="info" @click="openManifest(row, 'menus')">菜单</el-button>
-          <el-button link type="primary" @click="openManifest(row, 'config')">配置</el-button>
-          <el-button v-if="canOpen(row)" link type="primary" :data-testid="`plugin-manage-${row.code}`" @click="openPlugin(row)">管理</el-button>
-          <el-button v-if="row.status !== 'enabled'" link type="success" :data-testid="`plugin-enable-${row.code}`" @click="setStatus(row, 'enabled')">启用</el-button>
-          <el-button v-if="row.status === 'enabled'" link type="warning" :data-testid="`plugin-disable-${row.code}`" @click="setStatus(row, 'disabled')">禁用</el-button>
+          <el-button link type="primary" :data-testid="`plugin-detail-${row.code}`" @click="openManifest(row)">{{ t('common.detail') }}</el-button>
+          <el-button link type="info" @click="openManifest(row, 'permissions')">{{ t('plugin.capability.permissions') }}</el-button>
+          <el-button link type="info" @click="openManifest(row, 'menus')">{{ t('plugin.capability.menus') }}</el-button>
+          <el-button link type="primary" @click="openManifest(row, 'config')">{{ t('plugin.config.title') }}</el-button>
+          <el-button v-if="canOpen(row)" link type="primary" :data-testid="`plugin-manage-${row.code}`" @click="openPlugin(row)">{{ t('common.manage') }}</el-button>
+          <el-button v-if="row.status !== 'enabled' && row.status !== 'archived'" link type="success" :data-testid="`plugin-enable-${row.code}`" @click="setStatus(row, 'enabled')">{{ t('common.enable') }}</el-button>
+          <el-button v-if="row.status === 'enabled'" link type="warning" :data-testid="`plugin-disable-${row.code}`" @click="setStatus(row, 'disabled')">{{ t('common.disable') }}</el-button>
+          <el-button v-if="row.status !== 'archived'" link type="danger" :data-testid="`plugin-archive-${row.code}`" @click="archive(row)">{{ t('common.archive') }}</el-button>
+          <el-button v-if="row.status === 'archived'" link type="success" :data-testid="`plugin-restore-${row.code}`" @click="restore(row)">{{ t('common.restore') }}</el-button>
         </template>
       </el-table-column>
     </el-table>
@@ -131,7 +133,7 @@
 import { computed, onMounted, reactive, ref } from 'vue';
 import { ElMessage, ElMessageBox } from 'element-plus';
 import { useRouter } from 'vue-router';
-import { disablePlugin, enablePlugin, pluginImpact, plugins } from '@/api/admin';
+import { archivePlugin, disablePlugin, enablePlugin, pluginImpact, plugins, restorePlugin } from '@/api/admin';
 import { useAuthStore } from '@/stores/auth';
 import PluginDetailDrawer from '@/components/plugin/PluginDetailDrawer.vue';
 import { t } from '@/i18n';
@@ -197,43 +199,73 @@ async function load() {
 
 async function setStatus(row, status) {
   if (status === 'disabled') {
-    let impact = null;
-    try {
-      impact = await pluginImpact(row.code);
-    } catch {
-      impact = null;
-    }
-    const lines = [];
-    if (impact) {
-      lines.push(`当前启用子站：${impact.enabled_communities_count ?? 0}`);
-      lines.push(`当前未启用子站：${impact.disabled_communities_count ?? 0}`);
-      lines.push(`将阻止发布的板块：${impact.categories_count ?? 0}`);
-      lines.push(`已有历史内容：${impact.existing_contents_count ?? impact.topics_count ?? 0}（历史仍可访问，SEO 不受影响）`);
-      if (typeof impact.recent_contents_count === 'number') lines.push(`近 7 天内容：${impact.recent_contents_count}`);
-      if (typeof impact.pending_contents_count === 'number') lines.push(`审核中内容：${impact.pending_contents_count}`);
-      if (typeof impact.configs_count === 'number') lines.push(`配置覆盖记录：${impact.configs_count}`);
-      if (typeof impact.pending_migrations_count === 'number') lines.push(`待执行迁移：${impact.pending_migrations_count}`);
-      lines.push(`菜单声明：${impact.menus_count}（frontend ${impact.frontend_menus_count} / moderator ${impact.moderator_menus_count} / admin ${impact.admin_menus_count}）`);
-      if (typeof impact.recent_hook_errors_count === 'number') lines.push(`近期 Hook 错误：${impact.recent_hook_errors_count}`);
-    } else {
-      lines.push('影响范围统计待后端接口支持或当前环境暂不可用。');
-    }
+    const lines = await impactLines(row);
     await ElMessageBox.confirm(
-      `全局禁用该插件后，所有子站将不能新发布该插件内容，相关导航、菜单和管理入口会隐藏。历史内容详情页和 SEO 不受影响。\n\n${lines.join('\n')}`,
-      '禁用确认',
-      { type: 'warning', confirmButtonText: '确认禁用', cancelButtonText: '取消' },
+      `${t('plugin.disableConfirmPrefix')}\n\n${lines.join('\n')}`,
+      t('plugin.disableConfirmTitle'),
+      { type: 'warning', confirmButtonText: t('plugin.confirmDisable'), cancelButtonText: t('common.cancel') },
     );
   } else {
-    await ElMessageBox.confirm('启用该插件后，全局可用性恢复；具体子站仍需单独启用后才能发布对应内容。是否继续？', '启用确认', {
+    await ElMessageBox.confirm(t('plugin.enableConfirmText'), t('plugin.enableConfirmTitle'), {
       type: 'info',
-      confirmButtonText: '确认启用',
-      cancelButtonText: '取消',
+      confirmButtonText: t('plugin.confirmEnable'),
+      cancelButtonText: t('common.cancel'),
     });
   }
   if (status === 'enabled') await enablePlugin(row.code);
   else await disablePlugin(row.code);
-  ElMessage.success('插件状态已更新');
+  ElMessage.success(t('plugin.statusUpdated'));
   await load();
+}
+
+async function archive(row) {
+  const lines = await impactLines(row);
+  await ElMessageBox.confirm(
+    `${t('plugin.archiveConfirmPrefix')}\n\n${lines.join('\n')}`,
+    t('plugin.archiveConfirmTitle'),
+    { type: 'warning', confirmButtonText: t('plugin.confirmArchive'), cancelButtonText: t('common.cancel') },
+  );
+  await archivePlugin(row.code);
+  ElMessage.success(t('plugin.archivedDone'));
+  await load();
+}
+
+async function restore(row) {
+  await ElMessageBox.confirm(t('plugin.restoreConfirmText'), t('plugin.restoreConfirmTitle'), {
+    type: 'info',
+    confirmButtonText: t('plugin.confirmRestore'),
+    cancelButtonText: t('common.cancel'),
+  });
+  await restorePlugin(row.code);
+  ElMessage.success(t('plugin.restoredDone'));
+  await load();
+}
+
+async function impactLines(row) {
+  let impact = null;
+  try {
+    impact = await pluginImpact(row.code);
+  } catch {
+    impact = null;
+  }
+  const lines = [];
+  if (impact) {
+    lines.push(`${t('plugin.impact.enabledCommunities')}：${impact.enabled_communities_count ?? 0}`);
+    lines.push(`${t('plugin.impact.disabledCommunities')}：${impact.disabled_communities_count ?? 0}`);
+    lines.push(`${t('plugin.impact.blockedCategories')}：${impact.categories_count ?? 0}`);
+    lines.push(`${t('plugin.impact.existingContents')}：${impact.existing_contents_count ?? impact.topics_count ?? 0}（${t('plugin.impact.historySeoSafe')}）`);
+    if (typeof impact.recent_contents_count === 'number') lines.push(`${t('plugin.impact.recentContents')}：${impact.recent_contents_count}`);
+    if (typeof impact.pending_contents_count === 'number') lines.push(`${t('plugin.impact.pendingContents')}：${impact.pending_contents_count}`);
+    if (typeof impact.configs_count === 'number') lines.push(`${t('plugin.impact.configOverrides')}：${impact.configs_count}`);
+    if (typeof impact.pending_migrations_count === 'number') lines.push(`${t('plugin.impact.pendingMigrations')}：${impact.pending_migrations_count}`);
+    lines.push(
+      `${t('plugin.impact.menus')}：${impact.menus_count}（${t('plugin.impact.frontendMenus')} ${impact.frontend_menus_count} / ${t('plugin.impact.moderatorMenus')} ${impact.moderator_menus_count} / ${t('plugin.impact.adminMenus')} ${impact.admin_menus_count}）`,
+    );
+    if (typeof impact.recent_hook_errors_count === 'number') lines.push(`${t('plugin.impact.recentHookErrors')}：${impact.recent_hook_errors_count}`);
+  } else {
+    lines.push(t('plugin.impact.unavailable'));
+  }
+  return lines;
 }
 
 function canOpen(row) {
@@ -265,12 +297,13 @@ function openManifest(row, tab = 'overview') {
 function statusType(status) {
   if (status === 'enabled') return 'success';
   if (status === 'disabled') return 'danger';
+  if (status === 'archived') return 'info';
   return 'info';
 }
 
 function healthType(status) {
   if (status === 'healthy') return 'success';
-  if (status === 'disabled') return 'info';
+  if (status === 'disabled' || status === 'archived') return 'info';
   if (status === 'warning' || status === 'migration_pending' || status === 'hook_warning') return 'warning';
   if (status === 'hook_error') return 'danger';
   if (status === 'error' || status === 'config_invalid' || status === 'dependency_missing') return 'danger';

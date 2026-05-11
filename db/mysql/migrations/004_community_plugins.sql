@@ -9,7 +9,7 @@ CREATE TABLE IF NOT EXISTS plugins (
   plugin_code VARCHAR(64) NOT NULL,
   name VARCHAR(128) NOT NULL,
   version VARCHAR(32) NOT NULL DEFAULT '',
-  status ENUM('discovered','installed','migrated','configured','enabled','disabled','running','config_invalid','migration_pending','dependency_missing') NOT NULL DEFAULT 'enabled',
+  status ENUM('discovered','installed','migrated','configured','enabled','disabled','running','archived','config_invalid','migration_pending','migration_failed','dependency_missing') NOT NULL DEFAULT 'enabled',
   description VARCHAR(500) NOT NULL DEFAULT '',
   config_json JSON NULL,
   created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,

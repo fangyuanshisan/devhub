@@ -8,13 +8,13 @@
           · {{ t('plugin.contentType') }}：<span class="mono">{{ route.meta.contentType }}</span>
           · {{ t('plugin.status') }}：<el-tag v-if="plugin" :type="statusType(plugin.status)" size="small">{{ pluginStatusLabel(plugin.status) }}</el-tag>
         </p>
-        <p class="muted">插件内容通过 Core 通用内容表兼容展示；禁用插件不影响历史内容访问，只影响新发布与入口。</p>
+        <p class="muted">{{ t('plugin.content.intro') }}</p>
       </div>
       <div class="tool-actions">
-        <el-select v-model="filters.communityId" clearable filterable placeholder="子站" style="width: 160px" data-testid="plugin-content-community-filter">
+        <el-select v-model="filters.communityId" clearable filterable :placeholder="t('field.community')" style="width: 160px" data-testid="plugin-content-community-filter">
           <el-option v-for="c in communities" :key="c.id" :label="`${c.name} /${c.slug}`" :value="c.id" />
         </el-select>
-        <el-select v-model="filters.status" clearable placeholder="状态" style="width: 140px" data-testid="plugin-content-status-filter">
+        <el-select v-model="filters.status" clearable :placeholder="t('plugin.status')" style="width: 140px" data-testid="plugin-content-status-filter">
           <el-option :label="t('common.all')" value="all" />
           <el-option :label="contentStatusLabel('publish')" value="publish" />
           <el-option :label="contentStatusLabel('hidden')" value="hidden" />
@@ -23,9 +23,9 @@
         <el-select v-model="filters.contentType" clearable filterable :placeholder="t('plugin.contentType')" style="width: 160px" data-testid="plugin-content-type-filter">
           <el-option v-for="ct in contentTypes" :key="ct" :label="ct" :value="ct" />
         </el-select>
-        <el-input v-model="keyword" placeholder="搜索标题 / 摘要" clearable class="search" data-testid="plugin-content-search" @keyup.enter="load" />
-        <el-button data-testid="plugin-content-back" @click="backToPlugins">返回插件</el-button>
-        <el-button type="primary" data-testid="plugin-content-query" @click="load">查询</el-button>
+        <el-input v-model="keyword" :placeholder="t('plugin.content.searchPlaceholder')" clearable class="search" data-testid="plugin-content-search" @keyup.enter="load" />
+        <el-button data-testid="plugin-content-back" @click="backToPlugins">{{ t('plugin.content.backToPlugins') }}</el-button>
+        <el-button type="primary" data-testid="plugin-content-query" @click="load">{{ t('common.query') }}</el-button>
       </div>
     </div>
     <div class="batch-bar">
@@ -36,18 +36,18 @@
     </div>
     <el-table :data="items" border stripe data-testid="plugin-content-table" @selection-change="onSelectionChange">
       <el-table-column type="selection" width="48" />
-      <el-table-column prop="id" label="ID" width="80" />
-      <el-table-column prop="title" label="标题" min-width="260" />
-      <el-table-column prop="site" label="子站" width="110" />
-      <el-table-column prop="board" label="板块" width="110" />
-      <el-table-column label="状态" width="100">
+      <el-table-column prop="id" :label="t('field.id')" width="80" />
+      <el-table-column prop="title" :label="t('field.title')" min-width="260" />
+      <el-table-column prop="site" :label="t('field.community')" width="110" />
+      <el-table-column prop="board" :label="t('plugin.content.board')" width="110" />
+      <el-table-column :label="t('plugin.status')" width="100">
         <template #default="{ row }">
           <el-tag :type="contentStatusType(row.status)" size="small">{{ contentStatusLabel(row.status) }}</el-tag>
         </template>
       </el-table-column>
       <el-table-column prop="comments" :label="t('plugin.content.comments')" width="110" />
       <el-table-column prop="updated_at" :label="t('plugin.content.updatedAt')" width="170" />
-      <el-table-column label="插件/类型" width="180">
+      <el-table-column :label="t('plugin.content.pluginAndType')" width="180">
         <template #default="{ row }">
           <div class="mono">{{ row.plugin_code || '-' }}</div>
           <div class="muted mono">{{ row.content_type || '-' }}</div>
@@ -64,12 +64,12 @@
 
   <el-drawer v-model="detailDrawer" :title="t('plugin.content.detailTitle')" size="620px" data-testid="plugin-content-detail-drawer">
     <el-descriptions v-if="detailTarget" :column="1" border>
-      <el-descriptions-item label="ID">{{ detailTarget.id }}</el-descriptions-item>
-      <el-descriptions-item label="标题">{{ detailTarget.title }}</el-descriptions-item>
+      <el-descriptions-item :label="t('field.id')">{{ detailTarget.id }}</el-descriptions-item>
+      <el-descriptions-item :label="t('field.title')">{{ detailTarget.title }}</el-descriptions-item>
       <el-descriptions-item :label="t('plugin.code')">{{ detailTarget.plugin_code || '-' }}</el-descriptions-item>
       <el-descriptions-item :label="t('plugin.contentType')">{{ detailTarget.content_type || '-' }}</el-descriptions-item>
       <el-descriptions-item :label="t('field.community')">{{ detailTarget.site || '-' }}</el-descriptions-item>
-      <el-descriptions-item label="板块">{{ detailTarget.board || '-' }}</el-descriptions-item>
+      <el-descriptions-item :label="t('plugin.content.board')">{{ detailTarget.board || '-' }}</el-descriptions-item>
       <el-descriptions-item :label="t('plugin.status')">{{ contentStatusLabel(detailTarget.status) }}</el-descriptions-item>
       <el-descriptions-item :label="t('plugin.content.comments')">{{ detailTarget.comments || 0 }}</el-descriptions-item>
       <el-descriptions-item :label="t('plugin.content.updatedAt')">{{ detailTarget.updated_at || '-' }}</el-descriptions-item>
@@ -89,7 +89,7 @@ import { useRoute, useRouter } from 'vue-router';
 import { adminCommunities, batchTopics, plugins, posts } from '@/api/admin';
 import { useAuthStore } from '@/stores/auth';
 import { t } from '@/i18n';
-import { pluginStatusLabel } from '@/i18n/formatters';
+import { contentStatusLabel, pluginStatusLabel } from '@/i18n/formatters';
 
 const auth = useAuthStore();
 const route = useRoute();
@@ -109,7 +109,7 @@ async function load() {
   const pluginList = await plugins();
   const current = (pluginList.items || []).find((item) => item.code === route.meta.pluginCode);
   if (!current || current.status !== 'enabled') {
-    ElMessage.warning('当前插件未启用，请先在系统插件中启用。');
+    ElMessage.warning(t('plugin.content.disabledTip'));
     router.replace('/plugins');
     return;
   }
@@ -117,7 +117,7 @@ async function load() {
   contentTypes.value = current.content_types?.length ? current.content_types : [route.meta.contentType];
   const permission = current.menus?.find((item) => item.area === 'admin')?.permission || route.meta.permission;
   if (permission && !auth.can(permission)) {
-    ElMessage.warning('当前账号无权访问该插件管理页。');
+    ElMessage.warning(t('plugin.content.noPermissionTip'));
     router.replace('/plugins');
     return;
   }
@@ -160,7 +160,7 @@ async function batchUpdate(action) {
   const ids = selectedRows.value.map((row) => row.id).filter(Boolean);
   if (!ids.length) return;
   const actionLabel = action === 'hide' ? t('plugin.content.hide') : t('plugin.content.restore');
-  await ElMessageBox.confirm(t('plugin.content.batchConfirm', { count: ids.length, action: actionLabel }), '批量治理确认', {
+  await ElMessageBox.confirm(t('plugin.content.batchConfirm', { count: ids.length, action: actionLabel }), t('plugin.content.batchConfirmTitle'), {
     type: action === 'hide' ? 'warning' : 'info',
     confirmButtonText: t('common.confirm'),
     cancelButtonText: t('common.cancel'),
@@ -186,17 +186,6 @@ function statusType(status) {
   if (status === 'enabled') return 'success';
   if (status === 'disabled') return 'danger';
   return 'info';
-}
-
-function contentStatusLabel(status) {
-  const map = {
-    publish: '已发布',
-    hidden: '已隐藏',
-    pending: '待审核',
-    draft: '草稿',
-    rejected: '已拒绝',
-  };
-  return map[status] || status || '-';
 }
 
 function contentStatusType(status) {

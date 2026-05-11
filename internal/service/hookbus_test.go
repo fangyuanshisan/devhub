@@ -119,6 +119,60 @@ func TestSetPluginStatusEnabledChecksMigrationReadiness(t *testing.T) {
 	}
 }
 
+func TestPluginArchiveRestoreLifecycle(t *testing.T) {
+	repo := store.NewMemoryStore()
+	svc := New(repo)
+
+	archived, err := svc.ArchivePlugin("qa")
+	if err != nil {
+		t.Fatalf("ArchivePlugin qa: %v", err)
+	}
+	if archived.Status != pluginregistry.StatusArchived || archived.LifecycleStatus != pluginregistry.StatusArchived {
+		t.Fatalf("expected archived lifecycle, got %#v", archived)
+	}
+	if svc.IsPluginEnabled("qa") {
+		t.Fatal("archived plugin should not be globally enabled")
+	}
+	if _, _, err := svc.ValidateTopicPluginAccess(1, 101, "question"); err == nil || !strings.Contains(err.Error(), "当前状态为 archived") {
+		t.Fatalf("expected archived plugin to block topic creation, got %v", err)
+	}
+	if _, err := svc.SetCommunityPluginStatus(1, "qa", pluginregistry.StatusEnabled); err == nil || !strings.Contains(err.Error(), "归档") {
+		t.Fatalf("expected archived plugin to block community enable, got %v", err)
+	}
+
+	restored, err := svc.RestorePlugin("qa")
+	if err != nil {
+		t.Fatalf("RestorePlugin qa: %v", err)
+	}
+	if restored.Status != pluginregistry.StatusDisabled {
+		t.Fatalf("restore should not auto-enable plugin, got %#v", restored)
+	}
+	if svc.IsPluginEnabled("qa") {
+		t.Fatal("restored plugin should remain disabled until admin enables it")
+	}
+	if _, err := svc.SetPluginStatus("qa", pluginregistry.StatusEnabled); err != nil {
+		t.Fatalf("enable after restore: %v", err)
+	}
+
+	if _, err := svc.ArchivePlugin("qa"); err != nil {
+		t.Fatalf("archive qa again: %v", err)
+	}
+	if _, err := repo.SavePluginMigration(domain.PluginMigration{
+		PluginCode:       "qa",
+		MigrationVersion: "1.0.0",
+		Version:          "1.0.0",
+		MigrationName:    "qa_questions",
+		Direction:        "up",
+		Status:           "failed",
+		ErrorMessage:     "restore blocked by migration",
+	}); err != nil {
+		t.Fatalf("seed failed migration: %v", err)
+	}
+	if _, err := svc.RestorePlugin("qa"); err == nil || !strings.Contains(err.Error(), "失败迁移") {
+		t.Fatalf("expected failed migration to block restore, got %v", err)
+	}
+}
+
 func TestPluginHealthStatusSourcesAndAuditFilters(t *testing.T) {
 	repo := store.NewMemoryStore()
 	svc := New(repo)

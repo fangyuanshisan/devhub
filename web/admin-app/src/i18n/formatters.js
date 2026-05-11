@@ -26,6 +26,11 @@ export function auditActionLabel(action) {
   return t(`plugin.audit.action.${action}`) || action || '-';
 }
 
+export function contentStatusLabel(status) {
+  const key = String(status || '');
+  return t(`plugin.content.status.${key}`) || key || '-';
+}
+
 export function maturityLabel(plugin) {
   if (!plugin) return '-';
   if (plugin.code === 'qa' || plugin.code === 'docs' || plugin.code === 'wiki') return '平台治理已接入';
@@ -34,9 +39,9 @@ export function maturityLabel(plugin) {
 
 export function statusTagType(status) {
   if (status === 'enabled' || status === 'success' || status === 'ok' || status === 'valid' || status === 'healthy') return 'success';
-  if (status === 'disabled') return 'info';
+  if (status === 'disabled' || status === 'archived') return 'info';
   if (status === 'warning' || status === 'pending' || status === 'running' || status === 'migration_pending' || status === 'hook_warning') return 'warning';
-  if (status === 'failed' || status === 'invalid' || status === 'error' || status === 'config_invalid' || status === 'dependency_missing' || status === 'hook_error') return 'danger';
+  if (status === 'failed' || status === 'invalid' || status === 'error' || status === 'migration_failed' || status === 'config_invalid' || status === 'dependency_missing' || status === 'hook_error') return 'danger';
   return 'info';
 }
 

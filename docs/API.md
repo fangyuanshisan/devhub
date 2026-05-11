@@ -52,7 +52,8 @@
 - 认证：后台 admin token。
 - 权限：`plugin.read`。
 - 返回：全部注册插件，包括插件状态、`config_schema`、`config_json`、`resolved_config` 和轻量 `health` 摘要。
-- 状态口径：`plugins.status` 当前接受 `discovered`、`installed`、`migrated`、`configured`、`enabled`、`disabled`、`running`、`config_invalid`、`migration_pending`、`dependency_missing`；但发布可用性仍只以 `enabled` 为通过状态，其余状态均不会放行新建内容。
+- 状态口径：`plugins.status` 当前接受 `discovered`、`installed`、`migrated`、`configured`、`enabled`、`disabled`、`running`、`archived`、`config_invalid`、`migration_pending`、`migration_failed`、`dependency_missing`；但发布可用性仍只以 `enabled` 为通过状态，其余状态均不会放行新建内容。
+- 生命周期字段：返回对象会派生 `install_status`、`lifecycle_status`、`status_reason`、`installed_at`、`archived_at`、`last_health_check_at`，用于后台展示内置插件安装生命周期。当前这些字段由 `plugins.status`、时间戳、迁移和健康状态派生，不代表已有外部插件安装器。
 - `health` 字段：后台治理摘要，由全局状态、配置校验、迁移记录、依赖状态和 Hook 失败统计计算；不是 Prometheus / Grafana 级监控。
 
 `health` 示例：
@@ -78,6 +79,7 @@
 
 - `healthy`：配置、迁移、依赖和 Hook 摘要均正常。
 - `disabled`：全局插件已禁用，只影响新发布和入口展示，不影响历史内容。
+- `archived`：插件已归档 / 软卸载，禁止新发布和子站启用；历史内容、配置、迁移记录、审计记录和 SEO 保留。
 - `config_invalid`：插件配置未通过 `config_schema` 校验或被显式标记为配置无效。
 - `migration_pending`：存在待处理迁移记录；当前内置 no-op pending 不阻断启用，但会提示治理风险。
 - `error`：存在 failed migration 等阻断性异常。
@@ -93,6 +95,7 @@
 - 权限：`plugin.write`。
 - 路径参数：`code` 为插件 code，例如 `qa`、`docs`、`wiki`。
 - 启用前检查：Service 层会校验插件存在、全局配置符合 `config_schema`、依赖插件已启用、没有 `failed` 迁移记录。
+- 归档限制：`archived` 插件不能直接启用，必须先恢复为 disabled / installed 状态，再由管理员手动启用。
 - 迁移策略：当前内置 migration 是 up/no-op 记录型迁移，`pending` migration 会通过健康状态和迁移 Tab 提示，但不阻断启用；`failed` migration 会阻断启用。
 - 返回：更新后的插件对象。
 - 审计：写入插件状态变更审计日志。
@@ -112,6 +115,24 @@
 - `400 {"error":"插件状态不合法"}`
 - `401 {"error":"未登录"}`
 - `403 {"error":"无权限"}`
+
+`POST /api/v1/admin/plugins/:code/archive`
+
+- 认证：后台 admin token。
+- 权限：`plugin.write`。
+- 用途：软卸载 / 归档插件。
+- 行为：将全局插件状态置为 `archived`；禁止该插件新建内容、前台入口、后台管理入口和子站启用；保留历史内容、配置、迁移记录和审计记录。
+- 影响分析：后台归档确认会复用 `GET /api/v1/admin/plugins/:code/impact` 展示历史内容、启用子站、绑定板块、待迁移和 Hook 异常计数。
+- 审计：成功写入 `plugin.archived`；失败写入 `plugin.archive.failed`。
+
+`POST /api/v1/admin/plugins/:code/restore`
+
+- 认证：后台 admin token。
+- 权限：`plugin.write`。
+- 用途：恢复已归档插件。
+- 行为：恢复前校验配置、依赖和 failed migration；成功后状态变为 `disabled`，不会自动启用。管理员需要再次执行 `enable`。
+- 常见错误：存在 failed migration 时返回 `400 {"error":"插件存在失败迁移 ... 请先重试或处理迁移错误"}`。
+- 审计：成功写入 `plugin.restored`；失败写入 `plugin.restore.failed`。
 
 `PUT /api/v1/admin/plugins/:code/config`
 

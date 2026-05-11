@@ -5,10 +5,14 @@
 Planned next-stage work continues the complete plugin-platform roadmap after `v1.3.4`, focusing on plugin content-governance operation permissions, RBAC assignment UI, production MySQL upgrade rehearsal, and P1 plugin-platform experience.
 
 - Began Stage B plugin-governance experience work in the admin UI with `vue-i18n` and a default zh-CN dictionary for plugin-center wording, status labels, config panels, audit labels, and PluginContent actions.
+- Completed another plugin-governance i18n cleanup pass for the plugin detail drawer, community plugin config drawer, PluginJsonEditor hints, PluginContent content statuses, and audit action labels; technical values such as `plugin_code`, `content_type`, Hook names, and JSON keys remain visible as raw values where useful.
 - Upgraded plugin config editing from JSON-only to a basic schema-driven form mode plus JSON advanced mode, with effective-config preview and config-diff display.
 - Enhanced the generic PluginContent governance page with content-type filtering, detail drawer, multi-select, batch hide, batch restore, and audit-log entry points while reusing the existing audited backend batch topic API.
 - Connected PluginContent audit-log entry points to the generic audit log page with prefilled action, target type, and plugin metadata filters.
 - Aligned Stage B documentation wording so basic schema-driven forms, effective config, config diff, PluginContent batch hide/restore, and audit-log jumps are treated as landed baseline capabilities, while deep schema support and advanced batch governance remain future work.
+- Added plugin SDK/template documentation under `docs/plugins/`, including manifest, config schema, Hook, migration, permission, menu/route, and external ecosystem guides.
+- Added built-in plugin lifecycle response fields and soft-uninstall archive/restore APIs; archived plugins block new content and community enablement while preserving history, config, migrations, audit logs, and SEO.
+- Extended plugin status storage for `archived` and `migration_failed`, with matching MySQL schema/migration updates.
 
 ## v1.3.4
 

@@ -197,15 +197,21 @@ type PluginHealth struct {
 // Plugin 描述系统插件的注册与运行状态。
 type Plugin struct {
 	PluginManifest
-	Status          string        `json:"status"`
-	GlobalStatus    string        `json:"global_status,omitempty"`
-	CommunityStatus string        `json:"community_status,omitempty"`
-	SortOrder       int           `json:"sort_order,omitempty"`
-	ConfigJSON      string        `json:"config_json,omitempty"`
-	ResolvedConfig  any           `json:"resolved_config,omitempty"`
-	Health          *PluginHealth `json:"health,omitempty"`
-	CreatedAt       string        `json:"created_at,omitempty"`
-	UpdatedAt       string        `json:"updated_at,omitempty"`
+	Status            string        `json:"status"`
+	GlobalStatus      string        `json:"global_status,omitempty"`
+	CommunityStatus   string        `json:"community_status,omitempty"`
+	InstallStatus     string        `json:"install_status,omitempty"`
+	LifecycleStatus   string        `json:"lifecycle_status,omitempty"`
+	StatusReason      string        `json:"status_reason,omitempty"`
+	InstalledAt       string        `json:"installed_at,omitempty"`
+	ArchivedAt        string        `json:"archived_at,omitempty"`
+	LastHealthCheckAt string        `json:"last_health_check_at,omitempty"`
+	SortOrder         int           `json:"sort_order,omitempty"`
+	ConfigJSON        string        `json:"config_json,omitempty"`
+	ResolvedConfig    any           `json:"resolved_config,omitempty"`
+	Health            *PluginHealth `json:"health,omitempty"`
+	CreatedAt         string        `json:"created_at,omitempty"`
+	UpdatedAt         string        `json:"updated_at,omitempty"`
 }
 
 // PluginImpact summarizes the governance impact scope for disabling/enabling a plugin.

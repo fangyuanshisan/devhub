@@ -1580,7 +1580,7 @@ func (s *MemoryStore) PluginByCode(code string) (domain.Plugin, bool) {
 func withResolvedPluginConfig(plugin domain.Plugin, globalConfigJSON, communityConfigJSON string) domain.Plugin {
 	plugin.ConfigJSON = strings.TrimSpace(firstNonEmptyString(communityConfigJSON, globalConfigJSON))
 	plugin.ResolvedConfig = pluginregistry.ResolvePluginConfig(plugin, globalConfigJSON, communityConfigJSON)
-	return plugin
+	return pluginregistry.ApplyLifecycle(plugin)
 }
 
 // SetPluginStatus 设置插件运行状态。
@@ -1657,7 +1657,7 @@ func (s *MemoryStore) CommunityPlugins(communityID int64) ([]domain.Plugin, erro
 		} else {
 			merged.Status = pluginregistry.StatusDisabled
 		}
-		out = append(out, merged)
+		out = append(out, pluginregistry.ApplyLifecycle(merged))
 	}
 	sort.Slice(out, func(i, j int) bool {
 		if out[i].SortOrder != out[j].SortOrder {
