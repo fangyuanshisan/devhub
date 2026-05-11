@@ -1449,3 +1449,48 @@ P3：高级能力
 1. 为 failed migration 阻断启用补 API/E2E 回归，并覆盖后台错误提示。
 2. 为 HookBus 补 blocking/non-blocking 失败注入 E2E 和后台 Hooks Tab 可见性断言。
 3. 设计真实 Migration Runner 的备份、事务、失败恢复和 rollback/down 边界，再推进外部插件阶段。
+
+### 2026-05-11：文档版本号口径对齐
+
+修改范围：
+
+- 文档：`docs/BACKUP_AND_ROLLBACK.md`、`docs/PROJECT_PROGRESS.md`。
+
+已完成事项：
+
+- 确认当前版本源头为仓库根目录 `VERSION = v1.3.3`。
+- 确认当前版本 Release Notes 为 `docs/releases/v1.3.3.md`，README、docs 入口、CHANGELOG 和 API/架构/测试文档主体均已指向 v1.3.3。
+- 修正 `docs/BACKUP_AND_ROLLBACK.md` 中仍写旧版号 `v1.3.0` 的陈旧口径，改为以 `VERSION` 为准并标注当前为 `v1.3.3`。
+- 保留 `CHANGELOG.md`、历史 Release Notes 和 `docs/PROJECT_PROGRESS.md` 历史任务记录中的旧版本号，它们属于归档追溯，不是当前版本口径错误。
+
+未完成事项：
+
+- 无。本轮为文档版本口径校准，不涉及业务代码、API、数据库或 UI。
+
+新发现风险：
+
+- 后续若更新 VERSION，需要同步检查备份 / 部署 / 文档入口中的“当前版本”自然语言描述，避免旧版本号残留。
+
+已执行检查命令和结果：
+
+- `cat VERSION`：通过，输出 `v1.3.3`。
+- `rg "当前版本.*v1\\.3\\.[0-2]|当前文档.*v1\\.3\\.[0-2]|当前版本为 v1\\.3\\.[0-2]" README.md docs/*.md CHANGELOG.md VERSION .github`：修复后仅命中 `docs/PROJECT_PROGRESS.md` 历史任务记录，当前有效文档无 live 口径残留。
+- `test -f docs/releases/v1.3.3.md`：通过。
+- `git diff --check`：通过。
+
+失败项或跳过项及原因：
+
+- 未执行 Go / 前后台构建：本轮只修改文档，不涉及代码或构建产物。
+
+影响范围：
+
+- API：无影响。
+- 数据库：无影响。
+- 权限：无影响。
+- SEO：无影响。
+- 插件系统：无运行时影响，仅统一版本文档口径。
+- 前后台 UI：无影响。
+
+下一轮建议：
+
+1. 后续发布版本时，把 `VERSION`、`README.md`、`CHANGELOG.md`、`docs/README.md`、当前 Release Notes 和备份 / 部署文档作为固定版本口径检查项。
