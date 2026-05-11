@@ -1,5 +1,15 @@
 # Changelog
 
+## Next
+
+Planned next-stage work is tracked as `v1.3.4: Plugin failure-governance and acceptance closure`.
+
+- Prioritize plugin migration failure injection, enable-blocking, retry/recovery, and audit/E2E coverage.
+- Prioritize HookBus blocking/non-blocking failure injection, execution records, admin Hooks tab visibility, and audit/E2E coverage.
+- Continue tightening the plugin permission matrix while keeping `post.create` as a legacy compatibility bridge only.
+- Run a dedicated MySQLStore / legacy-database upgrade pass for plugin migrations, hook executions, audit logs, global/community plugin state, and historical SEO safety.
+- Keep plugin marketplace, package upload/install, remote install/update, Go dynamic loading, and third-party sandboxing out of the current implementation scope.
+
 ## v1.3.3
 
 DevHub v1.3.3 is the plugin platform governance closure release.

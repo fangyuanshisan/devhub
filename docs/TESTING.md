@@ -307,6 +307,10 @@ docker compose run --rm frontend-e2e
 
 ## 待实现后补测
 
+- v1.3.4 / P0：插件迁移失败注入、启用阻断、retry 恢复、审计定位和后台迁移 Tab 可见性。
+- v1.3.4 / P0：HookBus blocking / non-blocking 失败注入，覆盖主流程阻断、非阻断失败不影响主流程、`hook_executions` 记录、后台 Hooks Tab 可见性和审计定位。
+- v1.3.4 / P0：插件权限矩阵继续收口，覆盖缺少对应 create 权限时前台发布 / 后台创建 / 版主菜单均被拒绝或隐藏。
+- v1.3.4 / P0：MySQLStore / 老库升级专项，覆盖 `plugins`、`community_plugins`、`plugin_migrations`、`hook_executions`、`admin_logs` 和历史 SEO 安全。
 - 更细粒度的权限体系补测：例如 Core 兼容类型 `article` / `news` 的细分权限码、按子站/板块维度配置权限矩阵与更明确的错误码（当前发布链路已实现最小权限码校验）。
 - Projects / Jobs / AI Works 的专属扩展表、专属管理页和完整业务流程。
 - P0：HookBus 的完整业务处理器、关键 Hook 事务回滚、非关键 Hook 统一错误日志和重试策略。
@@ -344,6 +348,10 @@ P0 已实现或必测：
 
 P0 待实现 / 待补测：
 
+- v1.3.4 插件迁移异常链路：failed migration 阻断全局启用和子站启用，retry 成功后恢复启用，已 success 的 migration 不重复破坏数据，审计可定位。
+- v1.3.4 HookBus 异常链路：blocking Hook 失败阻断创建 / 更新，non-blocking Hook 失败不阻断主流程，两者均写入 `hook_executions` 和审计，后台 Hooks Tab 可见。
+- v1.3.4 权限矩阵链路：缺少插件 create 权限时前台发布、后台创建和插件内容治理应失败；`post.create` 只作为 `core.topic.create` 兼容桥。
+- v1.3.4 MySQLStore 链路：老库升级后插件启停、配置校验、迁移记录、Hook 记录、审计和历史 SEO 与 MemoryStore 一致。
 - `config_schema` 浏览器矩阵：后端强校验已接入，仍需补更多真实浏览器错误提示、深层 diff 和完整 JSON Schema 不支持场景。
 - HookBus 业务处理器：Create / Update / Delete / Search / Notification / SEO 不仅能派发事件，还要继续补更多插件处理器、告警和重试策略验收。
 - 插件 migration runner：当前已支持内置插件 up/no-op 查询、执行、失败记录、重试和后台迁移 Tab；真实 rollback、down migration、迁移前备份仍待后续。

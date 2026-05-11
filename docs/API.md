@@ -578,6 +578,14 @@
 - `discovered`、`migrated`、`configured`、`running`、`config_invalid`、`migration_pending`、`dependency_missing` 已是 `plugins.status` 可接受值；但完整自动状态机和独立健康治理 API 仍是后续能力。
 - 插件安装、卸载、升级、插件包上传、远程安装、市场、动态加载和沙箱均不是当前真实 API。
 
+下一阶段 API / 验收目标：
+
+- `v1.3.4` 的优先级是插件异常治理与验收闭环，不新增插件市场或动态加载 API。
+- 插件迁移方向：补 failed migration 注入、启用阻断、retry 恢复和审计定位的 API / E2E；现有 `GET /api/v1/admin/plugins/:code/migrations`、`POST /api/v1/admin/plugins/:code/migrations/run`、`POST /api/v1/admin/plugins/:code/migrations/:name/retry` 需要覆盖失败与恢复场景。
+- HookBus 方向：补 blocking / non-blocking Hook 失败注入、`hook_executions` 可见性、后台 Hooks Tab 断言和审计定位；不引入第三方 Hook、远程 Hook 或 Webhook。
+- 权限矩阵方向：继续确保内容创建、后台创建、版主菜单和插件内容治理都按 `ContentTypeDefinition.create_permission` 与插件权限码判断；`post.create` 仍只是历史兼容桥。
+- MySQLStore 方向：补老库升级和 MySQLStore 下插件迁移、Hook 执行、审计、全局 / 子站启停、历史 SEO 的专项验收。
+
 ## 当前真实 API 索引
 
 认证：
@@ -763,8 +771,9 @@ GET /robots.txt
 
 以下内容不是当前真实可用 API：
 
+- v1.3.4 / P0：插件迁移失败注入、启用阻断、retry 恢复、HookBus blocking / non-blocking 失败注入、权限矩阵收口和 MySQLStore / 老库升级专项验收。
 - P0：`config_schema` 结构化错误响应、更完整 JSON Schema 能力和配置 diff / 版本 API。
-- P0/P1：HookBus 业务处理器、统一错误日志、插件搜索 / 通知 / SEO 扩展 API。
+- P0/P1：HookBus 告警、失败重试、更多业务处理器、插件搜索 / 通知 / SEO 扩展 API。
 - P1：插件 SDK / 开发规范、插件生成模板、插件依赖检查、插件版本兼容检查。
 - P2：本地插件包、插件安装、插件升级、soft uninstall、插件 migration runner、插件包签名校验和插件市场雏形。
 - P3：远程插件市场、在线更新、动态加载能力评估、插件沙箱和插件权限隔离。

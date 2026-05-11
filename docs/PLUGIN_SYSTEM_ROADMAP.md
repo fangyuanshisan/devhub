@@ -14,6 +14,204 @@
 
 核心目标是将当前插件系统从“内置插件治理雏形”升级为“可安装、可配置、可启停、可迁移、可审计、可观测、可扩展”的完整插件平台。
 
+## 下一阶段需求：v1.3.4 插件迁移与 Hook 失败注入验收闭环
+
+### 目标
+
+在 v1.3.3 插件平台治理收口之后，下一阶段优先验证“异常场景是否可靠”。本阶段不新增插件、不做插件市场、不做远程安装、不做动态加载，也不补具体业务插件功能；重点补齐插件迁移失败、Hook 失败、权限拒绝、状态恢复和 MySQL 升级路径的自动化保护。
+
+推荐版本主题：
+
+- `v1.3.4`：插件异常治理与验收闭环版。
+
+### 优先级
+
+本阶段属于 P0 插件运行治理闭环。
+
+优先级排序：
+
+1. 插件迁移失败注入与启用阻断。
+2. HookBus blocking / non-blocking 失败注入。
+3. 插件权限矩阵继续收口。
+4. MySQLStore / 老库升级专项。
+5. P1 体验增强准备。
+
+### 范围一：插件迁移失败注入与启用阻断
+
+目标：
+
+- 确认 `plugin_migrations.failed` 会真实阻断插件全局启用和子站启用。
+- 确认失败迁移可以 retry，并在修复后恢复启用。
+- 确认后台展示、API 返回、审计记录和 E2E 都能覆盖失败与恢复链路。
+
+需求：
+
+1. 构造或提供测试专用 failed migration 状态。
+2. 插件全局启用时，如果存在 failed migration，应返回明确错误。
+3. 子站启用插件时，如果存在 failed migration，应返回明确错误。
+4. 后台插件详情迁移 Tab 应展示失败迁移、错误信息和重试入口。
+5. 重试成功后，迁移状态应变为 success。
+6. 重试成功后，插件可重新启用。
+7. `plugin.migration.run`、`plugin.migration.failed`、`plugin.migration.retry`、`plugin.migration.success` 必须写入审计。
+8. E2E 或 API 测试必须覆盖失败、阻断、重试、恢复和审计定位。
+
+验收：
+
+- failed migration 阻断全局启用。
+- failed migration 阻断子站启用。
+- retry 成功后可以恢复启用。
+- 已 success 的 migration 不重复破坏数据。
+- 后台能看到失败原因。
+- 审计日志能定位迁移操作。
+
+### 范围二：HookBus blocking / non-blocking 失败注入
+
+目标：
+
+- 确认 blocking Hook 失败会阻断主流程。
+- 确认 non-blocking Hook 失败不会阻断主流程，但必须可追踪。
+- 确认后台 Hooks Tab 能展示最近失败、失败次数和错误信息。
+
+需求：
+
+1. 提供测试专用 Hook 失败注入能力，避免污染生产逻辑。
+2. `BeforeCreateContent` 或等价 blocking Hook 返回错误时，内容创建必须失败。
+3. blocking Hook 失败应写入 `hook_executions`。
+4. blocking Hook 失败应写入 `plugin.hook.blocked` 审计。
+5. `AfterCreateContent` 或等价 non-blocking Hook 返回错误时，内容创建仍应成功。
+6. non-blocking Hook 失败应写入 `hook_executions`。
+7. non-blocking Hook 失败应写入 `plugin.hook.failed` 审计。
+8. 后台 Hooks Tab 应展示执行次数、失败次数、最近执行、最近失败、平均耗时和最近错误。
+9. Search / Notification / SEO Hook 当前可以继续作为最小事件派发，但状态必须真实标注，不得伪造完整业务处理器。
+
+验收：
+
+- blocking Hook 失败时主流程被阻断。
+- non-blocking Hook 失败时主流程继续。
+- 两类失败都可在 Hook 执行记录中查询。
+- 两类失败都有审计或错误日志。
+- 后台 Hooks Tab 能看到失败摘要。
+
+### 范围三：插件权限矩阵继续收口
+
+目标：
+
+- 继续弱化 `post.create` 的历史兼容地位。
+- 确认内容创建、后台创建、版主菜单和插件内容治理都按插件权限码判断。
+
+需求：
+
+1. 内容创建权限继续来自 `ContentTypeDefinition.create_permission`。
+2. `question` 必须使用 `qa.question.create`。
+3. `document` 必须使用 `docs.document.create`。
+4. `wiki_page` 必须使用 `wiki.page.create`。
+5. `project` 必须使用 `projects.project.create`。
+6. `job` 必须使用 `jobs.job.create`。
+7. `ai_work` 必须使用 `ai_works.work.create`。
+8. `article` / `news` 暂继续使用 `core.topic.create`，`post.create` 仅作为兼容桥。
+9. 后台 `admin/posts` 创建入口必须叠加真实插件 create 权限。
+10. 版主插件菜单必须同时受全局插件状态、子站插件状态、community scope 和权限码约束。
+11. 普通用户 token 不能调用插件治理 API。
+
+验收：
+
+- 缺少对应插件 create 权限时不能发布。
+- 缺少对应插件权限时后台创建失败。
+- 非授权版主不能看到或操作其他子站插件菜单。
+- `post.create` 不再被描述为长期主权限。
+
+### 范围四：MySQLStore / 老库升级专项
+
+目标：
+
+- 确认插件平台在 MySQLStore 和老库升级场景下与 MemoryStore 行为一致。
+
+需求：
+
+1. 校验 `plugins`、`community_plugins`、`plugin_migrations`、`hook_executions`、`admin_logs` 结构在新装和升级场景一致。
+2. 校验 `topics.plugin_code`、`categories.plugin_code`、`categories.allowed_content_types` 在老库升级后可用。
+3. 校验 migration 文件编号无冲突。
+4. 校验 MySQLStore 下插件启停、配置校验、迁移记录、Hook 执行记录和审计写入可用。
+5. 文档补充老库升级顺序、备份、回滚和风险。
+
+验收：
+
+- MySQLStore 下全局禁用插件后不能新建对应内容。
+- MySQLStore 下子站禁用插件后仅该子站不能新建对应内容。
+- MySQLStore 下 failed migration 阻断启用。
+- MySQLStore 下 Hook 执行记录可查询。
+- MySQLStore 下插件治理审计可查询。
+
+### 范围五：P1 体验增强准备
+
+本阶段只做规划和接口边界确认，不做大范围 UI 或业务实现。
+
+后续 P1 可进入：
+
+- `config_schema` 自动表单。
+- 插件 SDK / 模板。
+- 插件内容治理页批量操作。
+- Docs / Wiki 专用体验。
+- 插件搜索 / 通知 / SEO 扩展。
+
+### 不做内容
+
+本阶段不做：
+
+- 插件市场。
+- 插件上传安装。
+- 远程插件安装或在线更新。
+- Go 动态插件加载。
+- 第三方插件沙箱。
+- 新增业务插件。
+- Projects / Jobs / AI Works 专属业务闭环。
+- Docs / Wiki 复杂编辑体验。
+- 大规模 UI 重构。
+- 删除 `sites/posts` 兼容读取。
+- 重命名 `topics -> contents` 或 `categories -> channels`。
+
+### 文档要求
+
+执行本阶段任务时必须同步更新：
+
+- `docs/PROJECT_PROGRESS.md`
+- `docs/PLUGIN_ARCHITECTURE.md`
+- `docs/API.md`
+- `docs/TESTING.md`
+- 对应 Release Notes
+- `CHANGELOG.md`
+
+文档必须继续区分：
+
+- 已完成。
+- 部分完成。
+- 预留。
+- 后续规划。
+- 未执行测试。
+- 跳过项及原因。
+
+### 最低检查要求
+
+如果修改 Go 后端：
+
+- `gofmt`
+- `go test ./...`
+- `go build -o .devhub/devhub .`
+
+如果修改后台：
+
+- `docker compose run --rm admin-e2e npm run build`
+
+如果修改前台：
+
+- `docker compose run --rm frontend-e2e npm run build`
+
+如果新增或修改 E2E：
+
+- `./scripts/check-frontend.sh --quick`
+- `./scripts/check-frontend.sh --admin-only`
+- `./scripts/check-frontend.sh --frontend-only`，或说明无法执行原因。
+
 ## 2. 总体目标
 
 DevHub 插件系统的最终形态应覆盖完整插件生命周期：

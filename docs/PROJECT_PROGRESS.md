@@ -1494,3 +1494,104 @@ P3：高级能力
 下一轮建议：
 
 1. 后续发布版本时，把 `VERSION`、`README.md`、`CHANGELOG.md`、`docs/README.md`、当前 Release Notes 和备份 / 部署文档作为固定版本口径检查项。
+
+### 2026-05-11：整理下一阶段插件平台需求
+
+修改范围：
+
+- 文档：`docs/PLUGIN_SYSTEM_ROADMAP.md`、`docs/PROJECT_PROGRESS.md`。
+
+已完成事项：
+
+- 将“插件迁移失败注入 + Hook 失败注入 E2E”整理为下一阶段明确需求。
+- 在 `docs/PLUGIN_SYSTEM_ROADMAP.md` 新增“v1.3.4 插件迁移与 Hook 失败注入验收闭环”需求块。
+- 明确下一阶段仍属于 P0 插件运行治理闭环，不做插件市场、上传安装、远程安装、Go 动态加载或具体业务插件增强。
+- 将下一阶段拆分为 5 个范围：
+  - 插件迁移失败注入与启用阻断。
+  - HookBus blocking / non-blocking 失败注入。
+  - 插件权限矩阵继续收口。
+  - MySQLStore / 老库升级专项。
+  - P1 体验增强准备。
+- 为每个范围补充目标、需求和验收口径，后续可直接作为任务输入。
+
+未完成事项：
+
+- 本轮只整理需求，未实现代码、API、UI 或 E2E。
+
+新发现风险：
+
+- 插件迁移失败、Hook 失败和插件启停类 E2E 都可能污染全局状态；后续实现时必须串行执行或在 `finally` / `afterEach` 中恢复状态。
+
+已执行检查命令和结果：
+
+- `sed -n '1,260p' docs/PLUGIN_SYSTEM_ROADMAP.md`：通过，确认需求块已写入。
+- `git diff --check`：通过。
+
+失败项或跳过项及原因：
+
+- 未执行 Go / 前后台构建：本轮只修改文档，不涉及代码或构建产物。
+
+影响范围：
+
+- API：无影响。
+- 数据库：无影响。
+- 权限：无影响。
+- SEO：无影响。
+- 插件系统：新增下一阶段需求定义，无运行时影响。
+- 前后台 UI：无影响。
+
+下一轮建议：
+
+1. 按 `docs/PLUGIN_SYSTEM_ROADMAP.md` 中的 v1.3.4 需求，优先实现插件迁移失败注入、启用阻断和恢复验收。
+2. 随后补 HookBus blocking / non-blocking 失败注入，并把后台 Hooks Tab 可见性纳入 E2E。
+
+### 2026-05-11：根据下一阶段插件目标统一文档口径
+
+修改范围：
+
+- 文档：`README.md`、`CHANGELOG.md`、`docs/README.md`、`docs/API.md`、`docs/PLUGIN_ARCHITECTURE.md`、`docs/SEO.md`、`docs/TESTING.md`、`docs/releases/v1.3.3.md`、`docs/PROJECT_PROGRESS.md`。
+
+已完成事项：
+
+- 以 `docs/PLUGIN_SYSTEM_ROADMAP.md` 和本文档为目标源头，统一其他文档的下一阶段口径。
+- 明确当前版本仍是 `v1.3.3`，下一阶段需求为 `v1.3.4：插件异常治理与验收闭环版`。
+- 在 README Roadmap、CHANGELOG Next、API 规划、插件架构、测试矩阵、SEO 红线和 v1.3.3 Release Notes 后续计划中同步 v1.3.4 目标。
+- 统一 v1.3.4 范围：
+  - 插件迁移失败注入与启用阻断。
+  - HookBus blocking / non-blocking 失败注入。
+  - 插件权限矩阵继续收口。
+  - MySQLStore / 老库升级专项。
+  - P1 体验增强准备。
+- 统一不做范围：不做插件市场、上传安装、远程安装、Go 动态加载、新业务插件或大规模 UI 重构。
+- 在 SEO 文档中补充 v1.3.4 异常治理必须继续保护历史 `/topics/:id` 和 `/c/:slug` SEO。
+
+未完成事项：
+
+- 本轮只做文档口径同步，未实现 v1.3.4 代码、API、UI 或 E2E。
+
+新发现风险：
+
+- v1.3.4 涉及迁移失败、Hook 失败和插件状态切换，后续 E2E 必须串行或恢复状态，否则容易污染本地演示和后续测试。
+
+已执行检查命令和结果：
+
+- `rg "v1\\.3\\.4|插件迁移失败注入|HookBus blocking|MySQLStore / 老库升级专项" README.md CHANGELOG.md docs`：通过，确认目标已同步到主要文档。
+- `git diff --check`：通过。
+
+失败项或跳过项及原因：
+
+- 未执行 Go / 前后台构建：本轮只修改文档，不涉及代码或构建产物。
+
+影响范围：
+
+- API：无实际接口变更，仅补充下一阶段规划口径。
+- 数据库：无影响。
+- 权限：无运行时影响，仅补充权限矩阵下一阶段目标。
+- SEO：无运行时影响，仅补充异常治理阶段 SEO 红线。
+- 插件系统：无运行时影响，统一下一阶段插件平台目标。
+- 前后台 UI：无影响。
+
+下一轮建议：
+
+1. 直接按 v1.3.4 需求启动代码实现：先做插件迁移失败注入、启用阻断、retry 恢复和审计 / E2E。
+2. 第二步做 HookBus blocking / non-blocking 失败注入与后台 Hooks Tab 可见性 E2E。

@@ -76,6 +76,8 @@ Core 只保留通用社区能力：
 
 本节是当前架构文档中的阶段摘要；更完整的目标流程、治理能力、后台能力、运行时能力、审计能力和 E2E 要求见 [完整插件系统长期完善路线图](PLUGIN_SYSTEM_ROADMAP.md)。
 
+下一阶段已明确为 `v1.3.4：插件异常治理与验收闭环版`。它仍属于 P0 插件平台收口，优先处理 failed migration 启用阻断、HookBus blocking / non-blocking 失败注入、插件权限矩阵继续收口、MySQLStore / 老库升级专项和 P1 体验增强准备；不做插件市场、插件上传、远程安装、Go 动态加载或具体业务插件增强。
+
 P0：插件平台收口
 
 - Manifest 契约稳定。
@@ -479,3 +481,4 @@ v1.3.1 采用稳妥策略：后台编辑已存在内容时禁止修改归属和�
 - `plugins.config_json` 与 `community_plugins.config_json` 已可写，并已做 JSON 格式校验和简化 `config_schema` 基础校验；自动表单渲染、更完整 JSON Schema、配置 diff UI 和配置版本回滚属于 P1/P3。
 - HookBus 当前是内置插件运行时调度器；调用点已覆盖内容创建、更新、删除、评论、搜索、通知和 SEO，并记录执行结果与失败审计。搜索 / 通知 / SEO 仍是预留级事件派发，完整业务处理器、重试策略和健康状态属于 P0/P1。
 - 插件生命周期当前不是完整 discovered -> installed -> migrated -> configured -> enabled -> running 状态机；代码真实状态仍以 `plugins.status`、`community_plugins.status` 和 `plugin_migrations.status` 为准。
+- 下一阶段 `v1.3.4` 的架构重点不是扩展新插件，而是验证异常治理：failed migration 必须阻断启用并可 retry 恢复，blocking Hook 必须能阻断主流程，non-blocking Hook 必须不阻断但可追踪，权限矩阵必须继续弱化 `post.create` 兼容桥，MySQLStore / 老库升级必须与 MemoryStore 口径一致。

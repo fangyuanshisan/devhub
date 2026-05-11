@@ -53,6 +53,7 @@ DevHub v1.3.3 是“插件平台治理收口版”。本版本在 v1.3.2 的 Hoo
 
 ## Roadmap
 
+- v1.3.4 / P0：插件异常治理与验收闭环，优先覆盖插件迁移失败注入、启用阻断、HookBus blocking / non-blocking 失败注入、插件权限矩阵继续收口、MySQLStore / 老库升级专项。
 - v1.3.x / P0：插件平台收口，包括 Manifest、Registry、ActorContext、权限码、两层插件状态、板块绑定、发布校验、菜单过滤、config_json、config_schema 基础校验、HookBus、结构化审计、migration 边界和测试矩阵。
 - v1.4.x / P1：插件平台增强，包括 schema 自动表单、插件 SDK 文档、插件生成模板、依赖和版本兼容检查、插件事件 / 通知模板、搜索索引和 SEO 扩展。
 - v1.5.x / P2：插件分发能力，包括本地插件包、安装、升级、soft uninstall、插件 migration runner、签名校验和插件市场雏形。
