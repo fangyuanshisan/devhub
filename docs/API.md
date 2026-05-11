@@ -2,7 +2,7 @@
 
 [返回文档入口](README.md)
 
-更新时间：2026-05-11（v1.3.2 插件系统专项验收归档）
+更新时间：2026-05-11（v1.3.3 插件平台治理收口）
 
 本文档只记录当前仓库真实可用 API。接口路径以 `internal/transport/httpapi/router.go` 为准；未实现能力集中放在“规划 / 未完成”小节，不写入当前真实 API 主体。
 
@@ -77,6 +77,8 @@
 - 认证：后台 admin token。
 - 权限：`plugin.write`。
 - 路径参数：`code` 为插件 code，例如 `qa`、`docs`、`wiki`。
+- 启用前检查：Service 层会校验插件存在、全局配置符合 `config_schema`、依赖插件已启用、没有 `failed` 迁移记录。
+- 迁移策略：当前内置 migration 是 up/no-op 记录型迁移，`pending` migration 会通过健康状态和迁移 Tab 提示，但不阻断启用；`failed` migration 会阻断启用。
 - 返回：更新后的插件对象。
 - 审计：写入插件状态变更审计日志。
 

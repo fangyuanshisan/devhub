@@ -36,6 +36,7 @@
 - 配置审计 `metadata_json.changed_keys` 应记录本次变更的顶层配置键。
 - `POST /api/v1/admin/plugins/:code/disable` 可以禁用全局插件，并写入审计日志。
 - `POST /api/v1/admin/plugins/:code/enable` 可以启用全局插件，并写入审计日志。
+- `POST /api/v1/admin/plugins/:code/enable` 启用前会校验配置、依赖和失败迁移；`failed` migration 应阻断启用，当前内置 no-op `pending` migration 不阻断但应通过 health / 迁移 Tab 提示。
 - `GET /api/v1/communities/:slug/plugins` 只返回该子站全局 enabled 且子站 enabled 的插件。
 - `GET /api/v1/admin/communities/:id/plugins` 返回某个子站的插件状态列表。
 - `POST /api/v1/admin/communities/:id/plugins/:code/disable` 可以禁用某个子站插件。
@@ -44,6 +45,7 @@
 - `PUT /api/v1/admin/communities/:id/plugins/:code/config` 同样必须执行后端 `config_schema` 强校验，不能只依赖前端 Ajv。
 - `PUT /api/v1/admin/communities/:id/plugins/sort` 可以调整排序，并写入审计日志。
 - 全局 disabled / `config_invalid` / `migration_pending` 插件不能被子站启用。
+- 子站启用插件时也应复用 Service 层 readiness 检查；当插件存在 `failed` migration 时，子站启用应失败。
 - `GET /api/v1/moderator/plugin-menus` 只返回全局 enabled、子站 enabled 且当前用户有权限的插件菜单。
 - `GET /api/v1/admin/plugins/:code/impact` 返回历史内容数、启用/禁用子站数、绑定板块数、近 7 天内容数、审核中内容数、菜单声明数、配置覆盖数和待执行迁移数。
 - `GET /api/v1/admin/communities/:id/plugins/:code/impact` 返回同类字段，但内容、板块和子站状态计数应收敛到该子站范围。

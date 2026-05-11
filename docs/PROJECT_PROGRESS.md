@@ -8,7 +8,7 @@
 
 ## 当前版本结论
 
-当前版本为 `v1.3.2`，主题是“插件平台治理增强版”。DevHub 当前定位为多子站通用开源社区程序，默认演示为开发者社区。
+当前版本为 `v1.3.3`，主题是“插件平台治理收口版”。DevHub 当前定位为多子站通用开源社区程序，默认演示为开发者社区。
 
 Core 保留用户、认证、子站、板块、通用内容、评论、标签、搜索、通知、SEO、权限、审计、插件注册和分发能力。问答、文档、Wiki、项目、招聘、AI 作品已按内置系统插件建模：`qa -> question`、`docs -> document`、`wiki -> wiki_page`、`projects -> project`、`jobs -> job`、`ai_works -> ai_work`。
 
@@ -23,6 +23,7 @@ Core 保留用户、认证、子站、板块、通用内容、评论、标签、
 - 插件注册：`internal/plugins/registry.go` 和 `internal/plugins/qa|docs|wiki|projects|jobs|aiworks` 提供内置插件定义、内容类型映射、菜单、权限和路由描述。
 - 插件声明规范：当前已统一到 manifest 风格声明，包含插件本体、内容类型定义、权限定义、菜单定义、路由定义、`config_schema`、依赖、最小 Core 版本和 Hook 声明。
 - 全局插件状态：`plugins` 表和 MemoryStore / MySQLStore 已扩展支持 `discovered`、`installed`、`migrated`、`configured`、`enabled`、`disabled`、`running`、`config_invalid`、`migration_pending`、`dependency_missing`；当前发布可用性仍只认 `enabled`，其余状态不放行新建内容。
+- 插件启用 readiness：全局启用和子站启用会在 Service 层检查插件存在、配置有效、依赖已启用、没有 `failed` 迁移；当前内置 no-op 的 `pending` migration 不阻断启用，但会在健康状态和迁移 Tab 中提示。
 - 子站插件状态：`community_plugins` 表和 MemoryStore / MySQLStore 均支持按子站启用 / 禁用、配置和排序插件。
 - 两层状态判断：插件在某个子站可用需要同时满足 `plugins.status=enabled` 和 `community_plugins.status=enabled`；`core` 作为兼容内置能力在 Service 层特殊视为可用。
 - 内容模型兼容：`topics.plugin_code`、`categories.plugin_code`、`categories.allowed_content_types` 已进入 schema 与 Store。
@@ -1393,3 +1394,58 @@ P3：高级能力
 1. 补插件迁移失败注入 / 重试 / 审计定位的自动化 E2E。
 2. 补 Hook blocking / non-blocking 失败注入的 API 或 E2E 回归。
 3. 将插件启停、配置和迁移操作的状态恢复 helper 统一抽象，减少测试间污染。
+
+### 2026-05-11：v1.3.3 插件平台治理收口
+
+修改范围：
+
+- 后端：`internal/service/service.go`、`internal/service/hookbus_test.go`。
+- 版本与文档：`VERSION`、`README.md`、`docs/README.md`、`docs/API.md`、`docs/PLUGIN_ARCHITECTURE.md`、`docs/TESTING.md`、`docs/PROJECT_PROGRESS.md`、`docs/releases/v1.3.3.md`、`CHANGELOG.md`。
+
+已完成事项：
+
+- 新建 `docs/releases/v1.3.3.md`，定义 v1.3.3 为“插件平台治理收口版”。
+- 将 VERSION 更新为 `v1.3.3`，并同步 README、docs 入口和 CHANGELOG 当前版本口径。
+- Service 层补齐插件启用 readiness 检查：全局启用和子站启用都会校验插件存在、全局配置符合 `config_schema`、依赖插件已启用、没有 `failed` 迁移。
+- 明确当前内置 migration 仍是 up/no-op 记录型迁移：`pending` migration 通过 health / 迁移 Tab 提示，但不阻断启用；`failed` migration 会阻断全局启用和子站启用。
+- 补充单测覆盖：pending 内置 no-op migration 不阻断启用，failed migration 会阻断全局启用和子站启用。
+- 文档统一说明生命周期状态：枚举已进入 schema / Store，但完整自动状态机仍未完成；当前只有 `enabled` 放行新建内容。
+- 文档统一说明 config_schema、effective_config、HookBus、plugin_migrations、权限矩阵、后台治理中心和 `post.create` 兼容桥的真实边界。
+
+未完成事项：
+
+- 仍未实现完整自动生命周期状态机。
+- 仍未实现真正独立 Migration Runner、migration down、真实 rollback、迁移前备份和外部插件迁移包。
+- HookBus 仍只服务内置插件，尚无告警、重试策略、异步队列或第三方动态 Hook。
+- 权限矩阵仍是最小权限码闭环；完整 RBAC 配置 UI、community/category 作用域分配和更细错误码仍待后续。
+
+新发现风险：
+
+- 若未来把 pending migration 改为严格阻断启用，需要先区分“内置 no-op 声明 pending”和“真实 DDL migration pending”，否则默认内置插件可能被未手动确认的 no-op 迁移卡住。
+
+已执行检查命令和结果：
+
+- `gofmt -w internal/service/service.go internal/service/hookbus_test.go`：通过。
+- `go test ./...`：通过。
+- `go build -o .devhub/devhub .`：通过。
+- `docker compose run --rm admin-e2e npm run build`：通过（Vite chunk size warning，非失败）。
+
+失败项或跳过项及原因：
+
+- 未执行完整前后台 E2E：上一轮插件系统专项验收已完成前台 14 条和后台 15 条 E2E；本轮只改 Service readiness 与文档口径。
+- 未执行前台构建：本轮未修改前台代码。
+
+影响范围：
+
+- API：无新增路由；全局/子站插件启用 API 的 Service 层校验更严格，失败迁移会阻断启用。
+- 数据库：无结构变更。
+- 权限：无权限模型变更；继续保留 `post.create` 作为 `core.topic.create` 兼容桥。
+- SEO：无 SEO 代码变更；插件 disabled 不影响历史内容详情和 `/topics/:id` 动态 HTML 的规则不变。
+- 插件系统：补齐启用 readiness 收口，统一生命周期、配置、Hook、迁移、权限和后台治理中心文档口径。
+- 前后台 UI：无 UI 代码变更。
+
+下一轮建议：
+
+1. 为 failed migration 阻断启用补 API/E2E 回归，并覆盖后台错误提示。
+2. 为 HookBus 补 blocking/non-blocking 失败注入 E2E 和后台 Hooks Tab 可见性断言。
+3. 设计真实 Migration Runner 的备份、事务、失败恢复和 rollback/down 边界，再推进外部插件阶段。

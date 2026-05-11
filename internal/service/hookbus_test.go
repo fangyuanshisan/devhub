@@ -90,3 +90,31 @@ func TestDispatchHookNonBlockingFailureRecordsWithoutBlocking(t *testing.T) {
 		t.Fatal("expected plugin.hook.failed audit log")
 	}
 }
+
+func TestSetPluginStatusEnabledChecksMigrationReadiness(t *testing.T) {
+	repo := store.NewMemoryStore()
+	svc := New(repo)
+
+	if _, err := svc.SetPluginStatus("docs", pluginregistry.StatusEnabled); err != nil {
+		t.Fatalf("pending built-in no-op migrations should not block enable: %v", err)
+	}
+
+	_, err := repo.SavePluginMigration(domain.PluginMigration{
+		PluginCode:       "qa",
+		MigrationVersion: "1.0.0",
+		Version:          "1.0.0",
+		MigrationName:    "qa_questions",
+		Direction:        "up",
+		Status:           "failed",
+		ErrorMessage:     "e2e failed migration",
+	})
+	if err != nil {
+		t.Fatalf("seed failed migration: %v", err)
+	}
+	if _, err := svc.SetPluginStatus("qa", pluginregistry.StatusEnabled); err == nil || !strings.Contains(err.Error(), "失败迁移") {
+		t.Fatalf("expected failed migration to block enable, got %v", err)
+	}
+	if _, err := svc.SetCommunityPluginStatus(1, "qa", pluginregistry.StatusEnabled); err == nil || !strings.Contains(err.Error(), "失败迁移") {
+		t.Fatalf("expected failed migration to block community enable, got %v", err)
+	}
+}

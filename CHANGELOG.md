@@ -1,5 +1,23 @@
 # Changelog
 
+## v1.3.3
+
+DevHub v1.3.3 is the plugin platform governance closure release.
+
+### Changed
+
+- Added Service-level plugin enable readiness checks for both global and per-community enable actions.
+- Plugin enable now checks plugin existence, global config schema validity, enabled dependencies, and failed plugin migrations before allowing `enabled`.
+- Kept built-in pending up/no-op migrations non-blocking for enable, while surfacing them through plugin health and the migration tab; failed migrations block enable until retried or resolved.
+- Clarified v1.3.3 documentation boundaries for lifecycle states, config schema validation, HookBus observability, migration no-op runner, plugin permissions, `post.create` compatibility, and admin plugin governance center coverage.
+- Added `docs/releases/v1.3.3.md` and updated README, docs index, API, architecture, testing, project progress, changelog, and VERSION to the v1.3.3 release line.
+
+### Known Limitations
+
+- Plugin lifecycle states are accepted by schema/Store but still do not form a full automatic state machine.
+- Plugin migrations remain built-in up/no-op records; migration down, true rollback, pre-migration backup, and external plugin migration packages remain follow-up work.
+- HookBus remains for built-in plugins only; third-party dynamic hooks, webhooks, remote execution, sandboxing, and plugin marketplace capabilities are not implemented.
+
 ## v1.3.2
 
 DevHub v1.3.2 is the plugin platform governance enhancement release.

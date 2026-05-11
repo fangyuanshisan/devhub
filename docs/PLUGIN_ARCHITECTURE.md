@@ -45,6 +45,7 @@ Core 只保留通用社区能力：
 - 内容类型归一：`doc -> document`、`wiki -> wiki_page` 和 `content_type -> plugin_code` 映射集中在 registry。
 - 全局状态：`plugins.status` 已扩展为插件运行治理状态模型，当前 schema / Store 接受 `discovered`、`installed`、`migrated`、`configured`、`enabled`、`disabled`、`running`、`config_invalid`、`migration_pending`、`dependency_missing`。
 - 发布可用性：当前只有 `plugins.status=enabled` 会放行新建内容；`running`、`configured` 等状态先作为生命周期 / 健康治理预留，不等价于可发布。
+- 启用 readiness：`v1.3.3` 起，全局启用和子站启用都会在 Service 层检查插件存在、全局配置有效、依赖插件已启用、没有 `failed` 迁移记录；当前内置 up/no-op 的 `pending` migration 不阻断启用，只通过健康状态和迁移 Tab 提示。
 - 子站状态：`community_plugins.status` 支持子站级 `enabled` / `disabled`，并叠加 `sort_order`、`config_json`。
 - 配置：`plugins.config_json`、`community_plugins.config_json`、`resolved_config.default/global/community/effective` 已落地；后端保存时执行简化 `config_schema` 校验，后台用 JSON Editor + Ajv 做客户端基础校验。
 - 权限：插件权限来自 manifest / registry；发布链路按内容类型读取 `create_permission`；菜单按全局状态、子站状态、权限和 scope 过滤。
@@ -318,9 +319,16 @@ HookBus 完整化属于插件平台 P0 收口任务。当前只服务内置系�
 
 状态值：
 
+- `discovered`：系统识别到插件声明，当前主要是生命周期预留状态。
 - `installed`：已安装 / 已注册，但未启用。
-- `enabled`：已启用。
+- `migrated`：迁移已完成的生命周期预留状态，当前尚无自动流转。
+- `configured`：配置已完成的生命周期预留状态，当前尚无自动流转。
+- `enabled`：已启用，也是当前唯一允许新建内容的全局状态。
 - `disabled`：已禁用。
+- `running`：运行中生命周期预留状态，当前不等价于可发布。
+- `config_invalid`：配置无效治理状态，当前不放行新建内容。
+- `migration_pending`：迁移待处理治理状态，当前不放行新建内容；但内置 no-op 迁移声明产生的 pending 记录通过 health/迁移 Tab 提示，不会在启用前阻断。
+- `dependency_missing`：依赖缺失治理状态，当前不放行新建内容。
 
 插件在某个子站可用必须同时满足：
 
@@ -337,6 +345,7 @@ HookBus 完整化属于插件平台 P0 收口任务。当前只服务内置系�
 - 禁用全局插件会影响所有子站的新发布、导航、菜单和管理入口。
 - 禁用子站插件只影响该子站的新发布、导航、菜单和后台管理入口。
 - 禁用插件不影响历史内容访问，尤其不能破坏 `/topics/:id` SEO 动态 HTML。
+- `post.create` 是 `core.topic.create` 的历史兼容桥，不是长期主权限；插件内容创建必须使用对应 content type 的 create permission。
 
 ## 发布校验流程
 

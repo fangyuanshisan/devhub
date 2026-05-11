@@ -458,6 +458,11 @@ func (s *Service) CommunityPlugins(communityID int64) ([]domain.Plugin, error) {
 
 // SetCommunityPluginStatus updates per-community plugin enablement.
 func (s *Service) SetCommunityPluginStatus(communityID int64, code, status string) (domain.Plugin, error) {
+	if strings.TrimSpace(status) == pluginregistry.StatusEnabled {
+		if err := s.validatePluginEnableReadiness(code); err != nil {
+			return domain.Plugin{}, err
+		}
+	}
 	return s.repo.SetCommunityPluginStatus(communityID, code, status)
 }
 
@@ -660,7 +665,43 @@ func firstNonBlank(values ...string) string {
 
 // SetPluginStatus 更新插件状态。
 func (s *Service) SetPluginStatus(code, status string) (domain.Plugin, error) {
+	code = strings.TrimSpace(code)
+	status = strings.TrimSpace(status)
+	if status == pluginregistry.StatusEnabled {
+		if err := s.validatePluginEnableReadiness(code); err != nil {
+			return domain.Plugin{}, err
+		}
+	}
 	return s.repo.SetPluginStatus(code, status)
+}
+
+func (s *Service) validatePluginEnableReadiness(code string) error {
+	plugin, ok := s.repo.PluginByCode(code)
+	if !ok || plugin.Code == "" {
+		return errors.New("插件不存在")
+	}
+	if err := pluginregistry.ValidateConfigJSON(plugin, plugin.ConfigJSON); err != nil {
+		return fmt.Errorf("插件配置无效：%w", err)
+	}
+	for _, dep := range plugin.Dependencies {
+		dep = strings.TrimSpace(dep)
+		if dep == "" {
+			continue
+		}
+		if !s.IsPluginEnabled(dep) {
+			return fmt.Errorf("插件依赖缺失：%s", dep)
+		}
+	}
+	migrations, err := s.pluginMigrationsWithDefinitions(code)
+	if err != nil {
+		return fmt.Errorf("插件迁移状态不可用：%w", err)
+	}
+	for _, item := range migrations {
+		if strings.TrimSpace(item.Status) == "failed" {
+			return fmt.Errorf("插件存在失败迁移 %s，请先重试或处理迁移错误", item.MigrationName)
+		}
+	}
+	return nil
 }
 
 // SetPluginConfig updates global plugin config_json.
