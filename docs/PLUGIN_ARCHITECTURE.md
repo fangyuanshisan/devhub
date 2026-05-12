@@ -2,7 +2,7 @@
 
 [返回文档入口](README.md)
 
-更新时间：2026-05-11
+更新时间：2026-05-12
 
 ## 版本定位
 
@@ -58,6 +58,7 @@ MySQL 专项补充：2026-05-11 已完成 MySQLStore 与老库升级专项验证
 - 迁移治理：`plugin_migrations` 表、MemoryStore / MySQLStore 读写能力、内置插件 migration 声明、up/no-op runner、失败记录、失败重试和迁移审计已存在；成功迁移不会重复执行。
 - Manifest 校验与 dry-run：`PluginManifestValidator` 已可校验 manifest JSON 的基础字段、内容类型、权限、菜单、路由、Hook、配置模型、迁移、依赖和资产路径，并返回 errors / warnings / checksum / impact summary；`dry-run` 不写入插件记录。
 - Manifest + 配置型安装：`POST /api/v1/admin/plugins/install` 可安装只含声明与配置的插件，初始为 installed + disabled；不执行第三方代码、不动态加载前端资源、不执行外部 SQL。
+- 最小升级执行：`POST /api/v1/admin/plugins/:code/upgrade/dry-run` 和 `POST /api/v1/admin/plugins/:code/upgrade` 已支持 manifest + 配置型插件的预览和最小执行闭环；完整分步升级向导、回滚、migration down 和外部 SQL 仍未实现。
 - 软卸载 / 归档 / 恢复：插件可归档、恢复和批量归档 / 恢复；归档后禁止新建内容和子站启用，但保留历史内容、配置、迁移记录、审计记录和 SEO。
 - 后台：`/admin-next/plugins` 已具备插件列表、详情抽屉、配置、impact 提示、审计 Tab、迁移 Tab 和通用插件内容页入口；`/admin-next/communities` 已具备子站插件配置抽屉。
 
@@ -72,7 +73,7 @@ MySQL 专项补充：2026-05-11 已完成 MySQLStore 与老库升级专项验证
 
 预留：
 
-- 插件包 zip 导入、本地插件包、远程安装、插件升级、hard uninstall。
+- 插件包 zip 导入、本地插件包、远程安装、hard uninstall、migration down。
 - 插件健康状态：`healthy`、`warning`、`error`、`disabled`、`migration_pending`、`config_invalid`、`dependency_missing`、`hook_warning`、`hook_error` 已有轻量计算；`hook_error` 当前基于 Hook 失败次数阈值（当前为 `>= 3`）判断。告警、自动恢复、重试队列和 Prometheus/Grafana 式可观测指标仍是后续能力。
 - 插件 SDK、生成模板、插件依赖解析、版本兼容检查、插件包签名和市场分发。
 - 外部服务型 Webhook、动态路由加载、动态执行环境、沙箱和第三方 Hook 运行时。
@@ -81,7 +82,9 @@ MySQL 专项补充：2026-05-11 已完成 MySQLStore 与老库升级专项验证
 
 本节是当前架构文档中的阶段摘要；更完整的目标流程、治理能力、后台能力、运行时能力、审计能力和 E2E 要求见 [完整插件系统长期完善路线图](PLUGIN_SYSTEM_ROADMAP.md)。
 
-当前版本为 `v1.3.4`。它从“插件异常治理与验收闭环”继续推进到“插件平台基础能力收口”：已覆盖 failed migration 启用阻断、HookBus 失败注入、权限矩阵、MySQLStore 专项、归档 / 恢复、Manifest 校验、dry-run 和 manifest + 配置型安装；插件市场、插件包上传、远程安装、Go 动态加载和第三方代码执行仍不属于当前实现。
+当前版本为 `v1.3.4`。它从“插件异常治理与验收闭环”继续推进到“插件平台基础能力收口”：已覆盖 failed migration 启用阻断、HookBus 失败注入、权限矩阵、MySQLStore 专项、归档 / 恢复、Manifest 校验、dry-run、manifest + 配置型安装和最小升级执行；插件市场、插件包上传、远程安装、Go 动态加载和第三方代码执行仍不属于当前实现。
+
+下一版本草案为 `v1.3.5`，聚焦后台插件治理体验、完整安装 / 升级向导、批量归档 / 恢复影响预览、状态治理页和 PluginContent 体验对齐；不新增危险运行时能力。
 
 P0：插件平台收口
 
@@ -115,10 +118,9 @@ P1：插件平台增强
 P2：插件分发能力
 
 - 本地插件包。
-- 插件安装。
-- 插件升级。
-- 插件禁用。
-- soft uninstall。
+- 插件包安装。
+- 插件升级向导增强。
+- 插件禁用与 soft uninstall 增强。
 - 插件 migration runner。
 - 插件包签名校验。
 - 插件市场雏形。
@@ -539,25 +541,27 @@ v1.3.1 采用稳妥策略：后台编辑已存在内容时禁止修改归属和�
 - 当前迁移体系不引入复杂外部 migration runner；生产升级仍需手工备份、预发演练和回滚预案。
 - 当前内置 plugin migration 仍是 up/no-op 记录型 runner；外部插件阶段如需真实 DDL runner，必须重新设计事务边界、失败恢复、备份和回滚。
 
-## v1.3.4 收口与 P1 边界
+## v1.3.4 收口与 v1.3.5 边界
 
-v1.3.4 的完成口径是“插件异常治理与验收闭环”，不是体验增强或插件生态实现。本阶段已经收口：
+v1.3.4 的完成口径是“插件异常治理与平台基础能力收口”，不是插件市场或动态运行时实现。本阶段已经收口：
 
 - failed migration 注入、启用阻断、retry 恢复和迁移审计。
 - HookBus blocking / non-blocking 失败注入、执行记录、审计和后台 Hooks Tab 失败摘要。
 - `ContentTypeDefinition.create_permission` 驱动的创建权限矩阵，`post.create` 继续降级为 `core.topic.create` 兼容桥。
 - MySQLStore / 老库升级专项验证，覆盖插件平台结构和核心行为一致性。
 - 插件健康状态和审计定位能力，包含 `hook_warning` / `hook_error` 与插件审计多维筛选。
+- Manifest 校验、dry-run、manifest + 配置型安装、最小升级执行、归档 / 恢复、批量归档 / 恢复和健康总览。
 
-P1 只作为规划边界，不在 v1.3.4 中实现：
+v1.3.5 的边界是治理体验收口，不新增危险运行时能力：
 
-- `config_schema` 自动表单增强和更完整 JSON Schema 表达。
-- 插件 SDK、开发模板和 manifest 校验工具。
-- 插件内容治理页更多批量操作、更多审核操作和审计定位增强。
-- Docs / Wiki 专用编辑体验、文档树拖拽、Wiki 回滚和协作体验。
-- 插件搜索、通知、SEO 扩展处理器。
+- `/admin-next/plugins` 信息架构、筛选 / 批量操作 / 列表 / 详情层级优化。
+- 完整安装向导和完整升级向导。
+- 批量归档 / 恢复影响预览、成功 / 失败表格和审计跳转。
+- 状态治理页异常处理入口。
+- PluginContent 历史治理体验对齐。
+- 最小后台 E2E 回归。
 
-以下能力仍不属于当前实现范围：插件市场、上传安装、远程安装、在线更新、Go 动态加载和第三方插件沙箱。
+以下能力仍不属于当前实现范围：插件市场、插件包 zip 上传、远程安装、在线更新、Go 动态加载、第三方插件沙箱、hard uninstall 和 migration down。
 
 ## 阶段 B：插件治理体验增强
 
@@ -577,7 +581,7 @@ P1 只作为规划边界，不在 v1.3.4 中实现：
 
 ## 阶段 C/D/E/F：SDK 模板、生命周期、软卸载和外部生态设计
 
-本阶段继续沿插件平台主线推进，但仍不实现插件市场、上传安装、远程安装、Go 动态加载、第三方沙箱或第三方代码执行。
+本阶段继续沿插件平台主线推进，但仍不实现插件市场、插件包上传安装、远程安装、Go 动态加载、第三方沙箱或第三方代码执行。
 
 阶段 C 已新增插件 SDK / 模板规范：
 

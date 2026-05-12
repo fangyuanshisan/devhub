@@ -2,8 +2,11 @@
 
 ## Next
 
-Planned next-stage work continues the complete plugin-platform roadmap after `v1.3.4`, focusing on plugin content-governance operation permissions, RBAC assignment UI, production MySQL upgrade rehearsal, and P1 plugin-platform experience.
+Planned next-stage work continues from `v1.3.4` into the `v1.3.5` plugin-governance experience line. The next focus is the admin plugin-governance information architecture, full install / upgrade wizards, bulk archive / restore impact previews, the status-governance page, PluginContent experience alignment, and a small E2E regression set around those entry points.
 
+- Reorganized the documentation system so `docs/README.md` is the canonical entry point, `docs/PROJECT_PROGRESS.md` holds current state, `docs/PLUGIN_SYSTEM_ROADMAP.md` holds long-term and next-version plugin goals, and historical task material is archived under `docs/archive/`.
+- Added `docs/releases/v1.3.5.md` as the next-stage draft for plugin-governance UI and install / upgrade wizard closure.
+- Archived the old root `更新.md` product task document into `docs/archive/2026-05-09-product-requirements.md`; it is no longer a current acceptance source.
 - Began Stage B plugin-governance experience work in the admin UI with `vue-i18n` and a default zh-CN dictionary for plugin-center wording, status labels, config panels, audit labels, and PluginContent actions.
 - Completed another plugin-governance i18n cleanup pass for the plugin detail drawer, community plugin config drawer, PluginJsonEditor hints, PluginContent content statuses, and audit action labels; technical values such as `plugin_code`, `content_type`, Hook names, and JSON keys remain visible as raw values where useful.
 - Upgraded plugin config editing from JSON-only to a basic schema-driven form mode plus JSON advanced mode, with effective-config preview and config-diff display.
@@ -24,7 +27,7 @@ Planned next-stage work continues the complete plugin-platform roadmap after `v1
 
 ## v1.3.4
 
-DevHub v1.3.4 is the plugin failure-governance and acceptance-closure release.
+DevHub v1.3.4 is the plugin failure-governance and platform-foundation closure release.
 
 - Added E2E/API-only failed plugin migration injection guarded by `DEVHUB_E2E_TESTING=1` or `CMS_STORE=memory`.
 - Verified failed plugin migrations block both global plugin enablement and per-community plugin enablement until retry succeeds.

@@ -2,7 +2,7 @@
 
 DevHub 是一个面向多子站场景的通用开源社区程序，采用 Core + Plugins 架构。Core 提供用户、认证、子站、板块、通用内容、评论、标签、搜索、通知、SEO、权限、审计和插件分发能力；问答、文档、Wiki 通过 qa、docs、wiki 内置系统插件扩展。
 
-当前版本：`v1.3.4`，版本主题为“插件异常治理与验收闭环版”。
+当前版本：`v1.3.4`，版本主题为“插件异常治理与平台基础能力收口版”。
 
 当前只维护两个入口：
 
@@ -28,6 +28,7 @@ DevHub 是一个面向多子站场景的通用开源社区程序，采用 Core +
 - [SEO.md](docs/SEO.md)
 - [PLUGIN_ARCHITECTURE.md](docs/PLUGIN_ARCHITECTURE.md)
 - [docs/releases/v1.3.4.md](docs/releases/v1.3.4.md)
+- [docs/releases/v1.3.5.md](docs/releases/v1.3.5.md)
 - [CHANGELOG.md](CHANGELOG.md)
 
 ## 当前能力
@@ -43,7 +44,7 @@ DevHub 是一个面向多子站场景的通用开源社区程序，采用 Core +
 
 ## v1.3.4 定位
 
-DevHub v1.3.4 是“插件异常治理与验收闭环版”。本版本在 v1.3.3 的插件启用 readiness 和治理中心基础上，继续收口 manifest 校验、manifest dry-run、manifest + 配置型安装预备、插件归档 / 恢复、健康总览、批量归档 / 恢复，以及 failed migration 阻断与 retry、HookBus blocking / non-blocking 失败注入、权限矩阵收口和 MySQLStore / 老库升级专项验证。
+DevHub v1.3.4 是“插件异常治理与平台基础能力收口版”。本版本在 v1.3.3 的插件启用 readiness 和治理中心基础上，继续收口 manifest 校验、manifest dry-run、manifest + 配置型安装、最小插件升级执行、插件归档 / 恢复、健康总览、批量归档 / 恢复，以及 failed migration 阻断与 retry、HookBus blocking / non-blocking 失败注入、权限矩阵收口和 MySQLStore / 老库升级专项验证。
 
 完整插件系统是当前最高优先级长期主线。Core 只保留通用社区底座，业务能力逐步通过插件声明、状态、权限、菜单、配置、Hook、migration、API、SEO、通知、搜索和测试矩阵扩展；插件包、插件市场、远程安装和动态加载进入后续阶段路线，但不是当前已实现能力。
 
@@ -53,11 +54,11 @@ DevHub v1.3.4 是“插件异常治理与验收闭环版”。本版本在 v1.3.
 
 ## Roadmap
 
-- v1.3.4 / P0：插件异常治理与验收闭环，已覆盖插件迁移失败注入、启用阻断、HookBus blocking / non-blocking 失败注入、插件权限矩阵继续收口、MySQLStore / 老库升级专项，以及 manifest 校验、dry-run、manifest + 配置型安装预备、归档 / 恢复和健康总览。
-- v1.3.x / P0：插件平台收口，包括 Manifest、Registry、ActorContext、权限码、两层插件状态、板块绑定、发布校验、菜单过滤、config_json、config_schema 基础校验、HookBus、结构化审计、migration 边界、健康状态和测试矩阵。
-- v1.4.x / P1：插件平台增强，包括 schema 自动表单增强、插件 SDK 文档、插件生成模板、依赖和版本兼容检查、插件事件 / 通知模板、搜索索引和 SEO 扩展。
-- v1.5.x / P2：插件分发能力，包括本地插件包、安装、升级、soft uninstall、插件 migration runner、签名校验和插件市场雏形。
-- v2.x / P3：高级能力，包括远程插件市场、在线更新、动态加载能力评估、插件沙箱和插件权限隔离。
+- v1.3.4 / P0：插件异常治理与平台基础能力收口，已覆盖插件迁移失败注入、启用阻断、HookBus blocking / non-blocking 失败注入、插件权限矩阵、MySQLStore 专项、manifest 校验、dry-run、manifest + 配置型安装、最小升级执行、归档 / 恢复和健康总览。
+- v1.3.5 / P0：插件治理体验与安装升级向导收口，重点是 `/admin-next/plugins` 信息架构、完整安装 / 升级向导、批量归档 / 恢复影响预览、状态治理页、PluginContent 体验对齐和最小 E2E 回归。
+- v1.4.x / P1：插件平台增强，包括 schema 自动表单增强、插件 SDK / 模板生成器、依赖和版本兼容 UI、插件事件 / 通知模板、搜索索引和 SEO 扩展。
+- v1.5.x / P2：插件分发能力，包括本地插件包、插件包 dry-run、签名校验、外部服务型 Webhook、插件包安装 / 升级和插件市场雏形。
+- v2.x / P3：高级能力，包括远程插件市场、在线更新、动态加载能力评估、脚本沙箱和插件权限隔离。
 - 业务插件专项：Docs/Wiki 专用体验、开源项目、招聘、AI 作品专属业务闭环在插件平台底座稳定后推进。
 
 ## 目录结构
@@ -89,7 +90,7 @@ DevHub v1.3.4 是“插件异常治理与验收闭环版”。本版本在 v1.3.
 │   └── archive/                    # 历史规划归档说明
 ├── VERSION                         # 当前归档版本
 ├── CHANGELOG.md                    # 版本变化记录
-└── 更新.md                         # 本轮产品需求原文
+└── docs/archive/                   # 历史任务原文和旧规划归档
 ```
 
 ## 一键启动与停止

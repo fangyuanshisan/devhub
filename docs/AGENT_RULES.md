@@ -65,6 +65,7 @@ PORT=8090 CMS_STORE=memory ./.devhub/devhub
 - 如果某页面只是占位，不要写成已完成。
 - API 路径以 `internal/transport/httpapi/router.go` 的真实路由为准。
 - 数据结构以 `internal/domain`、`internal/store`、`db/mysql/001_schema.sql` 和启动迁移辅助的真实实现为准。
+- 不再在仓库根目录新增临时任务大文档；历史任务原文和过期规划统一归档到 `docs/archive/`，当前入口以 `docs/README.md` 为准。
 
 ## 任务结果记录规则
 

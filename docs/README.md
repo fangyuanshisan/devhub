@@ -1,6 +1,6 @@
 # DevHub 文档入口
 
-DevHub 当前文档只围绕 v1.3.4 真实状态维护。历史版本 Release Notes 只作追溯依据，不作为当前 Codex 必读主列表。
+DevHub 当前文档只围绕 `v1.3.4` 真实状态和 `v1.3.5` 下一阶段草案维护。历史版本 Release Notes 和历史任务原文只作追溯依据，不作为当前 Codex 必读主列表。
 
 ## 当前有效文档
 
@@ -23,13 +23,16 @@ DevHub 当前文档只围绕 v1.3.4 真实状态维护。历史版本 Release No
    - Core 与 Plugins 边界、两层插件状态、qa / docs / wiki 内置插件和当前限制。
 
 7. [完整插件系统路线图](PLUGIN_SYSTEM_ROADMAP.md)
-   - 长期最高优先级目标，定义插件生命周期、治理、运行时、审计、迁移、后台和 E2E 要求；当前阶段为 `v1.3.4` 插件异常治理与验收闭环。
+   - 长期最高优先级目标，定义插件生命周期、治理、运行时、审计、迁移、后台和 E2E 要求；当前已完成 `v1.3.4` 插件异常治理与平台基础能力收口，下一阶段草案为 `v1.3.5` 插件治理体验与安装升级向导收口。
 
 8. [测试文档](TESTING.md)
    - 已实现必测项、后续补测项、必要历史回归和 SEO 回归命令。
 
 9. [v1.3.4 Release Notes](releases/v1.3.4.md)
-   - 插件异常治理、failed migration 阻断、Hook 失败注入、权限矩阵、MySQLStore 专项和当前限制。
+   - 插件异常治理、Manifest 校验 / dry-run / 安装、归档 / 恢复、最小升级执行、failed migration 阻断、Hook 失败注入、权限矩阵、MySQLStore 专项和当前限制。
+
+10. [v1.3.5 Draft](releases/v1.3.5.md)
+    - 下一阶段迭代集合：插件治理中心信息架构、完整安装 / 升级向导、批量归档 / 恢复影响预览、状态治理页和最小 E2E 回归。
 
 10. [部署启动文档](DEPLOYMENT.md)
    - 本地启动、构建行为、8090 端口排查、Go 模块网络和二进制排障启动。
@@ -51,10 +54,10 @@ DevHub 当前文档只围绕 v1.3.4 真实状态维护。历史版本 Release No
 - [v1.3.1 Release Notes](releases/v1.3.1.md)
 - [v1.3.2 Release Notes](releases/v1.3.2.md)
 - [v1.3.3 Release Notes](releases/v1.3.3.md)
+- [历史产品需求原文](archive/2026-05-09-product-requirements.md)
 
 ## 辅助文档
 
-- [需求原文](../更新.md)：产品需求原始文档，用于核对任务来源。
 - [Web 目录说明](../web/README.md)：前台 / 后台源码目录说明。
 - [后台前端说明](../web/admin-app/README.md)：Vue 后台开发说明。
 - [主题与 UI 架构](THEME_AND_UI_ARCHITECTURE.md)：前台主题 token 和 UI 架构说明。
@@ -63,8 +66,9 @@ DevHub 当前文档只围绕 v1.3.4 真实状态维护。历史版本 Release No
 
 ## 维护规则
 
-- 每轮遗留项统一沉淀到 [项目进度](PROJECT_PROGRESS.md) 的“已完成 / 部分完成 / 未完成 / 风险 / 下一步”结构。
+- 每轮遗留项统一沉淀到 [项目进度](PROJECT_PROGRESS.md) 的“当前版本结论 / 已完成 / 部分完成 / 未完成 / 下一阶段目标”结构。
 - 版本范围内的限制写入对应 Release Notes；测试缺口写入 [测试文档](TESTING.md)。
 - [API 文档](API.md) 以真实可用接口为主；未实现接口只能集中放在“规划 / 未完成”小节。
 - [项目总览](../README.md) 只保留项目定位、入口和当前能力概览，不承载详细未完成问题。
+- 根目录不再保留临时任务大文档；历史任务原文统一归档到 [历史文档归档](archive/README.md)。
 - 新增文档前，优先判断能否合并进现有文档，避免文档继续膨胀。

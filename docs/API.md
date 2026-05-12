@@ -2,7 +2,7 @@
 
 [返回文档入口](README.md)
 
-更新时间：2026-05-11（v1.3.4 插件异常治理与验收闭环）
+更新时间：2026-05-12（v1.3.4 插件异常治理与平台基础能力收口）
 
 本文档只记录当前仓库真实可用 API。接口路径以 `internal/transport/httpapi/router.go` 为准；未实现能力集中放在“规划 / 未完成”小节，不写入当前真实 API 主体。
 
@@ -53,7 +53,7 @@
 - 权限：`plugin.read`。
 - 返回：全部注册插件，包括插件状态、`config_schema`、`config_json`、`resolved_config` 和轻量 `health` 摘要。
 - 状态口径：`plugins.status` 当前接受 `discovered`、`installed`、`migrated`、`configured`、`enabled`、`disabled`、`running`、`archived`、`config_invalid`、`migration_pending`、`migration_failed`、`dependency_missing`；但发布可用性仍只以 `enabled` 为通过状态，其余状态均不会放行新建内容。
-- 生命周期字段：返回对象会派生 `install_status`、`lifecycle_status`、`status_reason`、`installed_at`、`archived_at`、`last_health_check_at`，用于后台展示内置插件安装生命周期。当前这些字段由 `plugins.status`、时间戳、迁移和健康状态派生，不代表已有外部插件安装器。
+- 生命周期字段：返回对象会派生 `install_status`、`lifecycle_status`、`status_reason`、`installed_at`、`archived_at`、`last_health_check_at`，用于后台展示插件安装生命周期。当前这些字段由 `plugins.status`、时间戳、迁移和健康状态派生；manifest + 配置型安装已可写入插件记录，但插件包 zip、远程安装和动态加载仍未实现。
 - `health` 字段：后台治理摘要，由全局状态、配置校验、迁移记录、依赖状态和 Hook 失败统计计算；不是 Prometheus / Grafana 级监控。
 
 `health` 示例：
@@ -831,12 +831,12 @@
 
 预留 / 后续：
 
-- `discovered`、`migrated`、`configured`、`running`、`config_invalid`、`migration_pending`、`dependency_missing` 已是 `plugins.status` 可接受值；完整外部插件安装器状态机、自动迁移和告警仍需继续演进。
-- 外部服务型 Webhook、插件升级、插件包 zip dry-run、插件包签名、远程安装、市场、动态加载和沙箱均不是当前真实能力。
+- `discovered`、`migrated`、`configured`、`running`、`config_invalid`、`migration_pending`、`dependency_missing` 已是 `plugins.status` 可接受值；完整外部插件安装器状态机、自动迁移、状态告警和完整分步向导仍需继续演进。
+- 外部服务型 Webhook、插件包 zip dry-run、插件包签名、远程安装、市场、动态加载和沙箱均不是当前真实能力。
 
 下一阶段 API / 验收目标：
 
-- `v1.3.4` 的优先级是插件异常治理与验收闭环，不新增插件市场或动态加载 API。
+- `v1.3.4` 的优先级是插件异常治理与平台基础能力收口，不新增插件市场、远程安装或动态加载 API。
 - 插件迁移方向：补 failed migration 注入、启用阻断、retry 恢复和审计定位的 API / E2E；现有 `GET /api/v1/admin/plugins/:code/migrations`、`POST /api/v1/admin/plugins/:code/migrations/run`、`POST /api/v1/admin/plugins/:code/migrations/:name/retry` 需要覆盖失败与恢复场景。
 - HookBus 方向：补 blocking / non-blocking Hook 失败注入、`hook_executions` 可见性、后台 Hooks Tab 断言和审计定位；不引入第三方 Hook、远程 Hook 或 Webhook。
 - 权限矩阵：内容创建、后台创建、版主菜单均按 `ContentTypeDefinition.create_permission` 与插件权限码判断；API 测试已覆盖 `post.create` 只能桥接 `core.topic.create`，不能替代 `qa/docs/wiki/projects/jobs/ai_works` 的 create 权限。后续仍需补更细 RBAC 分配 UI 与插件内容治理操作矩阵。
@@ -1122,8 +1122,8 @@ DEVHUB_MYSQL_TESTS=1 DB_HOST=127.0.0.1 DB_PORT=3307 DB_USER=devhub DB_PASSWORD=D
 - P0：插件内容治理操作矩阵、完整 RBAC 分配 UI、community / category 级权限配置和更细错误码。
 - P0/P1：`config_schema` 结构化错误响应、更完整 JSON Schema 能力、深层 diff 和配置版本 API。
 - P0/P1：HookBus 告警、失败重试、更多业务处理器、插件搜索 / 通知 / SEO 扩展 API。
-- P1：插件 SDK / 开发规范、插件生成模板、插件依赖检查、插件版本兼容检查。
-- P2：本地插件包、插件安装、插件升级、soft uninstall、插件 migration runner、插件包签名校验和插件市场雏形。
+- P1：插件生成模板、插件依赖检查 UI、插件版本兼容矩阵 UI 和更完整开发者体验；插件 SDK / 开发规范文档已建立在 `docs/plugins/`。
+- P2：本地插件包 zip、插件包安装向导、插件升级向导增强、外部服务型 Webhook、插件 migration runner、插件包签名校验和插件市场雏形。
 - P3：远程插件市场、在线更新、动态加载能力评估、插件沙箱和插件权限隔离。
 - 插件权限配置 API、按子站 / 板块维护细粒度权限矩阵，以及 Core 兼容类型 `article/news` 的长期权限收口。
 - Docs 文档树专用编辑 API 的完整形态。

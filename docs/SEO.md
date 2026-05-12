@@ -2,7 +2,7 @@
 
 [返回文档入口](README.md)
 
-更新时间：2026-05-10
+更新时间：2026-05-12
 
 DevHub 当前 SEO 重点面向百度。核心原则是：`/topics/:id` 必须由 Go 动态输出可被搜索引擎直接读取的 HTML，插件化、前端运行时增强和后台治理都不能把详情页退化成纯 CSR 空壳。
 
@@ -13,7 +13,8 @@ DevHub 当前 SEO 重点面向百度。核心原则是：`/topics/:id` 必须由
 - `/tags/:tag`、`/tags/:tag/`、`/c/:slug/tags/:tag` 和 `/c/:slug/tags/:tag/` 由 Go 动态输出标签 SEO HTML。
 - `/sitemap.xml` 和 `/robots.txt` 由 Go 动态输出。
 - v1.3.0 起，`qa`、`docs`、`wiki` 作为内置系统插件注册内容类型；插件 disabled 不影响历史 `/topics/:id` SEO 访问。
-- v1.3.4 下一阶段的插件迁移失败注入、Hook 失败注入、权限矩阵收口和 MySQLStore 升级专项都必须继续保证：插件 disabled、migration failed、Hook failed 或权限拒绝不能导致历史 `/topics/:id` 详情 404，也不能破坏 `/c/:slug` 子站 SEO。
+- v1.3.4 已完成插件迁移失败注入、Hook 失败注入、权限矩阵收口、MySQLStore 升级专项和归档态入口联动验收；插件 disabled、archived、migration failed、Hook failed 或权限拒绝都不能导致历史 `/topics/:id` 详情 404，也不能破坏 `/c/:slug` 子站 SEO。
+- v1.3.5 的插件治理 UI、安装向导和升级向导优化仍必须保持同一 SEO 红线。
 - 首页、搜索页、发布页和用户中心类页面可以使用 Astro 静态壳 + 运行时 API。
 
 ## Topic 详情页源码要求
