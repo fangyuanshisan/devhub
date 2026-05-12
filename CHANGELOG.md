@@ -2,7 +2,7 @@
 
 ## Next
 
-Planned next-stage work continues from `v1.3.4` into the `v1.3.5` plugin-governance experience line. The next focus is the admin plugin-governance information architecture, full install / upgrade wizards, bulk archive / restore impact previews, the status-governance page, PluginContent experience alignment, and a small E2E regression set around those entry points.
+Current `VERSION` remains `v1.3.4`, while the working tree now contains the `v1.3.5` plugin-governance experience work. The next focus is closing release hygiene: verify the implemented plugin center, install / upgrade wizards, bulk archive / restore previews, status-governance view, PluginContent alignment, skipped E2E rationale, and version-cutover docs.
 
 - Reorganized the documentation system so `docs/README.md` is the canonical entry point, `docs/PROJECT_PROGRESS.md` holds current state, `docs/PLUGIN_SYSTEM_ROADMAP.md` holds long-term and next-version plugin goals, and historical task material is archived under `docs/archive/`.
 - Added `docs/releases/v1.3.5.md` as the next-stage draft for plugin-governance UI and install / upgrade wizard closure.
@@ -24,6 +24,12 @@ Planned next-stage work continues from `v1.3.4` into the `v1.3.5` plugin-governa
 - Added the real plugin upgrade execution API and UI entry, preserving config/migration/audit history while updating version and manifest metadata.
 - Documented that external-service webhooks, upgrade flows, plugin package upload/signing, remote marketplace, dynamic loading, sandboxing, hard uninstall, and migration down remain future work.
 - Extended the admin plugin governance center UI with health summary cards, manifest validate / dry-run / install entry panels, bulk archive / restore actions, and a clearer runtime/archive-status banner in the plugin detail drawer.
+- Moved plugin manifest validate / dry-run / install and upgrade/bulk result panels from inline page sections into drawers, keeping the same actions and test anchors while avoiding the plugin list being pushed into a nested long-scroll layout.
+- Reworked `/admin-next/plugins` into a clearer governance layout with a page action header, list/status-governance views, compact summary cards, a filter panel, a bulk-action panel, and a reduced table action column.
+- Turned manifest validate / dry-run / install and upgrade preview / execution into drawer-based step flows with structured validation, impact, compatibility, confirmation, and result panels.
+- Added bulk archive / restore impact previews, succeeded / failed result tables, and audit-log jump actions in the plugin governance UI.
+- Updated the admin plugin-governance E2E suite for the new action grouping and step-flow UI; latest admin check passes with `21 passed / 2 skipped`.
+- Re-aligned plugin documentation with current code facts: `v1.3.5` is now treated as an implemented-but-unreleased governance closure, with remaining requirements reorganized into release cleanup, `v1.4` platform enhancement, and later plugin distribution work.
 
 ## v1.3.4
 

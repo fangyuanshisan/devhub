@@ -1,3 +1,5 @@
+
+
 # config_schema 开发指南
 
 DevHub 插件配置以 `config_schema` 声明结构，并由后台表单 / JSON 高级模式展示。保存配置时以后端 schema 校验为准，前端校验只用于提前提示。

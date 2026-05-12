@@ -94,6 +94,7 @@ test.describe('plugin governance center', () => {
       await expect(page.getByText(code)).toBeVisible();
       await expect(page.getByText('已禁用').first()).toBeVisible();
 
+      await page.getByRole('row', { name: new RegExp(code) }).getByRole('button', { name: '更多' }).click();
       await page.getByTestId(`plugin-upgrade-${code}`).click();
       await expect(page.getByTestId('plugin-manifest-panel')).toBeVisible();
       const upgradeEditor = page.getByTestId('plugin-manifest-input');
@@ -116,6 +117,7 @@ test.describe('plugin governance center', () => {
 
   test('shows upgrade dry-run compatibility matrix for an existing plugin', async ({ page }) => {
     await page.goto('/admin-next/plugins');
+    await page.getByRole('row', { name: /问答插件/ }).getByRole('button', { name: '更多' }).click();
     await page.getByTestId('plugin-upgrade-preview-qa').click();
     await expect(page.getByTestId('plugin-manifest-panel')).toBeVisible();
     const editor = page.getByTestId('plugin-manifest-input');
@@ -223,6 +225,7 @@ test.describe('plugin governance center', () => {
   test('shows impact before global disable and blocks community enable when globally disabled', async ({ page, request }) => {
     try {
       await page.goto('/admin-next/plugins');
+      await page.getByRole('row', { name: /问答插件/ }).getByRole('button', { name: '更多' }).click();
       await page.getByTestId('plugin-disable-qa').click();
       await expect(page.getByRole('dialog')).toContainText('历史内容详情页和 SEO 不受影响');
       await expect(page.getByRole('dialog')).toContainText('当前启用子站');
@@ -255,6 +258,7 @@ test.describe('plugin governance center', () => {
 
   test('opens generic plugin content page with filters', async ({ page }) => {
     await page.goto('/admin-next/plugins');
+    await page.getByRole('row', { name: /问答插件/ }).getByRole('button', { name: '更多' }).click();
     await page.getByTestId('plugin-manage-qa').click();
     await expect(page).toHaveURL(/\/admin-next\/qa/);
     await expect(page.getByTestId('plugin-content-page')).toBeVisible();

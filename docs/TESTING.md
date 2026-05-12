@@ -701,20 +701,20 @@ done
 
 部分自动化：
 
-- API 文档已记录 `POST /api/v1/admin/plugins/manifest/validate`、`POST /api/v1/admin/plugins/dry-run`、`POST /api/v1/admin/plugins/install`、`GET /api/v1/admin/plugins/health`、`POST /api/v1/admin/plugins/bulk-archive` 和 `bulk-restore`；浏览器 UI 已补最小 E2E，完整安装向导仍可继续增强。
+- API 文档已记录 `POST /api/v1/admin/plugins/manifest/validate`、`POST /api/v1/admin/plugins/dry-run`、`POST /api/v1/admin/plugins/install`、`GET /api/v1/admin/plugins/health`、`POST /api/v1/admin/plugins/bulk-archive` 和 `bulk-restore`；浏览器 UI 已补最小 E2E，安装向导已进入抽屉分步流程，后续只继续增强插件包上传、依赖明细和更细影响对象列表。
 - Health summary 当前由 Go/API 行为和后台已有运行状态视图覆盖；独立 `/plugins/health` 页面级展示仍待后续。
 
 未覆盖 / 后续：
 
 - 外部服务型 Webhook 真实 HTTP 调用、签名、超时和失败策略。
-- 插件升级 dry-run / upgrade 结果展示与版本兼容矩阵。
+- 插件升级 dry-run / upgrade 已有抽屉分步展示；后续补独立版本兼容矩阵页面和更细升级影响对象列表。
 - 插件包 zip 读取、签名校验、文件安全扫描和插件市场页面。
 - 版本兼容矩阵 UI 和依赖版本范围完整自动化。
 - 外部插件迁移真实 DDL runner、migration down、硬回滚和迁移前备份。
 
 ## 升级 dry-run 与版本兼容矩阵验收
 
-本节用于 P2 升级预备能力；当前已完成最小升级执行闭环，但完整升级向导、回滚和版本变更审计仍待后续。
+本节用于 P2 升级预备能力；当前已完成最小升级执行闭环和后台抽屉式升级向导，但回滚、migration down、插件包升级和更细版本变更审计仍待后续。
 
 已自动化：
 
@@ -745,6 +745,9 @@ done
 - `/admin-next/plugins` install 面板可打开并返回结构化安装结果。
 - `/admin-next/plugins` upgrade dry-run 可展示当前版本 / 新版本 / 兼容状态 / 变更字段；真实 upgrade 由 Go 单测覆盖最小执行闭环。
 - `/admin-next/plugins` 批量归档 / 恢复可对选中插件返回结果摘要。
+- `/admin-next/plugins` 的 manifest 输入、校验结果、dry-run、安装确认、升级预览和升级执行已收口为右侧抽屉分步流程，不再作为页内长面板挤压插件列表；原 `plugin-manifest-panel`、`plugin-manifest-input` 等 E2E 锚点保留。
+- `/admin-next/plugins` 批量归档 / 恢复已支持操作前 impact 预览和操作后 succeeded / failed 明细展示，并提供审计跳转入口。
+- `/admin-next/plugins` 状态治理视图已作为异常处理入口，按迁移待处理、迁移失败、Hook 异常、配置无效、依赖缺失和已归档插件聚合。
 - 插件详情抽屉可展示运行状态说明、归档态提示、状态原因和建议操作。
 - 现有插件治理 E2E、PluginContent、迁移、Hook、审计和归档态浏览器链路未退化。
 
@@ -757,18 +760,16 @@ done
 
 部分自动化：
 
-- 当前结果展示以 JSON 形式为主，尚未做结构化明细卡片。
-- `manifest` 入口当前是页内工作面板，不是完整安装向导。
+- 安装 / 升级向导的后端行为已有 Go / API 保护；本轮后台 E2E 已覆盖 manifest 输入、校验 / dry-run、确认安装、升级预览、确认升级和结果面板的最小浏览器链路。
+- 状态治理视图当前聚合插件列表已有健康摘要和状态字段；更多告警、自动恢复和外部服务 Webhook 状态仍是后续能力。
 
 未覆盖 / 后续：
 
-- manifest 安装向导、版本兼容矩阵 UI、外部服务型 Webhook、升级流程和更细批量治理。
+- 插件包 zip 上传、外部服务型 Webhook、版本兼容矩阵独立页面和更细批量治理策略。
 
-## v1.3.5 下一阶段测试收口
+## v1.3.5 测试收口
 
-本节是下一阶段测试目标，不代表当前已自动化。
-
-必须覆盖：
+已覆盖：
 
 - `/admin-next/plugins` 信息架构调整后仍可打开，健康总览、筛选、批量操作、详情抽屉入口不退化。
 - 安装向导三步流：Manifest 输入、校验 / dry-run 结构化预览、确认安装。
@@ -776,6 +777,10 @@ done
 - 批量归档 / 恢复：影响预览、二次确认、`succeeded` / `failed` 表格、审计跳转。
 - 状态治理页：异常插件、迁移待处理、Hook 异常、配置无效、依赖缺失和归档插件入口可读。
 - PluginContent：归档 / 禁用插件历史内容仍可查看，批量隐藏 / 恢复不退化。
+
+最新执行：
+
+- `./scripts/check-frontend.sh --admin-only`：通过，后台 build 通过，后台 E2E `21 passed / 2 skipped`；日志目录 `.devhub/checks/20260512-165116/`。
 
 精简原则：
 

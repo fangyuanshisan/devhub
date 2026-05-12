@@ -8,7 +8,7 @@
 
 ## 当前版本结论
 
-当前版本为 `v1.3.4`，主题是“插件异常治理与平台基础能力收口版”。DevHub 当前定位为多子站通用开源社区程序，默认演示为开发者社区。
+当前 `VERSION` 仍为 `v1.3.4`，主题是“插件异常治理与平台基础能力收口版”。当前工作区已经包含 `v1.3.5` 插件治理体验改动，但尚未做版本切分与正式发布。DevHub 当前定位为多子站通用开源社区程序，默认演示为开发者社区。
 
 Core 保留用户、认证、子站、板块、通用内容、评论、标签、搜索、通知、SEO、权限、审计、插件注册和分发能力。问答、文档、Wiki、项目、招聘、AI 作品已按内置系统插件建模：`qa -> question`、`docs -> document`、`wiki -> wiki_page`、`projects -> project`、`jobs -> job`、`ai_works -> ai_work`。
 
@@ -16,7 +16,7 @@ Core 保留用户、认证、子站、板块、通用内容、评论、标签、
 
 当前最高优先级长期主线是完成完整插件系统。DevHub 的长期目标不是只支持内置 `qa/docs/wiki`，而是形成完整插件平台：Core 只提供通用社区底座，业务能力通过插件声明、插件状态、插件权限、插件菜单、插件配置、插件 Hook、插件 migration、插件 API、插件 SEO、插件通知、插件搜索和插件测试矩阵扩展。
 
-下一阶段最高优先级目标已正式收口为 `v1.3.5：插件治理体验与安装升级向导收口版`，详见 [v1.3.5 Draft](releases/v1.3.5.md) 和 [完整插件系统长期完善路线图](PLUGIN_SYSTEM_ROADMAP.md)。该阶段优先把现有插件平台能力做成清晰、可确认、可验收的后台治理体验，不代表插件市场、远程安装或动态加载已经完成。
+当前最高优先级目标调整为：先把工作区已有的 `v1.3.5` 插件治理中心收口到可发布状态，再进入 `v1.4` 插件平台增强。`v1.3.5` 已不再是从零启动的下一阶段，而是“校准、补验收、修边界、准备发版”的收尾阶段；插件市场、插件包上传、远程安装、在线更新和动态加载仍属于后续路线。
 
 ## 当前已完成
 
@@ -47,6 +47,9 @@ Core 保留用户、认证、子站、板块、通用内容、评论、标签、
 - 后台入口：`/admin-next/plugins` 作为系统插件管理入口；插件业务页通过系统插件列表进入，默认不散落在后台左侧导航。
 - 后台插件管理体验：
   - 后台全局插件管理已支持说明卡片、插件状态 badge、内容类型 tag、权限 / 菜单 / schema 摘要、详情抽屉、tabs 分区展示、配置 schema / resolved config JSON 展示与复制、全局配置编辑、Ajv 客户端校验、启用 / 禁用确认和 impact 计数提示。
+  - `/admin-next/plugins` 已完成 `v1.3.5` 第一轮治理中心重排：页面头部主操作、列表 / 状态治理双视图、核心统计卡、健康摘要、筛选面板、批量操作面板、精简插件表格和“详情 / 配置 / 更多”操作分组。
+  - Manifest 校验、dry-run、安装、升级预览和执行升级已进入抽屉式分步流程，覆盖输入、校验 / 预览、确认、执行和结果展示。
+  - 批量归档 / 恢复已支持操作前 impact 预览、操作后 `succeeded` / `failed` 明细和审计跳转；状态治理视图已聚合迁移待处理、迁移失败、Hook 异常、配置无效、依赖缺失和归档插件。
   - 后台子站插件配置已支持双状态 badge、子站启用统计、全局禁用原因提示、启用 / 禁用确认、`config_json` 编辑、schema 参考、JSON 格式化、Ajv 客户端校验、数字排序和上移 / 下移后保存。
   - 前台子站页和发布页会按当前子站已启用插件收口入口与内容类型。
   - 版主工作台已补最小插件治理入口区，并按当前子站插件状态与权限过滤。
@@ -71,14 +74,14 @@ Core 保留用户、认证、子站、板块、通用内容、评论、标签、
 - 权限：发布链路按 `ContentTypeDefinition.create_permission` 校验；后台 / 版主插件菜单按状态和权限过滤。
 - Hook：存在内置 HookBus，内容创建 / 更新 / 删除、评论、搜索、通知、SEO、插件启停均有最小调用点。
 - 迁移记录：存在 `plugin_migrations` 表和 MemoryStore / MySQLStore 读写能力。
-- 后台治理：`/admin-next/plugins`、插件详情抽屉、配置、impact、审计 Tab、通用插件内容页和子站插件配置抽屉均已具备基础能力；manifest validate / dry-run / install、upgrade dry-run / upgrade、health summary、bulk archive / restore 已有入口和结构化结果展示。
+- 后台治理：`/admin-next/plugins`、插件详情抽屉、配置、impact、审计 Tab、通用插件内容页和子站插件配置抽屉均已具备基础能力；manifest validate / dry-run / install、upgrade dry-run / upgrade、health summary、bulk archive / restore 已有抽屉式分步入口和结构化结果展示。
 
 部分完成能力：
 
 - 生命周期：`install_status`、`lifecycle_status`、`status_reason`、`installed_at`、`archived_at`、`last_health_check_at` 已作为后台展示字段返回；但它们仍是派生展示，不是完整外部插件安装器状态机，当前代码以 `plugins.status`、`community_plugins.status`、配置校验、依赖和 `plugin_migrations.status` 为判断依据。
 - Hook 治理：Hook 能执行，已有 `hook_executions`、失败统计、最近错误、平均耗时、失败率和 `plugin.hook.failed` / `plugin.hook.blocked` 审计；重试策略、告警和更多业务处理器仍待后续。
 - 插件迁移：已有内置插件 up/no-op runner、失败记录、失败重试、后台迁移 Tab 和迁移审计；manifest + 配置型插件安装会生成 pending migration 记录，但不执行外部 raw SQL。migration down、真实 rollback、迁移前备份和外部插件迁移包仍未完成。
-- 插件安装 / 升级：manifest 校验、dry-run、manifest + 配置型安装记录、upgrade dry-run 和最小升级执行已经落地；完整安装 / 升级向导、回滚、版本迁移向导、插件包 zip 上传和签名仍待后续。
+- 插件安装 / 升级：manifest 校验、dry-run、manifest + 配置型安装记录、upgrade dry-run 和最小升级执行已经落地；后台已完成抽屉式安装 / 升级向导。回滚、版本迁移向导、插件包 zip 上传和签名仍待后续。
 - 权限矩阵：当前是最小权限码校验，不是完整 RBAC 矩阵；community/category 作用域、角色分配 UI 和权限配置 API 仍待后续。
 - 插件内容治理：通用页、基础详情抽屉、批量隐藏 / 恢复和审计跳转已接入；批量审核、置顶、加精、专属详情和完整权限矩阵仍待后续。
 
@@ -90,8 +93,9 @@ Core 保留用户、认证、子站、板块、通用内容、评论、标签、
 
 后续规划：
 
-- `v1.3.5 / P0` 优先把插件治理中心、安装向导、升级向导、批量归档 / 恢复影响预览、状态治理页和 PluginContent 体验做成可验收闭环。
-- `v1.4.x+` 再推进外部服务型 Webhook、插件包 zip、签名、市场、动态加载评估和高级运行时能力。
+- `v1.3.5 / 收尾`：以当前代码为准做文档口径、验收清单、E2E skip 说明、PluginContent 小修和发版准备。
+- `v1.4.x / P1`：推进 PluginContent 精确治理、插件权限矩阵、`config_schema` 自动表单增强、Hook 排障页和 Docs / Wiki 专用体验信息架构。
+- `v1.5.x+ / P2`：再推进外部服务型 Webhook、插件包 zip、签名、插件包 dry-run、生产 MySQL 大库演练和插件市场雏形。
 
 ## 当前部分完成
 
@@ -114,7 +118,8 @@ Core 保留用户、认证、子站、板块、通用内容、评论、标签、
 
 ## 当前未完成
 
-- 插件治理 UI 信息架构：`/admin-next/plugins` 已可用，但完整分步安装向导、完整分步升级向导、批量归档 / 恢复影响预览表格、状态治理页异常入口和更清晰的操作分组仍待 `v1.3.5` 收口。
+- `v1.3.5` 收尾：当前工作区已完成插件治理中心、安装 / 升级分步向导、批量归档 / 恢复预览和状态治理视图；仍需做最终文档口径、发版清单、E2E skip 处置说明、最小回归命令记录和 `VERSION` / README / CHANGELOG 的版本切分决策。
+- PluginContent 体验对齐：页面已有归档态提示、筛选、详情、多选、批量隐藏 / 恢复和审计入口；仍需补更清晰的头部状态、禁用态提示、按 `plugin_code` 的后端精确过滤、批量审核 / 置顶 / 加精策略和更完整审计跳转验收。
 - 子站插件配置 UI 的完整浏览器验收矩阵，包括多子站、禁用提示、保存失败提示和排序持久化回归。
 - 更细粒度的权限体系：例如 Core 兼容类型 `article` / `news` 的细分权限码、按子站/板块维度配置权限矩阵、以及更明确的错误码与权限配置 API（当前仍为最小校验闭环）。
 - P0 插件平台收口：HookBus 的完整业务处理器、健康状态、告警和重试策略。Search / Notification / SEO 目前已有调用点和执行记录，但缺少实际插件处理器。
@@ -200,14 +205,13 @@ P3：高级能力
 
 ## 下一步任务
 
-1. `v1.3.5 / P0`：重构 `/admin-next/plugins` 的信息层级，形成“总览 / 筛选与批量操作 / 插件列表 / 详情治理层”的清晰结构。
-2. `v1.3.5 / P0`：把 manifest 校验、dry-run、install 做成完整分步安装向导。
-3. `v1.3.5 / P0`：把 upgrade dry-run、兼容矩阵、upgrade 执行做成完整分步升级向导。
-4. `v1.3.5 / P0`：补批量归档 / 恢复的影响预览、`succeeded` / `failed` 表格和审计跳转。
-5. `v1.3.5 / P0`：把“状态治理”页明确为异常处理入口，聚合迁移待处理、Hook 异常、配置无效、依赖缺失和归档插件。
-6. `v1.3.5 / P0`：对齐 PluginContent 内容治理页体验，确保归档 / 禁用插件历史内容仍可查看和治理。
-7. `v1.3.5 / P0`：补一轮最小后台 E2E，只覆盖上述新向导和关键入口，不扩成全量矩阵。
-8. `v1.4.x+`：推进外部服务型 Webhook、插件包签名、真实插件包 dry-run、生产 MySQL 大库演练和插件市场雏形。
+1. `v1.3.5 / 收尾`：跑并记录最小验收命令，至少包含 `go test ./...`、`go build`、后台 build、插件治理后台 E2E；若继续保留 skipped 用例，必须写清原因和替代覆盖。
+2. `v1.3.5 / 收尾`：决定是否把 `VERSION`、README 当前版本和 CHANGELOG 从 `v1.3.4` 切到 `v1.3.5`；未切版前，文档必须明确“v1.3.5 已在工作区实现但未正式发布”。
+3. `v1.3.5 / 收尾`：对 PluginContent 做小范围体验对齐，不扩大成业务插件专属页面；重点补禁用 / 归档提示、头部状态和审计入口一致性。
+4. `v1.4 / P1`：补插件内容治理操作权限矩阵和 RBAC 分配 UI 草案，先覆盖批量审核 / 隐藏 / 恢复 / 置顶 / 加精的权限边界。
+5. `v1.4 / P1`：增强 `config_schema` 自动表单，优先支持 boolean、enum、number、string 的稳定控件，再处理数组、对象、字段分组和配置版本。
+6. `v1.4 / P1`：把 Hook 健康治理升级为排障页，展示执行记录、失败详情、blocking / non-blocking、最近错误和手动重试入口。
+7. `v1.5 / P2`：在上述平台治理稳定后，再推进外部服务型 Webhook、插件包签名、真实插件包 dry-run、生产 MySQL 大库演练和插件市场雏形。
 
 ## 当前验收清单
 
@@ -2237,8 +2241,8 @@ P1 规划边界：
 未完成事项：
 
 - 这轮只做了后台插件治理中心，不包含前台新入口或前台 i18n 清理。
-- Manifest 安装入口当前是页内工作面板和 JSON 结果视图，不是完整安装向导。
-- bulk archive / restore 目前只展示结果摘要 JSON，后续可继续增强为表格化 succeeded / failed 明细。
+- 当时 Manifest 安装入口还是页内工作面板和 JSON 结果视图；该限制已在后续 `v1.3.5` 插件治理体验收口任务中被抽屉分步向导覆盖。
+- 当时 bulk archive / restore 只展示结果摘要 JSON；该限制已在后续任务中补为 impact 预览和 succeeded / failed 明细。
 
 新发现风险：
 
@@ -2379,3 +2383,134 @@ P1 规划边界：
 
 1. 按 `docs/releases/v1.3.5.md` 启动插件治理体验专项：先重排 `/admin-next/plugins` 信息层级，再做安装 / 升级向导。
 2. 保持文档入口规则：新增任务先判断能否合并到现有文档，不再新增根目录临时任务文档。
+
+### 2026-05-12：修复插件治理操作按钮弹出方式
+
+修改范围：
+
+- 后台页面：`web/admin-app/src/views/Plugins.vue`。
+- 文档：`docs/PROJECT_PROGRESS.md`、`docs/TESTING.md`、`CHANGELOG.md`。
+
+已完成事项：
+
+- 将 `/admin-next/plugins` 中 `校验 Manifest`、`Dry-run 预览`、`安装插件`、`升级预览`、`执行升级` 以及批量治理结果展示从页内长面板改为右侧抽屉。
+- 保留原有提交、取消、关闭、审计跳转和结构化结果展示逻辑，不改 API、不改插件底层能力。
+- 保留 `plugin-manifest-panel`、`plugin-result-panel`、`plugin-manifest-input` 等 E2E 锚点，降低现有后台 E2E 退化风险。
+- 抽屉内 JSON 输入区使用独立高度和等宽字体，避免再次把插件列表和主页面撑成长滚动。
+
+未完成事项：
+
+- 本轮只修复操作按钮弹出位置；完整分步式安装 / 升级向导仍在 `v1.3.5` 后续任务中。
+- 插件列表操作列的“更多菜单”重组、状态治理页和批量治理 impact 预览仍按下一阶段规划推进。
+
+已执行检查命令和结果：
+
+- `./scripts/check-frontend.sh --admin-only --quick`：通过，后台 build 成功；日志目录 `.devhub/checks/20260512-145631/`。
+- `git diff --check`：通过。
+
+失败项或跳过项及原因：
+
+- 未执行 `go test ./...` / `go build`：本轮未修改 Go、API、数据库或权限逻辑。
+- 未执行前台构建 / 前台 E2E：本轮未修改 `web/frontend-app`。
+- 未执行完整后台 E2E：本轮是小范围 UI 弹出层修复，已保留测试锚点并通过后台构建；完整浏览器回归留给后续插件治理 UI 收口任务。
+
+影响范围：
+
+- API：无变更。
+- 数据库：无变更。
+- 权限：无变更。
+- SEO：无变更。
+- 插件系统：无底层能力变更，仅优化后台插件治理入口的承载方式。
+- 前后台 UI：仅后台 `/admin-next/plugins` 操作面板从页内展示改为抽屉展示。
+
+下一轮建议：
+
+1. 继续做完整分步式安装向导和升级向导，把输入、校验 / dry-run、确认、执行、结果拆成明确步骤。
+2. 重组插件列表操作列，避免危险操作和普通查看操作混排。
+
+### 2026-05-12：v1.3.5 插件治理体验与安装升级向导收口
+
+修改范围：
+
+- 后台页面：`web/admin-app/src/views/Plugins.vue`。
+- i18n：`web/admin-app/src/i18n/zh-CN.js`。
+- 后台 E2E：`web/admin-app/tests/e2e/plugin-governance.spec.js`。
+- Go 测试清理：`internal/store/auth_test.go`。
+- 文档：`docs/PROJECT_PROGRESS.md`、`docs/TESTING.md`、`docs/PLUGIN_ARCHITECTURE.md`、`docs/PLUGIN_SYSTEM_ROADMAP.md`、`docs/releases/v1.3.5.md`、`CHANGELOG.md`。
+
+已完成事项：
+
+- 重排 `/admin-next/plugins` 信息层级：页面头部主操作、列表 / 状态治理双视图、核心统计卡、折叠健康摘要、筛选面板、批量操作面板和精简插件表格。
+- 表格操作列改为“详情 / 配置 / 更多”，将权限、菜单、Hook、迁移、运行状态、审计、内容治理、升级、启停、归档和恢复分组到更多菜单，保留原 E2E 关键锚点。
+- 将 Manifest 校验、dry-run、安装、升级预览和执行升级接入同一套分步式抽屉流程：Manifest 输入、校验 / 预览、确认、执行、结果。
+- Manifest / 安装结果结构化展示 `errors`、`warnings`、依赖、冲突、迁移计划、安装影响和 checksum；升级结果结构化展示当前版本、新版本、Core 兼容状态、变更字段和 diff。
+- 批量归档 / 恢复增加影响预览抽屉，逐项展示历史内容、启用子站、绑定板块、待迁移和近期 Hook 错误；执行后展示 succeeded / failed 明细，并提供审计跳转入口。
+- 状态治理视图按迁移待处理、迁移失败、Hook 异常、配置无效、依赖缺失和已归档聚合异常插件，点击进入对应详情 Tab。
+- 补充插件治理 UI 新增文案的中文 i18n key，避免新增英文硬编码用户文案。
+
+未完成事项：
+
+- 本轮只优化 `/admin-next/plugins` 主治理中心；`PluginContent` 页面已有归档态提示、筛选、详情、多选、批量隐藏 / 恢复和审计入口，本轮未继续重排其视觉层级。
+- 安装 / 升级向导当前支持粘贴 manifest JSON；插件包 zip 上传、远程安装、市场和动态加载仍未实现。
+- 状态治理页是异常聚合入口，不是独立监控系统；Hook 告警、自动恢复和外部服务 Webhook 仍是后续能力。
+
+已执行检查命令和结果：
+
+- `docker compose run --rm admin-e2e npm run build`：通过；Vite 仍有既有大 chunk warning，不作为失败。
+- `go test ./...`：首次因 `internal/store/auth_test.go` 中重复的 `TestSeededFrontendUserCanLogin` 定义失败；已移除重复测试定义并 `gofmt`，复跑通过。
+- `go build -o .devhub/devhub .`：通过。
+- `bash -n dev.sh`：通过。
+- `bash -n scripts/check-frontend.sh`：通过。
+- `./scripts/check-frontend.sh --quick`：通过，后台和前台 build 均通过；日志目录 `.devhub/checks/20260512-163358/`。
+- `./scripts/check-frontend.sh --admin-only`：最终通过，后台 build 通过，后台 E2E `21 passed / 2 skipped`；日志目录 `.devhub/checks/20260512-165116/`。
+- `git diff --check`：通过。
+
+失败项或跳过项及原因：
+
+- `./scripts/check-frontend.sh --admin-only` 调试期间曾因健康摘要默认折叠、升级 / 禁用 / 内容治理入口移入“更多”菜单后旧选择器不可见失败；已默认展开健康摘要、补回 `plugin-manage-*` 兼容锚点，并同步 E2E 先打开“更多”菜单后再点击相关操作。
+- 后台 E2E 中 2 条旧详情 / 归档专项用例仍保持 `skip`，原因是这些旧长链路已被当前治理中心、PluginContent、迁移、Hook、审计和归档态用例覆盖，继续保留会增加状态污染和执行时间。
+- 前台 E2E 未执行；本轮未修改 `web/frontend-app` 页面或共享前台逻辑。
+
+影响范围：
+
+- API：无新增接口，继续复用 manifest validate、dry-run、install、upgrade dry-run、upgrade、health、impact、bulk archive / restore 和 audit 接口。
+- 数据库：无变更。
+- 权限：无变更，危险操作仍由后端强校验。
+- SEO：无变更。
+- 插件系统：无底层能力变更，重点是把已有平台能力做成可确认的后台治理流程。
+- 前后台 UI：影响后台 `/admin-next/plugins`，前台无变更。
+
+下一轮建议：
+
+1. 继续整理 `PluginContent` 视觉层级，使其与插件治理中心的筛选、批量操作和审计入口体验保持一致。
+2. 若继续打磨安装 / 升级向导，可把当前抽屉分步流程拆成更强的 Wizard 子组件，减少 `Plugins.vue` 单文件体积。
+
+### 2026-05-12：按当前代码事实重整插件需求
+
+修改范围：
+
+- 文档：`README.md`、`CHANGELOG.md`、`docs/PROJECT_PROGRESS.md`、`docs/PLUGIN_SYSTEM_ROADMAP.md`、`docs/PLUGIN_ARCHITECTURE.md`、`docs/TESTING.md`、`docs/releases/v1.3.5.md`。
+
+已完成事项：
+
+- 阅读插件相关后端、后台和测试代码后，确认 `v1.3.5` 插件治理中心主体能力已在工作区实现，但 `VERSION` 仍停留在 `v1.3.4`。
+- 将当前需求口径从“继续实现 v1.3.5 P0”调整为“v1.3.5 收尾 / v1.4 平台增强 / v1.5 分发能力”三层。
+- 在主进度、路线图、架构文档、测试文档、v1.3.5 草案和 README 中统一标注：安装 / 升级向导、批量归档 / 恢复影响预览、状态治理视图已落地；插件包、外部 Webhook、动态加载、硬卸载和 migration down 仍未实现。
+- 将下一步任务重排为：发版前验收、版本切分决策、PluginContent 小范围对齐、插件权限矩阵、`config_schema` 自动表单增强、Hook 排障页和后续插件分发能力。
+
+未完成事项：
+
+- 本轮只做文档口径和需求重整，未修改运行时代码。
+- 未执行完整 Go / 前后台构建和 E2E；这些已作为 `v1.3.5` 收尾任务列入当前下一步。
+
+已执行检查命令和结果：
+
+- `git diff --check`：通过。
+
+影响范围：
+
+- API：无变更。
+- 数据库：无变更。
+- 权限：无变更。
+- SEO：无变更。
+- 插件系统：无运行时变更；仅把文档需求与当前代码事实对齐。

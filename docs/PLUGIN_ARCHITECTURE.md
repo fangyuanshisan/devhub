@@ -58,7 +58,7 @@ MySQL 专项补充：2026-05-11 已完成 MySQLStore 与老库升级专项验证
 - 迁移治理：`plugin_migrations` 表、MemoryStore / MySQLStore 读写能力、内置插件 migration 声明、up/no-op runner、失败记录、失败重试和迁移审计已存在；成功迁移不会重复执行。
 - Manifest 校验与 dry-run：`PluginManifestValidator` 已可校验 manifest JSON 的基础字段、内容类型、权限、菜单、路由、Hook、配置模型、迁移、依赖和资产路径，并返回 errors / warnings / checksum / impact summary；`dry-run` 不写入插件记录。
 - Manifest + 配置型安装：`POST /api/v1/admin/plugins/install` 可安装只含声明与配置的插件，初始为 installed + disabled；不执行第三方代码、不动态加载前端资源、不执行外部 SQL。
-- 最小升级执行：`POST /api/v1/admin/plugins/:code/upgrade/dry-run` 和 `POST /api/v1/admin/plugins/:code/upgrade` 已支持 manifest + 配置型插件的预览和最小执行闭环；完整分步升级向导、回滚、migration down 和外部 SQL 仍未实现。
+- 最小升级执行：`POST /api/v1/admin/plugins/:code/upgrade/dry-run` 和 `POST /api/v1/admin/plugins/:code/upgrade` 已支持 manifest + 配置型插件的预览和最小执行闭环；后台已提供抽屉分步升级向导；回滚、migration down、外部 SQL 和插件包升级仍未实现。
 - 软卸载 / 归档 / 恢复：插件可归档、恢复和批量归档 / 恢复；归档后禁止新建内容和子站启用，但保留历史内容、配置、迁移记录、审计记录和 SEO。
 - 后台：`/admin-next/plugins` 已具备插件列表、详情抽屉、配置、impact 提示、审计 Tab、迁移 Tab 和通用插件内容页入口；`/admin-next/communities` 已具备子站插件配置抽屉。
 
@@ -82,9 +82,9 @@ MySQL 专项补充：2026-05-11 已完成 MySQLStore 与老库升级专项验证
 
 本节是当前架构文档中的阶段摘要；更完整的目标流程、治理能力、后台能力、运行时能力、审计能力和 E2E 要求见 [完整插件系统长期完善路线图](PLUGIN_SYSTEM_ROADMAP.md)。
 
-当前版本为 `v1.3.4`。它从“插件异常治理与验收闭环”继续推进到“插件平台基础能力收口”：已覆盖 failed migration 启用阻断、HookBus 失败注入、权限矩阵、MySQLStore 专项、归档 / 恢复、Manifest 校验、dry-run、manifest + 配置型安装和最小升级执行；插件市场、插件包上传、远程安装、Go 动态加载和第三方代码执行仍不属于当前实现。
+当前 `VERSION` 为 `v1.3.4`，但工作区已包含 `v1.3.5` 插件治理体验改动。`v1.3.4` 已覆盖 failed migration 启用阻断、HookBus 失败注入、权限矩阵、MySQLStore 专项、归档 / 恢复、Manifest 校验、dry-run、manifest + 配置型安装和最小升级执行；`v1.3.5` 在此基础上补齐后台治理中心重排、安装 / 升级分步向导、批量归档 / 恢复影响预览和状态治理视图。插件市场、插件包上传、远程安装、Go 动态加载和第三方代码执行仍不属于当前实现。
 
-下一版本草案为 `v1.3.5`，聚焦后台插件治理体验、完整安装 / 升级向导、批量归档 / 恢复影响预览、状态治理页和 PluginContent 体验对齐；不新增危险运行时能力。
+当前收尾目标是把 `v1.3.5` 工作区改动校准、验收并准备发版；下一阶段再进入 `v1.4` 插件平台增强。
 
 P0：插件平台收口
 
@@ -552,7 +552,7 @@ v1.3.4 的完成口径是“插件异常治理与平台基础能力收口”，�
 - 插件健康状态和审计定位能力，包含 `hook_warning` / `hook_error` 与插件审计多维筛选。
 - Manifest 校验、dry-run、manifest + 配置型安装、最小升级执行、归档 / 恢复、批量归档 / 恢复和健康总览。
 
-v1.3.5 的边界是治理体验收口，不新增危险运行时能力：
+v1.3.5 的边界是治理体验收口，不新增危险运行时能力。当前工作区已完成以下主体能力，剩余工作是验收、skip 处置、PluginContent 小范围对齐和版本切分：
 
 - `/admin-next/plugins` 信息架构、筛选 / 批量操作 / 列表 / 详情层级优化。
 - 完整安装向导和完整升级向导。
@@ -560,6 +560,14 @@ v1.3.5 的边界是治理体验收口，不新增危险运行时能力：
 - 状态治理页异常处理入口。
 - PluginContent 历史治理体验对齐。
 - 最小后台 E2E 回归。
+
+当前实现进展：
+
+- `/admin-next/plugins` 已重排为页面头部主操作、列表 / 状态治理双视图、核心统计卡、健康摘要、筛选面板、批量操作面板和精简表格。
+- 插件表格操作列已收口为“详情 / 配置 / 更多”，危险操作仍保留二次确认和后端权限校验。
+- Manifest 校验、dry-run、安装、升级预览和执行升级已进入右侧抽屉分步流程，结构化展示 errors、warnings、依赖、冲突、迁移计划、安装影响、版本兼容和 diff。
+- 批量归档 / 恢复已展示操作前影响预览和操作后 succeeded / failed 明细，并提供审计跳转。
+- 状态治理视图已聚合迁移待处理、迁移失败、Hook 异常、配置无效、依赖缺失和已归档插件；它是异常处理入口，不是完整监控系统。
 
 以下能力仍不属于当前实现范围：插件市场、插件包 zip 上传、远程安装、在线更新、Go 动态加载、第三方插件沙箱、hard uninstall 和 migration down。
 
