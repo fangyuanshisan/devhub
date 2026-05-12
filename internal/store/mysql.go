@@ -2881,7 +2881,7 @@ func (s *MySQLStore) AdminTopics(site, board, q string) []domain.Post {
 	site = strings.TrimSpace(site)
 	board = strings.TrimSpace(board)
 	q = strings.ToLower(strings.TrimSpace(q))
-	rows, err := s.db.Query(`SELECT id,community_id,category_id,user_id,title,COALESCE(summary,''),content,status,is_pinned,is_featured,comment_locked,view_count,like_count,comment_count,DATE_FORMAT(created_at,'%Y-%m-%d %H:%i:%s'),DATE_FORMAT(updated_at,'%Y-%m-%d %H:%i:%s') FROM topics WHERE deleted_at IS NULL ORDER BY id DESC`)
+	rows, err := s.db.Query(`SELECT id,community_id,category_id,user_id,title,COALESCE(plugin_code,''),COALESCE(content_type,''),COALESCE(summary,''),content,status,is_pinned,is_featured,comment_locked,view_count,like_count,comment_count,DATE_FORMAT(created_at,'%Y-%m-%d %H:%i:%s'),DATE_FORMAT(updated_at,'%Y-%m-%d %H:%i:%s') FROM topics WHERE deleted_at IS NULL ORDER BY id DESC`)
 	if err != nil {
 		return []domain.Post{}
 	}
@@ -2891,7 +2891,7 @@ func (s *MySQLStore) AdminTopics(site, board, q string) []domain.Post {
 		var p domain.Post
 		var communityID, categoryID, userID int64
 		var status int
-		if err := rows.Scan(&p.ID, &communityID, &categoryID, &userID, &p.Title, &p.Summary, &p.Content, &status, &p.Pinned, &p.Recommended, &p.CommentLocked, &p.Views, &p.Likes, &p.Comments, &p.CreatedAt, &p.UpdatedAt); err != nil {
+		if err := rows.Scan(&p.ID, &communityID, &categoryID, &userID, &p.Title, &p.PluginCode, &p.ContentType, &p.Summary, &p.Content, &status, &p.Pinned, &p.Recommended, &p.CommentLocked, &p.Views, &p.Likes, &p.Comments, &p.CreatedAt, &p.UpdatedAt); err != nil {
 			continue
 		}
 		p.UserID = userID
@@ -2901,6 +2901,14 @@ func (s *MySQLStore) AdminTopics(site, board, q string) []domain.Post {
 			p.Site = siteByCommunityID(communityID)
 		}
 		p.Board = boardByCategoryID(categoryID)
+		p.ContentType = pluginregistry.NormalizeContentType(p.ContentType)
+		if p.ContentType == "" {
+			p.ContentType = contentTypeForBoard(p.Board)
+		}
+		p.PluginCode = strings.TrimSpace(p.PluginCode)
+		if p.PluginCode == "" {
+			p.PluginCode = pluginregistry.PluginCodeForContentType(p.ContentType)
+		}
 		p.Author = "DevHub 用户"
 		p.Tags = s.getTopicTags(p.ID)
 		if status == 1 {

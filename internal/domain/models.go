@@ -423,6 +423,8 @@ type Post struct {
 	UserID        int64    `json:"user_id,omitempty"`
 	Site          string   `json:"site"`
 	Board         string   `json:"board"`
+	PluginCode    string   `json:"plugin_code,omitempty"`
+	ContentType   string   `json:"content_type,omitempty"`
 	Title         string   `json:"title"`
 	Summary       string   `json:"summary"`
 	Content       string   `json:"content"`

@@ -68,7 +68,7 @@ MySQL 专项补充：2026-05-11 已完成 MySQLStore 与老库升级专项验证
 - Hook 治理：Hook 可以执行，blocking hook 可阻断；`hook_executions` 已记录执行结果、最近错误、失败次数、平均耗时和失败率，失败会写入 `plugin.hook.failed` / `plugin.hook.blocked` 审计。当前已有轻量健康摘要；重试策略、告警和复杂业务处理器仍待后续。
 - 插件迁移：当前 runner 只支持内置插件 up/no-op 执行记录、失败记录和重试；尚无 migration down、真实 rollback、迁移前备份、外部插件迁移包或复杂迁移依赖排序。
 - 权限矩阵：发布和菜单已做最小权限码校验；角色可分配、按 community / category 作用域细分的完整权限矩阵和配置 UI 仍未完成。
-- 插件内容治理：已有通用 `PluginContent` 页和部分 E2E；基础详情抽屉、批量隐藏 / 恢复和审计跳转已接入，批量审核、置顶、加精、专属详情和更完整治理闭环仍待后续。
+- 插件内容治理：通用 `PluginContent` 页已接入头部状态、精确过滤、详情抽屉、批量隐藏 / 恢复、批量审核、批量置顶、批量加精和审计跳转；专属详情、完整权限矩阵和跨页面审计高亮仍待后续。
 - Projects / Jobs / AI Works：已接入 plugin_code、content_type、权限、菜单、状态和发布校验；专属扩展表、专属搜索、通知、SEO 和业务闭环未完成。
 
 预留：
@@ -579,13 +579,13 @@ v1.3.5 的边界是治理体验收口，不新增危险运行时能力。当前�
 - 当前已补齐插件中心、插件详情抽屉、子站插件配置抽屉、配置编辑器、通用 PluginContent 和审计列表中的主要插件治理文案；其中 `config_schema`、`config_json`、`resolved_config` 等作为用户可见标签时显示为“配置模型 / 子站配置 / 最终生效配置”，作为 JSON key 或接口字段时仍保持原值，便于调试。
 - 插件配置编辑器支持“表单模式 + JSON 高级模式”。表单模式根据 `config_schema.properties` 做基础浅层渲染，支持 string、number、integer、boolean、array、object 和 enum；复杂配置仍可使用 JSON 高级模式。
 - 配置编辑器展示配置差异和最终生效配置。差异预览只用于管理员确认，保存仍以后端 `config_schema` 校验为准；敏感字段会在预览中脱敏。
-- 通用 PluginContent 页开始支持多选、批量隐藏和批量恢复，并提供审计入口。审计入口会跳转到通用治理审计页并预填 `action`、`target_type` 和插件编码 metadata，便于定位本次插件内容批量操作。权限、插件状态、内容归属和审计仍由后端批量治理接口强制校验，前端隐藏或按钮禁用不能替代权限控制。
+- 通用 PluginContent 页支持多选、批量隐藏 / 恢复、审核通过 / 拒绝、置顶 / 取消置顶、加精 / 取消加精，并提供审计入口。审计入口会跳转到通用治理审计页并预填 `plugin_code`、`content_type`、`action`、`target_type` 和插件编码 metadata，便于定位本次插件内容批量操作。权限、插件状态、内容归属和审计仍由后端批量治理接口强制校验，前端隐藏或按钮禁用不能替代权限控制。
 
 当前限制：
 
 - 当前 `en-US` 只是占位语言包；若后续需要完整多语言生态，需要补齐翻译和语言切换入口。
 - 自动表单是基础版本，不包含完整 JSON Schema、字段分组、配置版本、配置回滚或敏感字段加密。
-- PluginContent 当前只落地批量隐藏 / 恢复；批量审核、置顶、加精和更细粒度权限矩阵仍待后续。通用审计页已能读取 PluginContent 带入的 query 筛选，但更完整的审计筛选 E2E 和跨页面高亮仍待后续补测。
+- PluginContent 已接入批量隐藏 / 恢复、审核、置顶和加精；更细粒度权限矩阵、跨页面审计高亮和更完整审计筛选 E2E 仍待后续补测。
 
 ## 阶段 C/D/E/F：SDK 模板、生命周期、软卸载和外部生态设计
 
@@ -620,7 +620,7 @@ v1.3.5 的边界是治理体验收口，不新增危险运行时能力。当前�
 - `POST /api/v1/admin/plugins/:code/restore` 将归档插件恢复为 `disabled`，不会自动启用。
 - `POST /api/v1/admin/plugins/bulk-archive` / `bulk-restore` 支持批量软卸载 / 恢复，但不删除任何历史数据。
 - 归档后禁止新建该插件内容、禁止子站启用、隐藏入口；历史内容、配置、迁移记录、审计记录和 SEO 均保留。
-- 归档插件仍允许后台进入通用 `PluginContent` 历史内容治理页；页面必须提示“插件已归档，只能治理历史内容，不能新建”，当前已覆盖批量隐藏 / 恢复，更多批量审核、置顶、加精策略后续补齐。
+- 归档插件仍允许后台进入通用 `PluginContent` 历史内容治理页；页面必须提示“插件已归档，只能治理历史内容，不能新建”，当前已覆盖批量隐藏 / 恢复、审核、置顶和加精。
 - 归档 / 恢复写入 `plugin.archived`、`plugin.restored`、`plugin.archive.failed`、`plugin.restore.failed` 审计。
 - 2026-05-12 已补浏览器回归：前台发布页不展示归档插件 content_type、强传归档 content_type 被拒绝、子站不能启用归档插件、历史 `/topics/:id` SEO 不丢；后台覆盖归档 badge、影响范围、恢复后默认 disabled 提示和 PluginContent 归档态历史治理。
 

@@ -8,7 +8,7 @@
 
 ## 当前版本结论
 
-当前 `VERSION` 仍为 `v1.3.4`，主题是“插件异常治理与平台基础能力收口版”。当前工作区已经包含 `v1.3.5` 插件治理体验改动，但尚未做版本切分与正式发布。DevHub 当前定位为多子站通用开源社区程序，默认演示为开发者社区。
+当前 `VERSION` 已切到 `v1.4.0`，主题是“插件内容治理增强版”。本轮已完成 `PluginContent` 精确过滤、头部状态、禁用 / 归档历史治理提示、批量审核 / 置顶 / 加精、批量结果明细和插件审计跳转增强；当前环境已通过 Go 自动化与 diff 检查，后台前端构建和 Playwright 需在具备 Node/npm 的环境补跑。DevHub 当前定位为多子站通用开源社区程序，默认演示为开发者社区。
 
 Core 保留用户、认证、子站、板块、通用内容、评论、标签、搜索、通知、SEO、权限、审计、插件注册和分发能力。问答、文档、Wiki、项目、招聘、AI 作品已按内置系统插件建模：`qa -> question`、`docs -> document`、`wiki -> wiki_page`、`projects -> project`、`jobs -> job`、`ai_works -> ai_work`。
 
@@ -16,7 +16,7 @@ Core 保留用户、认证、子站、板块、通用内容、评论、标签、
 
 当前最高优先级长期主线是完成完整插件系统。DevHub 的长期目标不是只支持内置 `qa/docs/wiki`，而是形成完整插件平台：Core 只提供通用社区底座，业务能力通过插件声明、插件状态、插件权限、插件菜单、插件配置、插件 Hook、插件 migration、插件 API、插件 SEO、插件通知、插件搜索和插件测试矩阵扩展。
 
-当前最高优先级目标调整为：先把工作区已有的 `v1.3.5` 插件治理中心收口到可发布状态，再进入 `v1.4` 插件平台增强。`v1.3.5` 已不再是从零启动的下一阶段，而是“校准、补验收、修边界、准备发版”的收尾阶段；插件市场、插件包上传、远程安装、在线更新和动态加载仍属于后续路线。
+当前最高优先级目标调整为：先补跑 `v1.4.0` 后台前端构建与 PluginContent Playwright，然后进入插件内容治理权限矩阵、审计高亮、Hook 排障页和配置表单增强等后续平台增强；插件市场、插件包上传、远程安装、在线更新和动态加载仍属于后续路线。
 
 ## 当前已完成
 
@@ -83,7 +83,7 @@ Core 保留用户、认证、子站、板块、通用内容、评论、标签、
 - 插件迁移：已有内置插件 up/no-op runner、失败记录、失败重试、后台迁移 Tab 和迁移审计；manifest + 配置型插件安装会生成 pending migration 记录，但不执行外部 raw SQL。migration down、真实 rollback、迁移前备份和外部插件迁移包仍未完成。
 - 插件安装 / 升级：manifest 校验、dry-run、manifest + 配置型安装记录、upgrade dry-run 和最小升级执行已经落地；后台已完成抽屉式安装 / 升级向导。回滚、版本迁移向导、插件包 zip 上传和签名仍待后续。
 - 权限矩阵：当前是最小权限码校验，不是完整 RBAC 矩阵；community/category 作用域、角色分配 UI 和权限配置 API 仍待后续。
-- 插件内容治理：通用页、基础详情抽屉、批量隐藏 / 恢复和审计跳转已接入；批量审核、置顶、加精、专属详情和完整权限矩阵仍待后续。
+- 插件内容治理：通用页、基础详情抽屉、后端 `plugin_code + content_type` 精确过滤、批量隐藏 / 恢复、批量审核、批量置顶、批量加精和审计跳转已接入；专属详情和完整权限矩阵仍待后续。
 
 预留能力：
 
@@ -93,8 +93,8 @@ Core 保留用户、认证、子站、板块、通用内容、评论、标签、
 
 后续规划：
 
-- `v1.3.5 / 收尾`：以当前代码为准做文档口径、验收清单、E2E skip 说明、PluginContent 小修和发版准备。
-- `v1.4.x / P1`：推进 PluginContent 精确治理、插件权限矩阵、`config_schema` 自动表单增强、Hook 排障页和 Docs / Wiki 专用体验信息架构。
+- `v1.4.0 / 已切版`：插件内容治理增强已落地，当前保留项是补跑 Node/npm 环境下的后台构建和 PluginContent Playwright。
+- `v1.4.x / P1`：推进插件内容治理完整权限矩阵、`config_schema` 自动表单增强、Hook 排障页和 Docs / Wiki 专用体验信息架构。
 - `v1.5.x+ / P2`：再推进外部服务型 Webhook、插件包 zip、签名、插件包 dry-run、生产 MySQL 大库演练和插件市场雏形。
 
 ## 当前部分完成
@@ -119,7 +119,7 @@ Core 保留用户、认证、子站、板块、通用内容、评论、标签、
 ## 当前未完成
 
 - `v1.3.5` 收尾：当前工作区已完成插件治理中心、安装 / 升级分步向导、批量归档 / 恢复预览和状态治理视图；仍需做最终文档口径、发版清单、E2E skip 处置说明、最小回归命令记录和 `VERSION` / README / CHANGELOG 的版本切分决策。
-- PluginContent 体验对齐：页面已有归档态提示、筛选、详情、多选、批量隐藏 / 恢复和审计入口；仍需补更清晰的头部状态、禁用态提示、按 `plugin_code` 的后端精确过滤、批量审核 / 置顶 / 加精策略和更完整审计跳转验收。
+- PluginContent 体验对齐：页面已有插件名 / 编码 / 状态 / 健康 / 内容类型数量头部、禁用 / 归档提示、筛选、详情、多选、按 `plugin_code + content_type` 的后端精确过滤、批量隐藏 / 恢复、批量审核 / 置顶 / 加精和审计入口；仍需补完整权限矩阵与跨页面审计高亮。
 - 子站插件配置 UI 的完整浏览器验收矩阵，包括多子站、禁用提示、保存失败提示和排序持久化回归。
 - 更细粒度的权限体系：例如 Core 兼容类型 `article` / `news` 的细分权限码、按子站/板块维度配置权限矩阵、以及更明确的错误码与权限配置 API（当前仍为最小校验闭环）。
 - P0 插件平台收口：HookBus 的完整业务处理器、健康状态、告警和重试策略。Search / Notification / SEO 目前已有调用点和执行记录，但缺少实际插件处理器。
@@ -205,13 +205,11 @@ P3：高级能力
 
 ## 下一步任务
 
-1. `v1.3.5 / 收尾`：跑并记录最小验收命令，至少包含 `go test ./...`、`go build`、后台 build、插件治理后台 E2E；若继续保留 skipped 用例，必须写清原因和替代覆盖。
-2. `v1.3.5 / 收尾`：决定是否把 `VERSION`、README 当前版本和 CHANGELOG 从 `v1.3.4` 切到 `v1.3.5`；未切版前，文档必须明确“v1.3.5 已在工作区实现但未正式发布”。
-3. `v1.3.5 / 收尾`：对 PluginContent 做小范围体验对齐，不扩大成业务插件专属页面；重点补禁用 / 归档提示、头部状态和审计入口一致性。
-4. `v1.4 / P1`：补插件内容治理操作权限矩阵和 RBAC 分配 UI 草案，先覆盖批量审核 / 隐藏 / 恢复 / 置顶 / 加精的权限边界。
-5. `v1.4 / P1`：增强 `config_schema` 自动表单，优先支持 boolean、enum、number、string 的稳定控件，再处理数组、对象、字段分组和配置版本。
-6. `v1.4 / P1`：把 Hook 健康治理升级为排障页，展示执行记录、失败详情、blocking / non-blocking、最近错误和手动重试入口。
-7. `v1.5 / P2`：在上述平台治理稳定后，再推进外部服务型 Webhook、插件包签名、真实插件包 dry-run、生产 MySQL 大库演练和插件市场雏形。
+1. `v1.4.0 / 补验收`：在具备 Node/npm 的环境补跑 `cd web/admin-app && npm run build` 和 `npm run test:e2e -- tests/e2e/plugin-content.spec.js`。
+2. `v1.4.x / P1`：补插件内容治理操作权限矩阵和 RBAC 分配 UI 草案，先覆盖批量审核 / 隐藏 / 恢复 / 置顶 / 加精的权限边界。
+3. `v1.4.x / P1`：增强 `config_schema` 自动表单，优先支持 boolean、enum、number、string 的稳定控件，再处理数组、对象、字段分组和配置版本。
+4. `v1.4.x / P1`：把 Hook 健康治理升级为排障页，展示执行记录、失败详情、blocking / non-blocking、最近错误和手动重试入口。
+5. `v1.5 / P2`：在上述平台治理稳定后，再推进外部服务型 Webhook、插件包签名、真实插件包 dry-run、生产 MySQL 大库演练和插件市场雏形。
 
 ## 当前验收清单
 
@@ -1960,7 +1958,7 @@ P1 规划边界：
 - 配置编辑器新增配置差异预览，展示原配置、新配置和变更字段；`token`、`password`、`secret`、`key` 等敏感字段在预览中脱敏。
 - 配置编辑器展示最终生效配置预览；全局插件配置和子站插件配置都复用同一编辑器。
 - `PluginContent` 增强为基础通用治理页：展示插件编码、内容类型、状态、子站、更新时间、评论数；新增内容类型筛选、详情抽屉、多选、批量隐藏、批量恢复和“查看审计日志”入口。
-- PluginContent 的审计入口已与通用治理审计页打通：跳转到 `/admin-next/audit-logs` 时会预填 `action=批量治理主题`、`target_type=topic` 和插件编码 metadata 筛选；通用审计页会读取这些 query 并展示为可见筛选条件。
+- PluginContent 的审计入口已与通用治理审计页打通：跳转到 `/admin-next/audit-logs` 时会预填 `plugin_code`、`content_type`、`action=批量治理主题`、`target_type=topics` 和插件编码 metadata 筛选；通用审计页会读取这些 query 并展示为可见筛选条件。
 - 批量隐藏 / 恢复复用现有 `POST /api/v1/admin/topics/batch`，后端已有权限校验、插件内容审计和归属校验；本轮未新增生产 API。
 
 未完成事项：
@@ -2025,12 +2023,12 @@ P1 规划边界：
 
 - 将 PluginContent 状态筛选下拉的 `publish` / `hidden` / `pending` 可见英文改为中文标签，保留后端提交值不变。
 - 修正插件详情配置 Tab 的提示文案：当前已支持表单模式、JSON 高级模式和 `config_schema` 基础校验；完整 JSON Schema、字段分组和配置版本仍是后续。
-- 对齐文档口径：基础自动表单、effective config 预览、配置 diff、PluginContent 批量隐藏 / 恢复和审计跳转已作为阶段 B 已落地能力记录；深层嵌套、字段分组、完整 JSON Schema、配置版本、更多批量治理动作和完整审计 E2E 继续列为后续。
+- 对齐文档口径：基础自动表单、effective config 预览、配置 diff、PluginContent 批量隐藏 / 恢复和审计跳转已作为阶段 B 已落地能力记录；深层嵌套、字段分组、完整 JSON Schema、配置版本、完整权限矩阵和跨页面审计高亮继续列为后续。
 
 未完成事项：
 
 - 后台非插件页面残留英文文案仍需按模块继续清理。
-- PluginContent 批量审核、置顶、加精、完整审计跳转 E2E 和跨页面高亮仍待后续。
+- PluginContent 完整权限矩阵、跨页面审计高亮和更细审计筛选 E2E 仍待后续。
 
 已执行检查命令和结果：
 
@@ -2134,7 +2132,7 @@ P1 规划边界：
 未完成事项：
 
 - 尚未补齐所有插件的归档态前台导航入口矩阵；本轮以 `qa/question` 为代表路径。
-- PluginContent 归档态只覆盖批量隐藏 / 恢复；批量审核、置顶、加精和更细粒度只读策略仍待后续。
+- PluginContent 归档态已覆盖批量隐藏 / 恢复，并补充批量置顶最小链路；更细粒度只读策略和权限矩阵仍待后续。
 - 生产 MySQL 大库归档 / 恢复耗时专项仍未执行。
 
 已执行检查命令和结果：
@@ -2428,6 +2426,53 @@ P1 规划边界：
 1. 继续做完整分步式安装向导和升级向导，把输入、校验 / dry-run、确认、执行、结果拆成明确步骤。
 2. 重组插件列表操作列，避免危险操作和普通查看操作混排。
 
+### 2026-05-12：v1.4.0 插件内容治理增强验收
+
+修改范围：
+
+- 版本：`VERSION`。
+- 后端：`internal/domain/models.go`、`internal/store/memory.go`、`internal/store/mysql.go`、`internal/transport/httpapi/router.go`、`internal/transport/httpapi/router_auth_test.go`。
+- 后台：`web/admin-app/src/views/PluginContent.vue`、`web/admin-app/src/views/Plugins.vue`、`web/admin-app/src/i18n/zh-CN.js`。
+- 后台 E2E：`web/admin-app/tests/e2e/plugin-content.spec.js`。
+- 文档：`README.md`、`CHANGELOG.md`、`docs/README.md`、`docs/PROJECT_PROGRESS.md`、`docs/API.md`、`docs/TESTING.md`、`docs/PLUGIN_ARCHITECTURE.md`、`docs/PLUGIN_SYSTEM_ROADMAP.md`、`docs/releases/v1.4.0.md`。
+
+已完成事项：
+
+- 将 `VERSION` 正式切到 `v1.4.0`。
+- `GET /api/v1/admin/posts` 支持 `plugin_code` 参数，并按 `plugin_code + content_type` 精确过滤；后台帖子行返回 `plugin_code` 和 `content_type`。
+- MemoryStore / MySQLStore 对后台内容列表补齐插件归属字段，历史缺失字段按内容类型做防御性归一。
+- `PluginContent` 头部展示插件名、插件编码、插件状态、健康状态和内容类型数量。
+- disabled / archived 插件可进入历史内容治理页，并明确提示不能新建、历史内容仍可治理。
+- `PluginContent` 批量治理支持隐藏 / 恢复、审核通过 / 拒绝、置顶 / 取消置顶、加精 / 取消加精。
+- 批量治理后展示成功 / 失败明细，并继续写带 `plugin_code` / `content_type` / `operation` 的结构化插件审计。
+- 审计跳转带上 `plugin_code`、`content_type`、`action` 和 `target_type=topics`；详情抽屉增加最近治理审计入口。
+- `docs/releases/v1.4.0.md` 已从 Draft 改为 Release Notes / 验收记录。
+
+已执行检查命令和结果：
+
+- `go test ./internal/transport/httpapi -run TestAdminPostsFiltersByPluginCodeAndContentType -count=1`：通过。
+- `go test ./...`：通过。
+- `git diff --check`：通过。
+
+失败项或跳过项及原因：
+
+- 当前执行环境没有 `node` / `npm` / `npx`，因此后台构建和 Playwright 未能在本机执行。
+- 已补 `web/admin-app/tests/e2e/plugin-content.spec.js` 最小链路，后续需要在具备 Node/npm 的环境补跑 `npm run build` 和 `npm run test:e2e -- tests/e2e/plugin-content.spec.js`。
+
+影响范围：
+
+- API：`GET /api/v1/admin/posts` 增加 `plugin_code` 过滤参数和插件归属字段返回。
+- 数据库：无新迁移；复用既有 `topics.plugin_code` / `topics.content_type` 字段。
+- 权限：未重构权限系统；批量治理继续复用既有 `topic.moderate` 和后台 topic 操作能力。
+- SEO：无变更；插件 disabled / archived 不影响历史 `/topics/:id` 访问。
+- 插件系统：增强通用 PluginContent 治理闭环，不涉及插件市场、插件包上传、动态加载或 Docs / Wiki 专属编辑器。
+- 前后台 UI：影响后台 `PluginContent` 和插件列表进入历史治理页的入口判断。
+
+下一轮建议：
+
+1. 在具备 Node/npm 的环境补跑后台 build 和 PluginContent Playwright。
+2. 继续补插件内容治理完整权限矩阵、跨页面审计高亮和更细粒度权限配置 UI。
+
 ### 2026-05-12：v1.3.5 插件治理体验与安装升级向导收口
 
 修改范围：
@@ -2493,7 +2538,7 @@ P1 规划边界：
 
 已完成事项：
 
-- 阅读插件相关后端、后台和测试代码后，确认 `v1.3.5` 插件治理中心主体能力已在工作区实现，但 `VERSION` 仍停留在 `v1.3.4`。
+- 当时阅读插件相关后端、后台和测试代码后，确认 `v1.3.5` 插件治理中心主体能力已在工作区实现，但 `VERSION` 仍停留在 `v1.3.4`；该版本切分已在后续 `v1.4.0` 验收记录中完成。
 - 将当前需求口径从“继续实现 v1.3.5 P0”调整为“v1.3.5 收尾 / v1.4 平台增强 / v1.5 分发能力”三层。
 - 在主进度、路线图、架构文档、测试文档、v1.3.5 草案和 README 中统一标注：安装 / 升级向导、批量归档 / 恢复影响预览、状态治理视图已落地；插件包、外部 Webhook、动态加载、硬卸载和 migration down 仍未实现。
 - 将下一步任务重排为：发版前验收、版本切分决策、PluginContent 小范围对齐、插件权限矩阵、`config_schema` 自动表单增强、Hook 排障页和后续插件分发能力。

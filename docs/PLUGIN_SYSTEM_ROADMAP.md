@@ -16,7 +16,7 @@
 
 - 已完成：生命周期派生字段、归档 / 恢复、归档后新建强拦截、ManifestValidator、manifest dry-run、manifest + 配置型插件安装记录、健康总览 API、批量归档 / 恢复 API、归档态前台入口 / 后台历史治理 / SEO 回归 E2E、升级 dry-run / 版本兼容矩阵 / 最小升级执行闭环，以及 `/admin-next/plugins` 治理中心第一轮重排。
 - 已完成：安装向导、升级向导、批量归档 / 恢复影响预览、`succeeded` / `failed` 结果明细、审计跳转和状态治理视图已落地为抽屉式后台流程，并已有最小后台 E2E 覆盖。
-- 部分完成：Hook 超时 / failure_policy 已有 manifest 字段和运行记录基础，但外部服务 Webhook 尚未接入真实 HTTP 调用；迁移 runner 仍是内置 up/no-op 与记录型迁移，不执行外部 raw SQL；PluginContent 已能治理历史内容，但后端精确过滤、批量审核 / 置顶 / 加精和完整权限矩阵仍待增强。
+- 部分完成：Hook 超时 / failure_policy 已有 manifest 字段和运行记录基础，但外部服务 Webhook 尚未接入真实 HTTP 调用；迁移 runner 仍是内置 up/no-op 与记录型迁移，不执行外部 raw SQL；PluginContent 已能按 `plugin_code + content_type` 精确治理历史内容并支持批量审核 / 置顶 / 加精，完整权限矩阵仍待增强。
 - 仍未完成：插件包 zip 上传、外部服务型 Webhook 执行、插件包签名、远程市场、动态加载、脚本沙箱、硬卸载、migration down、独立版本兼容矩阵页面和更细粒度升级影响对象列表。
 
 ## 当前收尾：v1.3.5 插件治理体验与安装升级向导

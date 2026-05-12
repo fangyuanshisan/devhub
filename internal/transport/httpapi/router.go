@@ -2552,18 +2552,30 @@ func (s *Server) adminPosts(c *gin.Context) {
 	board := c.DefaultQuery("board", "all")
 	q := c.Query("q")
 	status := c.DefaultQuery("status", "all")
+	pluginCode := strings.TrimSpace(c.Query("plugin_code"))
 	contentType := pluginregistry.NormalizeContentType(c.Query("content_type"))
+	if pluginCode == "all" {
+		pluginCode = ""
+	}
 	if !s.svc.ValidateSite(site) || !s.svc.ValidateBoard(board) {
 		fail(c, http.StatusBadRequest, "筛选参数不合法")
 		return
 	}
 	posts := s.svc.AdminTopics(site, board, q)
-	if contentType != "" && contentType != "all" {
+	if pluginCode != "" || (contentType != "" && contentType != "all") {
 		filtered := make([]domain.Post, 0, len(posts))
 		for _, post := range posts {
-			if adminContentTypeByBoard(post.Board) == contentType {
-				filtered = append(filtered, post)
+			postContentType := pluginregistry.NormalizeContentType(firstNonEmpty(post.ContentType, adminContentTypeByBoard(post.Board)))
+			postPluginCode := strings.TrimSpace(firstNonEmpty(post.PluginCode, pluginregistry.PluginCodeForContentType(postContentType)))
+			if contentType != "" && contentType != "all" && postContentType != contentType {
+				continue
 			}
+			if pluginCode != "" && postPluginCode != pluginCode {
+				continue
+			}
+			post.ContentType = postContentType
+			post.PluginCode = postPluginCode
+			filtered = append(filtered, post)
 		}
 		posts = filtered
 	}
@@ -3981,6 +3993,12 @@ func (s *Server) batchAdminTopics(c *gin.Context) {
 		}
 		if !item.OK {
 			result.Failed++
+			if topic != nil {
+				s.auditPluginContentAction(c, "批量治理主题", topic, fmt.Sprintf("batch:%s", action),
+					gin.H{"action": action},
+					gin.H{"ok": false, "error": item.Error},
+					gin.H{"batch": true, "note": req.Note})
+			}
 		}
 		result.Items = append(result.Items, item)
 	}
@@ -4718,6 +4736,12 @@ func (s *Server) applyBatchTopicAction(id int64, topic *domain.Topic, action str
 		return err
 	case "restore":
 		_, err := s.svc.SetTopicStatus(id, 1)
+		return err
+	case "approve":
+		_, err := s.svc.SetTopicStatus(id, 1)
+		return err
+	case "reject":
+		_, err := s.svc.SetTopicStatus(id, 0)
 		return err
 	case "lock-comments":
 		_, err := s.svc.SetTopicCommentLocked(id, true)
@@ -6201,6 +6225,8 @@ func topicToAdminPost(topic domain.Topic) domain.Post {
 		UserID:        topic.UserID,
 		Site:          site,
 		Board:         board,
+		PluginCode:    topic.PluginCode,
+		ContentType:   topic.ContentType,
 		Title:         topic.Title,
 		Summary:       topic.Summary,
 		Content:       topic.Content,

@@ -8,6 +8,7 @@ import (
 	"os"
 	"testing"
 
+	"devhub-gin-backend/internal/domain"
 	"devhub-gin-backend/internal/service"
 	"devhub-gin-backend/internal/store"
 )
@@ -698,6 +699,58 @@ func TestAdminEndpointRequiresToken(t *testing.T) {
 
 	if w.Code != http.StatusUnauthorized {
 		t.Fatalf("expected 401, got %d: %s", w.Code, w.Body.String())
+	}
+}
+
+func TestAdminPostsFiltersByPluginCodeAndContentType(t *testing.T) {
+	router := NewRouter(service.New(store.NewMemoryStore()))
+	token := adminToken(t, router)
+
+	getPosts := func(path string) struct {
+		Items []domain.Post `json:"items"`
+		Total int           `json:"total"`
+	} {
+		t.Helper()
+		req := httptest.NewRequest(http.MethodGet, path, nil)
+		req.Header.Set("Authorization", "Bearer "+token)
+		w := httptest.NewRecorder()
+		router.ServeHTTP(w, req)
+		if w.Code != http.StatusOK {
+			t.Fatalf("expected 200 for %s, got %d: %s", path, w.Code, w.Body.String())
+		}
+		var resp struct {
+			Items []domain.Post `json:"items"`
+			Total int           `json:"total"`
+		}
+		if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
+			t.Fatalf("decode %s: %v body=%s", path, err, w.Body.String())
+		}
+		return resp
+	}
+
+	qa := getPosts("/api/v1/admin/posts?site=portal&board=all&plugin_code=qa&content_type=question&page_size=1000")
+	if qa.Total == 0 || len(qa.Items) == 0 {
+		t.Fatalf("expected qa question rows, got total=%d items=%d", qa.Total, len(qa.Items))
+	}
+	for _, post := range qa.Items {
+		if post.PluginCode != "qa" || post.ContentType != "question" {
+			t.Fatalf("expected only qa/question rows, got id=%d plugin_code=%q content_type=%q title=%q", post.ID, post.PluginCode, post.ContentType, post.Title)
+		}
+	}
+
+	docs := getPosts("/api/v1/admin/posts?site=portal&board=all&plugin_code=docs&content_type=document&page_size=1000")
+	if docs.Total == 0 || len(docs.Items) == 0 {
+		t.Fatalf("expected docs document rows, got total=%d items=%d", docs.Total, len(docs.Items))
+	}
+	for _, post := range docs.Items {
+		if post.PluginCode != "docs" || post.ContentType != "document" {
+			t.Fatalf("expected only docs/document rows, got id=%d plugin_code=%q content_type=%q title=%q", post.ID, post.PluginCode, post.ContentType, post.Title)
+		}
+	}
+
+	mismatch := getPosts("/api/v1/admin/posts?site=portal&board=all&plugin_code=qa&content_type=document&page_size=1000")
+	if mismatch.Total != 0 || len(mismatch.Items) != 0 {
+		t.Fatalf("expected no rows for mismatched qa/document filter, got total=%d items=%d first=%#v", mismatch.Total, len(mismatch.Items), mismatch.Items)
 	}
 }
 

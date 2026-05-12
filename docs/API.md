@@ -459,7 +459,7 @@
   - `page`、`page_size`：分页参数。
 - 返回：`domain.PageResponse`，items 为 `AdminLog`，包含 `old_value`、`new_value`、`metadata_json`。
 - 覆盖范围：插件启停、插件配置、子站插件配置、子站插件排序、Hook 失败审计，以及带 `plugin_code` 的插件内容治理操作。
-- 阶段 B 后台联动：通用 PluginContent 页的“查看审计日志”入口会跳转到 `/admin-next/audit-logs`，并通过 query 预填 `action=批量治理主题`、`target_type=topic`、`metadata=<plugin_code>`；通用审计页会读取这些 query 并带入 `/api/v1/admin/audit-logs` 查询。
+- 阶段 B / v1.4 后台联动：通用 PluginContent 页的“查看审计日志”入口会跳转到 `/admin-next/audit-logs`，并通过 query 预填 `plugin_code`、`content_type`、`action=批量治理主题`、`target_type=topics`、`metadata=<plugin_code>`；通用审计页会读取这些 query 并带入 `/api/v1/admin/audit-logs` 查询。
 
 响应示例：
 
@@ -767,6 +767,20 @@
 
 说明：`admin/posts` 是后台兼容入口，不是绕过插件体系的独立写入口。`post.create` 只是第一层兼容基础权限，真实内容类型权限由插件权限码决定。
 
+`GET /api/v1/admin/posts`
+
+- 认证：后台 admin token。
+- 用途：后台内容治理列表和通用 `PluginContent` 插件内容治理页。
+- 主要筛选：
+  - `site`：子站 slug；`portal` 表示全局视角。
+  - `board`：板块；`all` 表示不限板块。
+  - `q`：标题 / 摘要 / 正文关键词。
+  - `status`：`all`、`publish`、`offline`、`pinned`、`recommended` 等。
+  - `content_type`：归一后的内容类型，如 `question`、`document`、`wiki_page`。
+  - `plugin_code`：插件编码，如 `qa`、`docs`、`wiki`。
+- 插件内容页必须同时传 `plugin_code` 和 `content_type`，后端按 AND 精确过滤，避免前端用 OR 兜底混入其他插件内容。
+- 返回行会带上 `plugin_code` 和 `content_type`；历史数据缺失时由后端按板块 / 内容类型做防御性归一。
+
 `PUT /api/v1/admin/posts/:id`
 
 - 认证：后台 admin token。
@@ -1038,9 +1052,9 @@ GET  /api/v1/moderator/plugin-menus
 }
 ```
 
-- 当前支持动作：`feature`、`unfeature`、`pin`、`unpin`、`hide`、`restore`、`lock-comments`、`unlock-comments`、`delete`。
-- 阶段 B UI 使用范围：PluginContent 当前只接入 `hide` / `restore` 最小闭环。
-- 审计：对插件内容会写入带 `plugin_code` / `content_type` / `community_id` / `category_id` / `content_id` 的插件内容治理审计；同时保留批量治理摘要审计。
+- 当前支持动作：`feature`、`unfeature`、`pin`、`unpin`、`hide`、`restore`、`approve`、`reject`、`lock-comments`、`unlock-comments`、`delete`。
+- PluginContent UI 当前接入 `hide` / `restore`、`approve` / `reject`、`pin` / `unpin`、`feature` / `unfeature`。
+- 审计：对插件内容会写入带 `plugin_code` / `content_type` / `community_id` / `category_id` / `content_id` / `operation` 的插件内容治理审计；成功和失败单项都会保留结构化插件审计，同时保留批量治理摘要审计。
 - 常见错误：单条内容无权治理时，该条返回 `error`，不会伪造成成功。
 
 版主工作台：

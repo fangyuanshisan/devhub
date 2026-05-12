@@ -2,8 +2,12 @@
 
 ## Next
 
-Current `VERSION` remains `v1.3.4`, while the working tree now contains the `v1.3.5` plugin-governance experience work. The next focus is closing release hygiene: verify the implemented plugin center, install / upgrade wizards, bulk archive / restore previews, status-governance view, PluginContent alignment, skipped E2E rationale, and version-cutover docs.
+Current `VERSION` is `v1.4.0`. This cuts the plugin-content governance enhancement work into the current release line; remaining frontend verification requires a Node/npm environment.
 
+- Began `v1.4.0` plugin-content governance enhancement work: `GET /api/v1/admin/posts` now supports precise `plugin_code + content_type` filtering and returns plugin ownership fields for admin post rows.
+- Upgraded `PluginContent` into a fuller governance page with plugin name/code/status/health/type-count header, disabled/archived history notices, aligned filter/batch layout, result details, audit jump query metadata, and recent-governance entry from the detail drawer.
+- Expanded PluginContent batch governance from hide/restore to approve/reject, pin/unpin, and feature/unfeature while keeping structured plugin audit metadata.
+- Added minimal PluginContent E2E coverage for archived-history governance, precise plugin filtering, hide/restore regression, and a batch pin/unpin chain.
 - Reorganized the documentation system so `docs/README.md` is the canonical entry point, `docs/PROJECT_PROGRESS.md` holds current state, `docs/PLUGIN_SYSTEM_ROADMAP.md` holds long-term and next-version plugin goals, and historical task material is archived under `docs/archive/`.
 - Added `docs/releases/v1.3.5.md` as the next-stage draft for plugin-governance UI and install / upgrade wizard closure.
 - Archived the old root `更新.md` product task document into `docs/archive/2026-05-09-product-requirements.md`; it is no longer a current acceptance source.

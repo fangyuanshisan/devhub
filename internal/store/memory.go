@@ -2914,6 +2914,7 @@ func (s *MemoryStore) AdminTopics(site, board, q string) []domain.Post {
 		cp := *p
 		cp.Tags = append([]string(nil), p.Tags...)
 		cp.CommentLocked = s.commentLocks[p.ID]
+		hydrateAdminPostPluginFields(&cp)
 		if !memoryPostVisible(p) {
 			cp.Status = "offline"
 		}
@@ -3335,6 +3336,20 @@ func contentTypeForBoard(board string) string {
 		return "document"
 	default:
 		return "article"
+	}
+}
+
+func hydrateAdminPostPluginFields(p *domain.Post) {
+	if p == nil {
+		return
+	}
+	p.ContentType = pluginregistry.NormalizeContentType(strings.TrimSpace(p.ContentType))
+	if p.ContentType == "" {
+		p.ContentType = contentTypeForBoard(p.Board)
+	}
+	p.PluginCode = strings.TrimSpace(p.PluginCode)
+	if p.PluginCode == "" {
+		p.PluginCode = pluginregistry.PluginCodeForContentType(p.ContentType)
 	}
 }
 

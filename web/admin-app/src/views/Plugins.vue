@@ -1060,7 +1060,7 @@ async function impactLines(row) {
 
 function canOpen(row) {
   const target = adminMenu(row)?.path;
-  return Boolean(target && (row.status === 'enabled' || row.status === 'archived') && hasPermission(row));
+  return Boolean(target && ['enabled', 'disabled', 'archived'].includes(row.status) && hasPermission(row));
 }
 
 function hasPermission(row) {
