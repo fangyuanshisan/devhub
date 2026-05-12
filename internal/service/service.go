@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"sort"
 	"strings"
 	"time"
 
@@ -33,6 +34,7 @@ type Repository interface {
 	UpdateBoard(key string, req domain.Board) (domain.Board, bool)
 	Plugins() []domain.Plugin
 	PluginByCode(code string) (domain.Plugin, bool)
+	SavePlugin(plugin domain.Plugin) (domain.Plugin, error)
 	SetPluginStatus(code, status string) (domain.Plugin, error)
 	SetPluginConfig(code, configJSON string) (domain.Plugin, error)
 	PluginImpact(code string) (domain.PluginImpact, error)
@@ -578,10 +580,11 @@ func (s *Service) ValidateTopicPluginAccess(communityID, categoryID int64, conte
 	if contentType == "" {
 		return "", "", errors.New("内容类型不能为空")
 	}
-	if !pluginregistry.ValidContentType(contentType) {
+	def, ok := s.contentTypeDefinitionByType(contentType)
+	if !ok {
 		return "", "", errors.New("内容类型不合法")
 	}
-	pluginCode := pluginregistry.PluginCodeForContentType(contentType)
+	pluginCode := firstNonEmpty(def.PluginCode, pluginregistry.PluginCodeForContentType(contentType))
 	if pluginCode != pluginregistry.CoreCode {
 		plugin, ok := s.PluginByCode(pluginCode)
 		if !ok || plugin.Code == "" {
@@ -607,7 +610,7 @@ func (s *Service) ValidateTopicPluginAccess(communityID, categoryID int64, conte
 			return "", "", errors.New("板块不存在")
 		}
 		categoryType := pluginregistry.NormalizeContentType(firstNonEmpty(category.ContentType, category.Type))
-		expectedPlugin := firstNonEmpty(category.PluginCode, pluginregistry.PluginCodeForContentType(categoryType))
+		expectedPlugin := firstNonEmpty(category.PluginCode, s.pluginCodeForContentType(categoryType))
 		if expectedPlugin != pluginCode {
 			return "", "", errors.New("当前板块未绑定对应插件")
 		}
@@ -616,6 +619,76 @@ func (s *Service) ValidateTopicPluginAccess(communityID, categoryID int64, conte
 		}
 	}
 	return contentType, pluginCode, nil
+}
+
+func (s *Service) contentTypeDefinitionByType(contentType string) (domain.ContentTypeDefinition, bool) {
+	contentType = pluginregistry.NormalizeContentType(strings.TrimSpace(contentType))
+	if contentType == "" {
+		return domain.ContentTypeDefinition{}, false
+	}
+	if def, ok := pluginregistry.ContentTypeDefinitionByType(contentType); ok {
+		return def, true
+	}
+	for _, plugin := range s.repo.Plugins() {
+		for _, def := range plugin.ContentTypeDefs {
+			if pluginregistry.NormalizeContentType(def.Type) == contentType {
+				if def.PluginCode == "" {
+					def.PluginCode = plugin.Code
+				}
+				return def, true
+			}
+			for _, alias := range def.Aliases {
+				if pluginregistry.NormalizeContentType(alias) == contentType {
+					if def.PluginCode == "" {
+						def.PluginCode = plugin.Code
+					}
+					def.Type = pluginregistry.NormalizeContentType(def.Type)
+					return def, true
+				}
+			}
+		}
+		for _, typ := range plugin.ContentTypes {
+			if pluginregistry.NormalizeContentType(typ) == contentType {
+				return domain.ContentTypeDefinition{
+					Type:             contentType,
+					Name:             contentType,
+					PluginCode:       plugin.Code,
+					CreatePermission: firstNonEmpty(permissionByPrefix(plugin.Permissions, plugin.Code, "create"), plugin.Code+"."+contentType+".create"),
+					AllowComment:     true,
+					AllowLike:        true,
+					AllowFavorite:    true,
+				}, true
+			}
+		}
+	}
+	return domain.ContentTypeDefinition{}, false
+}
+
+func permissionByPrefix(perms []domain.PermissionDefinition, pluginCode, suffix string) string {
+	for _, perm := range perms {
+		code := strings.TrimSpace(perm.Code)
+		if code == "" {
+			continue
+		}
+		if strings.HasPrefix(code, pluginCode+".") && strings.HasSuffix(code, "."+suffix) {
+			return code
+		}
+	}
+	return ""
+}
+
+func (s *Service) pluginCodeForContentType(contentType string) string {
+	if def, ok := s.contentTypeDefinitionByType(contentType); ok {
+		return firstNonEmpty(def.PluginCode, pluginregistry.CoreCode)
+	}
+	return pluginregistry.PluginCodeForContentType(contentType)
+}
+
+func (s *Service) createPermissionForContentType(contentType, pluginCode string) string {
+	if def, ok := s.contentTypeDefinitionByType(contentType); ok && strings.TrimSpace(def.CreatePermission) != "" {
+		return strings.TrimSpace(def.CreatePermission)
+	}
+	return requiredCreatePermission(contentType, pluginCode)
 }
 
 func firstNonEmpty(items ...string) string {
@@ -689,6 +762,282 @@ func firstNonBlank(values ...string) string {
 	return ""
 }
 
+// ValidatePluginManifestJSON validates an external manifest/config-only plugin
+// package without installing it or executing any third-party code.
+func (s *Service) ValidatePluginManifestJSON(raw []byte) (domain.PluginManifestValidationResult, error) {
+	result := pluginregistry.ValidatePluginManifestJSON(raw, s.repo.Plugins(), currentCoreVersion())
+	return result, nil
+}
+
+// InstallPluginManifest installs the safe manifest + configuration plugin
+// metadata. It never executes plugin code or raw SQL.
+func (s *Service) InstallPluginManifest(raw []byte) (domain.Plugin, domain.PluginManifestValidationResult, error) {
+	result, err := s.ValidatePluginManifestJSON(raw)
+	if err != nil {
+		return domain.Plugin{}, result, err
+	}
+	if !result.Valid {
+		return domain.Plugin{}, result, errors.New("manifest 校验失败")
+	}
+	manifest := result.NormalizedManifest
+	manifest.IsSystem = false
+	manifest.Status = pluginregistry.StatusDisabled
+	manifest.SourceType = firstNonBlank(manifest.SourceType, "manifest")
+	manifestJSON, _ := json.Marshal(manifest)
+	plugin := domain.Plugin{
+		PluginManifest:        manifest,
+		Status:                pluginregistry.StatusDisabled,
+		SourceType:            manifest.SourceType,
+		ManifestJSON:          string(manifestJSON),
+		ManifestChecksum:      result.Checksum,
+		CompatibleCoreVersion: firstNonBlank(manifest.CompatibleCoreVersion, manifest.MinCoreVersion),
+	}
+	if len(manifest.Dependencies) > 0 {
+		for _, dep := range manifest.Dependencies {
+			if !s.IsPluginEnabled(dep) {
+				plugin.Status = pluginregistry.StatusDependencyMissing
+				break
+			}
+		}
+	}
+	saved, err := s.repo.SavePlugin(plugin)
+	if err != nil {
+		return domain.Plugin{}, result, err
+	}
+	for _, migration := range manifest.Migrations {
+		record := migrationRecordFromDefinition(migration, "pending")
+		_, _ = s.repo.SavePluginMigration(record)
+	}
+	return saved, result, nil
+}
+
+func (s *Service) PluginUpgradeDryRun(code string, raw []byte) (domain.PluginUpgradeDryRunResult, error) {
+	current, ok := s.repo.PluginByCode(code)
+	if !ok {
+		return domain.PluginUpgradeDryRunResult{}, fmt.Errorf("插件不存在")
+	}
+	manifest, checksum, err := pluginregistry.DecodePluginManifestJSON(raw)
+	if err != nil {
+		return domain.PluginUpgradeDryRunResult{}, err
+	}
+	existing := make([]domain.Plugin, 0, len(s.repo.Plugins()))
+	for _, item := range s.repo.Plugins() {
+		if item.Code == code {
+			continue
+		}
+		existing = append(existing, item)
+	}
+	validation := pluginregistry.ValidatePluginManifest(manifest, existing, currentCoreVersion())
+	validation.Checksum = checksum
+	normalizedManifest := validation.NormalizedManifest
+	if normalizedManifest.Code != code {
+		validation.Valid = false
+		validation.Errors = append(validation.Errors, fmt.Sprintf("升级预览的 manifest code 必须为 %s", code))
+	}
+	compatibility := "unknown"
+	if validation.Valid {
+		if pluginregistry.CompareVersionStrings(normalizedManifest.Version, current.Version) > 0 {
+			compatibility = "compatible"
+		} else {
+			compatibility = "incompatible"
+			validation.Warnings = append(validation.Warnings, "新版本号未高于当前版本")
+		}
+	}
+	currentManifest := current.PluginManifest
+	changedKeys := topLevelDiffKeys(normalizedManifest, currentManifest)
+	diff := map[string]any{
+		"current": map[string]any{
+			"version":                 current.Version,
+			"compatible_core_version": current.CompatibleCoreVersion,
+			"content_types":           current.ContentTypes,
+			"permissions":             current.Permissions,
+			"menus":                   current.Menus,
+			"routes":                  current.Routes,
+			"hooks":                   current.Hooks,
+			"migrations":              current.Migrations,
+		},
+		"new": map[string]any{
+			"version":                 normalizedManifest.Version,
+			"compatible_core_version": normalizedManifest.CompatibleCoreVersion,
+			"content_types":           normalizedManifest.ContentTypes,
+			"permissions":             normalizedManifest.Permissions,
+			"menus":                   normalizedManifest.Menus,
+			"routes":                  normalizedManifest.Routes,
+			"hooks":                   normalizedManifest.Hooks,
+			"migrations":              normalizedManifest.Migrations,
+		},
+	}
+	return domain.PluginUpgradeDryRunResult{
+		PluginCode:            code,
+		CurrentVersion:        current.Version,
+		NewVersion:            normalizedManifest.Version,
+		CurrentCoreVersion:    currentCoreVersion(),
+		CompatibleCoreVersion: normalizedManifest.CompatibleCoreVersion,
+		CompatibilityStatus:   compatibility,
+		ChangedKeys:           changedKeys,
+		Diff:                  diff,
+		Validation:            validation,
+	}, nil
+}
+
+func (s *Service) UpgradePluginManifest(code string, raw []byte) (domain.PluginUpgradeResult, error) {
+	current, ok := s.repo.PluginByCode(code)
+	if !ok || current.Code == "" {
+		return domain.PluginUpgradeResult{}, fmt.Errorf("插件不存在")
+	}
+	if strings.TrimSpace(current.Status) == pluginregistry.StatusArchived {
+		return domain.PluginUpgradeResult{}, fmt.Errorf("插件已归档，请先恢复后再升级")
+	}
+	preview, err := s.PluginUpgradeDryRun(code, raw)
+	if err != nil {
+		return domain.PluginUpgradeResult{}, err
+	}
+	if !preview.Validation.Valid {
+		return domain.PluginUpgradeResult{}, errors.New("manifest 校验失败")
+	}
+	if preview.CompatibilityStatus != "compatible" {
+		return domain.PluginUpgradeResult{}, errors.New("升级版本不兼容或版本号未提升")
+	}
+	for _, item := range current.Migrations {
+		_ = item
+	}
+	records, err := s.repo.PluginMigrations(code)
+	if err != nil {
+		return domain.PluginUpgradeResult{}, fmt.Errorf("读取插件迁移失败：%w", err)
+	}
+	for _, item := range records {
+		if strings.TrimSpace(item.Status) == "failed" {
+			return domain.PluginUpgradeResult{}, fmt.Errorf("插件存在失败迁移 %s，请先重试或处理迁移错误", item.MigrationName)
+		}
+	}
+	manifest := preview.Validation.NormalizedManifest
+	manifest.IsSystem = current.IsSystem
+	manifest.Status = current.Status
+	manifest.SourceType = firstNonBlank(manifest.SourceType, current.SourceType, "manifest")
+	manifestJSON, _ := json.Marshal(manifest)
+	updated := current
+	updated.PluginManifest = manifest
+	updated.Name = manifest.Name
+	updated.Version = manifest.Version
+	updated.Description = manifest.Description
+	updated.SourceType = manifest.SourceType
+	updated.ManifestJSON = string(manifestJSON)
+	updated.ManifestChecksum = preview.Validation.Checksum
+	updated.CompatibleCoreVersion = firstNonBlank(manifest.CompatibleCoreVersion, manifest.MinCoreVersion, current.CompatibleCoreVersion)
+	updated.ContentTypes = manifest.ContentTypes
+	updated.ContentTypeDefs = manifest.ContentTypeDefs
+	updated.Permissions = manifest.Permissions
+	updated.Menus = manifest.Menus
+	updated.Routes = manifest.Routes
+	updated.ConfigSchema = manifest.ConfigSchema
+	updated.Dependencies = manifest.Dependencies
+	updated.MinCoreVersion = manifest.MinCoreVersion
+	updated.Hooks = manifest.Hooks
+	updated.Migrations = manifest.Migrations
+	updated.Assets = manifest.Assets
+	updated.ExternalService = manifest.ExternalService
+	updated.Status = s.nextPluginStatusAfterUpgrade(current.Status, updated)
+	saved, err := s.repo.SavePlugin(updated)
+	if err != nil {
+		return domain.PluginUpgradeResult{}, err
+	}
+	for _, migration := range manifest.Migrations {
+		record := migrationRecordFromDefinition(migration, "pending")
+		_, _ = s.repo.SavePluginMigration(record)
+	}
+	return domain.PluginUpgradeResult{
+		Plugin:                    saved,
+		PluginUpgradeDryRunResult: preview,
+	}, nil
+}
+
+func (s *Service) nextPluginStatusAfterUpgrade(currentStatus string, plugin domain.Plugin) string {
+	currentStatus = strings.TrimSpace(currentStatus)
+	if currentStatus == pluginregistry.StatusArchived {
+		return currentStatus
+	}
+	if err := pluginregistry.ValidateConfigJSON(plugin, plugin.ConfigJSON); err != nil {
+		return pluginregistry.StatusConfigInvalid
+	}
+	for _, dep := range plugin.Dependencies {
+		dep = strings.TrimSpace(dep)
+		if dep == "" {
+			continue
+		}
+		if !s.IsPluginEnabled(dep) {
+			return pluginregistry.StatusDependencyMissing
+		}
+	}
+	switch currentStatus {
+	case pluginregistry.StatusEnabled, pluginregistry.StatusDisabled:
+		return currentStatus
+	case pluginregistry.StatusConfigInvalid, pluginregistry.StatusDependencyMissing, pluginregistry.StatusInstalled, pluginregistry.StatusDiscovered, pluginregistry.StatusMigrated, pluginregistry.StatusConfigured, pluginregistry.StatusRunning, pluginregistry.StatusMigrationPending, pluginregistry.StatusMigrationFailed:
+		return pluginregistry.StatusDisabled
+	default:
+		if currentStatus == "" {
+			return pluginregistry.StatusDisabled
+		}
+		return currentStatus
+	}
+}
+
+func (s *Service) BulkArchivePlugins(codes []string) domain.PluginBulkOperationResult {
+	result := domain.PluginBulkOperationResult{}
+	for _, code := range codes {
+		code = strings.TrimSpace(code)
+		if code == "" {
+			continue
+		}
+		plugin, err := s.ArchivePlugin(code)
+		if err != nil {
+			result.Failed = append(result.Failed, domain.PluginBulkItemResult{PluginCode: code, Error: err.Error()})
+			continue
+		}
+		result.Succeeded = append(result.Succeeded, domain.PluginBulkItemResult{PluginCode: plugin.Code, Status: plugin.Status})
+	}
+	return result
+}
+
+func (s *Service) BulkRestorePlugins(codes []string) domain.PluginBulkOperationResult {
+	result := domain.PluginBulkOperationResult{}
+	for _, code := range codes {
+		code = strings.TrimSpace(code)
+		if code == "" {
+			continue
+		}
+		plugin, err := s.RestorePlugin(code)
+		if err != nil {
+			result.Failed = append(result.Failed, domain.PluginBulkItemResult{PluginCode: code, Error: err.Error()})
+			continue
+		}
+		result.Succeeded = append(result.Succeeded, domain.PluginBulkItemResult{PluginCode: plugin.Code, Status: plugin.Status})
+	}
+	return result
+}
+
+func topLevelDiffKeys(newManifest, currentManifest domain.PluginManifest) []string {
+	keys := []string{}
+	appendIfDiff := func(key string, a, b any) {
+		if fmt.Sprintf("%v", a) != fmt.Sprintf("%v", b) {
+			keys = append(keys, key)
+		}
+	}
+	appendIfDiff("version", newManifest.Version, currentManifest.Version)
+	appendIfDiff("compatible_core_version", newManifest.CompatibleCoreVersion, currentManifest.CompatibleCoreVersion)
+	appendIfDiff("content_types", len(newManifest.ContentTypes), len(currentManifest.ContentTypes))
+	appendIfDiff("permissions", len(newManifest.Permissions), len(currentManifest.Permissions))
+	appendIfDiff("menus", len(newManifest.Menus), len(currentManifest.Menus))
+	appendIfDiff("routes", len(newManifest.Routes), len(currentManifest.Routes))
+	appendIfDiff("hooks", len(newManifest.Hooks), len(currentManifest.Hooks))
+	appendIfDiff("migrations", len(newManifest.Migrations), len(currentManifest.Migrations))
+	sort.Strings(keys)
+	return keys
+}
+
+func currentCoreVersion() string {
+	return "v1.3.4"
+}
+
 // SetPluginStatus 更新插件状态。
 func (s *Service) SetPluginStatus(code, status string) (domain.Plugin, error) {
 	code = strings.TrimSpace(code)
@@ -730,6 +1079,9 @@ func (s *Service) validatePluginEnableReadiness(code string) error {
 	plugin, ok := s.repo.PluginByCode(code)
 	if !ok || plugin.Code == "" {
 		return errors.New("插件不存在")
+	}
+	if strings.TrimSpace(plugin.InstallStatus) == pluginregistry.StatusDiscovered {
+		return errors.New("插件尚未安装，不能启用")
 	}
 	switch strings.TrimSpace(plugin.Status) {
 	case pluginregistry.StatusDiscovered:
@@ -1109,14 +1461,21 @@ func (s *Service) PluginHealth(code string) (domain.PluginHealth, error) {
 	if err == nil {
 		for _, stat := range stats {
 			health.HookFailureCount += stat.FailureCount
+			if stat.Blocking && stat.FailureCount > 0 {
+				health.HookStatus = "hook_error"
+			} else if stat.FailureCount > 0 && health.HookStatus != "hook_error" {
+				health.HookStatus = "hook_warning"
+			}
 			if stat.LastError != "" {
 				health.LastHookError = stat.LastError
 				health.RecentError = stat.LastError
 			}
 		}
 		if health.HookFailureCount > 0 {
-			health.HookStatus = "hook_warning"
-			hookStatus := "hook_warning"
+			hookStatus := health.HookStatus
+			if hookStatus == "" {
+				hookStatus = "hook_warning"
+			}
 			if health.HookFailureCount >= 3 {
 				hookStatus = "hook_error"
 				health.HookStatus = "hook_error"
@@ -1130,6 +1489,12 @@ func (s *Service) PluginHealth(code string) (domain.PluginHealth, error) {
 	}
 
 	return health, nil
+}
+
+// ContentTypeCreatePermission resolves a content type create permission using
+// both built-in registry definitions and installed manifest plugins.
+func (s *Service) ContentTypeCreatePermission(contentType, pluginCode string) string {
+	return s.createPermissionForContentType(contentType, pluginCode)
 }
 
 // ListPosts 按站点、板块、关键词和标签筛选帖子列表。
@@ -1452,7 +1817,7 @@ func (s *Service) CreateTopic(req domain.CreateTopicRequest) (*domain.Topic, err
 		req.ActorPermissions = append([]string{}, req.ActorContext.Permissions...)
 	}
 
-	if perm := requiredCreatePermission(normalizedType, pluginCode); perm != "" {
+	if perm := s.createPermissionForContentType(normalizedType, pluginCode); perm != "" {
 		if !hasPermission(req.ActorPermissions, perm) {
 			return nil, fmt.Errorf("缺少权限 %s，不能创建该类型内容", perm)
 		}

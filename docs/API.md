@@ -89,6 +89,44 @@
 
 说明：`health.status_reason` 会返回当前主要状态原因，供后台运行状态 Tab 展示。该健康摘要是轻量治理提示，不是完整监控系统。
 
+`GET /api/v1/admin/plugins/health`
+
+- 认证：后台 admin token。
+- 权限：`plugin.read`。
+- 用途：插件治理中心健康总览。
+- 返回：`items` 为全部插件的 `PluginHealth` 摘要，`summary` 为按状态聚合的计数。
+- 计数口径：当前包含 `healthy`、`warning`、`error`、`disabled`、`migration_pending`、`config_invalid`、`dependency_missing`、`hook_warning`、`hook_error`、`archived`。这是轻量治理摘要，不是监控告警系统。
+
+响应示例：
+
+```json
+{
+  "items": [
+    {
+      "plugin_code": "qa",
+      "status": "healthy",
+      "status_reason": "无需处理",
+      "config_status": "valid",
+      "migration_status": "ok",
+      "hook_status": "ok",
+      "dependency_status": "ok"
+    }
+  ],
+  "summary": {
+    "healthy": 6,
+    "archived": 0,
+    "hook_error": 0
+  }
+}
+```
+
+`GET /api/v1/admin/plugins/:code/health`
+
+- 认证：后台 admin token。
+- 权限：`plugin.read`。
+- 用途：查询单个插件的健康摘要。
+- 返回：单个 `PluginHealth` 对象，字段同 `GET /api/v1/admin/plugins` 中的 `health`。
+
 `POST /api/v1/admin/plugins/:code/enable`
 
 - 认证：后台 admin token。
@@ -134,6 +172,57 @@
 - 常见错误：存在 failed migration 时返回 `400 {"error":"插件存在失败迁移 ... 请先重试或处理迁移错误"}`。
 - 审计：成功写入 `plugin.restored`；失败写入 `plugin.restore.failed`。
 
+`POST /api/v1/admin/plugins/bulk-archive`
+
+- 认证：后台 admin token。
+- 权限：`plugin.write`。
+- 用途：批量软卸载 / 归档插件。该接口不删除内容、配置、迁移记录或审计记录。
+- 请求：
+
+```json
+{
+  "plugin_codes": ["qa", "docs"]
+}
+```
+
+- 返回：逐项结果，单个插件失败不会吞掉其他插件结果。
+
+```json
+{
+  "succeeded": [
+    {
+      "plugin_code": "qa",
+      "status": "archived"
+    }
+  ],
+  "failed": [
+    {
+      "plugin_code": "docs",
+      "error": "插件已归档"
+    }
+  ]
+}
+```
+
+- 审计：成功项写入 `plugin.archived`，失败项写入 `plugin.archive.failed`。
+- 边界：当前仅支持软卸载 / 归档，不支持硬卸载和删除数据。
+
+`POST /api/v1/admin/plugins/bulk-restore`
+
+- 认证：后台 admin token。
+- 权限：`plugin.write`。
+- 用途：批量恢复已归档插件。
+- 请求：
+
+```json
+{
+  "plugin_codes": ["qa", "docs"]
+}
+```
+
+- 返回：逐项结果；恢复成功后插件进入 `disabled`，不会自动 enabled。
+- 审计：成功项写入 `plugin.restored`，失败项写入 `plugin.restore.failed`。
+
 `PUT /api/v1/admin/plugins/:code/config`
 
 - 认证：后台 admin token。
@@ -153,6 +242,61 @@
 - 审计：写入插件全局配置审计日志。
   当前同时写入 `admin_logs.target` 文本摘要和 `old_value` / `new_value` / `metadata_json` 结构化字段；`metadata_json.changed_keys` 记录本次变更的顶层配置键。
 - 清空：提交 `{"config_json": null}` 或空配置会清空全局覆盖配置，并同样写入配置审计。
+
+`POST /api/v1/admin/plugins/manifest/validate`
+
+- 认证：后台 admin token。
+- 权限：`plugin.write`。
+- 用途：校验 manifest JSON 是否符合插件平台契约。
+- 请求体：manifest JSON，或 `{"manifest": {...}}` 包装体。
+- 返回：`valid`、`errors`、`warnings`、`impact_summary`、`normalized_manifest`、`checksum`、`dependencies`、`content_type_conflicts`、`permission_conflicts`、`migration_plan`、`install_preview`。
+
+`POST /api/v1/admin/plugins/dry-run`
+
+- 认证：后台 admin token。
+- 权限：`plugin.write`。
+- 用途：对 manifest 做安装前 dry-run，校验冲突、依赖和影响分析，不写入插件记录。
+- 返回：与 manifest validate 一致的结果视图。
+
+`POST /api/v1/admin/plugins/install`
+
+- 认证：后台 admin token。
+- 权限：`plugin.write`。
+- 用途：安装 manifest + 配置型插件。
+- 行为：写入插件记录、默认配置、迁移待处理记录和审计，但不执行第三方代码。
+- 初始状态：`install_status=installed`、`runtime_status=disabled`。
+
+`POST /api/v1/admin/plugins/:code/upgrade/dry-run`
+
+- 认证：后台 admin token。
+- 权限：`plugin.write`。
+- 用途：对现有插件做升级预览，返回版本兼容矩阵、变更字段和 diff，不写入插件记录。
+- 请求体：manifest JSON，要求 `code` 与路径中的 `:code` 一致。
+- 返回：
+  - `current_version`
+  - `new_version`
+  - `current_core_version`
+  - `compatible_core_version`
+  - `compatibility_status`
+  - `changed_keys`
+  - `diff.current`
+  - `diff.new`
+  - `validation`
+
+`POST /api/v1/admin/plugins/:code/upgrade`
+
+- 认证：后台 admin token。
+- 权限：`plugin.write`。
+- 用途：执行 manifest + 配置型插件的安全升级。
+- 请求体：manifest JSON，要求 `code` 与路径中的 `:code` 一致，且 `version` 必须高于当前版本。
+- 行为：
+  - 校验 manifest。
+  - 校验版本兼容性。
+  - 更新插件 manifest / version / checksum / 声明元信息。
+  - 为新增 migration 生成 `pending` 记录。
+  - 保留历史配置、迁移记录和审计记录。
+  - 不执行第三方代码，不执行外部 raw SQL。
+- 返回：升级后的 `plugin` 对象，以及升级时使用的兼容矩阵 / diff / validation 摘要。
 
 常见错误：
 
@@ -670,7 +814,12 @@
 - 插件配置：全局与子站配置 API 保存时会做 JSON 合法性校验和简化 `config_schema` 校验，返回 `resolved_config`。
 - 插件审计：插件启停、配置和排序操作写入 `old_value`、`new_value`、`metadata_json`。
 - 插件健康：`GET /api/v1/admin/plugins` 返回轻量 `health` 摘要；插件详情可通过“运行状态”Tab 查看配置、迁移、Hook、依赖和最近错误。
+- 插件健康 API：`GET /api/v1/admin/plugins/health` 返回健康总览，`GET /api/v1/admin/plugins/:code/health` 返回单插件健康摘要。
 - 插件迁移：`plugin_migrations` 记录表、内置 migration 声明、迁移查询 API、执行 / 重试 API、迁移审计和后台迁移 Tab 已完成第一阶段闭环。
+- Manifest 校验与 dry-run：`POST /api/v1/admin/plugins/manifest/validate` 和 `POST /api/v1/admin/plugins/dry-run` 可校验 manifest、冲突、依赖和安装影响，dry-run 不写入插件记录。
+- Manifest + 配置型插件安装：`POST /api/v1/admin/plugins/install` 可安装只包含声明、配置、权限、菜单、Hook 元信息和迁移计划的插件，初始状态为 installed + disabled，不执行第三方代码。
+- 升级预览：`POST /api/v1/admin/plugins/:code/upgrade/dry-run` 可返回现有插件与新 manifest 的版本兼容矩阵、变更字段和 diff，不执行真实升级；`POST /api/v1/admin/plugins/:code/upgrade` 已提供最小执行闭环，会更新插件 manifest / version / checksum 并保留历史数据。
+- 软卸载 / 归档 / 恢复：单个归档 / 恢复和批量归档 / 恢复 API 已提供最小闭环；归档不删除历史内容、配置、迁移记录或审计记录。
 
 部分完成：
 
@@ -678,11 +827,12 @@
 - HookBus：已有内部调度、调用点、`hook_executions` 执行记录、Hook 统计 API、失败审计和轻量健康摘要；尚未实现重试 API、告警系统或第三方动态 Hook。
 - 插件迁移：当前 runner 只支持内置插件 up/no-op 执行记录、失败记录和失败重试；不支持 migration down、真实 rollback、迁移前备份或外部插件迁移包。
 - 插件后台治理：已有列表、详情、配置、impact、审计、运行状态、迁移 Tab 和通用内容页；告警、重试策略和影响对象明细仍未完成。
+- 插件安装：当前已支持 manifest + 配置型插件的 dry-run、安装记录和升级执行最小闭环，但不支持插件包文件上传、远程市场、前端资产动态加载或第三方本地代码执行。
 
 预留 / 后续：
 
-- `discovered`、`migrated`、`configured`、`running`、`config_invalid`、`migration_pending`、`dependency_missing` 已是 `plugins.status` 可接受值；但完整自动状态机和独立健康治理 API 仍是后续能力。
-- 插件安装、卸载、升级、插件包上传、远程安装、市场、动态加载和沙箱均不是当前真实 API。
+- `discovered`、`migrated`、`configured`、`running`、`config_invalid`、`migration_pending`、`dependency_missing` 已是 `plugins.status` 可接受值；完整外部插件安装器状态机、自动迁移和告警仍需继续演进。
+- 外部服务型 Webhook、插件升级、插件包 zip dry-run、插件包签名、远程安装、市场、动态加载和沙箱均不是当前真实能力。
 
 下一阶段 API / 验收目标：
 
@@ -814,6 +964,36 @@ GET  /api/v1/admin/comments
 POST /api/v1/admin/comments/batch
 POST /api/v1/admin/topics/batch
 GET  /api/v1/admin/audit-logs
+GET  /api/v1/admin/plugins
+GET  /api/v1/admin/plugins/health
+GET  /api/v1/admin/plugins/:code/health
+POST /api/v1/admin/plugins/manifest/validate
+POST /api/v1/admin/plugins/dry-run
+POST /api/v1/admin/plugins/install
+POST /api/v1/admin/plugins/:code/upgrade/dry-run
+POST /api/v1/admin/plugins/:code/upgrade
+POST /api/v1/admin/plugins/:code/enable
+POST /api/v1/admin/plugins/:code/disable
+POST /api/v1/admin/plugins/:code/archive
+POST /api/v1/admin/plugins/:code/restore
+POST /api/v1/admin/plugins/bulk-archive
+POST /api/v1/admin/plugins/bulk-restore
+PUT  /api/v1/admin/plugins/:code/config
+GET  /api/v1/admin/plugins/:code/impact
+GET  /api/v1/admin/plugins/:code/hooks
+GET  /api/v1/admin/plugins/:code/audit-logs
+GET  /api/v1/admin/plugins/:code/migrations
+POST /api/v1/admin/plugins/:code/migrations/run
+POST /api/v1/admin/plugins/:code/migrations/:name/retry
+POST /api/v1/admin/plugins/:code/migrations/:name/e2e-fail
+GET  /api/v1/admin/communities/:id/plugins
+POST /api/v1/admin/communities/:id/plugins/:code/enable
+POST /api/v1/admin/communities/:id/plugins/:code/disable
+PUT  /api/v1/admin/communities/:id/plugins/:code/config
+PUT  /api/v1/admin/communities/:id/plugins/sort
+GET  /api/v1/admin/communities/:id/plugins/:code/impact
+GET  /api/v1/admin/plugin-menus
+GET  /api/v1/moderator/plugin-menus
 ```
 
 `GET /api/v1/admin/audit-logs` 返回的插件治理日志会包含结构化字段：

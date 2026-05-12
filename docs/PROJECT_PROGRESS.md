@@ -2157,3 +2157,171 @@ P1 规划边界：
 1. 将归档态前台导航入口矩阵扩展到 docs/wiki/projects/jobs/ai_works。
 2. 为 PluginContent 归档态补批量审核、置顶、加精策略，明确哪些操作允许、哪些只读。
 3. 结合 MySQLStore 做归档 / 恢复生产大库耗时与审计检索专项。
+
+### 2026-05-12：插件平台核心能力收口与文档口径统一
+
+修改范围：
+
+- 后端：`internal/domain/models.go`、`internal/plugins/registry.go`、新增 `internal/plugins/manifest_validator.go`、`internal/service/service.go`、`internal/store/memory.go`、`internal/store/mysql.go`、`internal/store/schema.go`、`internal/transport/httpapi/router.go`。
+- 数据库：`db/mysql/001_schema.sql`、新增 `db/mysql/migrations/012_plugin_manifest_runtime.sql`。
+- 后台 API 封装：`web/admin-app/src/api/admin.js`。
+- 测试：新增 `internal/plugins/manifest_validator_test.go`、新增 `internal/service/plugin_manifest_test.go`。
+- 文档：`docs/API.md`、`docs/PLUGIN_ARCHITECTURE.md`、`docs/PLUGIN_SYSTEM_ROADMAP.md`、`docs/PROJECT_PROGRESS.md`、`docs/TESTING.md`、`docs/releases/v1.3.4.md`、`docs/plugins/external-plugin-ecosystem.md`、`docs/plugins/migration-guide.md`、`CHANGELOG.md`。
+
+已完成事项：
+
+- 对齐插件平台真实能力边界：生命周期、归档 / 恢复、Manifest 校验、manifest dry-run、manifest + 配置型安装、健康总览、批量归档 / 恢复、Hook 治理、迁移治理、权限矩阵和 MySQLStore 风险都已写回主文档。
+- 把 `POST /api/v1/admin/plugins/manifest/validate`、`POST /api/v1/admin/plugins/dry-run`、`POST /api/v1/admin/plugins/install`、`GET /api/v1/admin/plugins/health`、`GET /api/v1/admin/plugins/:code/health`、`POST /api/v1/admin/plugins/bulk-archive`、`POST /api/v1/admin/plugins/bulk-restore` 的 API 口径补进 `docs/API.md`。
+- 实现 manifest 校验器，覆盖基础字段、内容类型、权限、菜单、路由、Hook、配置模型、迁移、依赖和资产路径校验，并返回 normalized manifest、checksum、warnings、conflicts 和 impact summary。
+- 实现 manifest + 配置型插件安装记录，初始为 installed + disabled；支持 manifest-only content type 进入统一 create_permission 读取链路。
+- 实现插件健康总览 API 和批量归档 / 恢复 API；MemoryStore 与 MySQLStore 增加 runtime plugin 保存 / 读取能力。
+- 把 `v1.3.4` 的 release / roadmap 口径收口为：异常治理验收闭环已完成，manifest + 配置型安装和生命周期派生字段已落地，外部服务 Webhook / 升级流程 / 版本兼容矩阵 / 插件市场仍属于后续阶段。
+- 对齐 `docs/plugins/*` 模板和指南，使 manifest 示例、目录模板、配置 schema、Hook、迁移、权限、菜单路由和外部生态设计保持一致口径。
+
+未完成事项：
+
+- 外部服务型 Webhook 的真实 HTTP 调用、签名、超时和失败策略仍未实现。
+- 插件升级流程、版本兼容矩阵 UI、批量治理更细动作和插件市场仍是后续设计。
+- `en-US` 语言包、前台 i18n 以及非插件后台页面英文清理不在本轮范围。
+
+已执行检查命令和结果：
+
+- `gofmt`：已执行，Go 文件格式化完成。
+- `go test ./...`：通过。
+- `go build -o .devhub/devhub .`：通过。
+- `bash -n dev.sh`：通过。
+- `bash -n scripts/check-frontend.sh`：通过。
+- `docker compose run --rm admin-e2e npm run build`：通过。
+- `./scripts/check-frontend.sh --quick`：通过，前后台 build 均通过。
+- `./scripts/check-frontend.sh --admin-only`：通过，后台 build 通过，后台 E2E `20 passed`。
+- `git diff --check`：通过。
+
+失败项或跳过项及原因：
+
+- 未执行 `./scripts/check-frontend.sh --frontend-only`：本轮未修改前台运行时代码，`--quick` 已覆盖前台 build。
+
+下一轮建议：
+
+1. 把 manifest + 配置型安装、健康总览、批量归档 / 恢复和归档态入口联动补成更完整的 UI 与 API 验收。
+2. 如果继续推进 P2，优先落地外部服务型 Webhook 的真实调用与升级影响分析，而不是插件市场页面。
+3. 继续把测试矩阵按“已自动化 / 部分自动化 / 手工 / 未覆盖”四级保持同步。
+
+### 2026-05-12：/admin-next/plugins 治理入口收口与最小 E2E
+
+修改范围：
+
+- 后台页面：`web/admin-app/src/views/Plugins.vue`、`web/admin-app/src/components/plugin/PluginDetailDrawer.vue`。
+- i18n：`web/admin-app/src/i18n/zh-CN.js`。
+- E2E：`web/admin-app/tests/e2e/plugin-governance.spec.js`、`web/admin-app/tests/e2e/helpers/api.js`。
+- 文档：`docs/PROJECT_PROGRESS.md`、`docs/TESTING.md`、`docs/PLUGIN_ARCHITECTURE.md`、`docs/releases/v1.3.4.md`、`CHANGELOG.md`。
+
+已完成事项：
+
+- `/admin-next/plugins` 新增健康总览卡片，展示 `healthy / warning / error / disabled / archived / migration_pending / config_invalid / dependency_missing / hook_error` 的轻量聚合计数。
+- `/admin-next/plugins` 新增 manifest 治理入口：`校验 Manifest`、`Dry-run 预览`、`安装插件`，并提供页内结果展示面板。
+- `/admin-next/plugins` 新增批量归档 / 批量恢复入口，支持多选插件、确认操作和结果 JSON 摘要展示。
+- 插件详情抽屉新增统一可读状态提示：展示运行状态说明、归档态提示、状态原因和建议操作。
+- 修复后台插件治理页运行时错误：
+  - `Plugins.vue` 结果面板缺少 `formatJSON()`。
+  - `PluginDetailDrawer.vue` 的 `immediate` watcher 在 `auditQ` 初始化前执行。
+- 新增最小 Playwright 覆盖：
+  - 健康总览区域可见。
+  - manifest validate / dry-run / install 入口可用且能展示结果。
+  - bulk archive / restore 入口可用且能展示结果。
+  - 现有插件治理中心、PluginContent、归档态、迁移、Hook、审计相关用例不退化。
+
+未完成事项：
+
+- 这轮只做了后台插件治理中心，不包含前台新入口或前台 i18n 清理。
+- Manifest 安装入口当前是页内工作面板和 JSON 结果视图，不是完整安装向导。
+- bulk archive / restore 目前只展示结果摘要 JSON，后续可继续增强为表格化 succeeded / failed 明细。
+
+新发现风险：
+
+- `qa/docs/wiki` 等插件治理用例会并行改状态，新增 bulk E2E 不能再复用这三类插件，否则容易和 PluginContent 归档链路互相踩状态；当前已改为使用 `projects/jobs` 规避并发污染。
+- 后台构建仍有既有 Vite chunk size warning，主要集中在 `PluginJsonEditor` 和主后台 chunk，暂不阻断。
+
+已执行检查命令和结果：
+
+- `bash -n scripts/check-frontend.sh`：通过。
+- `git diff --check`：通过。
+- `./scripts/check-frontend.sh --quick`：通过，前后台 build 均通过；日志目录 `.devhub/checks/20260512-091130/`。
+- `./scripts/check-frontend.sh --admin-only --e2e-only`：首次因新入口测试选择器和运行时错误失败，已在本轮修复；复跑通过，后台 E2E `22 passed`；日志目录 `.devhub/checks/20260512-091507/`。
+
+失败项或跳过项及原因：
+
+- 未执行 `go test ./...` / `go build`：本轮未修改 Go 代码或数据库结构。
+- 未执行 `./scripts/check-frontend.sh --frontend-only`：本轮未修改前台运行时代码。
+
+影响范围：
+
+- API：无新增生产接口，本轮只把已存在的插件治理 API 接到后台页面入口。
+- 数据库：无变更。
+- 权限：无权限模型变更；批量归档 / 恢复和 manifest 安装继续复用既有后台 `plugin.write` 边界。
+- SEO：无实现变更。
+- 插件系统：插件治理中心从“列表 + 详情”增强为“健康总览 + manifest 操作 + 批量治理 + 统一状态说明”。
+- 前后台 UI：仅后台插件治理相关页面变更。
+
+下一轮建议：
+
+1. 把 manifest validate / dry-run / install 的结果视图继续增强为结构化明细面板，而不是只看 JSON。
+2. 为 bulk archive / restore 增加 impact 预览和更清晰的 succeeded / failed 列表。
+3. 如果继续推进 P2，优先把 manifest + 配置型安装做成完整安装确认流，再考虑外部服务型 Webhook。
+
+### 2026-05-12：插件安装向导化收口与升级 dry-run 预备
+
+修改范围：
+
+- 后端：`internal/domain/models.go`、`internal/plugins/manifest_validator.go`、`internal/service/service.go`、`internal/transport/httpapi/router.go`。
+- 后台页面：`web/admin-app/src/views/Plugins.vue`、`web/admin-app/src/i18n/zh-CN.js`。
+- E2E：`web/admin-app/tests/e2e/plugin-governance.spec.js`、`web/admin-app/tests/e2e/helpers/api.js`。
+- 文档：`docs/API.md`、`docs/PLUGIN_ARCHITECTURE.md`、`docs/PLUGIN_SYSTEM_ROADMAP.md`、`docs/PROJECT_PROGRESS.md`、`docs/TESTING.md`、`docs/releases/v1.3.4.md`、`CHANGELOG.md`。
+
+已完成事项：
+
+- `/admin-next/plugins` 的 `校验 Manifest`、`Dry-run 预览`、`安装插件` 已收口为页内安装向导工作面板，结果从原始 JSON 转为结构化摘要展示。
+- 结构化结果至少明确展示 `errors`、`warnings`、`dependencies`、`content_type_conflicts`、`permission_conflicts`、`migration_plan` 和 `install_preview`。
+- `bulk archive / restore` 结果改为结构化 succeeded / failed 列表，而不是只看原始 JSON。
+- 新增 `POST /api/v1/admin/plugins/:code/upgrade/dry-run` 和 `POST /api/v1/admin/plugins/:code/upgrade`，可分别返回升级兼容矩阵 / 变更字段 / diff，并落地 manifest + 配置型插件的最小升级执行闭环；`/admin-next/plugins` 增加升级预览与执行入口。
+- 插件详情抽屉补齐运行状态、归档态、健康原因和建议操作的统一可读视图。
+- 最小 E2E 已覆盖：manifest 校验、dry-run、install、upgrade dry-run、bulk archive / restore、归档 / 恢复、健康总览与详情 Tabs；真实升级执行由 Go 单测覆盖。
+
+未完成事项：
+
+- 真实插件升级已支持最小执行闭环，但还没有完整升级向导、升级回滚或版本迁移向导。
+- install 向导目前仍是页内工作面板，不是独立分步向导。
+- bulk archive / restore 还没有专门的影响预览与失败项表格级展示。
+
+新发现风险：
+
+- `upgrade dry-run` 必须从已存在插件出发；若服务未重启到最新 Go 进程，旧 8090 会继续返回 404。当前已通过 `./dev.sh restart --no-build` 刷新到新后端进程。
+- 后台构建仍存在既有大 chunk warning，主要来自 `PluginJsonEditor`；本轮不处理拆包。
+
+已执行检查命令和结果：
+
+- `gofmt -w internal/domain/models.go internal/plugins/manifest_validator.go internal/service/service.go internal/transport/httpapi/router.go`：通过。
+- `go test ./...`：通过。
+- `go build -o .devhub/devhub .`：通过。
+- `./dev.sh restart --no-build`：通过，8090 后端已重启到新进程。
+- `./scripts/check-frontend.sh --quick`：通过，后台 / 前台 build 均通过。
+- `./scripts/check-frontend.sh --admin-only --e2e-only`：通过，后台 E2E `23 passed`。
+- `bash -n scripts/check-frontend.sh`：通过。
+- `git diff --check`：通过。
+
+失败项或跳过项及原因：
+
+- 未单独执行 `./scripts/check-frontend.sh --frontend-only`：本轮未改前台运行时代码，`--quick` 已覆盖前台 build。
+
+影响范围：
+
+- API：新增 `POST /api/v1/admin/plugins/:code/upgrade/dry-run` 与 `POST /api/v1/admin/plugins/:code/upgrade`；其余为现有 manifest / install / archive / restore / bulk API 的前端收口。
+- 数据库：无新增 schema。
+- 权限：仍复用 `plugin.write`。
+- SEO：无变更。
+- 插件系统：插件安装预备从 JSON 工作面板升级为结构化结果 + 兼容矩阵预览。
+- 前后台 UI：仅后台插件治理相关页面变更。
+
+下一轮建议：
+
+1. 如果继续推进 P2，优先把 `upgrade dry-run` 结果做成更细的变更列表和影响预览，再考虑正式 upgrade。
+2. 后续再做外部服务型 Webhook 时，先把签名、超时和 SSRF 规则文档写死，避免直接开放危险调用。

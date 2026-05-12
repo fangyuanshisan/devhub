@@ -15,6 +15,12 @@
 - 阶段 E：实现软卸载 / 归档 / 恢复。归档插件禁止新建内容和子站启用，但保留历史内容、配置、迁移记录、审计记录和 SEO；恢复后默认进入 disabled，不自动 enabled。
 - 阶段 F：新增外部插件生态评估设计文档，只做设计，不执行第三方插件代码。
 
+当前实现快照（2026-05-12）：
+
+- 已完成：生命周期派生字段、归档 / 恢复、归档后新建强拦截、ManifestValidator、manifest dry-run、manifest + 配置型插件安装记录、健康总览 API、批量归档 / 恢复 API、归档态前台入口 / 后台历史治理 / SEO 回归 E2E，以及升级 dry-run / 版本兼容矩阵 / 最小升级执行闭环。
+- 部分完成：Hook 超时 / failure_policy 已有 manifest 字段和运行记录基础，但外部服务 Webhook 尚未接入真实 HTTP 调用；迁移 runner 仍是内置 up/no-op 与记录型迁移，不执行外部 raw SQL。
+- 仍未完成：插件包 zip 上传、外部服务型 Webhook 执行、插件包签名、远程市场、动态加载、脚本沙箱、硬卸载和 migration down。
+
 ## 1. 文档目标
 
 本文档用于规划 DevHub 插件系统的长期完善方向。

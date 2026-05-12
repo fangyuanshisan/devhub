@@ -1,15 +1,22 @@
 import { expect, test } from '@playwright/test';
 import {
   archivePlugin,
+  bulkArchivePlugins,
+  bulkRestorePlugins,
   disableCommunityPlugin,
   disablePlugin,
   enableCommunityPlugin,
   ensurePluginEnabled,
   injectFailedPluginHook,
   injectFailedPluginMigration,
+  installPluginManifest,
   pluginAuditLogs,
   pluginHooks,
+  pluginHealth,
+  pluginHealthSummary,
   pluginMigrations,
+  dryRunPluginManifest,
+  validatePluginManifest,
   retryPluginMigration,
   setCategoryEnabled,
   restorePlugin,
@@ -40,9 +47,82 @@ test.describe('plugin governance center', () => {
     await expect(page.getByText('文档插件')).toBeHidden();
   });
 
+  test('shows health summary and supports manifest validate dry-run and install dialogs', async ({ page, request }) => {
+    const code = `e2e_plugin_${Date.now()}`;
+    const contentType = `e2e_type_${Date.now()}`;
+    const manifest = buildManifest(code, contentType);
+    let installed = false;
+
+    try {
+      await page.goto('/admin-next/plugins');
+      await expect(page.getByTestId('plugin-health-summary')).toBeVisible();
+      await expect(page.getByTestId('plugin-health-summary').locator('.health-card')).toHaveCount(9);
+
+      const summary = await pluginHealthSummary(request);
+      expect(summary.summary).toBeTruthy();
+      await expect(page.getByTestId('plugin-health-summary').locator('.health-card').first()).toBeVisible();
+
+      await page.getByTestId('plugin-manifest-validate').click();
+      await expect(page.getByTestId('plugin-manifest-panel')).toBeVisible();
+      await page.getByTestId('plugin-manifest-input').fill(manifest);
+      await page.getByTestId('plugin-manifest-submit').click();
+      await expect(page.getByTestId('plugin-result-summary')).toBeVisible();
+      await expect(page.getByTestId('plugin-result-summary')).toContainText('manifest');
+      await expect(page.getByTestId('plugin-result-summary')).toContainText('已禁用');
+      await page.getByTestId('plugin-result-close').click();
+
+      await page.getByTestId('plugin-manifest-dry-run').click();
+      await expect(page.getByTestId('plugin-manifest-panel')).toBeVisible();
+      await page.getByTestId('plugin-manifest-input').fill(manifest);
+      await page.getByTestId('plugin-manifest-submit').click();
+      await expect(page.getByTestId('plugin-result-summary')).toBeVisible();
+      await expect(page.getByTestId('plugin-result-summary')).toContainText('manifest');
+      await page.getByTestId('plugin-result-close').click();
+
+      await page.getByTestId('plugin-manifest-install').click();
+      await expect(page.getByTestId('plugin-manifest-panel')).toBeVisible();
+      await page.getByTestId('plugin-manifest-input').fill(manifest);
+      await page.getByTestId('plugin-manifest-submit').click();
+      await page.getByRole('button', { name: '确认' }).last().click();
+      await page.waitForFunction(() => document.body.innerText.includes('插件安装完成'));
+      await expect(page.getByTestId('plugin-result-summary')).toBeVisible();
+      await expect(page.getByTestId('plugin-result-summary')).toContainText('已禁用');
+      installed = true;
+      await page.getByTestId('plugin-result-close').click();
+
+      await page.reload();
+      await expect(page.getByText(code)).toBeVisible();
+      await expect(page.getByText('已禁用').first()).toBeVisible();
+    } finally {
+      if (installed) {
+        await archivePlugin(request, code).catch(() => {});
+      }
+    }
+  });
+
+  test('shows upgrade dry-run compatibility matrix for an existing plugin', async ({ page }) => {
+    await page.goto('/admin-next/plugins');
+    await page.getByTestId('plugin-upgrade-preview-qa').click();
+    await expect(page.getByTestId('plugin-manifest-panel')).toBeVisible();
+    const editor = page.getByTestId('plugin-manifest-input');
+    const current = await editor.inputValue();
+    await editor.fill(current.replace(/"version":\s*"[^"]+"/, '"version": "9.9.9"'));
+    await page.getByTestId('plugin-manifest-submit').click();
+    await expect(page.getByTestId('plugin-result-summary')).toBeVisible();
+    await expect(page.getByTestId('plugin-result-summary')).toContainText('当前版本');
+    await expect(page.getByTestId('plugin-result-summary')).toContainText('新版本');
+    await expect(page.getByTestId('plugin-result-summary')).toContainText('兼容状态');
+    await expect(page.getByTestId('plugin-result-summary')).toContainText('版本');
+    await expect(page.getByTestId('plugin-result-panel')).toContainText('变更字段');
+    await page.getByTestId('plugin-result-close').click();
+  });
+
   test('opens plugin detail tabs and shows schema validation errors', async ({ page }) => {
     await page.goto('/admin-next/plugins');
-    await page.getByTestId('plugin-detail-qa').click();
+    await expect(page.getByTestId('admin-plugins-page')).toBeVisible();
+    const qaRow = page.getByRole('row', { name: /问答插件/ });
+    await expect(qaRow).toBeVisible();
+    await qaRow.getByRole('button', { name: '详情' }).first().click();
     await expect(page.getByTestId('plugin-detail-drawer')).toBeVisible();
 
     for (const tabName of ['概览', '内容类型', '权限', '菜单', '配置', 'Hook', '路由', '审计']) {
@@ -65,6 +145,7 @@ test.describe('plugin governance center', () => {
   test('archives plugin and shows archived state with restore entry', async ({ page, request }) => {
     try {
       await page.goto('/admin-next/plugins');
+      await expect(page.getByTestId('admin-plugins-page')).toBeVisible();
       await page.getByTestId('plugin-archive-qa').click();
       const dialog = page.getByRole('dialog');
       await expect(dialog).toContainText('历史内容');
@@ -73,7 +154,10 @@ test.describe('plugin governance center', () => {
       await expect(page.getByText('插件已归档')).toBeVisible();
       await page.reload();
       await expect(page.getByText('已归档').first()).toBeVisible();
-      await page.getByTestId('plugin-detail-qa').click();
+      await expect(page.getByTestId('admin-plugins-page')).toBeVisible();
+      const qaRow = page.getByRole('row', { name: /问答插件/ });
+      await expect(qaRow).toBeVisible();
+      await qaRow.getByRole('button', { name: '详情' }).first().click();
       await expect(page.getByTestId('plugin-detail-drawer')).toBeVisible();
       await page.getByRole('tab', { name: '概览' }).click();
       await expect(page.getByText('归档时间')).toBeVisible();
@@ -89,6 +173,36 @@ test.describe('plugin governance center', () => {
       await restorePlugin(request, 'qa').catch(() => {});
       await ensurePluginEnabled(request, 'qa').catch(() => {});
       await enableCommunityPlugin(request, 1, 'qa').catch(() => {});
+    }
+  });
+
+  test('supports bulk archive and restore actions with result summary', async ({ page, request }) => {
+    try {
+      await ensurePluginEnabled(request, 'projects');
+      await ensurePluginEnabled(request, 'jobs');
+      await page.goto('/admin-next/plugins');
+      const rows = page.locator('[data-testid="admin-plugins-page"] .el-table__body-wrapper .el-table__row');
+      await rows.filter({ hasText: '开源项目插件' }).locator('.el-checkbox__inner').click();
+      await rows.filter({ hasText: '招聘插件' }).locator('.el-checkbox__inner').click();
+
+      await page.getByTestId('plugin-bulk-archive').click();
+      await page.getByRole('button', { name: '确认' }).last().click();
+      await expect(page.getByTestId('plugin-result-summary')).toBeVisible();
+      await expect(page.getByTestId('plugin-result-summary')).toContainText('成功项');
+      await page.getByTestId('plugin-result-close').click();
+
+      await page.reload();
+      await rows.filter({ hasText: '开源项目插件' }).locator('.el-checkbox__inner').click();
+      await rows.filter({ hasText: '招聘插件' }).locator('.el-checkbox__inner').click();
+
+      await page.getByTestId('plugin-bulk-restore').click();
+      await page.getByRole('button', { name: '确认' }).last().click();
+      await expect(page.getByTestId('plugin-result-summary')).toBeVisible();
+      await expect(page.getByTestId('plugin-result-summary')).toContainText('成功项');
+      await page.getByTestId('plugin-result-close').click();
+    } finally {
+      await ensurePluginEnabled(request, 'projects').catch(() => {});
+      await ensurePluginEnabled(request, 'jobs').catch(() => {});
     }
   });
 
@@ -324,4 +438,39 @@ test.describe('plugin governance center', () => {
       await enableCommunityPlugin(request, 1, 'qa').catch(() => {});
     }
   });
+
+  function buildManifest(code, contentType) {
+    return JSON.stringify(
+      {
+        code,
+        name: 'E2E Manifest Plugin',
+        version: '1.0.0',
+        description: 'E2E 使用的 manifest 示例',
+        compatible_core_version: '>=1.3.4',
+        is_system: false,
+        content_types: [
+          {
+            type: contentType,
+            name: 'E2E 内容',
+            plugin_code: code,
+            create_permission: `${code}.create`,
+          },
+        ],
+        permissions: [
+          {
+            code: `${code}.create`,
+            name: '创建 E2E 内容',
+            scope: 'community',
+          },
+        ],
+        menus: [],
+        routes: [],
+        hooks: [],
+        config_schema: { type: 'object', properties: {} },
+        migrations: [],
+      },
+      null,
+      2,
+    );
+  }
 });

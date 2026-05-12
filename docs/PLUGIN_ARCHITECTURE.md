@@ -37,15 +37,15 @@ MySQL 专项补充：2026-05-11 已完成 MySQLStore 与老库升级专项验证
 
 当前定位：
 
-- DevHub 当前是内置系统插件平台：插件通过代码 registry / manifest 风格声明接入，由 Core 负责状态、权限、菜单、配置、Hook、发布校验和后台治理分发。
-- 当前不是第三方插件市场，不支持插件包上传、远程安装、在线更新或 Go 动态插件加载。
+- DevHub 当前是内置系统插件平台，并开始支持安全的 manifest + 配置型插件安装预备形态：插件通过代码 registry 或 manifest 声明接入，由 Core 负责状态、权限、菜单、配置、Hook 元信息、发布校验和后台治理分发。
+- 当前不是第三方插件市场，不支持插件包上传、远程安装、在线更新、Go 动态插件加载或执行第三方本地代码。
 - 当前真实表名仍是 `topics` / `categories`；`contents` / `channels` 是架构概念或长期目标命名，不能在本阶段强行改表。
 
 已完成：
 
 - 插件注册：`qa`、`docs`、`wiki`、`projects`、`jobs`、`ai_works` 均通过统一 registry 暴露 `code`、`plugin_code`、`content_types`、权限、菜单、路由、Hook 声明、`config_schema`、依赖和最小 Core 版本。
 - 内容类型归一：`doc -> document`、`wiki -> wiki_page` 和 `content_type -> plugin_code` 映射集中在 registry。
-- 全局状态：`plugins.status` 已扩展为插件运行治理状态模型，当前 schema / Store 接受 `discovered`、`installed`、`migrated`、`configured`、`enabled`、`disabled`、`running`、`config_invalid`、`migration_pending`、`dependency_missing`。
+- 全局状态：`plugins.status` 已扩展为插件运行治理状态模型，当前 schema / Store 接受 `discovered`、`installed`、`migrated`、`configured`、`enabled`、`disabled`、`running`、`archived`、`config_invalid`、`migration_pending`、`migration_failed`、`dependency_missing`。
 - 发布可用性：当前只有 `plugins.status=enabled` 会放行新建内容；`running`、`configured` 等状态先作为生命周期 / 健康治理预留，不等价于可发布。`archived` 表示软卸载 / 归档，必须和 disabled 一样阻断新发布和子站启用，但不影响历史内容访问和 SEO。
 - 启用 readiness：`v1.3.3` 起，全局启用和子站启用都会在 Service 层检查插件存在、全局配置有效、依赖插件已启用、没有 `failed` 迁移记录；当前内置 up/no-op 的 `pending` migration 不阻断启用，只通过健康状态和迁移 Tab 提示。
 - 子站状态：`community_plugins.status` 支持子站级 `enabled` / `disabled`，并叠加 `sort_order`、`config_json`。
@@ -53,14 +53,17 @@ MySQL 专项补充：2026-05-11 已完成 MySQLStore 与老库升级专项验证
 - 权限：插件权限来自 manifest / registry；发布链路按内容类型读取 `create_permission`；菜单按全局状态、子站状态、权限和 scope 过滤。
 - HookBus：已有内置 HookBus 和最小 handler 注册；创建、更新、删除、评论、搜索、通知、SEO 以及插件启停会派发 Hook 事件。
 - 影响分析：已有轻量 impact API，返回启用子站数、板块数、内容数、待审核内容数和菜单数等计数。
-- 健康摘要：`GET /api/v1/admin/plugins` 返回轻量 `health`，由全局状态、配置校验、迁移记录、依赖状态和 Hook 失败统计计算；当前额外返回 `status_reason` 解释主要异常原因。
+- 健康摘要：`GET /api/v1/admin/plugins`、`GET /api/v1/admin/plugins/health` 和 `GET /api/v1/admin/plugins/:code/health` 返回轻量 `health`，由全局状态、配置校验、迁移记录、依赖状态和 Hook 失败统计计算；当前额外返回 `status_reason` 解释主要异常原因。
 - 审计：插件启停、全局配置、子站启停、子站配置、排序、Hook 失败和带 plugin_code 的插件内容治理操作写入 `admin_logs.old_value`、`admin_logs.new_value`、`admin_logs.metadata_json`。
 - 迁移治理：`plugin_migrations` 表、MemoryStore / MySQLStore 读写能力、内置插件 migration 声明、up/no-op runner、失败记录、失败重试和迁移审计已存在；成功迁移不会重复执行。
+- Manifest 校验与 dry-run：`PluginManifestValidator` 已可校验 manifest JSON 的基础字段、内容类型、权限、菜单、路由、Hook、配置模型、迁移、依赖和资产路径，并返回 errors / warnings / checksum / impact summary；`dry-run` 不写入插件记录。
+- Manifest + 配置型安装：`POST /api/v1/admin/plugins/install` 可安装只含声明与配置的插件，初始为 installed + disabled；不执行第三方代码、不动态加载前端资源、不执行外部 SQL。
+- 软卸载 / 归档 / 恢复：插件可归档、恢复和批量归档 / 恢复；归档后禁止新建内容和子站启用，但保留历史内容、配置、迁移记录、审计记录和 SEO。
 - 后台：`/admin-next/plugins` 已具备插件列表、详情抽屉、配置、impact 提示、审计 Tab、迁移 Tab 和通用插件内容页入口；`/admin-next/communities` 已具备子站插件配置抽屉。
 
 部分完成：
 
-- 生命周期：状态枚举已扩展，并已为内置插件派生 `install_status`、`lifecycle_status`、`status_reason`、`installed_at`、`archived_at`、`last_health_check_at` 等后台展示字段。当前不是外部插件安装器，运行判断仍以 `plugins.status=enabled`、`community_plugins.status=enabled` 和 `plugin_migrations.status` 为准。
+- 生命周期：状态枚举已扩展，并已派生 `install_status`、`runtime_status`、`health_status`、`lifecycle_status`、`status_reason`、`installed_at`、`archived_at`、`last_health_check_at` 等后台展示字段。当前还不是完整外部插件包安装器，运行判断仍以 `plugins.status=enabled`、`community_plugins.status=enabled`、`plugin_migrations.status` 和健康摘要为准。
 - Hook 治理：Hook 可以执行，blocking hook 可阻断；`hook_executions` 已记录执行结果、最近错误、失败次数、平均耗时和失败率，失败会写入 `plugin.hook.failed` / `plugin.hook.blocked` 审计。当前已有轻量健康摘要；重试策略、告警和复杂业务处理器仍待后续。
 - 插件迁移：当前 runner 只支持内置插件 up/no-op 执行记录、失败记录和重试；尚无 migration down、真实 rollback、迁移前备份、外部插件迁移包或复杂迁移依赖排序。
 - 权限矩阵：发布和菜单已做最小权限码校验；角色可分配、按 community / category 作用域细分的完整权限矩阵和配置 UI 仍未完成。
@@ -69,16 +72,16 @@ MySQL 专项补充：2026-05-11 已完成 MySQLStore 与老库升级专项验证
 
 预留：
 
-- 插件安装器、插件包 manifest 导入、本地插件包、插件升级、soft uninstall、hard uninstall。
-- 插件健康状态：`healthy`、`warning`、`error`、`disabled`、`migration_pending`、`config_invalid`、`dependency_missing`、`hook_warning`、`hook_error` 已有轻量计算；`hook_error` 当前基于 Hook 失败次数阈值（当前为 `>= 3`）判断。独立健康 API、告警、自动恢复和可观测指标仍是后续能力。
+- 插件包 zip 导入、本地插件包、远程安装、插件升级、hard uninstall。
+- 插件健康状态：`healthy`、`warning`、`error`、`disabled`、`migration_pending`、`config_invalid`、`dependency_missing`、`hook_warning`、`hook_error` 已有轻量计算；`hook_error` 当前基于 Hook 失败次数阈值（当前为 `>= 3`）判断。告警、自动恢复、重试队列和 Prometheus/Grafana 式可观测指标仍是后续能力。
 - 插件 SDK、生成模板、插件依赖解析、版本兼容检查、插件包签名和市场分发。
-- 动态路由加载、动态执行环境、沙箱和第三方 Hook 运行时。
+- 外部服务型 Webhook、动态路由加载、动态执行环境、沙箱和第三方 Hook 运行时。
 
 ## 完整插件系统路线
 
 本节是当前架构文档中的阶段摘要；更完整的目标流程、治理能力、后台能力、运行时能力、审计能力和 E2E 要求见 [完整插件系统长期完善路线图](PLUGIN_SYSTEM_ROADMAP.md)。
 
-下一阶段已明确为 `v1.3.4：插件异常治理与验收闭环版`。它仍属于 P0 插件平台收口，优先处理 failed migration 启用阻断、HookBus blocking / non-blocking 失败注入、插件权限矩阵继续收口、MySQLStore / 老库升级专项和 P1 体验增强准备；不做插件市场、插件上传、远程安装、Go 动态加载或具体业务插件增强。
+当前版本为 `v1.3.4`。它从“插件异常治理与验收闭环”继续推进到“插件平台基础能力收口”：已覆盖 failed migration 启用阻断、HookBus 失败注入、权限矩阵、MySQLStore 专项、归档 / 恢复、Manifest 校验、dry-run 和 manifest + 配置型安装；插件市场、插件包上传、远程安装、Go 动态加载和第三方代码执行仍不属于当前实现。
 
 P0：插件平台收口
 
@@ -295,6 +298,7 @@ HookBus 完整化属于插件平台 P0 收口任务。当前只服务内置系�
 
 - 关键 Hook：`BeforeCreateContent`、`BeforeUpdateContent`、`BeforeDeleteContent` 失败会阻断当前操作；当前没有跨 Store 事务回滚封装，后续如 Hook 写外部资源需单独设计事务边界。
 - 非关键 Hook：`AfterCreateContent`、`AfterUpdateContent`、`AfterDeleteContent`、`AfterCreateComment`、`OnSearchIndex`、`OnNotificationBuild`、`OnSEOBuild` 当前不阻断主流程；当前会记录失败与审计，后续需要补重试策略、告警和健康评分。
+- manifest / registry 可预留 `failure_policy`、`timeout_ms` 和 `failure_threshold` 字段；其中 `block`、`log`、`retry_later` 是治理语义，`retry_later` 当前只记录待重试状态，不代表已有异步队列。
 
 ## 配置优先级
 
@@ -449,8 +453,17 @@ v1.3.1 采用稳妥策略：后台编辑已存在内容时禁止修改归属和�
 - `GET /api/v1/plugins`
 - `GET /api/v1/communities/:slug/plugins`
 - `GET /api/v1/admin/plugins`
+- `GET /api/v1/admin/plugins/health`
+- `GET /api/v1/admin/plugins/:code/health`
+- `POST /api/v1/admin/plugins/manifest/validate`
+- `POST /api/v1/admin/plugins/dry-run`
+- `POST /api/v1/admin/plugins/install`
 - `POST /api/v1/admin/plugins/:code/enable`
 - `POST /api/v1/admin/plugins/:code/disable`
+- `POST /api/v1/admin/plugins/:code/archive`
+- `POST /api/v1/admin/plugins/:code/restore`
+- `POST /api/v1/admin/plugins/bulk-archive`
+- `POST /api/v1/admin/plugins/bulk-restore`
 - `PUT /api/v1/admin/plugins/:code/config`
 - `GET /api/v1/admin/plugin-menus`
 - `GET /api/v1/admin/communities/:id/plugins`
@@ -469,7 +482,10 @@ v1.3.1 采用稳妥策略：后台编辑已存在内容时禁止修改归属和�
 后台插件管理体验：
 
 - `/admin-next/plugins` 展示全局插件列表、状态 badge、系统插件标识、内容类型、权限数量、菜单数量和 `config_schema` 摘要。
+- `/admin-next/plugins` 现在同时展示健康总览卡片，并提供 manifest validate / dry-run / install 入口，以及批量归档 / 恢复工作面板。
+- `/admin-next/plugins` 还提供 `upgrade dry-run` 和 `upgrade` 入口，用于展示版本兼容矩阵、变更字段和 diff，并执行 manifest + 配置型插件的最小升级闭环。
 - 插件详情使用抽屉分区展示基础信息、内容类型、权限、菜单、配置、路由和 Hooks，避免把 JSON 直接堆在表格中。
+- 插件详情抽屉当前增加统一可读状态提示，展示运行状态说明、归档态提示、状态原因和建议操作。
 - 全局插件配置已升级为基础自动表单 + JSON 高级模式（`json-editor-vue`），并使用 Ajv 做 `config_schema` 基础校验；后续仍可增强为更完整的 JSON Schema、深层嵌套和字段分组。
 - `/admin-next/communities` 的子站插件配置抽屉展示全局状态和子站状态双 badge，并支持子站启用 / 禁用、`config_json` 编辑、JSON 格式化、数字排序和禁用原因提示。
 - 全局禁用和子站禁用都有二次确认，并明确 disabled 只影响新发布、导航、菜单和管理入口，不影响历史内容详情页和 SEO。
@@ -483,7 +499,7 @@ v1.3.1 采用稳妥策略：后台编辑已存在内容时禁止修改归属和�
 
 ## 当前限制与阶段边界
 
-- 插件市场、插件包上传、本地/远程安装、在线更新和 Go 动态插件加载不是当前 P0 代码实现范围；它们分别进入 P2 / P3 路线，后续推进时必须满足安全红线、权限隔离、migration 备份回滚和 SEO 不退化。
+- 当前已支持 manifest + 配置型插件的校验、dry-run、安装记录、升级预览和最小升级执行闭环；不支持插件包 zip 上传、本地/远程市场安装、在线更新、Go 动态插件加载或执行第三方本地代码。这些能力分别进入 P2 / P3 路线，后续推进时必须满足安全红线、权限隔离、migration 备份回滚和 SEO 不退化。
 - 插件路由当前是注册描述 + Core 分发；动态路由加载和动态执行环境进入 P2 / P3 路线评估。
 - Docs / Wiki 的专用编辑体验仍是部分完成。
 - 子站插件配置和排序已有 API 与增强后的后台 UI，但仍需继续做真实浏览器矩阵验收。
@@ -491,8 +507,8 @@ v1.3.1 采用稳妥策略：后台编辑已存在内容时禁止修改归属和�
 - 新装库已在 `db/mysql/001_schema.sql` 和 `internal/store/schema.go` 包含结构化审计字段；老库升级使用 `db/mysql/migrations/007_admin_logs_structured_plugin_audit.sql`，启动迁移辅助也会尝试补齐这些列。
 - `plugins.config_json` 与 `community_plugins.config_json` 已可写，并已做 JSON 格式校验和简化 `config_schema` 基础校验；基础自动表单、配置 diff UI 和 effective config 预览已接入后台插件治理体验，更完整 JSON Schema、深层嵌套、字段分组和配置版本回滚属于 P1/P3。
 - HookBus 当前是内置插件运行时调度器；调用点已覆盖内容创建、更新、删除、评论、搜索、通知和 SEO，并记录执行结果与失败审计。搜索 / 通知 / SEO 仍是预留级事件派发，完整业务处理器、重试策略和健康状态属于 P0/P1。
-- 插件生命周期当前不是完整 discovered -> installed -> migrated -> configured -> enabled -> running 状态机；代码真实状态仍以 `plugins.status`、`community_plugins.status` 和 `plugin_migrations.status` 为准。
-- `v1.3.4` 的架构重点不是扩展新插件，而是验证异常治理：failed migration 必须阻断启用并可 retry 恢复，blocking Hook 必须能阻断主流程，non-blocking Hook 必须不阻断但可追踪，权限矩阵必须继续弱化 `post.create` 兼容桥，MySQLStore / 老库升级必须与 MemoryStore 口径一致。当前 MySQLStore / 老库升级专项已完成关键链路验证，剩余风险主要是生产大库备份、回滚、耗时和外部插件真实 DDL migration 设计。
+- 插件生命周期当前已能派生安装 / 运行 / 健康状态，但仍不是完整外部插件包安装器状态机；代码真实运行门禁仍以 `plugins.status`、`community_plugins.status`、`plugin_migrations.status`、依赖检查和配置校验为准。
+- `v1.3.4` 的架构重点不是扩展具体业务插件，而是验证平台治理：failed migration 必须阻断启用并可 retry 恢复，blocking Hook 必须能阻断主流程，non-blocking Hook 必须不阻断但可追踪，权限矩阵必须继续弱化 `post.create` 兼容桥，MySQLStore / 老库升级必须与 MemoryStore 口径一致，ManifestValidator / dry-run / manifest + 配置型安装和升级预览 / 执行提供安全的外部生态预备能力。当前 MySQLStore / 老库升级专项已完成关键链路验证，剩余风险主要是生产大库备份、回滚、耗时、外部插件真实 DDL migration、外部服务 Webhook、升级流程和版本兼容矩阵设计。
 
 ## MySQLStore 与老库升级边界
 
@@ -561,7 +577,7 @@ P1 只作为规划边界，不在 v1.3.4 中实现：
 
 ## 阶段 C/D/E/F：SDK 模板、生命周期、软卸载和外部生态设计
 
-本阶段继续沿插件平台主线推进，但仍不实现插件市场、上传安装、远程安装、Go 动态加载或第三方沙箱。
+本阶段继续沿插件平台主线推进，但仍不实现插件市场、上传安装、远程安装、Go 动态加载、第三方沙箱或第三方代码执行。
 
 阶段 C 已新增插件 SDK / 模板规范：
 
@@ -572,17 +588,25 @@ P1 只作为规划边界，不在 v1.3.4 中实现：
 - [migration 开发指南](plugins/migration-guide.md)
 - [权限开发指南](plugins/permission-guide.md)
 - [菜单与路由指南](plugins/menu-route-guide.md)
+- [外部插件生态评估与预备设计](plugins/external-plugin-ecosystem.md)
+
+阶段 C 还补齐了 manifest 校验和安装预备能力：
+
+- `PluginManifestValidator` 可以校验 manifest JSON 的基础字段、内容类型、权限、菜单、路由、Hook、配置模型、迁移、依赖和资产路径。
+- `POST /api/v1/admin/plugins/manifest/validate`、`POST /api/v1/admin/plugins/dry-run`、`POST /api/v1/admin/plugins/install`、`POST /api/v1/admin/plugins/:code/upgrade/dry-run` 和 `POST /api/v1/admin/plugins/:code/upgrade` 提供 manifest + 配置型插件的安全预备 / 执行闭环。
+- 当前 install 只写入插件记录、默认配置和迁移记录，不执行第三方本地代码，也不加载前端资源。
 
 阶段 D 已为内置插件补齐安装生命周期展示模型：
 
 - 内置插件仍通过 Go registry 注册，启动 / store 初始化时同步到 `plugins` 表。
-- `plugins.status` 支持 `archived` 和 `migration_failed`，并派生 `install_status`、`lifecycle_status`、`status_reason`、`installed_at`、`archived_at`、`last_health_check_at` 给后台展示。
+- `plugins.status` 支持 `archived` 和 `migration_failed`，并派生 `install_status`、`runtime_status`、`health_status`、`lifecycle_status`、`status_reason`、`installed_at`、`archived_at`、`last_health_check_at` 给后台展示。
 - 启用前会检查插件存在、未归档、配置有效、依赖可用、无 failed migration；当前内置 pending/no-op migration 仍作为治理提示，不阻断启用。
 
 阶段 E 已实现插件软卸载 / 归档 / 恢复最小闭环：
 
 - `POST /api/v1/admin/plugins/:code/archive` 将插件置为 `archived`。
 - `POST /api/v1/admin/plugins/:code/restore` 将归档插件恢复为 `disabled`，不会自动启用。
+- `POST /api/v1/admin/plugins/bulk-archive` / `bulk-restore` 支持批量软卸载 / 恢复，但不删除任何历史数据。
 - 归档后禁止新建该插件内容、禁止子站启用、隐藏入口；历史内容、配置、迁移记录、审计记录和 SEO 均保留。
 - 归档插件仍允许后台进入通用 `PluginContent` 历史内容治理页；页面必须提示“插件已归档，只能治理历史内容，不能新建”，当前已覆盖批量隐藏 / 恢复，更多批量审核、置顶、加精策略后续补齐。
 - 归档 / 恢复写入 `plugin.archived`、`plugin.restored`、`plugin.archive.failed`、`plugin.restore.failed` 审计。
@@ -599,4 +623,4 @@ P1 只作为规划边界，不在 v1.3.4 中实现：
 | `jobs` | `job` | `jobs.job.create` 等 | 前台 / 后台 | 声明级 | 平台 Hook | 已声明 | 平台记录 | 平台治理已接入，业务闭环待完善 |
 | `ai_works` | `ai_work` | `ai_works.work.create` 等 | 前台 / 后台 | 声明级 | 平台 Hook | 已声明 | 平台记录 | 平台治理已接入，业务闭环待完善 |
 
-阶段 F 已新增 [外部插件生态评估与预备设计](plugins/external-plugin-ecosystem.md)。推荐路线是 manifest + 配置型插件，再评估外部服务型插件；Go 动态插件暂不推荐。
+阶段 F 已新增 [外部插件生态评估与预备设计](plugins/external-plugin-ecosystem.md)。推荐路线是 manifest + 配置型插件，再评估外部服务型插件；Go 动态插件暂不推荐。当前仍不执行第三方代码，外部服务型 Hook / Webhook、升级流程、兼容矩阵和批量治理仅进入设计或预备阶段。

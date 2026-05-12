@@ -681,6 +681,80 @@ done
 - `./scripts/check-frontend.sh --frontend-only`：通过，前台 build 通过，前台 E2E `16 passed`；覆盖归档插件入口隐藏、强传拦截、子站启用阻断和历史 Topic SEO 回归。
 - `./scripts/check-frontend.sh --admin-only`：通过，后台 build 通过，后台 E2E `20 passed`；覆盖归档插件治理中心细节、PluginContent 历史治理提示和归档态批量隐藏 / 恢复。
 
+## Manifest 校验、dry-run 与配置型安装验收
+
+本节用于记录 manifest + 配置型插件安装预备能力，不代表插件市场、插件包上传、远程安装或动态加载已完成。
+
+已自动化：
+
+- Go 单测覆盖合法 manifest 校验通过，并返回 normalized manifest、checksum、impact summary 和 install preview。
+- Go 单测覆盖 code 冲突失败。
+- Go 单测覆盖 content_type 冲突失败。
+- Go 单测覆盖非法 Hook 名称失败。
+- Go 单测覆盖非法 `config_schema` 失败。
+- Go 单测覆盖依赖缺失时返回 warning / dependency 信息，不直接执行第三方代码。
+- Go 单测覆盖 `InstallPluginManifest` 安装 manifest + 配置型插件后初始为 installed + disabled。
+- Go 单测覆盖安装后的 manifest-only content type 可通过统一内容类型映射读取 create permission。
+- Go 单测覆盖批量归档 / 恢复接口返回逐项 succeeded / failed 结果。
+
+部分自动化：
+
+- API 文档已记录 `POST /api/v1/admin/plugins/manifest/validate`、`POST /api/v1/admin/plugins/dry-run`、`POST /api/v1/admin/plugins/install`、`GET /api/v1/admin/plugins/health`、`POST /api/v1/admin/plugins/bulk-archive` 和 `bulk-restore`；浏览器 UI 已补最小 E2E，完整安装向导仍可继续增强。
+- Health summary 当前由 Go/API 行为和后台已有运行状态视图覆盖；独立 `/plugins/health` 页面级展示仍待后续。
+
+未覆盖 / 后续：
+
+- 外部服务型 Webhook 真实 HTTP 调用、签名、超时和失败策略。
+- 插件升级 dry-run / upgrade 结果展示与版本兼容矩阵。
+- 插件包 zip 读取、签名校验、文件安全扫描和插件市场页面。
+- 版本兼容矩阵 UI 和依赖版本范围完整自动化。
+- 外部插件迁移真实 DDL runner、migration down、硬回滚和迁移前备份。
+
+## 升级 dry-run 与版本兼容矩阵验收
+
+本节用于 P2 升级预备能力；当前已完成最小升级执行闭环，但完整升级向导、回滚和版本变更审计仍待后续。
+
+已自动化：
+
+- Go 单测覆盖 `POST /api/v1/admin/plugins/:code/upgrade/dry-run` 的兼容矩阵返回，包含 current/new 版本、Core 兼容范围、变更字段和 diff。
+- Go 单测覆盖升级 dry-run 对现有插件 code 的校验与版本不递增时的警告信息。
+- Go 单测覆盖 `POST /api/v1/admin/plugins/:code/upgrade` 的真实执行闭环，包含版本更新、manifest checksum 变更和状态保持。
+- 后台 E2E 覆盖插件列表中的“升级预览”入口、结果面板和版本兼容摘要。
+
+部分自动化：
+
+- 版本兼容矩阵目前基于 manifest validate + upgrade dry-run 两层信息拼装，升级执行结果仍以结构化结果面板展示，完整升级 UI 向导、回滚和版本变更审计仍待后续。
+
+未覆盖 / 后续：
+
+- 版本兼容矩阵独立页面。
+- 升级影响分析的更细粒度对象列表。
+
+## `/admin-next/plugins` 治理入口收口验收
+
+本节记录本轮后台插件治理中心最小 UI 收口和对应 E2E 结果。
+
+已自动化：
+
+- `/admin-next/plugins` 顶部健康总览卡片可见，至少展示健康、警告、异常、已禁用、已归档、迁移待处理、配置无效、依赖缺失和 Hook 异常聚合。
+- `/admin-next/plugins` 顶部支持 `校验 Manifest`、`Dry-run 预览`、`安装插件`、`批量归档`、`批量恢复` 入口。
+- `/admin-next/plugins` manifest 面板可打开并提交合法 manifest JSON，返回结构化结果摘要。
+- `/admin-next/plugins` dry-run 面板可打开并返回结构化安装预览。
+- `/admin-next/plugins` install 面板可打开并返回结构化安装结果。
+- `/admin-next/plugins` upgrade dry-run 可展示当前版本 / 新版本 / 兼容状态 / 变更字段；真实 upgrade 由 Go 单测覆盖最小执行闭环。
+- `/admin-next/plugins` 批量归档 / 恢复可对选中插件返回结果摘要。
+- 插件详情抽屉可展示运行状态说明、归档态提示、状态原因和建议操作。
+- 现有插件治理 E2E、PluginContent、迁移、Hook、审计和归档态浏览器链路未退化。
+
+部分自动化：
+
+- 当前结果展示以 JSON 形式为主，尚未做结构化明细卡片。
+- `manifest` 入口当前是页内工作面板，不是完整安装向导。
+
+未覆盖 / 后续：
+
+- manifest 安装向导、版本兼容矩阵 UI、外部服务型 Webhook、升级流程和更细批量治理。
+
 ## 2026-05-11：固定 DevHub 后台 E2E Docker 镜像
 
 本轮目标是为后台 E2E 固定项目内 Docker 镜像，避免重复临时拉取大型 Playwright 镜像，并保证本地与 CI 可以复用同一条命令链路。

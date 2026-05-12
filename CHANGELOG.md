@@ -14,6 +14,13 @@ Planned next-stage work continues the complete plugin-platform roadmap after `v1
 - Added built-in plugin lifecycle response fields and soft-uninstall archive/restore APIs; archived plugins block new content and community enablement while preserving history, config, migrations, audit logs, and SEO.
 - Extended plugin status storage for `archived` and `migration_failed`, with matching MySQL schema/migration updates.
 - Added frontend and admin E2E coverage for archived-plugin entry linkage: archived plugin content types disappear from publish pages, direct archived `content_type` submissions fail, community enablement is blocked, historical topic SEO remains accessible, and PluginContent can still govern archived historical content.
+- Added a manifest validator plus admin validate/dry-run/install APIs for safe manifest + configuration-style plugins; installation records metadata and pending migrations but does not execute third-party code.
+- Added plugin health summary APIs and bulk archive/restore APIs for the governance center.
+- Extended dynamic content-type permission lookup so manifest-installed plugins can participate in the unified create-permission chain.
+- Added a P2 upgrade dry-run preview API and UI branch so admins can inspect current/new version compatibility, changed keys, and diff without performing a real upgrade.
+- Added the real plugin upgrade execution API and UI entry, preserving config/migration/audit history while updating version and manifest metadata.
+- Documented that external-service webhooks, upgrade flows, plugin package upload/signing, remote marketplace, dynamic loading, sandboxing, hard uninstall, and migration down remain future work.
+- Extended the admin plugin governance center UI with health summary cards, manifest validate / dry-run / install entry panels, bulk archive / restore actions, and a clearer runtime/archive-status banner in the plugin detail drawer.
 
 ## v1.3.4
 

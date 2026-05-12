@@ -79,12 +79,16 @@
     {
       "name": "BeforeCreateContent",
       "mode": "blocking",
+      "timeout_ms": 3000,
+      "failure_threshold": 1,
       "failure_policy": "block",
       "description": "创建内容前校验示例内容约束。当前外部插件 Hook 仅为 planned，不会被动态加载执行。"
     },
     {
       "name": "AfterCreateContent",
       "mode": "non_blocking",
+      "timeout_ms": 3000,
+      "failure_threshold": 3,
       "failure_policy": "log",
       "description": "创建内容后记录统计或通知。"
     }

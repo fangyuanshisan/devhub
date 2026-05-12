@@ -43,7 +43,7 @@ DevHub 是一个面向多子站场景的通用开源社区程序，采用 Core +
 
 ## v1.3.4 定位
 
-DevHub v1.3.4 是“插件异常治理与验收闭环版”。本版本在 v1.3.3 的插件启用 readiness 和治理中心基础上，补齐 failed migration 阻断与 retry、HookBus blocking / non-blocking 失败注入、权限矩阵收口，以及 MySQLStore / 老库升级专项验证。
+DevHub v1.3.4 是“插件异常治理与验收闭环版”。本版本在 v1.3.3 的插件启用 readiness 和治理中心基础上，继续收口 manifest 校验、manifest dry-run、manifest + 配置型安装预备、插件归档 / 恢复、健康总览、批量归档 / 恢复，以及 failed migration 阻断与 retry、HookBus blocking / non-blocking 失败注入、权限矩阵收口和 MySQLStore / 老库升级专项验证。
 
 完整插件系统是当前最高优先级长期主线。Core 只保留通用社区底座，业务能力逐步通过插件声明、状态、权限、菜单、配置、Hook、migration、API、SEO、通知、搜索和测试矩阵扩展；插件包、插件市场、远程安装和动态加载进入后续阶段路线，但不是当前已实现能力。
 
@@ -53,8 +53,8 @@ DevHub v1.3.4 是“插件异常治理与验收闭环版”。本版本在 v1.3.
 
 ## Roadmap
 
-- v1.3.4 / P0：插件异常治理与验收闭环，已覆盖插件迁移失败注入、启用阻断、HookBus blocking / non-blocking 失败注入、插件权限矩阵继续收口、MySQLStore / 老库升级专项。
-- v1.3.x / P0：插件平台收口，包括 Manifest、Registry、ActorContext、权限码、两层插件状态、板块绑定、发布校验、菜单过滤、config_json、config_schema 基础校验、HookBus、结构化审计、migration 边界和测试矩阵。
+- v1.3.4 / P0：插件异常治理与验收闭环，已覆盖插件迁移失败注入、启用阻断、HookBus blocking / non-blocking 失败注入、插件权限矩阵继续收口、MySQLStore / 老库升级专项，以及 manifest 校验、dry-run、manifest + 配置型安装预备、归档 / 恢复和健康总览。
+- v1.3.x / P0：插件平台收口，包括 Manifest、Registry、ActorContext、权限码、两层插件状态、板块绑定、发布校验、菜单过滤、config_json、config_schema 基础校验、HookBus、结构化审计、migration 边界、健康状态和测试矩阵。
 - v1.4.x / P1：插件平台增强，包括 schema 自动表单增强、插件 SDK 文档、插件生成模板、依赖和版本兼容检查、插件事件 / 通知模板、搜索索引和 SEO 扩展。
 - v1.5.x / P2：插件分发能力，包括本地插件包、安装、升级、soft uninstall、插件 migration runner、签名校验和插件市场雏形。
 - v2.x / P3：高级能力，包括远程插件市场、在线更新、动态加载能力评估、插件沙箱和插件权限隔离。

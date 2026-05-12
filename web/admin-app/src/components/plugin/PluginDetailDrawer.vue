@@ -24,6 +24,23 @@
         </div>
         </div>
 
+        <el-alert
+          v-if="plugin.status_reason || plugin.health?.suggested_action || plugin.status === 'archived'"
+          :title="t('plugin.runtime.bannerTitle')"
+          :type="healthType(plugin.health?.status || plugin.status)"
+          show-icon
+          :closable="false"
+          class="mt"
+        >
+          <template #default>
+            <div class="banner-lines">
+              <div><strong>{{ t('plugin.runtime.statusReason') }}：</strong>{{ plugin.status_reason || plugin.health?.status_reason || '-' }}</div>
+              <div><strong>{{ t('plugin.runtime.suggestedAction') }}：</strong>{{ plugin.health?.suggested_action || '-' }}</div>
+              <div v-if="plugin.status === 'archived'">{{ t('plugin.runtime.archivedTip') }}</div>
+            </div>
+          </template>
+        </el-alert>
+
         <el-tabs v-model="tab" class="tabs" data-testid="plugin-detail-tabs">
         <el-tab-pane :label="t('plugin.tabs.overview')" name="overview">
           <el-descriptions :column="2" border>
@@ -312,7 +329,7 @@
             <el-table-column prop="area" :label="t('field.area')" width="120" />
             <el-table-column prop="method" :label="t('field.method')" width="110" />
             <el-table-column prop="path" :label="t('field.path')" min-width="240" />
-            <el-table-column prop="handler" :label="`${t('field.handler')} / Auth`" min-width="240" />
+            <el-table-column prop="handler" :label="`${t('field.handler')} / 认证`" min-width="240" />
           </el-table>
         </el-tab-pane>
 
@@ -437,6 +454,21 @@ const permQ = ref('');
 const schemaErrors = ref([]);
 const configPanels = ref([]);
 const editableConfig = ref({});
+const auditLoading = ref(false);
+const auditRows = ref([]);
+const auditTotal = ref(0);
+const auditQ = reactive({
+  action: '',
+  communityId: null,
+  actor: '',
+  targetType: '',
+  targetId: null,
+  metadata: '',
+  requestId: '',
+  range: [],
+  page: 1,
+  pageSize: 20,
+});
 const hooksLoading = ref(false);
 const hookStats = ref([]);
 const hookRecent = ref([]);
@@ -603,22 +635,6 @@ function jsonValue(v) {
   if (typeof v === 'object') return v;
   return {};
 }
-
-const auditLoading = ref(false);
-const auditRows = ref([]);
-const auditTotal = ref(0);
-const auditQ = reactive({
-  action: '',
-  communityId: null,
-  actor: '',
-  targetType: '',
-  targetId: null,
-  metadata: '',
-  requestId: '',
-  range: [],
-  page: 1,
-  pageSize: 20,
-});
 
 async function loadAudit() {
   const p = props.plugin;
@@ -852,6 +868,11 @@ async function saveConfig() {
 }
 .mt {
   margin-top: 12px;
+}
+.banner-lines {
+  display: grid;
+  gap: 6px;
+  line-height: 1.5;
 }
 .json-box {
   margin: 0;

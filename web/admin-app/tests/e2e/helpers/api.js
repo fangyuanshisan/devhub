@@ -17,6 +17,18 @@ export async function adminGet(request, url) {
   return request.get(url, { headers: adminHeaders() });
 }
 
+export async function pluginHealthSummary(request) {
+  const response = await adminGet(request, '/api/v1/admin/plugins/health');
+  if (!response.ok()) throw new Error(await response.text());
+  return response.json();
+}
+
+export async function pluginHealth(request, code) {
+  const response = await adminGet(request, `/api/v1/admin/plugins/${code}/health`);
+  if (!response.ok()) throw new Error(await response.text());
+  return response.json();
+}
+
 export async function adminPost(request, url, data = {}) {
   return request.post(url, {
     headers: { ...adminHeaders(), 'Content-Type': 'application/json' },
@@ -53,6 +65,36 @@ export async function restorePlugin(request, code) {
 
 export async function disablePlugin(request, code) {
   const response = await adminPost(request, `/api/v1/admin/plugins/${code}/disable`);
+  if (!response.ok()) throw new Error(await response.text());
+  return response.json();
+}
+
+export async function validatePluginManifest(request, payload) {
+  const response = await adminPost(request, '/api/v1/admin/plugins/manifest/validate', payload);
+  if (!response.ok()) throw new Error(await response.text());
+  return response.json();
+}
+
+export async function dryRunPluginManifest(request, payload) {
+  const response = await adminPost(request, '/api/v1/admin/plugins/dry-run', payload);
+  if (!response.ok()) throw new Error(await response.text());
+  return response.json();
+}
+
+export async function installPluginManifest(request, payload) {
+  const response = await adminPost(request, '/api/v1/admin/plugins/install', payload);
+  if (!response.ok()) throw new Error(await response.text());
+  return response.json();
+}
+
+export async function bulkArchivePlugins(request, codes) {
+  const response = await adminPost(request, '/api/v1/admin/plugins/bulk-archive', { codes });
+  if (!response.ok()) throw new Error(await response.text());
+  return response.json();
+}
+
+export async function bulkRestorePlugins(request, codes) {
+  const response = await adminPost(request, '/api/v1/admin/plugins/bulk-restore', { codes });
   if (!response.ok()) throw new Error(await response.text());
   return response.json();
 }

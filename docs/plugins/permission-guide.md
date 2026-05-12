@@ -42,6 +42,21 @@
 
 普通用户 token 不能访问后台插件治理 API。非授权版主不能管理其他子站插件内容。
 
+## 平台管理权限
+
+当前平台治理动作优先复用已有后台插件管理权限：
+
+- `plugin.read`：查看插件列表、健康、impact、审计和迁移信息。
+- `plugin.write`：启用 / 禁用、配置、归档 / 恢复、dry-run、manifest validate、install、批量归档 / 恢复。
+
+后续若要拆分更细权限，可再预留：
+
+- `plugin.archive`
+- `plugin.restore`
+- `plugin.install`
+- `plugin.upgrade`
+- `plugin.dry_run`
+
 ## 作用域
 
 当前权限声明支持：

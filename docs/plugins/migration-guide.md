@@ -2,6 +2,8 @@
 
 DevHub 插件迁移用于追踪插件表结构和初始化数据的状态。当前阶段内置插件迁移以记录型 / no-op 确认为主，主 schema 仍负责创建内置插件表。
 
+manifest + 配置型插件安装时可以声明 migration plan，系统会记录为待处理迁移，但当前不执行外部插件 raw SQL，也不会做 destructive migration。
+
 ## 命名规范
 
 - 文件名建议：`001_plugin_feature.sql`。
@@ -46,3 +48,4 @@ DevHub 插件迁移用于追踪插件表结构和初始化数据的状态。当�
 - 不支持真实硬回滚。
 - 不做迁移前自动备份。
 - 外部插件独立 Migration Runner 属于后续阶段。
+- manifest + 配置型插件当前只记录迁移计划；真实外部 DDL runner、checksum 风险处理和依赖排序仍是后续能力。

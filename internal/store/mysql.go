@@ -926,8 +926,8 @@ func (s *MySQLStore) seedAuthData() error {
 
 func (s *MySQLStore) seedPlugins() error {
 	for _, def := range pluginregistry.Definitions() {
-		if _, err := s.db.Exec(`INSERT INTO plugins (plugin_code,name,version,status,description,config_json,created_at,updated_at) VALUES (?,?,?,?,?,NULL,NOW(),NOW()) ON DUPLICATE KEY UPDATE name=VALUES(name),version=VALUES(version),description=VALUES(description),updated_at=updated_at`,
-			def.Code, def.Name, def.Version, def.Status, def.Description); err != nil {
+		if _, err := s.db.Exec(`INSERT INTO plugins (plugin_code,name,version,status,description,source_type,compatible_core_version,config_json,created_at,updated_at) VALUES (?,?,?,?,?,?,?,NULL,NOW(),NOW()) ON DUPLICATE KEY UPDATE name=VALUES(name),version=VALUES(version),description=VALUES(description),source_type=VALUES(source_type),compatible_core_version=VALUES(compatible_core_version),updated_at=updated_at`,
+			def.Code, def.Name, def.Version, def.Status, def.Description, "builtin", def.MinCoreVersion); err != nil {
 			return err
 		}
 	}
@@ -1429,7 +1429,7 @@ func (s *MySQLStore) UpdateBoard(key string, req domain.Board) (domain.Board, bo
 }
 
 func (s *MySQLStore) Plugins() []domain.Plugin {
-	rows, err := s.db.Query(`SELECT plugin_code,name,version,status,COALESCE(description,''),COALESCE(CAST(config_json AS CHAR),''),DATE_FORMAT(created_at,'%Y-%m-%d %H:%i:%s'),DATE_FORMAT(updated_at,'%Y-%m-%d %H:%i:%s') FROM plugins ORDER BY plugin_code`)
+	rows, err := s.db.Query(`SELECT plugin_code,name,version,status,COALESCE(description,''),COALESCE(source_type,''),COALESCE(CAST(manifest_json AS CHAR),''),COALESCE(manifest_checksum,''),COALESCE(package_checksum,''),COALESCE(compatible_core_version,''),COALESCE(CAST(config_json AS CHAR),''),DATE_FORMAT(created_at,'%Y-%m-%d %H:%i:%s'),DATE_FORMAT(updated_at,'%Y-%m-%d %H:%i:%s') FROM plugins ORDER BY plugin_code`)
 	if err != nil {
 		defs := pluginregistry.Definitions()
 		for i := range defs {
@@ -1442,13 +1442,15 @@ func (s *MySQLStore) Plugins() []domain.Plugin {
 	runtime := map[string]domain.Plugin{}
 	for rows.Next() {
 		var p domain.Plugin
-		if err := rows.Scan(&p.Code, &p.Name, &p.Version, &p.Status, &p.Description, &p.ConfigJSON, &p.CreatedAt, &p.UpdatedAt); err == nil {
+		if err := rows.Scan(&p.Code, &p.Name, &p.Version, &p.Status, &p.Description, &p.SourceType, &p.ManifestJSON, &p.ManifestChecksum, &p.PackageChecksum, &p.CompatibleCoreVersion, &p.ConfigJSON, &p.CreatedAt, &p.UpdatedAt); err == nil {
 			p.PluginCode = p.Code
 			runtime[p.Code] = p
 		}
 	}
-	out := make([]domain.Plugin, 0, len(pluginregistry.Definitions()))
+	out := make([]domain.Plugin, 0, len(runtime)+len(pluginregistry.Definitions()))
+	seen := map[string]bool{}
 	for _, def := range pluginregistry.Definitions() {
+		seen[def.Code] = true
 		if item, ok := runtime[def.Code]; ok {
 			merged := pluginregistry.MergeRuntimeState(def, item)
 			merged.ResolvedConfig = pluginregistry.ResolvePluginConfig(merged, item.ConfigJSON, "")
@@ -1458,26 +1460,91 @@ func (s *MySQLStore) Plugins() []domain.Plugin {
 		def.ResolvedConfig = pluginregistry.ResolvePluginConfig(def, "", "")
 		out = append(out, pluginregistry.ApplyLifecycle(def))
 	}
+	for code, item := range runtime {
+		if seen[code] {
+			continue
+		}
+		def := mysqlPluginDefinitionFromRuntime(item)
+		merged := pluginregistry.MergeRuntimeState(def, item)
+		merged.ResolvedConfig = pluginregistry.ResolvePluginConfig(merged, item.ConfigJSON, "")
+		out = append(out, pluginregistry.ApplyLifecycle(merged))
+	}
 	sort.Slice(out, func(i, j int) bool { return out[i].Code < out[j].Code })
 	return out
 }
 
 func (s *MySQLStore) PluginByCode(code string) (domain.Plugin, bool) {
 	def, ok := pluginregistry.DefinitionByCode(code)
-	if !ok {
-		return domain.Plugin{}, false
-	}
 	var runtime domain.Plugin
-	err := s.db.QueryRow(`SELECT plugin_code,name,version,status,COALESCE(description,''),COALESCE(CAST(config_json AS CHAR),''),DATE_FORMAT(created_at,'%Y-%m-%d %H:%i:%s'),DATE_FORMAT(updated_at,'%Y-%m-%d %H:%i:%s') FROM plugins WHERE plugin_code=?`, def.Code).
-		Scan(&runtime.Code, &runtime.Name, &runtime.Version, &runtime.Status, &runtime.Description, &runtime.ConfigJSON, &runtime.CreatedAt, &runtime.UpdatedAt)
+	queryCode := strings.TrimSpace(code)
+	if ok {
+		queryCode = def.Code
+	}
+	err := s.db.QueryRow(`SELECT plugin_code,name,version,status,COALESCE(description,''),COALESCE(source_type,''),COALESCE(CAST(manifest_json AS CHAR),''),COALESCE(manifest_checksum,''),COALESCE(package_checksum,''),COALESCE(compatible_core_version,''),COALESCE(CAST(config_json AS CHAR),''),DATE_FORMAT(created_at,'%Y-%m-%d %H:%i:%s'),DATE_FORMAT(updated_at,'%Y-%m-%d %H:%i:%s') FROM plugins WHERE plugin_code=?`, queryCode).
+		Scan(&runtime.Code, &runtime.Name, &runtime.Version, &runtime.Status, &runtime.Description, &runtime.SourceType, &runtime.ManifestJSON, &runtime.ManifestChecksum, &runtime.PackageChecksum, &runtime.CompatibleCoreVersion, &runtime.ConfigJSON, &runtime.CreatedAt, &runtime.UpdatedAt)
 	if err != nil {
+		if !ok {
+			return domain.Plugin{}, false
+		}
 		def.ResolvedConfig = pluginregistry.ResolvePluginConfig(def, "", "")
 		return pluginregistry.ApplyLifecycle(def), true
 	}
 	runtime.PluginCode = runtime.Code
+	if !ok {
+		def = mysqlPluginDefinitionFromRuntime(runtime)
+	}
 	merged := pluginregistry.MergeRuntimeState(def, runtime)
 	merged.ResolvedConfig = pluginregistry.ResolvePluginConfig(merged, runtime.ConfigJSON, "")
 	return pluginregistry.ApplyLifecycle(merged), true
+}
+
+func mysqlPluginDefinitionFromRuntime(runtime domain.Plugin) domain.Plugin {
+	if runtime.ManifestJSON != "" {
+		if manifest, _, err := pluginregistry.DecodePluginManifestJSON([]byte(runtime.ManifestJSON)); err == nil {
+			return domain.Plugin{PluginManifest: manifest, Status: runtime.Status}
+		}
+	}
+	return domain.Plugin{
+		PluginManifest: domain.PluginManifest{
+			Code:                  runtime.Code,
+			PluginCode:            runtime.Code,
+			Name:                  firstNonEmptyString(runtime.Name, runtime.Code),
+			Version:               runtime.Version,
+			Description:           runtime.Description,
+			SourceType:            firstNonEmptyString(runtime.SourceType, "manifest"),
+			CompatibleCoreVersion: runtime.CompatibleCoreVersion,
+		},
+		Status: runtime.Status,
+	}
+}
+
+func (s *MySQLStore) SavePlugin(plugin domain.Plugin) (domain.Plugin, error) {
+	plugin.Code = strings.TrimSpace(firstNonEmptyString(plugin.Code, plugin.PluginCode))
+	if plugin.Code == "" {
+		return domain.Plugin{}, errors.New("插件 code 不能为空")
+	}
+	if plugin.Status == "" {
+		plugin.Status = pluginregistry.StatusDisabled
+	}
+	if !pluginregistry.ValidGlobalStatus(plugin.Status) {
+		return domain.Plugin{}, errors.New("插件状态不合法")
+	}
+	var manifest any = nil
+	if plugin.ManifestJSON != "" {
+		manifest = json.RawMessage(plugin.ManifestJSON)
+	}
+	var config any = nil
+	if plugin.ConfigJSON != "" {
+		config = json.RawMessage(plugin.ConfigJSON)
+	}
+	if _, err := s.db.Exec(`INSERT INTO plugins (plugin_code,name,version,status,description,source_type,manifest_json,manifest_checksum,package_checksum,compatible_core_version,config_json,created_at,updated_at)
+		VALUES (?,?,?,?,?,?,?,?,?,?,?,NOW(),NOW())
+		ON DUPLICATE KEY UPDATE name=VALUES(name),version=VALUES(version),status=VALUES(status),description=VALUES(description),source_type=VALUES(source_type),manifest_json=VALUES(manifest_json),manifest_checksum=VALUES(manifest_checksum),package_checksum=VALUES(package_checksum),compatible_core_version=VALUES(compatible_core_version),config_json=VALUES(config_json),updated_at=NOW()`,
+		plugin.Code, plugin.Name, plugin.Version, plugin.Status, plugin.Description, firstNonEmptyString(plugin.SourceType, "manifest"), manifest, plugin.ManifestChecksum, plugin.PackageChecksum, plugin.CompatibleCoreVersion, config); err != nil {
+		return domain.Plugin{}, err
+	}
+	out, _ := s.PluginByCode(plugin.Code)
+	return out, nil
 }
 
 func (s *MySQLStore) SetPluginStatus(code, status string) (domain.Plugin, error) {
@@ -1487,10 +1554,14 @@ func (s *MySQLStore) SetPluginStatus(code, status string) (domain.Plugin, error)
 	}
 	def, ok := pluginregistry.DefinitionByCode(code)
 	if !ok {
+		if plugin, exists := s.PluginByCode(code); exists {
+			plugin.Status = status
+			return s.SavePlugin(plugin)
+		}
 		return domain.Plugin{}, errors.New("插件不存在")
 	}
-	if _, err := s.db.Exec(`INSERT INTO plugins (plugin_code,name,version,status,description,config_json,created_at,updated_at) VALUES (?,?,?,?,?,NULL,NOW(),NOW()) ON DUPLICATE KEY UPDATE status=VALUES(status),updated_at=NOW()`,
-		def.Code, def.Name, def.Version, status, def.Description); err != nil {
+	if _, err := s.db.Exec(`INSERT INTO plugins (plugin_code,name,version,status,description,source_type,config_json,created_at,updated_at) VALUES (?,?,?,?,?,?,NULL,NOW(),NOW()) ON DUPLICATE KEY UPDATE status=VALUES(status),source_type=VALUES(source_type),updated_at=NOW()`,
+		def.Code, def.Name, def.Version, status, def.Description, "builtin"); err != nil {
 		return domain.Plugin{}, err
 	}
 	plugin, _ := s.PluginByCode(def.Code)
@@ -1500,6 +1571,13 @@ func (s *MySQLStore) SetPluginStatus(code, status string) (domain.Plugin, error)
 func (s *MySQLStore) SetPluginConfig(code, configJSON string) (domain.Plugin, error) {
 	def, ok := pluginregistry.DefinitionByCode(code)
 	if !ok {
+		if plugin, exists := s.PluginByCode(code); exists {
+			if err := pluginregistry.ValidateConfigJSON(plugin, configJSON); err != nil {
+				return domain.Plugin{}, err
+			}
+			plugin.ConfigJSON = configJSON
+			return s.SavePlugin(plugin)
+		}
 		return domain.Plugin{}, errors.New("插件不存在")
 	}
 	configJSON = strings.TrimSpace(configJSON)
@@ -1510,9 +1588,9 @@ func (s *MySQLStore) SetPluginConfig(code, configJSON string) (domain.Plugin, er
 	if configJSON != "" {
 		config = json.RawMessage(configJSON)
 	}
-	if _, err := s.db.Exec(`INSERT INTO plugins (plugin_code,name,version,status,description,config_json,created_at,updated_at)
-		VALUES (?,?,?,?,?,?,NOW(),NOW())
-		ON DUPLICATE KEY UPDATE config_json=VALUES(config_json),updated_at=NOW()`, def.Code, def.Name, def.Version, def.Status, def.Description, config); err != nil {
+	if _, err := s.db.Exec(`INSERT INTO plugins (plugin_code,name,version,status,description,source_type,config_json,created_at,updated_at)
+		VALUES (?,?,?,?,?,?,?,NOW(),NOW())
+		ON DUPLICATE KEY UPDATE config_json=VALUES(config_json),source_type=VALUES(source_type),updated_at=NOW()`, def.Code, def.Name, def.Version, def.Status, def.Description, "builtin", config); err != nil {
 		return domain.Plugin{}, err
 	}
 	plugin, _ := s.PluginByCode(def.Code)

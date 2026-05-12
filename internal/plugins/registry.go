@@ -49,12 +49,27 @@ func ApplyLifecycle(plugin domain.Plugin) domain.Plugin {
 		status = StatusDiscovered
 	}
 	plugin.Status = status
+	if plugin.SourceType == "" {
+		if plugin.IsSystem {
+			plugin.SourceType = "builtin"
+		} else {
+			plugin.SourceType = "manifest"
+		}
+	}
 	if plugin.InstallStatus == "" {
 		if status == StatusDiscovered {
 			plugin.InstallStatus = StatusDiscovered
+		} else if status == StatusArchived {
+			plugin.InstallStatus = StatusArchived
 		} else {
 			plugin.InstallStatus = StatusInstalled
 		}
+	}
+	if plugin.RuntimeStatus == "" {
+		plugin.RuntimeStatus = runtimeStatusFor(status)
+	}
+	if plugin.HealthStatus == "" {
+		plugin.HealthStatus = healthStatusFor(status)
 	}
 	if plugin.InstalledAt == "" {
 		plugin.InstalledAt = plugin.CreatedAt
@@ -72,6 +87,32 @@ func ApplyLifecycle(plugin domain.Plugin) domain.Plugin {
 		plugin.StatusReason = lifecycleReasonFor(status)
 	}
 	return plugin
+}
+
+func runtimeStatusFor(status string) string {
+	switch strings.TrimSpace(status) {
+	case StatusEnabled, StatusRunning:
+		return StatusRunning
+	default:
+		return StatusDisabled
+	}
+}
+
+func healthStatusFor(status string) string {
+	switch strings.TrimSpace(status) {
+	case StatusConfigInvalid:
+		return StatusConfigInvalid
+	case StatusMigrationPending:
+		return StatusMigrationPending
+	case StatusMigrationFailed:
+		return StatusMigrationFailed
+	case StatusDependencyMissing:
+		return StatusDependencyMissing
+	case StatusArchived:
+		return StatusArchived
+	default:
+		return "healthy"
+	}
 }
 
 func lifecycleStatusFor(status string) string {
@@ -495,6 +536,21 @@ func MergeRuntimeState(def domain.Plugin, runtime domain.Plugin) domain.Plugin {
 	}
 	if runtime.Description != "" {
 		def.Description = runtime.Description
+	}
+	if runtime.SourceType != "" {
+		def.SourceType = runtime.SourceType
+	}
+	if runtime.ManifestJSON != "" {
+		def.ManifestJSON = runtime.ManifestJSON
+	}
+	if runtime.ManifestChecksum != "" {
+		def.ManifestChecksum = runtime.ManifestChecksum
+	}
+	if runtime.PackageChecksum != "" {
+		def.PackageChecksum = runtime.PackageChecksum
+	}
+	if runtime.CompatibleCoreVersion != "" {
+		def.CompatibleCoreVersion = runtime.CompatibleCoreVersion
 	}
 	def.CreatedAt = runtime.CreatedAt
 	def.UpdatedAt = runtime.UpdatedAt

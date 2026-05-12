@@ -1550,13 +1550,21 @@ func (s *MemoryStore) Plugins() []domain.Plugin {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	out := make([]domain.Plugin, 0, len(pluginregistry.Definitions()))
+	seen := map[string]bool{}
 	for _, def := range pluginregistry.Definitions() {
+		seen[def.Code] = true
 		if runtime, ok := s.plugins[def.Code]; ok {
 			plugin := pluginregistry.MergeRuntimeState(def, *runtime)
 			out = append(out, withResolvedPluginConfig(plugin, runtime.ConfigJSON, ""))
 			continue
 		}
 		out = append(out, withResolvedPluginConfig(def, "", ""))
+	}
+	for code, runtime := range s.plugins {
+		if seen[code] {
+			continue
+		}
+		out = append(out, withResolvedPluginConfig(*runtime, runtime.ConfigJSON, ""))
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i].Code < out[j].Code })
 	return out
@@ -1567,20 +1575,54 @@ func (s *MemoryStore) PluginByCode(code string) (domain.Plugin, bool) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	def, ok := pluginregistry.DefinitionByCode(code)
-	if !ok {
-		return domain.Plugin{}, false
+	if ok {
+		if runtime, ok := s.plugins[def.Code]; ok {
+			plugin := pluginregistry.MergeRuntimeState(def, *runtime)
+			return withResolvedPluginConfig(plugin, runtime.ConfigJSON, ""), true
+		}
+		return withResolvedPluginConfig(def, "", ""), true
 	}
-	if runtime, ok := s.plugins[def.Code]; ok {
-		plugin := pluginregistry.MergeRuntimeState(def, *runtime)
-		return withResolvedPluginConfig(plugin, runtime.ConfigJSON, ""), true
+	if runtime, ok := s.plugins[strings.TrimSpace(code)]; ok {
+		return withResolvedPluginConfig(*runtime, runtime.ConfigJSON, ""), true
 	}
-	return withResolvedPluginConfig(def, "", ""), true
+	return domain.Plugin{}, false
 }
 
 func withResolvedPluginConfig(plugin domain.Plugin, globalConfigJSON, communityConfigJSON string) domain.Plugin {
 	plugin.ConfigJSON = strings.TrimSpace(firstNonEmptyString(communityConfigJSON, globalConfigJSON))
 	plugin.ResolvedConfig = pluginregistry.ResolvePluginConfig(plugin, globalConfigJSON, communityConfigJSON)
 	return pluginregistry.ApplyLifecycle(plugin)
+}
+
+func (s *MemoryStore) SavePlugin(plugin domain.Plugin) (domain.Plugin, error) {
+	plugin.Code = strings.TrimSpace(firstNonEmptyString(plugin.Code, plugin.PluginCode))
+	if plugin.Code == "" {
+		return domain.Plugin{}, errors.New("插件 code 不能为空")
+	}
+	if plugin.Status == "" {
+		plugin.Status = pluginregistry.StatusDisabled
+	}
+	if !pluginregistry.ValidGlobalStatus(plugin.Status) {
+		return domain.Plugin{}, errors.New("插件状态不合法")
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	now := Now()
+	if existing, ok := s.plugins[plugin.Code]; ok {
+		if plugin.CreatedAt == "" {
+			plugin.CreatedAt = existing.CreatedAt
+		}
+		if plugin.ConfigJSON == "" {
+			plugin.ConfigJSON = existing.ConfigJSON
+		}
+	}
+	if plugin.CreatedAt == "" {
+		plugin.CreatedAt = now
+	}
+	plugin.UpdatedAt = now
+	cp := plugin
+	s.plugins[plugin.Code] = &cp
+	return withResolvedPluginConfig(plugin, plugin.ConfigJSON, ""), nil
 }
 
 // SetPluginStatus 设置插件运行状态。
@@ -1593,6 +1635,11 @@ func (s *MemoryStore) SetPluginStatus(code, status string) (domain.Plugin, error
 	defer s.mu.Unlock()
 	def, ok := pluginregistry.DefinitionByCode(code)
 	if !ok {
+		if runtime, exists := s.plugins[code]; exists {
+			runtime.Status = status
+			runtime.UpdatedAt = Now()
+			return withResolvedPluginConfig(*runtime, runtime.ConfigJSON, ""), nil
+		}
 		return domain.Plugin{}, errors.New("插件不存在")
 	}
 	runtime, ok := s.plugins[def.Code]
@@ -1613,6 +1660,14 @@ func (s *MemoryStore) SetPluginConfig(code, configJSON string) (domain.Plugin, e
 	defer s.mu.Unlock()
 	def, ok := pluginregistry.DefinitionByCode(code)
 	if !ok {
+		if runtime, exists := s.plugins[code]; exists {
+			if err := pluginregistry.ValidateConfigJSON(*runtime, configJSON); err != nil {
+				return domain.Plugin{}, err
+			}
+			runtime.ConfigJSON = configJSON
+			runtime.UpdatedAt = Now()
+			return withResolvedPluginConfig(*runtime, runtime.ConfigJSON, ""), nil
+		}
 		return domain.Plugin{}, errors.New("插件不存在")
 	}
 	if err := pluginregistry.ValidateConfigJSON(def, configJSON); err != nil {

@@ -71,35 +71,61 @@ type RouteDefinition struct {
 	Method     string `json:"method"`
 	Path       string `json:"path"`
 	Handler    string `json:"handler,omitempty"`
+	Auth       string `json:"auth,omitempty"`
+	Permission string `json:"permission,omitempty"`
 }
 
 // HookDefinition 描述插件可声明的扩展 Hook。
 type HookDefinition struct {
-	PluginCode    string `json:"plugin_code"`
-	Name          string `json:"name"`
-	Description   string `json:"description,omitempty"`
-	Critical      bool   `json:"critical"`
-	FailurePolicy string `json:"failure_policy,omitempty"`
+	PluginCode       string `json:"plugin_code"`
+	Name             string `json:"name"`
+	Description      string `json:"description,omitempty"`
+	Mode             string `json:"mode,omitempty"`
+	Blocking         bool   `json:"blocking"`
+	Critical         bool   `json:"critical"`
+	FailurePolicy    string `json:"failure_policy,omitempty"`
+	TimeoutMS        int    `json:"timeout_ms,omitempty"`
+	FailureThreshold int    `json:"failure_threshold,omitempty"`
 }
 
 // PluginManifest 描述插件声明层，不直接承载运行时流程。
 type PluginManifest struct {
-	Code            string                      `json:"code"`
-	PluginCode      string                      `json:"plugin_code,omitempty"`
-	Name            string                      `json:"name"`
-	Version         string                      `json:"version"`
-	Description     string                      `json:"description,omitempty"`
-	IsSystem        bool                        `json:"is_system"`
-	ContentTypes    []string                    `json:"content_types,omitempty"`
-	ContentTypeDefs []ContentTypeDefinition     `json:"content_type_definitions,omitempty"`
-	Permissions     []PermissionDefinition      `json:"permissions,omitempty"`
-	Menus           []MenuDefinition            `json:"menus,omitempty"`
-	Routes          []RouteDefinition           `json:"routes,omitempty"`
-	ConfigSchema    any                         `json:"config_schema,omitempty"`
-	Dependencies    []string                    `json:"dependencies,omitempty"`
-	MinCoreVersion  string                      `json:"min_core_version,omitempty"`
-	Hooks           []HookDefinition            `json:"hooks,omitempty"`
-	Migrations      []PluginMigrationDefinition `json:"migrations,omitempty"`
+	Code                  string                      `json:"code"`
+	PluginCode            string                      `json:"plugin_code,omitempty"`
+	Name                  string                      `json:"name"`
+	Version               string                      `json:"version"`
+	Description           string                      `json:"description,omitempty"`
+	Author                string                      `json:"author,omitempty"`
+	Homepage              string                      `json:"homepage,omitempty"`
+	License               string                      `json:"license,omitempty"`
+	CompatibleCoreVersion string                      `json:"compatible_core_version,omitempty"`
+	IsSystem              bool                        `json:"is_system"`
+	Status                string                      `json:"status,omitempty"`
+	SourceType            string                      `json:"source_type,omitempty"`
+	ContentTypes          []string                    `json:"content_types,omitempty"`
+	ContentTypeDefs       []ContentTypeDefinition     `json:"content_type_definitions,omitempty"`
+	Permissions           []PermissionDefinition      `json:"permissions,omitempty"`
+	Menus                 []MenuDefinition            `json:"menus,omitempty"`
+	Routes                []RouteDefinition           `json:"routes,omitempty"`
+	ConfigSchema          any                         `json:"config_schema,omitempty"`
+	Dependencies          []string                    `json:"dependencies,omitempty"`
+	MinCoreVersion        string                      `json:"min_core_version,omitempty"`
+	Hooks                 []HookDefinition            `json:"hooks,omitempty"`
+	Migrations            []PluginMigrationDefinition `json:"migrations,omitempty"`
+	Assets                []string                    `json:"assets,omitempty"`
+	ExternalService       *PluginExternalService      `json:"external_service,omitempty"`
+}
+
+// PluginExternalService describes reserved Webhook metadata for external-service plugins.
+type PluginExternalService struct {
+	Endpoint           string   `json:"endpoint,omitempty"`
+	SecretRef          string   `json:"secret_ref,omitempty"`
+	WebhookSecret      string   `json:"webhook_secret,omitempty"`
+	SubscribedHooks    []string `json:"subscribed_hooks,omitempty"`
+	TimeoutMS          int      `json:"timeout_ms,omitempty"`
+	FailurePolicy      string   `json:"failure_policy,omitempty"`
+	RetryPolicy        string   `json:"retry_policy,omitempty"`
+	SignatureAlgorithm string   `json:"signature_algorithm,omitempty"`
 }
 
 // PluginMigrationDefinition describes a built-in plugin migration declaration.
@@ -197,21 +223,86 @@ type PluginHealth struct {
 // Plugin 描述系统插件的注册与运行状态。
 type Plugin struct {
 	PluginManifest
-	Status            string        `json:"status"`
-	GlobalStatus      string        `json:"global_status,omitempty"`
-	CommunityStatus   string        `json:"community_status,omitempty"`
-	InstallStatus     string        `json:"install_status,omitempty"`
-	LifecycleStatus   string        `json:"lifecycle_status,omitempty"`
-	StatusReason      string        `json:"status_reason,omitempty"`
-	InstalledAt       string        `json:"installed_at,omitempty"`
-	ArchivedAt        string        `json:"archived_at,omitempty"`
-	LastHealthCheckAt string        `json:"last_health_check_at,omitempty"`
-	SortOrder         int           `json:"sort_order,omitempty"`
-	ConfigJSON        string        `json:"config_json,omitempty"`
-	ResolvedConfig    any           `json:"resolved_config,omitempty"`
-	Health            *PluginHealth `json:"health,omitempty"`
-	CreatedAt         string        `json:"created_at,omitempty"`
-	UpdatedAt         string        `json:"updated_at,omitempty"`
+	Status                string        `json:"status"`
+	GlobalStatus          string        `json:"global_status,omitempty"`
+	CommunityStatus       string        `json:"community_status,omitempty"`
+	InstallStatus         string        `json:"install_status,omitempty"`
+	RuntimeStatus         string        `json:"runtime_status,omitempty"`
+	HealthStatus          string        `json:"health_status,omitempty"`
+	LifecycleStatus       string        `json:"lifecycle_status,omitempty"`
+	StatusReason          string        `json:"status_reason,omitempty"`
+	InstalledAt           string        `json:"installed_at,omitempty"`
+	ArchivedAt            string        `json:"archived_at,omitempty"`
+	LastHealthCheckAt     string        `json:"last_health_check_at,omitempty"`
+	SourceType            string        `json:"source_type,omitempty"`
+	ManifestJSON          string        `json:"manifest_json,omitempty"`
+	ManifestChecksum      string        `json:"manifest_checksum,omitempty"`
+	PackageChecksum       string        `json:"package_checksum,omitempty"`
+	CompatibleCoreVersion string        `json:"compatible_core_version,omitempty"`
+	SortOrder             int           `json:"sort_order,omitempty"`
+	ConfigJSON            string        `json:"config_json,omitempty"`
+	ResolvedConfig        any           `json:"resolved_config,omitempty"`
+	Health                *PluginHealth `json:"health,omitempty"`
+	CreatedAt             string        `json:"created_at,omitempty"`
+	UpdatedAt             string        `json:"updated_at,omitempty"`
+}
+
+// PluginManifestValidationResult is returned by manifest validation and dry-run APIs.
+type PluginManifestValidationResult struct {
+	Valid                bool                        `json:"valid"`
+	Errors               []string                    `json:"errors"`
+	Warnings             []string                    `json:"warnings,omitempty"`
+	ImpactSummary        PluginInstallImpact         `json:"impact_summary"`
+	NormalizedManifest   PluginManifest              `json:"normalized_manifest"`
+	Checksum             string                      `json:"checksum"`
+	Dependencies         []string                    `json:"dependencies,omitempty"`
+	ContentTypeConflicts []string                    `json:"content_type_conflicts,omitempty"`
+	PermissionConflicts  []string                    `json:"permission_conflicts,omitempty"`
+	MigrationPlan        []PluginMigrationDefinition `json:"migration_plan,omitempty"`
+	InstallPreview       map[string]any              `json:"install_preview,omitempty"`
+}
+
+// PluginInstallImpact summarizes manifest dry-run / install impact.
+type PluginInstallImpact struct {
+	ContentTypesCount int      `json:"content_types_count"`
+	PermissionsCount  int      `json:"permissions_count"`
+	MenusCount        int      `json:"menus_count"`
+	RoutesCount       int      `json:"routes_count"`
+	HooksCount        int      `json:"hooks_count"`
+	MigrationsCount   int      `json:"migrations_count"`
+	Dependencies      []string `json:"dependencies,omitempty"`
+	SecurityWarnings  []string `json:"security_warnings,omitempty"`
+}
+
+// PluginUpgradeDryRunResult summarizes an upgrade preview without mutating runtime state.
+type PluginUpgradeDryRunResult struct {
+	PluginCode            string                         `json:"plugin_code"`
+	CurrentVersion        string                         `json:"current_version"`
+	NewVersion            string                         `json:"new_version"`
+	CurrentCoreVersion    string                         `json:"current_core_version"`
+	CompatibleCoreVersion string                         `json:"compatible_core_version,omitempty"`
+	CompatibilityStatus   string                         `json:"compatibility_status"`
+	ChangedKeys           []string                       `json:"changed_keys,omitempty"`
+	Diff                  map[string]any                 `json:"diff,omitempty"`
+	Validation            PluginManifestValidationResult `json:"validation"`
+}
+
+// PluginUpgradeResult is returned by upgrade execution APIs.
+type PluginUpgradeResult struct {
+	Plugin Plugin `json:"plugin"`
+	PluginUpgradeDryRunResult
+}
+
+// PluginBulkOperationResult summarizes bulk archive / restore results.
+type PluginBulkOperationResult struct {
+	Succeeded []PluginBulkItemResult `json:"succeeded"`
+	Failed    []PluginBulkItemResult `json:"failed"`
+}
+
+type PluginBulkItemResult struct {
+	PluginCode string `json:"plugin_code"`
+	Status     string `json:"status,omitempty"`
+	Error      string `json:"error,omitempty"`
 }
 
 // PluginImpact summarizes the governance impact scope for disabling/enabling a plugin.
