@@ -775,6 +775,9 @@ func (s *MemoryStore) seed() {
 	s.users[1] = &domain.AdminUser{ID: 1, Username: "admin", Nickname: "超级管理员", Avatar: "", Phone: "13800000001", Email: "admin@devhub.local", PasswordHash: defaultPassword, Status: "normal", RoleID: 1, RoleName: "超级管理员", CreatedAt: "2026-04-01 09:00:00", LastLoginAt: "2026-05-06 09:30:00"}
 	s.users[2] = &domain.AdminUser{ID: 2, Username: "operator", Nickname: "运营管理员", Avatar: "", Phone: "13800000002", Email: "operator@devhub.local", PasswordHash: defaultPassword, Status: "normal", RoleID: 2, RoleName: "运营管理员", CreatedAt: "2026-04-08 09:00:00", LastLoginAt: "2026-05-05 18:20:00"}
 	s.users[3] = &domain.AdminUser{ID: 3, Username: "auditor", Nickname: "内容审核员", Avatar: "", Phone: "13800000003", Email: "auditor@devhub.local", PasswordHash: defaultPassword, Status: "normal", RoleID: 3, RoleName: "内容审核员", CreatedAt: "2026-04-12 09:00:00", LastLoginAt: "2026-05-06 10:12:00"}
+	if frontPassword, err := hashPassword("a123456"); err == nil {
+		s.users[4] = &domain.AdminUser{ID: 4, Username: "liuwei", Nickname: "方圆十三", Avatar: "", Phone: "13800000004", Email: "liuwei@devhub.local", PasswordHash: frontPassword, Status: "normal", RoleName: "普通用户", CreatedAt: "2026-05-12 09:00:00", LastLoginAt: "2026-05-12 09:00:00"}
+	}
 	for _, u := range s.users {
 		if u.ID >= s.nextUserID {
 			s.nextUserID = u.ID + 1

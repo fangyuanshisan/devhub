@@ -35,6 +35,7 @@ Core 保留用户、认证、子站、板块、通用内容、评论、标签、
   - `docs`：发布 `document` 时写入 `docs_documents`，并支持基础文档树读取。
   - `wiki`：发布 `wiki_page` 时写入 `wiki_pages` 和初始 `wiki_page_versions`；编辑时新增版本记录。
 - `project` / `job` / `ai_work` 已完成插件归属迁移：`projects -> project`、`jobs -> job`、`ai_works -> ai_work`，发布校验、权限码、菜单声明和历史 `plugin_code` 迁移口径已接入；专属扩展表和完整业务闭环尚未完成。
+- 前台 seed 用户：MemoryStore 和 MySQLStore 初始化时都会补齐 `liuwei / 方圆十三 / a123456` 的前台用户，方便手工登录和前台用户 E2E。
 - 权限上下文：`CreateTopicRequest.ActorPermissions` / `ActorContext` 均由服务端从 token、后台身份和版主 scope 计算，客户端请求体不能覆盖。
 - 配置合并：`plugins.config_json` 与 `community_plugins.config_json` 已落库并可写，返回 `resolved_config.default/global/community/effective` 合并视图。
 - HookBus：Service 层已有最小内部 HookBus，当前调用点覆盖内容创建、更新、删除、评论、搜索、通知和 SEO 事件；Search / Notification / SEO 当前是最小事件派发，不做第三方动态执行。

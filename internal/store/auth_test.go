@@ -42,3 +42,25 @@ func TestRefreshTokenHash(t *testing.T) {
 		t.Fatal("refresh token hash mismatch")
 	}
 }
+
+func TestSeededFrontendUserCanLogin(t *testing.T) {
+	s := NewMemoryStore()
+	session, err := s.UserLogin("liuwei", "a123456")
+	if err != nil {
+		t.Fatalf("expected seeded frontend user to login, got err=%v", err)
+	}
+	if session == nil || session.User.Username != "liuwei" || session.User.Nickname != "方圆十三" {
+		t.Fatalf("unexpected seeded frontend session: %#v", session)
+	}
+}
+
+func TestSeededFrontendUserCanLogin(t *testing.T) {
+	store := NewMemoryStore()
+	session, err := store.UserLogin("liuwei", "a123456")
+	if err != nil {
+		t.Fatalf("expected seeded frontend user to login, got err=%v", err)
+	}
+	if session == nil || session.User.Username != "liuwei" || session.User.Nickname != "方圆十三" {
+		t.Fatalf("unexpected seeded frontend session: %#v", session)
+	}
+}

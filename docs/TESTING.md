@@ -259,6 +259,8 @@ docker compose run --rm admin-e2e
 - 通用 `PluginContent` 页入口、子站筛选和状态筛选。
 - `/admin-next/qa`、`/admin-next/docs`、`/admin-next/wiki` 插件内容页打开、筛选和通用内容表展示。
 - 插件内容治理代表链路：通过后台 API 对已有插件内容执行隐藏 / 恢复，并在审计日志中验证记录。
+- 前台 seed 用户 `liuwei / 方圆十三 / a123456` 会在 MemoryStore 和 MySQLStore 初始化时自动写入，可直接用于前台登录、发布和手工冒烟。
+- 前台种子用户 `liuwei / 方圆十三 / a123456` 会在 MemoryStore 和 MySQLStore 初始化时自动写入，可直接用于手工登录、前台发布和前台用户 E2E。
 
 ## 前台 E2E Docker Runner
 

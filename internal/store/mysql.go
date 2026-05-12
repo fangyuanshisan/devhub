@@ -909,6 +909,23 @@ func (s *MySQLStore) seedAuthData() error {
 			return err
 		}
 	}
+	frontPassword, err := hashPassword("a123456")
+	if err != nil {
+		return err
+	}
+	if _, err := s.db.Exec(`INSERT INTO users (username,nickname,email,phone,password_hash,status,created_at,last_login_at)
+		VALUES (?,?,?,?,?,'normal',NOW(),NULL)
+		ON DUPLICATE KEY UPDATE nickname=VALUES(nickname),email=VALUES(email),phone=VALUES(phone),password_hash=VALUES(password_hash),status='normal',updated_at=NOW()`,
+		"liuwei", "方圆十三", "liuwei@devhub.local", "13800000004", frontPassword); err != nil {
+		return err
+	}
+	var liuweiID int64
+	if err := s.db.QueryRow(`SELECT id FROM users WHERE username=? LIMIT 1`, "liuwei").Scan(&liuweiID); err != nil {
+		return err
+	}
+	if _, err := s.db.Exec(`INSERT IGNORE INTO user_roles (user_id,role_id,site_key,status) VALUES (?,?,'*','normal')`, liuweiID, roleID("user")); err != nil {
+		return err
+	}
 	for _, item := range []struct {
 		communityID int64
 		userID      int64
