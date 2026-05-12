@@ -33,6 +33,30 @@
       :closable="false"
       data-testid="plugin-content-archived-tip"
     />
+    <el-alert
+      v-if="healthStatus === 'migration_failed'"
+      :title="t('plugin.content.migrationFailedTip')"
+      type="error"
+      show-icon
+      :closable="false"
+      data-testid="plugin-content-migration-failed-tip"
+    />
+    <el-alert
+      v-if="healthStatus === 'hook_error'"
+      :title="t('plugin.content.hookErrorTip')"
+      type="warning"
+      show-icon
+      :closable="false"
+      data-testid="plugin-content-hook-error-tip"
+    />
+    <el-alert
+      v-if="healthStatus === 'hook_warning'"
+      :title="t('plugin.content.hookWarningTip')"
+      type="warning"
+      show-icon
+      :closable="false"
+      data-testid="plugin-content-hook-warning-tip"
+    />
 
     <div class="filter-panel">
       <el-select v-model="filters.communityId" clearable filterable :placeholder="t('field.community')" style="width: 180px" data-testid="plugin-content-community-filter">
@@ -170,16 +194,20 @@ const contentTypes = ref([]);
 
 const contentTypeCount = computed(() => contentTypes.value.length || 1);
 const healthStatus = computed(() => plugin.value?.health_status || plugin.value?.runtime_status || plugin.value?.status || 'unknown');
-const batchActions = computed(() => [
-  { name: 'hide', label: t('plugin.content.batchHide'), type: 'warning' },
-  { name: 'restore', label: t('plugin.content.batchRestore'), type: 'success' },
-  { name: 'approve', label: t('plugin.content.approve'), type: 'success' },
-  { name: 'reject', label: t('plugin.content.reject'), type: 'danger' },
-  { name: 'pin', label: t('plugin.content.pin'), type: 'warning' },
-  { name: 'unpin', label: t('plugin.content.unpin'), type: 'info' },
-  { name: 'feature', label: t('plugin.content.feature'), type: 'success' },
-  { name: 'unfeature', label: t('plugin.content.unfeature'), type: 'info' },
-]);
+const canModerate = computed(() => auth.can('topic.moderate'));
+const batchActions = computed(() => {
+  if (!canModerate.value) return [];
+  return [
+    { name: 'hide', label: t('plugin.content.batchHide'), type: 'warning' },
+    { name: 'restore', label: t('plugin.content.batchRestore'), type: 'success' },
+    { name: 'approve', label: t('plugin.content.approve'), type: 'success' },
+    { name: 'reject', label: t('plugin.content.reject'), type: 'danger' },
+    { name: 'pin', label: t('plugin.content.pin'), type: 'warning' },
+    { name: 'unpin', label: t('plugin.content.unpin'), type: 'info' },
+    { name: 'feature', label: t('plugin.content.feature'), type: 'success' },
+    { name: 'unfeature', label: t('plugin.content.unfeature'), type: 'info' },
+  ];
+});
 
 async function load() {
   const pluginList = await plugins();
@@ -192,7 +220,7 @@ async function load() {
   plugin.value = current;
   contentTypes.value = current.content_types?.length ? current.content_types : [route.meta.contentType];
   const permission = current.menus?.find((item) => item.area === 'admin')?.permission || route.meta.permission;
-  if (permission && !auth.can(permission)) {
+  if (!auth.can('post.read') || (permission && !auth.can(permission))) {
     ElMessage.warning(t('plugin.content.noPermissionTip'));
     router.replace('/plugins');
     return;

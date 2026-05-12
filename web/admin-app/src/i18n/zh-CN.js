@@ -419,6 +419,9 @@ export default {
       disabledTip: '当前插件未启用，请先在系统插件中启用。',
       disabledHistoryTip: '插件已禁用：不能新建该插件内容，历史内容仍可查看和治理。',
       archivedTip: '插件已归档：只能查看和治理历史内容，不能新建该插件内容；历史内容详情页和 SEO 不受影响。',
+      migrationFailedTip: '插件迁移存在失败记录：禁止高风险新写入；历史内容仍可查看和治理。请先在插件中心处理迁移异常。',
+      hookWarningTip: '插件 Hook 存在异常记录：不影响历史内容查看，但可能影响新写入链路。建议前往插件中心排查 Hook 失败原因。',
+      hookErrorTip: '插件 Hook 异常已达到阈值：不影响历史内容查看，但新写入风险较高。建议先处理 Hook 异常再继续发布。',
       noPermissionTip: '当前账号无权访问该插件管理页。',
       status: {
         publish: '已发布',

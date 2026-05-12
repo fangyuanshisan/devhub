@@ -1,8 +1,8 @@
 # Changelog
 
-## Next
+## v1.4.0 (2026-05-12)
 
-Current `VERSION` is `v1.4.0`. This cuts the plugin-content governance enhancement work into the current release line; remaining frontend verification requires a Node/npm environment.
+Current `VERSION` is `v1.4.0`. The plugin-content governance enhancement work is now validated with Go tests/build plus Docker-based admin build and Playwright; see `docs/releases/v1.4.0.md`.
 
 - Began `v1.4.0` plugin-content governance enhancement work: `GET /api/v1/admin/posts` now supports precise `plugin_code + content_type` filtering and returns plugin ownership fields for admin post rows.
 - Upgraded `PluginContent` into a fuller governance page with plugin name/code/status/health/type-count header, disabled/archived history notices, aligned filter/batch layout, result details, audit jump query metadata, and recent-governance entry from the detail drawer.
@@ -112,6 +112,10 @@ DevHub v1.3.2 is the plugin platform governance enhancement release.
 - HookBus dispatch exists for built-in plugins and now persists execution records/statistics; retry policy, alerting, and external monitoring remain follow-up work.
 - Plugin health is a lightweight governance summary, not a Prometheus/Grafana-style monitoring system.
 - Plugin config diff is currently top-level `changed_keys`; deep-path diff, version history, rollback, and gray release remain follow-up work.
+
+## Next
+
+- (empty)
 
 ## v1.3.1
 

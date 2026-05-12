@@ -120,4 +120,44 @@ test.describe('admin plugin content detailed flow', () => {
     await page.getByRole('button', { name: '确认' }).click();
     await expect(page.getByTestId('plugin-content-batch-result')).toContainText('成功数');
   });
+
+  test('runs minimal batch feature and unfeature governance chain', async ({ page }) => {
+    await page.goto('/admin-next/qa');
+    await page.getByTestId('plugin-content-search').fill('PHP-FPM');
+    await page.getByTestId('plugin-content-query').click();
+    await expect(page.getByTestId('plugin-content-table')).toContainText('PHP-FPM');
+
+    let firstRow = page.getByTestId('plugin-content-table').locator('.el-table__body-wrapper .el-table__row').first();
+    await firstRow.locator('.el-checkbox__input').click();
+    await page.getByTestId('plugin-content-batch-feature').click();
+    await page.getByRole('button', { name: '确认' }).click();
+    await expect(page.getByTestId('plugin-content-batch-result')).toContainText('成功数');
+    await page.getByTestId('plugin-content-batch-result').getByRole('button', { name: '关闭' }).click();
+
+    firstRow = page.getByTestId('plugin-content-table').locator('.el-table__body-wrapper .el-table__row').first();
+    await firstRow.locator('.el-checkbox__input').click();
+    await page.getByTestId('plugin-content-batch-unfeature').click();
+    await page.getByRole('button', { name: '确认' }).click();
+    await expect(page.getByTestId('plugin-content-batch-result')).toContainText('成功数');
+  });
+
+  test('runs minimal batch reject and approve governance chain', async ({ page }) => {
+    await page.goto('/admin-next/qa');
+    await page.getByTestId('plugin-content-search').fill('PHP-FPM');
+    await page.getByTestId('plugin-content-query').click();
+    await expect(page.getByTestId('plugin-content-table')).toContainText('PHP-FPM');
+
+    let firstRow = page.getByTestId('plugin-content-table').locator('.el-table__body-wrapper .el-table__row').first();
+    await firstRow.locator('.el-checkbox__input').click();
+    await page.getByTestId('plugin-content-batch-reject').click();
+    await page.getByRole('button', { name: '确认' }).click();
+    await expect(page.getByTestId('plugin-content-batch-result')).toContainText('成功数');
+    await page.getByTestId('plugin-content-batch-result').getByRole('button', { name: '关闭' }).click();
+
+    firstRow = page.getByTestId('plugin-content-table').locator('.el-table__body-wrapper .el-table__row').first();
+    await firstRow.locator('.el-checkbox__input').click();
+    await page.getByTestId('plugin-content-batch-approve').click();
+    await page.getByRole('button', { name: '确认' }).click();
+    await expect(page.getByTestId('plugin-content-batch-result')).toContainText('成功数');
+  });
 });

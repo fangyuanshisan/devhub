@@ -4,7 +4,7 @@
 
 更新时间：2026-05-12
 
-本文档只记录当前 v1.3.x 必测项和后续补测项。历史版本测试只保留必要回归，不再展开旧版本完整矩阵。
+本文档只记录当前 v1.4.0 必测项和后续补测项。历史版本测试只保留必要回归，不再展开旧版本完整矩阵。
 
 ## 已实现必测
 
@@ -18,7 +18,7 @@
 
 插件 API：
 
-- `plugins.status` 支持扩展状态模型：`discovered`、`installed`、`migrated`、`configured`、`enabled`、`disabled`、`running`、`config_invalid`、`migration_pending`、`dependency_missing`。
+- `plugins.status` 支持扩展状态模型：`discovered`、`installed`、`migrated`、`configured`、`enabled`、`disabled`、`running`、`archived`、`config_invalid`、`migration_pending`、`migration_failed`、`dependency_missing`。
 - 发布可用性只认全局 `enabled`；除 `enabled` 外的全局状态均不能新建该插件内容。
 - `GET /api/v1/plugins` 只返回全局 enabled 插件。
 - `GET /api/v1/plugins` 返回统一 manifest 风格的插件声明结构，包括内容类型、权限、菜单、路由和 `config_schema` 预留字段。

@@ -8,7 +8,7 @@
 
 ## 当前版本结论
 
-当前 `VERSION` 已切到 `v1.4.0`，主题是“插件内容治理增强版”。本轮已完成 `PluginContent` 精确过滤、头部状态、禁用 / 归档历史治理提示、批量审核 / 置顶 / 加精、批量结果明细和插件审计跳转增强；当前环境已通过 Go 自动化与 diff 检查，后台前端构建和 Playwright 需在具备 Node/npm 的环境补跑。DevHub 当前定位为多子站通用开源社区程序，默认演示为开发者社区。
+当前 `VERSION` 已切到 `v1.4.0`，主题是“插件内容治理增强版”。本轮已完成 `PluginContent` 精确过滤、头部状态、禁用 / 归档历史治理提示、批量审核 / 置顶 / 加精、批量结果明细和插件审计跳转增强；已补跑 Go 自动化与 diff 检查，并通过 Docker runner 补跑后台构建与 Playwright（`25 passed / 2 skipped`）。DevHub 当前定位为多子站通用开源社区程序，默认演示为开发者社区。
 
 Core 保留用户、认证、子站、板块、通用内容、评论、标签、搜索、通知、SEO、权限、审计、插件注册和分发能力。问答、文档、Wiki、项目、招聘、AI 作品已按内置系统插件建模：`qa -> question`、`docs -> document`、`wiki -> wiki_page`、`projects -> project`、`jobs -> job`、`ai_works -> ai_work`。
 
@@ -16,7 +16,7 @@ Core 保留用户、认证、子站、板块、通用内容、评论、标签、
 
 当前最高优先级长期主线是完成完整插件系统。DevHub 的长期目标不是只支持内置 `qa/docs/wiki`，而是形成完整插件平台：Core 只提供通用社区底座，业务能力通过插件声明、插件状态、插件权限、插件菜单、插件配置、插件 Hook、插件 migration、插件 API、插件 SEO、插件通知、插件搜索和插件测试矩阵扩展。
 
-当前最高优先级目标调整为：先补跑 `v1.4.0` 后台前端构建与 PluginContent Playwright，然后进入插件内容治理权限矩阵、审计高亮、Hook 排障页和配置表单增强等后续平台增强；插件市场、插件包上传、远程安装、在线更新和动态加载仍属于后续路线。
+当前最高优先级目标调整为：处理后台 Playwright 中仍保留的 `test.skip` 用例与替代覆盖说明，并继续推进插件内容治理权限矩阵、审计高亮、Hook 排障页和配置表单增强等后续平台增强；插件市场、插件包上传、远程安装、在线更新和动态加载仍属于后续路线。
 
 ## 当前已完成
 
@@ -213,10 +213,10 @@ P3：高级能力
 
 ## 当前验收清单
 
-- [ ] `go test ./...`
-- [ ] `go build` 或 `go build -buildvcs=false ./...`
+- [x] `go test ./...`
+- [x] `go build` 或 `go build -buildvcs=false ./...`
 - [ ] `cd web/frontend-app && npm run build`
-- [ ] `cd web/admin-app && npm run build`
+- [x] `cd web/admin-app && npm run build`（本机已通过 Docker runner 执行：`docker compose run --rm admin-e2e npm run build`）
 - [ ] `GET /api/v1/plugins` 只返回全局 enabled 插件。
 - [ ] `GET /api/v1/communities/:slug/plugins` 只返回全局 enabled 且子站 enabled 插件。
 - [ ] 管理员可以查看、启用和禁用全局插件。
@@ -2433,8 +2433,8 @@ P1 规划边界：
 - 版本：`VERSION`。
 - 后端：`internal/domain/models.go`、`internal/store/memory.go`、`internal/store/mysql.go`、`internal/transport/httpapi/router.go`、`internal/transport/httpapi/router_auth_test.go`。
 - 后台：`web/admin-app/src/views/PluginContent.vue`、`web/admin-app/src/views/Plugins.vue`、`web/admin-app/src/i18n/zh-CN.js`。
-- 后台 E2E：`web/admin-app/tests/e2e/plugin-content.spec.js`。
-- 文档：`README.md`、`CHANGELOG.md`、`docs/README.md`、`docs/PROJECT_PROGRESS.md`、`docs/API.md`、`docs/TESTING.md`、`docs/PLUGIN_ARCHITECTURE.md`、`docs/PLUGIN_SYSTEM_ROADMAP.md`、`docs/releases/v1.4.0.md`。
+- 后台 E2E：`web/admin-app/tests/e2e/plugin-content.spec.js`、`web/admin-app/tests/e2e/plugin-governance.spec.js`。
+- 文档：`README.md`、`CHANGELOG.md`、`docs/README.md`、`docs/PROJECT_PROGRESS.md`、`docs/API.md`、`docs/TESTING.md`、`docs/PLUGIN_ARCHITECTURE.md`、`docs/PLUGIN_SYSTEM_ROADMAP.md`、`docs/BACKUP_AND_ROLLBACK.md`、`docs/releases/v1.4.0.md`。
 
 已完成事项：
 
@@ -2446,18 +2446,25 @@ P1 规划边界：
 - `PluginContent` 批量治理支持隐藏 / 恢复、审核通过 / 拒绝、置顶 / 取消置顶、加精 / 取消加精。
 - 批量治理后展示成功 / 失败明细，并继续写带 `plugin_code` / `content_type` / `operation` 的结构化插件审计。
 - 审计跳转带上 `plugin_code`、`content_type`、`action` 和 `target_type=topics`；详情抽屉增加最近治理审计入口。
+- `PluginContent` 批量治理按钮展示收口：无 `topic.moderate` 权限时不显示高危批量治理按钮；页面访问额外要求 `post.read` + 插件管理页权限。
+- `PluginContent` 增加 `migration_failed` / `hook_warning` / `hook_error` 的风险提示，不阻断历史内容查看与治理。
 - `docs/releases/v1.4.0.md` 已从 Draft 改为 Release Notes / 验收记录。
 
 已执行检查命令和结果：
 
 - `go test ./internal/transport/httpapi -run TestAdminPostsFiltersByPluginCodeAndContentType -count=1`：通过。
 - `go test ./...`：通过。
+- `go build -o .devhub/devhub .`：通过。
 - `git diff --check`：通过。
+- `bash -n dev.sh`：通过。
+- `bash -n scripts/check-frontend.sh`：通过。
+- `docker compose run --rm admin-e2e npm run build`：通过。
+- `./scripts/check-frontend.sh --admin-only`：通过（后台 build + Playwright：`25 passed / 2 skipped`）。
 
 失败项或跳过项及原因：
 
-- 当前执行环境没有 `node` / `npm` / `npx`，因此后台构建和 Playwright 未能在本机执行。
-- 已补 `web/admin-app/tests/e2e/plugin-content.spec.js` 最小链路，后续需要在具备 Node/npm 的环境补跑 `npm run build` 和 `npm run test:e2e -- tests/e2e/plugin-content.spec.js`。
+- 后台 Playwright 仍有 `2 skipped`，原因是 `web/admin-app/tests/e2e/plugin-governance.spec.js` 内两条用例被显式 `test.skip(...)` 标记（详情 Tab 全量点击与归档/恢复完整链路）。
+- 本轮未跑 `./scripts/check-frontend.sh --frontend-only`：本轮只影响后台 PluginContent / 后台 E2E 与文档，不涉及前台或 SEO 代码变更。
 
 影响范围：
 
@@ -2470,8 +2477,8 @@ P1 规划边界：
 
 下一轮建议：
 
-1. 在具备 Node/npm 的环境补跑后台 build 和 PluginContent Playwright。
-2. 继续补插件内容治理完整权限矩阵、跨页面审计高亮和更细粒度权限配置 UI。
+1. 评估并处理后台 Playwright 中保留的两条 `test.skip`：给出保留原因或替代覆盖说明，或将其改为可稳定执行的断言。
+2. 继续补插件内容治理完整权限矩阵、跨页面审计高亮和更细粒度权限配置 UI（不引入新大功能）。
 
 ### 2026-05-12：v1.3.5 插件治理体验与安装升级向导收口
 

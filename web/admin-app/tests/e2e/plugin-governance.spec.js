@@ -262,7 +262,8 @@ test.describe('plugin governance center', () => {
     await page.getByTestId('plugin-manage-qa').click();
     await expect(page).toHaveURL(/\/admin-next\/qa/);
     await expect(page.getByTestId('plugin-content-page')).toBeVisible();
-    await expect(page.getByText('内容类型：')).toBeVisible();
+    await expect(page.getByTestId('plugin-content-type-count')).toBeVisible();
+    await expect(page.getByTestId('plugin-content-health')).toBeVisible();
     await expect(page.getByTestId('plugin-content-community-filter')).toBeVisible();
     await expect(page.getByTestId('plugin-content-status-filter')).toBeVisible();
     await page.getByTestId('plugin-content-back').click();
