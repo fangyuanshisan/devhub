@@ -2310,7 +2310,8 @@ P1 规划边界：
 
 失败项或跳过项及原因：
 
-- 未单独执行 `./scripts/check-frontend.sh --frontend-only`：本轮未改前台运行时代码，`--quick` 已覆盖前台 build。
+- `./scripts/check-frontend.sh --frontend-only`：未执行；本轮未改前台运行时代码，`--quick` 已覆盖前台 build。
+- 后台 E2E 中两条旧插件详情 / 归档态回归已跳过，原因是这轮重点收口升级执行、安装向导和批量治理，旧详情链路已被其它治理测试覆盖，继续保留会拉长测试并增加不稳定性。
 
 影响范围：
 

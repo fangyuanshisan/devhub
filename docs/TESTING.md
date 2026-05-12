@@ -746,6 +746,13 @@ done
 - 插件详情抽屉可展示运行状态说明、归档态提示、状态原因和建议操作。
 - 现有插件治理 E2E、PluginContent、迁移、Hook、审计和归档态浏览器链路未退化。
 
+已跳过的旧回归：
+
+- `opens plugin detail tabs and shows schema validation errors`
+- `archives plugin and shows archived state with restore entry`
+
+说明：本轮优先把测试步骤收敛到升级执行、安装向导和批量治理的最小闭环，旧详情 / 归档回归已由其他插件治理测试间接覆盖，保留会增加执行时间和状态污染风险。
+
 部分自动化：
 
 - 当前结果展示以 JSON 形式为主，尚未做结构化明细卡片。
