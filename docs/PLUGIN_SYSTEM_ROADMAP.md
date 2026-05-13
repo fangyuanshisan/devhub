@@ -73,6 +73,14 @@ P1 建议优先级：
 - 搜索索引异步重建队列（将重建从同步请求拆出，保留可观测与错误码）。
 - 插件治理 handler/service 小步拆分（降低 `router.go` / `service.go` 继续膨胀的风险）。
 
+当前已落地（v1.5.0-P0-01 / P0-02）：
+
+- 本地插件包规范草案：`docs/PLUGIN_PACKAGE.md`。
+- 本地插件包 dry-run API：`POST /api/v1/admin/plugins/packages/dry-run`（白名单目录、安全扫描与预览）。
+- 后台安装升级页新增“本地插件包 dry-run”区域与示例插件包 `examples/plugins/demo_notice/`。
+- `checksums.json`（sha256）校验与 `risk_report` 风险报告（low/medium/high/blocked）。
+- 本地插件仓库扫描：发现包列表/详情/dry-run（仓库目录建议 `storage/plugins/packages/`）。
+
 仍明确不做 / 后置：
 
 - Go 动态加载。

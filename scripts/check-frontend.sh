@@ -379,7 +379,11 @@ run_e2e_default() {
     return 0
   fi
 
-  run_step "${title} E2E" "${DC[@]}" run "${RUN_OPTS[@]}" "$service"
+  local opts=("${RUN_OPTS[@]}")
+  if [[ -n "${DEVHUB_E2E_ORIGIN:-}" ]]; then
+    opts+=(-e "DEVHUB_E2E_ORIGIN=${DEVHUB_E2E_ORIGIN}")
+  fi
+  run_step "${title} E2E" "${DC[@]}" run "${opts[@]}" "$service"
 }
 
 echo "${C_BLUE}DevHub 前台/后台前端检查开始${C_RESET}"

@@ -155,6 +155,10 @@ func NewRouter(svc *service.Service) *gin.Engine {
 			protected.GET("/plugin-menus", srv.adminPluginMenus)
 			protected.POST("/plugins/manifest/validate", srv.requirePermission("plugin.write"), srv.validateAdminPluginManifest)
 			protected.POST("/plugins/dry-run", srv.requirePermission("plugin.write"), srv.dryRunAdminPluginManifest)
+			protected.POST("/plugins/packages/dry-run", srv.requirePermission("plugin.write"), srv.dryRunAdminPluginPackage)
+			protected.POST("/plugins/packages/install", srv.requirePermission("plugin.write"), srv.installAdminPluginPackage)
+			protected.GET("/plugins/packages", srv.requirePermission("plugin.read"), srv.listAdminPluginPackages)
+			protected.GET("/plugins/packages/detail", srv.requirePermission("plugin.read"), srv.adminPluginPackageDetail)
 			protected.POST("/plugins/:code/upgrade/dry-run", srv.requirePermission("plugin.write"), srv.dryRunAdminPluginUpgrade)
 			protected.POST("/plugins/:code/upgrade", srv.requirePermission("plugin.write"), srv.upgradeAdminPlugin)
 			protected.POST("/plugins/install", srv.requirePermission("plugin.write"), srv.installAdminPluginManifest)
@@ -2176,6 +2180,106 @@ func (s *Server) dryRunAdminPluginManifest(c *gin.Context) {
 		return
 	}
 	c.JSON(http.StatusOK, result)
+}
+
+func (s *Server) dryRunAdminPluginPackage(c *gin.Context) {
+	var req struct {
+		Path string `json:"path"`
+	}
+	if err := c.ShouldBindJSON(&req); err != nil {
+		fail(c, http.StatusBadRequest, err.Error())
+		return
+	}
+	result, err := s.svc.DryRunPluginPackage(req.Path)
+	if err != nil {
+		failAPIError(c, err)
+		return
+	}
+	c.JSON(http.StatusOK, result)
+}
+
+func (s *Server) installAdminPluginPackage(c *gin.Context) {
+	var req domain.PluginPackageInstallRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		fail(c, http.StatusBadRequest, err.Error())
+		return
+	}
+	executor := auditActor(c)
+	s.auditStructured(c, "system", "plugin.package.install.started", "plugins", nil,
+		gin.H{"status": "started"},
+		mergeAuditMeta(gin.H{"operation": "plugin_package_install", "path": strings.TrimSpace(req.Path), "actor": executor}, nil))
+
+	res, err := s.svc.InstallPluginPackage(req)
+	if err != nil {
+		s.auditStructured(c, "system", "plugin.package.install.failed", "plugins", nil,
+			gin.H{"status": "failed"},
+			mergeAuditMeta(gin.H{"operation": "plugin_package_install", "path": strings.TrimSpace(req.Path), "error": err.Error(), "actor": executor}, auditAPIErrorFields(err)))
+		failAPIError(c, err)
+		return
+	}
+	s.auditStructured(c, "system", "plugin.package.installed", fmt.Sprintf("plugins#%s", res.Plugin.Code), nil,
+		gin.H{"status": "installed"},
+		mergeAuditMeta(gin.H{
+			"operation":       "plugin_package_install",
+			"plugin_code":     res.Plugin.Code,
+			"install_source":  res.Plugin.SourceType,
+			"package_path":    res.Package.Path,
+			"risk_level":      res.RiskLevel,
+			"checksum_status": res.Checksum.Status,
+			"actor":           executor,
+		}, nil))
+	c.JSON(http.StatusOK, res)
+}
+
+func (s *Server) listAdminPluginPackages(c *gin.Context) {
+	root := strings.TrimSpace(c.Query("root"))
+	status := strings.TrimSpace(c.DefaultQuery("status", "all"))
+	keyword := strings.TrimSpace(c.Query("keyword"))
+	risk := strings.TrimSpace(c.Query("risk_level"))
+	checksum := strings.TrimSpace(c.Query("checksum_status"))
+	manifestValid := strings.TrimSpace(c.Query("manifest_valid"))
+
+	page := 1
+	pageSize := 20
+	if raw := strings.TrimSpace(c.Query("page")); raw != "" {
+		if n, err := strconv.Atoi(raw); err == nil && n > 0 {
+			page = n
+		}
+	}
+	if raw := strings.TrimSpace(c.Query("page_size")); raw != "" {
+		if n, err := strconv.Atoi(raw); err == nil && n > 0 {
+			pageSize = n
+		}
+	}
+
+	resp, err := s.svc.ListPluginPackages(root, service.PluginPackageRepositoryFilter{
+		Status:         status,
+		Keyword:        keyword,
+		RiskLevel:      risk,
+		ChecksumStatus: checksum,
+		ManifestValid:  manifestValid,
+		Page:           page,
+		PageSize:       pageSize,
+	})
+	if err != nil {
+		failAPIError(c, err)
+		return
+	}
+	c.JSON(http.StatusOK, resp)
+}
+
+func (s *Server) adminPluginPackageDetail(c *gin.Context) {
+	path := strings.TrimSpace(c.Query("path"))
+	if path == "" {
+		failAPIError(c, domain.NewPluginError("plugin_package_path_invalid", "缺少插件包路径").WithStatus(400).WithSuggestion("请提供 query 参数 path，例如 storage/plugins/packages/demo_notice。"))
+		return
+	}
+	res, err := s.svc.GetPluginPackageDetail(path)
+	if err != nil {
+		failAPIError(c, err)
+		return
+	}
+	c.JSON(http.StatusOK, res)
 }
 
 func (s *Server) dryRunAdminPluginUpgrade(c *gin.Context) {

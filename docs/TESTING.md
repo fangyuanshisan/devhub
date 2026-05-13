@@ -45,6 +45,85 @@
 - 本轮只改后台插件板块信息架构与管理页路由，没有触碰前台导航或 SEO 共享逻辑，因此未额外执行 `--frontend-only` 与 SEO curl。
 - 旧路由 `/admin-next/plugins`、`/admin-next/plugins/governance`、`/admin-next/qa`、`/admin-next/docs`、`/admin-next/wiki`、`/admin-next/projects`、`/admin-next/jobs`、`/admin-next/ai-works` 均保持兼容。
 
+## v1.5.0-P0-01 插件包 dry-run（2026-05-13）
+
+本节记录“本地插件包规范草案 + dry-run 导入预览”的最小验收命令口径。
+
+必须执行：
+
+- `gofmt -w $(git ls-files '*.go')`
+- `go test ./...`
+- `go build -o .devhub/devhub .`
+- `git diff --check`
+- `bash -n dev.sh`
+- `bash -n scripts/check-frontend.sh`
+- `docker compose run --rm admin-e2e npm run build`
+- `docker compose run --rm admin-e2e npm run test:e2e -- tests/e2e/plugin-package-dryrun.spec.js`
+- `./scripts/check-frontend.sh --admin-only`
+
+说明：
+
+- 本轮只涉及后端与后台插件板块安装升级页，不涉及前台与 SEO，因此不强制执行 `--frontend-only` 与 SEO curl（如后续改动触及前台再补）。
+
+## v1.5.0-P0-02 插件包安全校验与风险报告（2026-05-13）
+
+本节记录“checksums.json（sha256）校验 + 危险规则强化 + risk_report 风险报告”的最小验收命令与结果。
+
+已执行（通过）：
+
+- `gofmt -w internal/domain/plugin_package.go internal/service/plugin_package_service.go internal/plugins/*.go internal/service/plugin_package_dryrun_test.go`：通过。
+- `go test ./...`：通过。
+- `go build -o .devhub/devhub .`：通过。
+- `git diff --check`：通过。
+- `bash -n dev.sh`：通过。
+- `bash -n scripts/check-frontend.sh`：通过。
+- `docker compose run --rm admin-e2e npm run build`：通过。
+- `docker compose run --rm -e DEVHUB_E2E_ORIGIN=http://host.docker.internal:8091 admin-e2e npm run test:e2e -- tests/e2e/plugin-package-security.spec.js`：通过，`4 passed`。
+- `DEVHUB_E2E_ORIGIN=http://host.docker.internal:8091 ./scripts/check-frontend.sh --admin-only`：通过，后台 Playwright `42 passed`。
+
+说明：
+
+- 本机 `8090` 端口被占用时，可用 `DEVHUB_E2E_ORIGIN=http://host.docker.internal:<port>` 覆盖 Playwright baseURL；本轮在本机启动 `PORT=8091 CMS_STORE=memory DEVHUB_E2E_TESTING=1 ./.devhub/devhub` 后执行上述 E2E。
+- 本轮只改后端与后台 dry-run 页面，不涉及前台与 SEO，因此未执行 `--frontend-only` 与 SEO curl。
+
+## v1.5.0-P0-03 本地插件仓库目录与扫描（2026-05-13）
+
+已执行（通过）：
+
+- `gofmt -w $(git ls-files '*.go')`：通过。
+- `go test ./...`：通过。
+- `go build -o .devhub/devhub .`：通过。
+- `git diff --check`：通过。
+- `bash -n dev.sh`：通过。
+- `bash -n scripts/check-frontend.sh`：通过。
+- `docker compose run --rm admin-e2e npm run build`：通过。
+- `docker compose run --rm -e DEVHUB_E2E_ORIGIN=http://host.docker.internal:8091 admin-e2e npm run test:e2e -- tests/e2e/plugin-package-repository.spec.js`：通过。
+- `DEVHUB_E2E_ORIGIN=http://host.docker.internal:8091 ./scripts/check-frontend.sh --admin-only`：通过。
+
+说明：
+
+- 若本机 `8090` 端口被占用，可通过 `DEVHUB_E2E_ORIGIN` 指定 Playwright baseURL；仓库扫描与详情仅依赖后端 API，不涉及前台与 SEO。
+
+## v1.5.0-P0-04 本地插件包安装闭环（2026-05-13）
+
+已执行（通过）：
+
+- `gofmt -w internal/domain/plugin_package_install.go internal/service/plugin_package_install.go internal/service/plugin_package_install_test.go internal/service/service.go internal/transport/httpapi/router.go`：通过。
+- `go test ./...`：通过。
+- `go build -o .devhub/devhub .`：通过。
+- `git diff --check`：通过。
+- `bash -n dev.sh`：通过。
+- `bash -n scripts/check-frontend.sh`：通过。
+- `docker compose run --rm admin-e2e npm run build`：通过。
+- `PORT=8091 CMS_STORE=memory DEVHUB_E2E_TESTING=1 ./.devhub/devhub`：启动用于 Playwright 的本机后端（通过 `DEVHUB_E2E_ORIGIN` 指向）。
+- `docker compose run --rm -e DEVHUB_E2E_ORIGIN=http://host.docker.internal:8091 admin-e2e npm run test:e2e -- tests/e2e/plugin-package-install.spec.js`：通过。
+- `DEVHUB_E2E_ORIGIN=http://host.docker.internal:8091 ./scripts/check-frontend.sh --admin-only`：通过，后台 Playwright `44 passed`。
+
+说明：
+
+- 插件包安装仍只写入声明/配置/迁移 pending/审计；不执行第三方代码/SQL，不动态加载前端资产。
+- 本轮只涉及后端与后台插件安装升级页，不涉及前台与 SEO，因此未执行 `--frontend-only` 与 SEO curl。
+
 ## 已实现必测
 
 基础检查：

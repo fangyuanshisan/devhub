@@ -1,5 +1,13 @@
 # Changelog
 
+## Unreleased
+
+- Added a local plugin package spec draft (`docs/PLUGIN_PACKAGE.md`) and an admin dry-run API for scanning and previewing local plugin packages (`POST /api/v1/admin/plugins/packages/dry-run`); this is a safe read/validate/preview flow only (no install, no code/SQL execution, no dynamic frontend asset loading).
+- Added an admin UI section under `/admin-next/plugins/install` for running local plugin package dry-run previews, plus a safe example package at `examples/plugins/demo_notice/`.
+- Extended local plugin package dry-run with sha256 `checksums.json` verification, strengthened dangerous-file rules (symlink/executable/hidden dirs), and a backend-generated `risk_report` (low/medium/high/blocked) rendered in the admin UI.
+- Added a local plugin package repository scanner (`GET /api/v1/admin/plugins/packages`) with filters/pagination plus a detail endpoint (`GET /api/v1/admin/plugins/packages/detail`), and surfaced the repository view under the admin install/upgrade page.
+- Added a minimal local plugin package install flow (`POST /api/v1/admin/plugins/packages/install`) that re-runs dry-run server-side and installs manifest-only plugins as `disabled` with `source_type=local_package` (no code/SQL execution, no dynamic frontend asset loading).
+
 ## v1.4.0 (2026-05-12)
 
 Current `VERSION` is `v1.4.0`. The plugin-content governance enhancement work is now validated with Go tests/build plus Docker-based admin build and Playwright; see `docs/releases/v1.4.0.md`.

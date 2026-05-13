@@ -775,6 +775,10 @@ func (s *Service) ValidatePluginManifestJSON(raw []byte) (domain.PluginManifestV
 // InstallPluginManifest installs the safe manifest + configuration plugin
 // metadata. It never executes plugin code or raw SQL.
 func (s *Service) InstallPluginManifest(raw []byte) (domain.Plugin, domain.PluginManifestValidationResult, error) {
+	return s.installPluginManifestInternal(raw, "", "")
+}
+
+func (s *Service) installPluginManifestInternal(raw []byte, sourceType string, packageManifestChecksum string) (domain.Plugin, domain.PluginManifestValidationResult, error) {
 	result, err := s.ValidatePluginManifestJSON(raw)
 	if err != nil {
 		return domain.Plugin{}, result, err
@@ -788,7 +792,7 @@ func (s *Service) InstallPluginManifest(raw []byte) (domain.Plugin, domain.Plugi
 	manifest := result.NormalizedManifest
 	manifest.IsSystem = false
 	manifest.Status = pluginregistry.StatusDisabled
-	manifest.SourceType = firstNonBlank(manifest.SourceType, "manifest")
+	manifest.SourceType = firstNonBlank(strings.TrimSpace(sourceType), manifest.SourceType, "manifest")
 	manifestJSON, _ := json.Marshal(manifest)
 	plugin := domain.Plugin{
 		PluginManifest:        manifest,
@@ -796,6 +800,7 @@ func (s *Service) InstallPluginManifest(raw []byte) (domain.Plugin, domain.Plugi
 		SourceType:            manifest.SourceType,
 		ManifestJSON:          string(manifestJSON),
 		ManifestChecksum:      result.Checksum,
+		PackageChecksum:       strings.TrimSpace(packageManifestChecksum),
 		CompatibleCoreVersion: firstNonBlank(manifest.CompatibleCoreVersion, manifest.MinCoreVersion),
 	}
 	saved, err := s.repo.SavePlugin(plugin)

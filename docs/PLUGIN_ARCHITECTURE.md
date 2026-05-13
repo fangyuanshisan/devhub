@@ -75,7 +75,7 @@ MySQL 专项补充：2026-05-11 已完成 MySQLStore 与老库升级专项验证
 
 预留：
 
-- 插件包 zip 导入、本地插件包、远程安装、hard uninstall、migration down。
+- 插件包分发：本地插件包 **dry-run 导入预览** 与“本地插件仓库扫描（discovered packages）”已落地（含 `checksums.json` sha256 校验与 `risk_report` 风险报告，见 `docs/PLUGIN_PACKAGE.md`）；zip 导入/正式安装/远程安装仍处于预留阶段。
 - 插件健康状态：`healthy`、`warning`、`error`、`disabled`、`migration_pending`、`config_invalid`、`dependency_missing`、`hook_warning`、`hook_error` 已有轻量计算；`hook_error` 当前基于 Hook 失败次数阈值（当前为 `>= 3`）判断。告警、自动恢复、重试队列和 Prometheus/Grafana 式可观测指标仍是后续能力。
 - 插件依赖解析、版本兼容检查深化、插件包签名和市场分发。
 - 外部服务型 Webhook、动态路由加载、动态执行环境、沙箱和第三方 Hook 运行时。

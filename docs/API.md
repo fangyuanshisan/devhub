@@ -59,6 +59,37 @@
 | `plugin_hook_failed` | non-blocking Hook 失败 | 同上 | 查看 Hooks Tab 最近失败记录 |
 | `plugin_config_schema_invalid` | config_schema 校验失败 | `plugin_code`,`path`,`reason` | 按字段路径修复配置后重试 |
 | `plugin_manifest_invalid` | manifest 校验失败 | `errors` | 按 errors 修复 manifest 后重试 |
+| `plugin_package_path_invalid` | 插件包路径不合法 | `path`,`allowed_roots` | 使用允许目录内的相对路径 |
+| `plugin_package_not_found` | 插件包目录不存在 | `path` | 检查路径或先创建插件包目录 |
+| `plugin_package_manifest_missing` | 缺少 manifest.json | `path` | 在插件包根目录补充 manifest.json |
+| `plugin_package_manifest_invalid` | manifest.json 非法 | `path`,`reason` | 修复 manifest 后重试 |
+| `plugin_package_dangerous_file` | 检测到危险文件 | `path` | 移除 `.sh/.sql/.js/.ts` 等危险文件 |
+| `plugin_package_file_too_large` | 单文件超过大小限制 | `path`,`size` | 缩小单文件大小 |
+| `plugin_package_too_large` | 插件包总大小超过限制 | `path`,`total_size` | 缩小包体积 |
+| `plugin_package_too_many_files` | 文件数量超过限制 | `path`,`total_files` | 减少文件数量 |
+| `plugin_package_unknown_files` | 发现未知文件 | `path`,`unknown_files` | 检查未知文件是否应加入 allow 列表 |
+| `plugin_package_dry_run_blocked` | 本地插件包 dry-run 被阻断 | `path` | 根据 blocking 原因修复后重试 |
+| `plugin_package_checksum_missing` | checksums.json 缺失（warning） | `path` | 建议补充 checksums.json（sha256） |
+| `plugin_package_checksum_invalid` | checksums.json 非法 | `path`,`reason` | 修复 checksums.json 后重试 |
+| `plugin_package_checksum_unsupported_algorithm` | checksum algorithm 不支持 | `algorithm` | 当前仅支持 sha256 |
+| `plugin_package_checksum_duplicate_path` | checksums.json path 重复 | `path` | 移除重复项后重试 |
+| `plugin_package_checksum_file_missing` | checksums.json 声明文件不存在 | `path` | 补齐文件或修复 files 列表 |
+| `plugin_package_checksum_mismatch` | checksum 不匹配 | `mismatched` | 重新生成 checksums.json 或修复文件内容 |
+| `plugin_package_file_not_covered` | 存在未被 checksum 覆盖文件（warning） | `extra` | 建议补齐 checksums 覆盖范围 |
+| `plugin_package_symlink_forbidden` | 插件包包含软链接（禁止） | `path` | 移除软链接文件 |
+| `plugin_package_size_limit_exceeded` | 文件大小超限（禁止） | `path` | 缩小文件体积或移除大文件 |
+| `plugin_package_file_count_exceeded` | 文件数量超限（禁止） | `total_files` | 减少文件数量 |
+| `plugin_package_risk_blocked` | 风险评估阻断 dry-run | `items` | 根据风险项修复后重试 |
+| `plugin_package_repository_not_found` | 插件包仓库目录不存在 | `root` | 创建仓库目录或检查路径 |
+| `plugin_package_repository_forbidden` | 插件包仓库路径不允许 | `root`,`allowed_roots` | 使用白名单目录下的仓库路径 |
+| `plugin_package_scan_failed` | 插件包仓库扫描失败 | `root`,`reason` | 检查目录权限或文件状态 |
+| `plugin_package_invalid` | 插件包无效 | `path` | 补齐 manifest/checksum 后重试 |
+| `plugin_package_detail_not_found` | 插件包详情不存在 | `path` | 检查路径或先扫描仓库 |
+| `plugin_package_install_blocked` | 插件包安装被阻断 | `path`,`risk_level`,`blocked_code` | 修复阻断原因后重试 |
+| `plugin_package_install_failed` | 插件包安装失败 | `plugin_code` | 查看后台日志后重试 |
+| `plugin_package_already_installed` | 同编码插件已安装 | `plugin_code` | 走 upgrade 流程升级插件 |
+| `plugin_package_dependency_missing` | required 依赖未满足 | `dependencies` | 先安装并启用 required 依赖插件 |
+| `plugin_package_core_incompatible` | Core 版本不兼容 | `core_version`,`min_core_version`,`compatible_core_version` | 升级 Core 或选择兼容版本插件包 |
 - 权限错误统一返回 `403`，典型格式为 `{"error":"无权限"}` 或 `{"error":"缺少权限 <permission_code>，不能创建该类型内容"}`；插件内容创建必须以 `ContentTypeDefinition.create_permission` 为准，`post.create` 只作为 `core.topic.create` 的历史兼容桥。
 - 分页参数：`page`、`page_size`，默认按接口实现处理，建议 `page_size <= 50`。
 
@@ -375,6 +406,75 @@
 - 权限：`plugin.write`。
 - 用途：对 manifest 做安装前 dry-run，校验冲突、依赖和影响分析，不写入插件记录。
 - 返回：与 manifest validate 一致的结果视图；required 依赖不满足时 `valid=false`，optional 依赖不满足时仅进入 warning。
+
+`POST /api/v1/admin/plugins/packages/dry-run`
+
+- 认证：后台 admin token（不允许 user token / moderator token）。
+- 权限：`plugin.write`。
+- 用途：本地插件包 dry-run 导入预览。只做安全读取 + 文件扫描 + manifest 校验 + 安装预览，不安装插件、不执行插件代码、不执行外部 SQL、不动态加载前端资产。
+- 请求：
+
+```json
+{
+  "path": "examples/plugins/demo_notice"
+}
+```
+
+- 路径限制：只允许读取项目根目录下白名单目录：
+  - `examples/plugins/`
+  - `plugins-local/`
+  - `storage/plugins/packages/`
+  - `.devhub/plugins/`
+- 返回：包含 `package`、`file_scan`、`checksum`、`risk_report`、`manifest_validation`、`install_dry_run`、`status`、`blocked_code`、`blocked_reasons`、`warnings`、`errors`。
+- `status`：`ok|warning|blocked`。
+- `blocked_code`：当 `status=blocked` 时返回阻断原因代码（例如 `plugin_package_dangerous_file` / `plugin_package_manifest_invalid`）。
+  - `blocked_reasons`：可选，返回所有阻断原因 code（用于 UI 逐项展示）。
+  - `checksum.status`：`ok|warning|failed|missing`；缺失 checksums.json 为 `missing`（warning），不匹配为 `failed`（blocked）。
+  - `risk_report.level`：`low|medium|high|blocked`，由后端根据扫描/校验/依赖/兼容结果评估，前端不得伪造。
+
+`GET /api/v1/admin/plugins/packages`
+
+- 认证：后台 admin token（不允许 user token / moderator token）。
+- 权限：`plugin.read`。
+- 用途：扫描本地插件仓库目录并返回 discovered packages 列表（只读扫描/校验/展示，不安装、不执行、不动态加载）。
+- 查询参数：
+  - `root`：可选，默认 `storage/plugins/packages`
+  - `status`：可选，`all|ok|warning|blocked|invalid`
+  - `keyword`：可选，按 `code/name/path` 模糊搜索
+  - `risk_level`：可选，`low|medium|high|blocked`
+  - `checksum_status`：可选，`ok|warning|failed|missing`
+  - `manifest_valid`：可选，`true|false`
+  - `page` / `page_size`
+- 返回：`items/pagination/summary`，其中 `items` 每项包含 `path/code/name/version/status/risk_level/risk_summary/checksum_status/manifest_valid/total_files/total_size/updated_at/warnings/errors`。
+
+`GET /api/v1/admin/plugins/packages/detail`
+
+- 认证：后台 admin token。
+- 权限：`plugin.read`。
+- 用途：查看单个插件包详情（复用 dry-run 结果视图；blocked/invalid 也可查看原因）。
+- 查询参数：
+  - `path`：必填，例如 `storage/plugins/packages/demo_notice`
+- 返回：与 `POST /api/v1/admin/plugins/packages/dry-run` 相同的结构（包含 `checksum/risk_report/manifest_validation/install_dry_run` 等）。
+
+`POST /api/v1/admin/plugins/packages/install`
+
+- 认证：后台 admin token。
+- 权限：`plugin.write`。
+- 用途：从**本地插件包**安装声明型插件（最小闭环）。服务端会强制复跑 package dry-run（scan/checksum/risk/manifest validate/install preview），通过后复用现有 manifest install 写入插件记录。
+- 请求：
+
+```json
+{
+  "path": "storage/plugins/packages/demo_notice",
+  "confirm_risk_level": "low"
+}
+```
+
+- 行为与边界：
+  - 只写入 manifest 声明、默认配置、迁移 pending 记录与审计；不执行第三方代码、不执行外部 raw SQL、不动态加载前端资产。
+  - 安装成功后插件状态固定为 `disabled`（不自动启用）。
+  - 若同 `code` 插件已安装，返回 `plugin_package_already_installed`（提示走 upgrade）。
+- 返回：`plugin`（含 `source_type=local_package`）、`package`、`checksum`、`risk_level`、`install_result`、`warnings`。
 
 `POST /api/v1/admin/plugins/install`
 

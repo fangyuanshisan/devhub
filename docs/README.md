@@ -31,13 +31,19 @@ DevHub 当前文档围绕 `v1.4.0` 真实状态维护。历史版本 Release Not
 9. [插件生成模板](PLUGIN_TEMPLATE.md)
    - `go run ./cmd/devhub plugin:new` 脚手架用法、生成目录、校验规则和模板边界。
 
-10. [测试文档](TESTING.md)
+10. [本地插件包规范（草案）](PLUGIN_PACKAGE.md)
+   - 插件包目录结构、允许/危险文件规则、大小限制，以及本地插件包 dry-run 导入预览接口与后台入口。
+
+11. [测试文档](TESTING.md)
    - 已实现必测项、后续补测项、必要历史回归和 SEO 回归命令。
 
-11. [v1.4.0 Release Notes](releases/v1.4.0.md)
+12. [v1.4.0 Release Notes](releases/v1.4.0.md)
    - 插件内容治理增强：精确过滤、批量治理、审计闭环和当前验收记录。
 
-12. [v1.3.5 Release Notes](releases/v1.3.5.md)
+13. [v1.5.0 Release Notes（进行中）](releases/v1.5.0.md)
+   - 插件分发能力预研：本地插件包规范草案与 dry-run 导入预览（只做校验/预览，不安装、不执行）。
+
+14. [v1.3.5 Release Notes](releases/v1.3.5.md)
     - 插件治理中心信息架构、完整安装 / 升级向导、批量归档 / 恢复影响预览、状态治理页和最小 E2E 回归。
 
 13. [部署启动文档](DEPLOYMENT.md)

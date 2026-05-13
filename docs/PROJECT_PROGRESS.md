@@ -10,6 +10,10 @@
 
 当前 `VERSION` 为 `v1.4.0`，主题是“插件内容治理增强版”。本版本已完成 `PluginContent` 精确过滤、头部状态、禁用 / 归档历史治理提示、批量审核 / 置顶 / 加精、批量结果明细和插件审计跳转增强，并补齐 `config_schema` 自动表单增强、Hook 排障页（插件详情 Hooks Tab + 执行记录查询/详情抽屉）、插件 SDK 文档与声明型插件生成模板、插件治理统一错误码与 Readiness 诊断、前台入口与菜单可见性治理（navigation/create-options），以及后台“系统插件”按功能分页重排（插件概览/列表/内容治理/安装升级/配置中心/依赖兼容/Hook 排障/事件通知/搜索索引/前台入口/权限矩阵/审计日志/开发者工具）。v1.4.0 收口验收已补跑 Go、Docker 构建、前后台 E2E 与 SEO curl 回归：后台 Playwright `35 passed`，前台 Playwright `17 passed`，`/topics/1/` 与 `/c/php/` SEO 关键字段未退化。DevHub 当前定位为多子站通用开源社区程序，默认演示为开发者社区。
 
+进入 `v1.5.0` 规划阶段：已落地“本地插件包规范草案 + 本地插件包 dry-run 导入预览”（安全读取/校验/预览，不执行代码/SQL、不动态加载前端资产），并在 P0-02 补齐 `checksums.json`（sha256）校验、危险文件规则强化与 `risk_report` 风险报告；示例插件包位于 `examples/plugins/demo_notice/`，后台入口位于插件安装升级页的“本地插件包 dry-run”区域；详见 `docs/PLUGIN_PACKAGE.md` 与 `docs/releases/v1.5.0.md`。
+v1.5.0-P0-03 已新增“本地插件仓库目录扫描”：支持扫描仓库目录下多个插件包并展示 discovered packages 列表/详情/dry-run（不执行、不动态加载）；默认仓库目录建议为 `storage/plugins/packages/`，测试 fixtures 位于 `plugins-local/repository-fixtures/`；详见 `docs/PLUGIN_PACKAGE.md` 与 `docs/releases/v1.5.0.md`。
+v1.5.0-P0-04 已新增“本地插件包安装闭环”：允许从本地插件仓库选择校验通过的插件包执行安装（安装前强制复跑 dry-run；安装后默认 `disabled`，`source_type=local_package`），仍不执行第三方代码/SQL、不动态加载前端资产；详见 `docs/PLUGIN_PACKAGE.md` 与 `docs/releases/v1.5.0.md`。
+
 Core 保留用户、认证、子站、板块、通用内容、评论、标签、搜索、通知、SEO、权限、审计、插件注册和分发能力。问答、文档、Wiki、项目、招聘、AI 作品已按内置系统插件建模：`qa -> question`、`docs -> document`、`wiki -> wiki_page`、`projects -> project`、`jobs -> job`、`ai_works -> ai_work`。
 
 当前实现仍保留历史表名以保证兼容：`topics` 是当前通用内容表，`categories` 是当前通用板块表。

@@ -16,6 +16,10 @@ export const dryRunPluginManifest = (payload) => http.post('/admin/plugins/dry-r
 export const dryRunPluginUpgrade = (code, payload) => http.post(`/admin/plugins/${code}/upgrade/dry-run`, payload);
 export const upgradePlugin = (code, payload) => http.post(`/admin/plugins/${code}/upgrade`, payload);
 export const installPluginManifest = (payload) => http.post('/admin/plugins/install', payload);
+export const dryRunPluginPackage = (payload) => http.post('/admin/plugins/packages/dry-run', payload);
+export const listPluginPackages = (params) => http.get('/admin/plugins/packages', { params });
+export const getPluginPackageDetail = (params) => http.get('/admin/plugins/packages/detail', { params });
+export const installPluginPackage = (payload) => http.post('/admin/plugins/packages/install', payload);
 export const enablePlugin = (code) => http.post(`/admin/plugins/${code}/enable`);
 export const disablePlugin = (code) => http.post(`/admin/plugins/${code}/disable`);
 export const archivePlugin = (code) => http.post(`/admin/plugins/${code}/archive`);

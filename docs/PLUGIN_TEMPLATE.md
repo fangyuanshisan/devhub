@@ -50,6 +50,8 @@ examples/plugins/demo_links/
   registry.example.go
 ```
 
+说明：模板目录本身也符合“本地插件包目录规范”的最小形态，可用于后台“本地插件包 dry-run”预览（见 `docs/PLUGIN_PACKAGE.md`），但当前仍不会被系统自动扫描或安装。
+
 ## 校验规则
 
 - `code` 不能为空。

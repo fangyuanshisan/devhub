@@ -31,6 +31,429 @@
       </div>
     </div>
 
+    <div class="filter-panel mb" data-testid="plugin-package-dryrun-panel">
+      <div>
+        <strong>本地插件包 dry-run</strong>
+        <div class="muted" style="margin-top: 6px">
+          只做安全读取、文件扫描、manifest 校验与安装预览；不会安装插件，不执行插件代码，不执行 SQL，不动态加载前端资产。
+        </div>
+      </div>
+      <div class="filter-actions">
+        <el-input v-model="packagePath" data-testid="plugin-package-path-input" placeholder="例如：examples/plugins/demo_notice" clearable />
+        <el-button type="primary" :loading="packageLoading" data-testid="plugin-package-dry-run" @click="runPackageDryRun">扫描 / Dry-run</el-button>
+        <el-button v-if="packageResult" data-testid="plugin-package-clear" @click="clearPackageResult">清空</el-button>
+      </div>
+    </div>
+
+    <div class="filter-panel mb" data-testid="plugin-package-repo-panel">
+      <div>
+        <strong>本地插件仓库</strong>
+        <div class="muted" style="margin-top: 6px">
+          扫描仓库目录下的一级子目录作为插件包（只读扫描/校验/预览）；不会安装插件，不执行代码/SQL，不动态加载前端资产。
+        </div>
+      </div>
+      <div class="filter-actions">
+        <el-input v-model="repoRoot" data-testid="plugin-package-repo-root" placeholder="默认：storage/plugins/packages" clearable />
+        <el-button type="primary" plain :loading="repoLoading" data-testid="plugin-package-repo-scan" @click="scanRepository(true)">扫描</el-button>
+        <el-button :loading="repoLoading" data-testid="plugin-package-repo-refresh" @click="scanRepository()">刷新</el-button>
+      </div>
+    </div>
+
+    <div v-if="repoSummary" class="mb" data-testid="plugin-package-repo-summary">
+      <el-tag effect="plain">total {{ repoSummary.total ?? 0 }}</el-tag>
+      <el-tag type="success" effect="plain">ok {{ repoSummary.ok ?? 0 }}</el-tag>
+      <el-tag type="warning" effect="plain">warning {{ repoSummary.warning ?? 0 }}</el-tag>
+      <el-tag type="danger" effect="plain">blocked {{ repoSummary.blocked ?? 0 }}</el-tag>
+      <el-tag type="info" effect="plain">invalid {{ repoSummary.invalid ?? 0 }}</el-tag>
+    </div>
+
+    <el-alert v-if="repoError" type="error" show-icon :closable="false" class="mb" :title="repoError" />
+
+    <el-card shadow="never" class="mb" data-testid="plugin-package-repo-card">
+      <template #header>
+        <div class="card-head">
+          <strong>Discovered packages</strong>
+          <span class="muted">（page {{ repoPage }} / total {{ repoTotal }}）</span>
+        </div>
+      </template>
+
+      <div class="filter-actions mb" style="gap: 10px" data-testid="plugin-package-repo-filters">
+        <el-input v-model="repoKeyword" placeholder="keyword：code/name/path" clearable style="max-width: 320px" @change="scanRepository(true)" />
+        <el-select v-model="repoStatus" placeholder="status" clearable style="width: 160px" @change="scanRepository(true)">
+          <el-option label="all" value="all" />
+          <el-option label="ok" value="ok" />
+          <el-option label="warning" value="warning" />
+          <el-option label="blocked" value="blocked" />
+          <el-option label="invalid" value="invalid" />
+        </el-select>
+        <el-select v-model="repoRiskLevel" placeholder="risk_level" clearable style="width: 160px" @change="scanRepository(true)">
+          <el-option label="low" value="low" />
+          <el-option label="medium" value="medium" />
+          <el-option label="high" value="high" />
+          <el-option label="blocked" value="blocked" />
+        </el-select>
+        <el-select v-model="repoChecksumStatus" placeholder="checksum" clearable style="width: 170px" @change="scanRepository(true)">
+          <el-option label="ok" value="ok" />
+          <el-option label="warning" value="warning" />
+          <el-option label="failed" value="failed" />
+          <el-option label="missing" value="missing" />
+        </el-select>
+        <el-select v-model="repoManifestValid" placeholder="manifest_valid" clearable style="width: 170px" @change="scanRepository(true)">
+          <el-option label="true" value="true" />
+          <el-option label="false" value="false" />
+        </el-select>
+      </div>
+
+      <el-table :data="repoItems" border size="small" v-loading="repoLoading" data-testid="plugin-package-repo-table">
+        <el-table-column prop="code" label="code" min-width="150" />
+        <el-table-column prop="name" label="name" min-width="180" />
+        <el-table-column prop="version" label="version" width="110" />
+        <el-table-column prop="path" label="path" min-width="260" />
+        <el-table-column prop="status" label="status" width="110">
+          <template #default="{ row }">
+            <el-tag :type="row.status === 'blocked' ? 'danger' : row.status === 'warning' ? 'warning' : row.status === 'invalid' ? 'info' : 'success'" effect="plain">
+              {{ row.status }}
+            </el-tag>
+          </template>
+        </el-table-column>
+        <el-table-column prop="risk_level" label="risk" width="110">
+          <template #default="{ row }">
+            <el-tag :type="riskLevelType(row.risk_level)" effect="plain">{{ row.risk_level || '-' }}</el-tag>
+          </template>
+        </el-table-column>
+        <el-table-column prop="checksum_status" label="checksum" width="120">
+          <template #default="{ row }">
+            <el-tag :type="checksumStatusType(row.checksum_status)" effect="plain">{{ row.checksum_status || '-' }}</el-tag>
+          </template>
+        </el-table-column>
+        <el-table-column prop="total_files" label="files" width="90" />
+        <el-table-column prop="total_size" label="size" width="110" />
+        <el-table-column label="actions" width="200" fixed="right">
+          <template #default="{ row }">
+            <span data-testid="plugin-package-repo-detail-btn" style="display: inline-flex" @click="openRepoDetail(row)">
+              <el-button link type="primary">详情</el-button>
+            </span>
+            <span data-testid="plugin-package-repo-dryrun-btn" style="display: inline-flex" @click="dryRunRepoPackage(row)">
+              <el-button link type="warning">dry-run</el-button>
+            </span>
+            <span data-testid="plugin-package-repo-install-btn" style="display: inline-flex" @click="canInstallRepoPackage(row) ? openRepoInstall(row) : null">
+              <el-button link type="success" :disabled="!canInstallRepoPackage(row)">安装</el-button>
+            </span>
+          </template>
+        </el-table-column>
+      </el-table>
+
+      <div class="filter-actions" style="justify-content: flex-end; margin-top: 10px">
+        <el-pagination
+          v-model:current-page="repoPage"
+          v-model:page-size="repoPageSize"
+          layout="prev, pager, next, sizes, total"
+          :total="repoTotal"
+          :page-sizes="[10, 20, 50, 100]"
+          @current-change="scanRepository()"
+          @size-change="scanRepository(true)"
+        />
+      </div>
+    </el-card>
+
+    <el-alert v-if="packageError" type="error" show-icon :closable="false" class="mb" :title="packageError" />
+
+    <el-card v-if="packageResult" class="mb" shadow="never" data-testid="plugin-package-result">
+      <template #header>
+        <div class="card-head">
+          <strong>Dry-run 结果</strong>
+          <el-tag :type="packageResult.status === 'blocked' ? 'danger' : packageResult.status === 'warning' ? 'warning' : 'success'" effect="plain">
+            {{ packageResult.status }}
+          </el-tag>
+        </div>
+      </template>
+
+      <el-alert
+        v-if="packageResult.risk_report && packageResult.risk_report.level"
+        :type="riskLevelType(packageResult.risk_report.level)"
+        show-icon
+        :closable="false"
+        class="mb"
+        data-testid="plugin-package-risk-alert"
+      >
+        <template #title>
+          <span>风险等级：</span>
+          <el-tag :type="riskLevelType(packageResult.risk_report.level)" effect="plain" data-testid="plugin-package-risk-level">
+            {{ packageResult.risk_report.level }}
+          </el-tag>
+          <span class="muted" style="margin-left: 8px" data-testid="plugin-package-risk-score">score={{ packageResult.risk_report.score ?? 0 }}</span>
+        </template>
+        <div class="muted" data-testid="plugin-package-risk-summary">{{ packageResult.risk_report.summary || '-' }}</div>
+      </el-alert>
+
+      <el-alert
+        v-if="(packageResult.errors || []).length"
+        type="error"
+        show-icon
+        :closable="false"
+        class="mb"
+        title="阻断原因"
+      >
+        <ul class="result-list">
+          <li v-for="(item, idx) in packageResult.errors" :key="`pkg-err-${idx}`">{{ item }}</li>
+        </ul>
+      </el-alert>
+
+      <el-alert
+        v-if="(packageResult.warnings || []).length"
+        type="warning"
+        show-icon
+        :closable="false"
+        class="mb"
+        title="警告"
+      >
+        <ul class="result-list">
+          <li v-for="(item, idx) in packageResult.warnings" :key="`pkg-warn-${idx}`">{{ item }}</li>
+        </ul>
+      </el-alert>
+
+      <el-descriptions :column="2" border class="mb" data-testid="plugin-package-info">
+        <el-descriptions-item label="path">{{ packageResult.package?.path || '-' }}</el-descriptions-item>
+        <el-descriptions-item label="dir">{{ packageResult.package?.dir_name || '-' }}</el-descriptions-item>
+        <el-descriptions-item label="code">{{ packageResult.package?.code || '-' }}</el-descriptions-item>
+        <el-descriptions-item label="version">{{ packageResult.package?.version || '-' }}</el-descriptions-item>
+        <el-descriptions-item label="blocked_code">{{ packageResult.blocked_code || '-' }}</el-descriptions-item>
+        <el-descriptions-item label="manifest_found">{{ packageResult.package?.manifest_found }}</el-descriptions-item>
+        <el-descriptions-item label="readme_found">{{ packageResult.package?.readme_found }}</el-descriptions-item>
+        <el-descriptions-item label="config_example_found">{{ packageResult.package?.config_example_found }}</el-descriptions-item>
+        <el-descriptions-item label="checksum_found">{{ packageResult.package?.checksum_found ?? false }}</el-descriptions-item>
+      </el-descriptions>
+
+      <el-descriptions :column="3" border class="mb" data-testid="plugin-package-file-scan">
+        <el-descriptions-item label="total_files">{{ packageResult.file_scan?.total_files ?? 0 }}</el-descriptions-item>
+        <el-descriptions-item label="total_size">{{ packageResult.file_scan?.total_size ?? 0 }}</el-descriptions-item>
+        <el-descriptions-item label="allowed">{{ (packageResult.file_scan?.allowed_files || []).length }}</el-descriptions-item>
+        <el-descriptions-item label="unknown">{{ (packageResult.file_scan?.unknown_files || []).length }}</el-descriptions-item>
+        <el-descriptions-item label="dangerous">{{ (packageResult.file_scan?.dangerous_files || []).length }}</el-descriptions-item>
+      </el-descriptions>
+
+      <el-descriptions v-if="packageResult.checksum" :column="3" border class="mb" data-testid="plugin-package-checksum">
+        <el-descriptions-item label="algorithm">{{ packageResult.checksum.algorithm || '-' }}</el-descriptions-item>
+        <el-descriptions-item label="status">
+          <el-tag :type="checksumStatusType(packageResult.checksum.status)" effect="plain" data-testid="plugin-package-checksum-status">
+            {{ packageResult.checksum.status || '-' }}
+          </el-tag>
+        </el-descriptions-item>
+        <el-descriptions-item label="matched">{{ (packageResult.checksum.matched || []).length }}</el-descriptions-item>
+        <el-descriptions-item label="mismatched">{{ (packageResult.checksum.mismatched || []).length }}</el-descriptions-item>
+        <el-descriptions-item label="missing">{{ (packageResult.checksum.missing || []).length }}</el-descriptions-item>
+        <el-descriptions-item label="extra">{{ (packageResult.checksum.extra || []).length }}</el-descriptions-item>
+      </el-descriptions>
+
+      <div v-if="packageResult.checksum && (packageResult.checksum.mismatched || []).length" class="mb" data-testid="plugin-package-checksum-mismatched">
+        <h4 style="margin: 0 0 8px">checksum mismatched</h4>
+        <el-table :data="packageResult.checksum.mismatched" size="small" border>
+          <el-table-column prop="path" label="path" min-width="240" />
+          <el-table-column prop="expected" label="expected" min-width="240" />
+          <el-table-column prop="actual" label="actual" min-width="240" />
+        </el-table>
+      </div>
+
+      <div v-if="packageResult.checksum && (packageResult.checksum.extra || []).length" class="mb" data-testid="plugin-package-checksum-extra">
+        <h4 style="margin: 0 0 8px">checksum extra (not covered)</h4>
+        <div class="tag-wrap">
+          <el-tag v-for="item in packageResult.checksum.extra || []" :key="item" type="warning" effect="plain">{{ item }}</el-tag>
+        </div>
+      </div>
+
+      <div class="result-grid mb">
+        <div class="result-box">
+          <h4>dangerous_files</h4>
+          <div class="tag-wrap">
+            <el-tag v-for="item in packageResult.file_scan?.dangerous_files || []" :key="item.path" type="danger" effect="plain">
+              {{ item.path }}
+            </el-tag>
+            <span v-if="!(packageResult.file_scan?.dangerous_files || []).length" class="muted">-</span>
+          </div>
+        </div>
+        <div class="result-box">
+          <h4>unknown_files</h4>
+          <div class="tag-wrap">
+            <el-tag v-for="item in packageResult.file_scan?.unknown_files || []" :key="item.path" type="warning" effect="plain">
+              {{ item.path }}
+            </el-tag>
+            <span v-if="!(packageResult.file_scan?.unknown_files || []).length" class="muted">-</span>
+          </div>
+        </div>
+      </div>
+
+      <div v-if="packageResult.risk_report && (packageResult.risk_report.items || []).length" class="mb" data-testid="plugin-package-risk-items">
+        <h4 style="margin: 0 0 8px">风险报告明细</h4>
+        <el-table :data="packageResult.risk_report.items" size="small" border>
+          <el-table-column prop="level" label="level" width="110">
+            <template #default="{ row }">
+              <el-tag :type="riskLevelType(row.level)" effect="plain">{{ row.level }}</el-tag>
+            </template>
+          </el-table-column>
+          <el-table-column prop="code" label="code" min-width="240" />
+          <el-table-column prop="path" label="path" min-width="220" />
+          <el-table-column prop="message" label="message" min-width="280" />
+          <el-table-column prop="suggestion" label="suggestion" min-width="260" />
+        </el-table>
+      </div>
+
+      <el-alert
+        v-if="packageResult.manifest_validation && packageResult.manifest_validation.valid === false"
+        type="error"
+        show-icon
+        :closable="false"
+        class="mb"
+        title="manifest 校验失败"
+      >
+        <ul class="result-list">
+          <li v-for="(item, idx) in packageResult.manifest_validation.errors || []" :key="`pkg-manifest-err-${idx}`">{{ item }}</li>
+        </ul>
+      </el-alert>
+
+      <el-descriptions :column="2" border class="mb" data-testid="plugin-package-dry-run-summary">
+        <el-descriptions-item label="content_types">{{ packageResult.install_dry_run?.impact_summary?.content_types_count ?? 0 }}</el-descriptions-item>
+        <el-descriptions-item label="permissions">{{ packageResult.install_dry_run?.impact_summary?.permissions_count ?? 0 }}</el-descriptions-item>
+        <el-descriptions-item label="menus">{{ packageResult.install_dry_run?.impact_summary?.menus_count ?? 0 }}</el-descriptions-item>
+        <el-descriptions-item label="routes">{{ packageResult.install_dry_run?.impact_summary?.routes_count ?? 0 }}</el-descriptions-item>
+      </el-descriptions>
+
+      <pre class="json-box compact" data-testid="plugin-package-install-preview">{{ formatJSON(packageResult.install_dry_run?.install_preview || {}) }}</pre>
+    </el-card>
+
+    <el-dialog v-model="repoDetailVisible" width="920px" destroy-on-close data-testid="plugin-package-repo-detail-dialog">
+      <section class="action-panel in-drawer" data-testid="plugin-package-repo-detail-content">
+        <div class="action-panel-header">
+          <div>
+            <h3>插件包详情</h3>
+            <p class="muted">仅展示扫描/校验/风险与 dry-run 预览；不会安装，不执行代码/SQL，不加载前端资产。</p>
+          </div>
+          <div class="action-panel-tools">
+            <el-button @click="repoDetailVisible = false">{{ t('common.close') }}</el-button>
+          </div>
+        </div>
+
+        <el-alert v-if="repoDetailError" type="error" show-icon :closable="false" class="mb" :title="repoDetailError" />
+        <el-skeleton v-if="repoDetailLoading" :rows="8" animated />
+
+        <el-card v-if="repoDetail" shadow="never">
+          <template #header>
+            <div class="card-head">
+              <strong>{{ repoDetail.package?.code || '-' }}</strong>
+              <el-tag :type="repoDetail.status === 'blocked' ? 'danger' : repoDetail.status === 'warning' ? 'warning' : 'success'" effect="plain">
+                {{ repoDetail.status }}
+              </el-tag>
+            </div>
+          </template>
+
+          <el-alert
+            v-if="repoDetail.risk_report && repoDetail.risk_report.level"
+            :type="riskLevelType(repoDetail.risk_report.level)"
+            show-icon
+            :closable="false"
+            class="mb"
+          >
+            <template #title>
+              <span>风险等级：</span>
+              <el-tag :type="riskLevelType(repoDetail.risk_report.level)" effect="plain">
+                {{ repoDetail.risk_report.level }}
+              </el-tag>
+              <span class="muted" style="margin-left: 8px">score={{ repoDetail.risk_report.score ?? 0 }}</span>
+            </template>
+            <div class="muted">{{ repoDetail.risk_report.summary || '-' }}</div>
+          </el-alert>
+
+          <el-descriptions :column="2" border class="mb">
+            <el-descriptions-item label="path">{{ repoDetail.package?.path || '-' }}</el-descriptions-item>
+            <el-descriptions-item label="dir">{{ repoDetail.package?.dir_name || '-' }}</el-descriptions-item>
+            <el-descriptions-item label="name">{{ repoDetail.package?.name || '-' }}</el-descriptions-item>
+            <el-descriptions-item label="version">{{ repoDetail.package?.version || '-' }}</el-descriptions-item>
+            <el-descriptions-item label="checksum_found">{{ repoDetail.package?.checksum_found ?? false }}</el-descriptions-item>
+            <el-descriptions-item label="blocked_code">{{ repoDetail.blocked_code || '-' }}</el-descriptions-item>
+          </el-descriptions>
+
+          <el-descriptions v-if="repoDetail.checksum" :column="3" border class="mb">
+            <el-descriptions-item label="checksum.algorithm">{{ repoDetail.checksum.algorithm || '-' }}</el-descriptions-item>
+            <el-descriptions-item label="checksum.status">
+              <el-tag :type="checksumStatusType(repoDetail.checksum.status)" effect="plain">
+                {{ repoDetail.checksum.status || '-' }}
+              </el-tag>
+            </el-descriptions-item>
+            <el-descriptions-item label="matched">{{ (repoDetail.checksum.matched || []).length }}</el-descriptions-item>
+            <el-descriptions-item label="mismatched">{{ (repoDetail.checksum.mismatched || []).length }}</el-descriptions-item>
+            <el-descriptions-item label="missing">{{ (repoDetail.checksum.missing || []).length }}</el-descriptions-item>
+            <el-descriptions-item label="extra">{{ (repoDetail.checksum.extra || []).length }}</el-descriptions-item>
+          </el-descriptions>
+
+          <pre class="json-box compact">{{ formatJSON(repoDetail.install_dry_run?.install_preview || {}) }}</pre>
+        </el-card>
+      </section>
+    </el-dialog>
+
+    <el-dialog v-model="repoInstallVisible" width="820px" destroy-on-close data-testid="plugin-package-repo-install-dialog">
+      <template #header>
+        <div class="card-head">
+          <strong>确认安装（本地插件包）</strong>
+          <span class="muted">安装后默认 disabled，不会执行代码/SQL，不会加载前端资产。</span>
+        </div>
+      </template>
+      <section class="action-panel in-drawer" data-testid="plugin-package-repo-install-content">
+        <el-alert type="info" show-icon :closable="false" class="mb" title="边界：不会执行第三方代码 / 不会执行 SQL / 不会动态加载前端资产；本轮从本地插件包写入声明与记录（disabled）。" />
+
+        <el-alert v-if="repoInstallError" type="error" show-icon :closable="false" class="mb" :title="repoInstallError" />
+
+        <div v-if="repoInstallDetail" class="mb">
+          <el-descriptions :column="2" border class="mb">
+            <el-descriptions-item label="code">{{ repoInstallDetail.package?.code || '-' }}</el-descriptions-item>
+            <el-descriptions-item label="name">{{ repoInstallDetail.package?.name || '-' }}</el-descriptions-item>
+            <el-descriptions-item label="version">{{ repoInstallDetail.package?.version || '-' }}</el-descriptions-item>
+            <el-descriptions-item label="path">{{ repoInstallDetail.package?.path || '-' }}</el-descriptions-item>
+            <el-descriptions-item label="risk_level">
+              <el-tag :type="riskLevelType(repoInstallDetail.risk_report?.level)" effect="plain">
+                {{ repoInstallDetail.risk_report?.level || '-' }}
+              </el-tag>
+            </el-descriptions-item>
+            <el-descriptions-item label="checksum_status">
+              <el-tag :type="checksumStatusType(repoInstallDetail.checksum?.status)" effect="plain">
+                {{ repoInstallDetail.checksum?.status || '-' }}
+              </el-tag>
+            </el-descriptions-item>
+          </el-descriptions>
+
+          <el-alert v-if="repoInstallDetail.risk_report?.summary" :type="riskLevelType(repoInstallDetail.risk_report?.level)" show-icon :closable="false" class="mb" :title="repoInstallDetail.risk_report.summary" />
+
+          <el-alert v-if="(repoInstallDetail.errors || []).length" type="error" show-icon :closable="false" class="mb" title="阻断/错误">
+            <ul class="result-list">
+              <li v-for="(item, idx) in repoInstallDetail.errors" :key="`repo-install-err-${idx}`">{{ item }}</li>
+            </ul>
+          </el-alert>
+
+          <el-alert v-if="(repoInstallDetail.warnings || []).length" type="warning" show-icon :closable="false" class="mb" title="警告">
+            <ul class="result-list">
+              <li v-for="(item, idx) in repoInstallDetail.warnings" :key="`repo-install-warn-${idx}`">{{ item }}</li>
+            </ul>
+          </el-alert>
+
+          <div class="filter-actions mb" style="justify-content: space-between; gap: 10px">
+            <div v-if="String(repoInstallDetail.risk_report?.level || '').toLowerCase() !== 'low'" style="display: flex; align-items: center; gap: 10px">
+              <span class="muted">确认风险等级：</span>
+              <el-select v-model="repoInstallConfirmRiskLevel" placeholder="confirm_risk_level" style="width: 180px">
+                <el-option label="medium" value="medium" />
+                <el-option label="high" value="high" />
+              </el-select>
+            </div>
+            <div class="filter-actions" style="justify-content: flex-end">
+              <el-button :loading="repoInstallLoading" @click="repoInstallVisible = false">取消</el-button>
+              <el-button type="success" :loading="repoInstallLoading" :disabled="!repoInstallDetail || String(repoInstallDetail.status || '').toLowerCase() === 'blocked'" data-testid="plugin-package-repo-install-confirm" @click="confirmRepoInstall">确认安装</el-button>
+            </div>
+          </div>
+        </div>
+
+        <div v-else class="muted" style="padding: 12px 0">
+          <el-skeleton :rows="6" animated />
+        </div>
+      </section>
+    </el-dialog>
+
     <el-empty v-if="!items.length && !loading" description="暂无插件数据" />
     <el-skeleton v-if="loading" :rows="6" animated />
 
@@ -211,8 +634,12 @@ import { computed, onMounted, ref } from 'vue';
 import { ElMessage, ElMessageBox } from 'element-plus';
 import {
   dryRunPluginManifest,
+  dryRunPluginPackage,
   dryRunPluginUpgrade,
+  getPluginPackageDetail,
   installPluginManifest,
+  installPluginPackage,
+  listPluginPackages,
   plugins,
   upgradePlugin,
   validatePluginManifest,
@@ -223,6 +650,36 @@ import { pluginStatusLabel } from '@/i18n/formatters';
 const items = ref([]);
 const loading = ref(false);
 const targetCode = ref('');
+
+const packagePath = ref('examples/plugins/demo_notice');
+const packageLoading = ref(false);
+const packageResult = ref(null);
+const packageError = ref('');
+
+const repoRoot = ref('storage/plugins/packages');
+const repoLoading = ref(false);
+const repoError = ref('');
+const repoItems = ref([]);
+const repoSummary = ref(null);
+const repoPage = ref(1);
+const repoPageSize = ref(20);
+const repoTotal = ref(0);
+const repoKeyword = ref('');
+const repoStatus = ref('all');
+const repoRiskLevel = ref('');
+const repoChecksumStatus = ref('');
+const repoManifestValid = ref('');
+
+const repoDetailVisible = ref(false);
+const repoDetailLoading = ref(false);
+const repoDetailError = ref('');
+const repoDetail = ref(null);
+
+const repoInstallVisible = ref(false);
+const repoInstallLoading = ref(false);
+const repoInstallError = ref('');
+const repoInstallDetail = ref(null);
+const repoInstallConfirmRiskLevel = ref('');
 
 onMounted(load);
 
@@ -236,8 +693,192 @@ async function load() {
   }
 }
 
+async function scanRepository(resetPage = false) {
+  if (resetPage) repoPage.value = 1;
+  repoError.value = '';
+  repoLoading.value = true;
+  try {
+    const resp = await listPluginPackages({
+      root: repoRoot.value || '',
+      status: repoStatus.value || 'all',
+      keyword: repoKeyword.value || '',
+      risk_level: repoRiskLevel.value || '',
+      checksum_status: repoChecksumStatus.value || '',
+      manifest_valid: repoManifestValid.value || '',
+      page: repoPage.value,
+      page_size: repoPageSize.value,
+    });
+    repoItems.value = resp.items || [];
+    repoSummary.value = resp.summary || null;
+    repoTotal.value = resp.pagination?.total ?? 0;
+  } catch (e) {
+    const data = e?.response?.data;
+    const code = String(data?.code || '').trim();
+    const message = String(data?.message || data?.error || '').trim();
+    const suggestion = String(data?.suggestion || data?.details?.suggestion || '').trim();
+    const parts = [];
+    if (code) parts.push(`[${code}]`);
+    if (message) parts.push(message);
+    if (suggestion) parts.push(`建议：${suggestion}`);
+    repoError.value = parts.join(' ') || String(e?.message || '扫描失败');
+    repoItems.value = [];
+    repoSummary.value = null;
+    repoTotal.value = 0;
+  } finally {
+    repoLoading.value = false;
+  }
+}
+
+async function openRepoDetail(row) {
+  const path = String(row?.path || '').trim();
+  if (!path) return;
+  repoDetailVisible.value = true;
+  repoDetailLoading.value = true;
+  repoDetailError.value = '';
+  repoDetail.value = null;
+  try {
+    repoDetail.value = await getPluginPackageDetail({ path });
+  } catch (e) {
+    const data = e?.response?.data;
+    const code = String(data?.code || '').trim();
+    const message = String(data?.message || data?.error || '').trim();
+    const suggestion = String(data?.suggestion || data?.details?.suggestion || '').trim();
+    const parts = [];
+    if (code) parts.push(`[${code}]`);
+    if (message) parts.push(message);
+    if (suggestion) parts.push(`建议：${suggestion}`);
+    repoDetailError.value = parts.join(' ') || String(e?.message || '加载详情失败');
+  } finally {
+    repoDetailLoading.value = false;
+  }
+}
+
+function canInstallRepoPackage(row) {
+  const status = String(row?.status || '').toLowerCase();
+  const risk = String(row?.risk_level || '').toLowerCase();
+  const checksum = String(row?.checksum_status || '').toLowerCase();
+  if (!row?.manifest_found) return false;
+  if (!row?.code) return false;
+  if (status !== 'ok' && status !== 'warning') return false;
+  if (risk === 'blocked') return false;
+  if (checksum === 'failed') return false;
+  return true;
+}
+
+async function openRepoInstall(row) {
+  const path = String(row?.path || '').trim();
+  if (!path) return;
+  repoInstallVisible.value = true;
+  repoInstallLoading.value = true;
+  repoInstallError.value = '';
+  repoInstallDetail.value = null;
+  repoInstallConfirmRiskLevel.value = '';
+  try {
+    const detail = await getPluginPackageDetail({ path });
+    repoInstallDetail.value = detail;
+    repoInstallConfirmRiskLevel.value = String(detail?.risk_report?.level || '').toLowerCase();
+  } catch (e) {
+    const data = e?.response?.data;
+    const code = String(data?.code || '').trim();
+    const message = String(data?.message || data?.error || '').trim();
+    const suggestion = String(data?.suggestion || data?.details?.suggestion || '').trim();
+    const parts = [];
+    if (code) parts.push(`[${code}]`);
+    if (message) parts.push(message);
+    if (suggestion) parts.push(`建议：${suggestion}`);
+    repoInstallError.value = parts.join(' ') || String(e?.message || '加载安装信息失败');
+  } finally {
+    repoInstallLoading.value = false;
+  }
+}
+
+async function confirmRepoInstall() {
+  const path = String(repoInstallDetail.value?.package?.path || '').trim();
+  if (!path) return;
+  repoInstallLoading.value = true;
+  repoInstallError.value = '';
+  try {
+    const risk = String(repoInstallDetail.value?.risk_report?.level || '').toLowerCase();
+    const payload = {
+      path,
+      confirm_risk_level: risk && risk !== 'low' ? String(repoInstallConfirmRiskLevel.value || '').toLowerCase() : '',
+    };
+    const res = await installPluginPackage(payload);
+    ElMessage.success(res?.message || '安装成功（默认 disabled）');
+    repoInstallVisible.value = false;
+    await load();
+    await scanRepository();
+  } catch (e) {
+    const data = e?.response?.data;
+    const code = String(data?.code || '').trim();
+    const message = String(data?.message || data?.error || '').trim();
+    const suggestion = String(data?.suggestion || data?.details?.suggestion || '').trim();
+    const parts = [];
+    if (code) parts.push(`[${code}]`);
+    if (message) parts.push(message);
+    if (suggestion) parts.push(`建议：${suggestion}`);
+    repoInstallError.value = parts.join(' ') || String(e?.message || '安装失败');
+  } finally {
+    repoInstallLoading.value = false;
+  }
+}
+
+async function dryRunRepoPackage(row) {
+  const path = String(row?.path || '').trim();
+  if (!path) return;
+  packagePath.value = path;
+  await runPackageDryRun();
+}
+
 function findPlugin(code) {
   return (items.value || []).find((p) => (p.code || p.plugin_code) === code) || null;
+}
+
+async function runPackageDryRun() {
+  const path = String(packagePath.value || '').trim();
+  if (!path) {
+    packageError.value = '请先输入插件包路径';
+    return;
+  }
+  packageError.value = '';
+  packageLoading.value = true;
+  try {
+    packageResult.value = await dryRunPluginPackage({ path });
+  } catch (e) {
+    packageResult.value = null;
+    const data = e?.response?.data;
+    const code = String(data?.code || '').trim();
+    const message = String(data?.message || data?.error || '').trim();
+    const suggestion = String(data?.suggestion || data?.details?.suggestion || '').trim();
+    const parts = [];
+    if (code) parts.push(`[${code}]`);
+    if (message) parts.push(message);
+    if (suggestion) parts.push(`建议：${suggestion}`);
+    packageError.value = parts.join(' ') || String(e?.message || 'dry-run 失败');
+  } finally {
+    packageLoading.value = false;
+  }
+}
+
+function clearPackageResult() {
+  packageResult.value = null;
+  packageError.value = '';
+}
+
+function riskLevelType(level) {
+  const v = String(level || '').toLowerCase();
+  if (v === 'blocked') return 'danger';
+  if (v === 'high') return 'warning';
+  if (v === 'medium') return 'warning';
+  return 'success';
+}
+
+function checksumStatusType(status) {
+  const v = String(status || '').toLowerCase();
+  if (v === 'failed') return 'danger';
+  if (v === 'warning') return 'warning';
+  if (v === 'missing') return 'warning';
+  return 'success';
 }
 
 // === legacy wizard state/methods (copied with minimal adjustments) ===

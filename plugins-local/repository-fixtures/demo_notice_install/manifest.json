@@ -1,0 +1,146 @@
+{
+  "code": "demo_notice_install",
+  "name": "Demo Notice",
+  "version": "1.0.0",
+  "description": "用于展示 DevHub 本地插件包目录规范与 dry-run 导入预览的示例插件包。",
+  "author": "DevHub Team",
+  "compatible_core_version": ">=1.4.0",
+  "is_system": false,
+  "content_types": [
+    "demo_notice_install"
+  ],
+  "content_type_definitions": [
+    {
+      "type": "demo_notice_install",
+      "name": "演示通知",
+      "plugin_code": "demo_notice_install",
+      "create_permission": "demo_notice_install.notice.create",
+      "edit_permission": "demo_notice_install.notice.edit",
+      "delete_permission": "demo_notice_install.notice.delete",
+      "audit_permission": "demo_notice_install.notice.audit",
+      "default_status": "draft",
+      "allow_comment": true,
+      "allow_like": true,
+      "allow_favorite": true,
+      "seo_type": "Article"
+    }
+  ],
+  "permissions": [
+    {
+      "plugin_code": "demo_notice_install",
+      "code": "demo_notice_install.notice.create",
+      "name": "创建演示通知",
+      "description": "允许创建演示通知内容。",
+      "scope": "community"
+    },
+    {
+      "plugin_code": "demo_notice_install",
+      "code": "demo_notice_install.notice.edit",
+      "name": "编辑演示通知",
+      "description": "允许编辑演示通知内容。",
+      "scope": "own"
+    },
+    {
+      "plugin_code": "demo_notice_install",
+      "code": "demo_notice_install.notice.delete",
+      "name": "删除演示通知",
+      "description": "允许删除演示通知内容。",
+      "scope": "own"
+    },
+    {
+      "plugin_code": "demo_notice_install",
+      "code": "demo_notice_install.notice.audit",
+      "name": "审核演示通知",
+      "description": "允许审核演示通知内容。",
+      "scope": "community"
+    },
+    {
+      "plugin_code": "demo_notice_install",
+      "code": "demo_notice_install.manage",
+      "name": "管理 Demo Notice",
+      "description": "允许管理 Demo Notice 插件内容和治理入口。",
+      "scope": "global"
+    },
+    {
+      "plugin_code": "demo_notice_install",
+      "code": "demo_notice_install.configure",
+      "name": "配置 Demo Notice",
+      "description": "允许配置 Demo Notice 插件。",
+      "scope": "global"
+    }
+  ],
+  "menus": [
+    {
+      "plugin_code": "demo_notice_install",
+      "code": "demo_notice_install.admin",
+      "title": "Demo Notice",
+      "path": "/admin-next/demo_notice_install",
+      "location": "admin",
+      "area": "admin",
+      "permission": "demo_notice_install.manage",
+      "sort_order": 300
+    }
+  ],
+  "routes": [
+    {
+      "plugin_code": "demo_notice_install",
+      "area": "admin",
+      "method": "GET",
+      "path": "/api/v1/admin/demo_notice_install",
+      "handler": "reserved:demo_notice_install.admin.list",
+      "auth": "admin",
+      "permission": "demo_notice_install.manage"
+    }
+  ],
+  "config_schema": {
+    "additionalProperties": false,
+    "type": "object",
+    "required": [
+      "enabled",
+      "title_prefix"
+    ],
+    "properties": {
+      "enabled": {
+        "type": "boolean",
+        "title": "启用扩展功能",
+        "description": "示例配置：控制声明功能是否在配置层启用。",
+        "default": true
+      },
+      "title_prefix": {
+        "type": "string",
+        "title": "标题前缀",
+        "description": "示例配置：用于演示字符串字段与 required 规则。",
+        "default": "[Demo]"
+      }
+    }
+  },
+  "min_core_version": "1.4.0",
+  "hooks": [
+    {
+      "plugin_code": "demo_notice_install",
+      "name": "AfterCreateContent",
+      "description": "声明创建内容后的 non-blocking Hook；本地插件包 dry-run 不会执行第三方处理器。",
+      "mode": "non_blocking",
+      "blocking": false,
+      "critical": false,
+      "failure_policy": "log",
+      "timeout_ms": 3000,
+      "failure_threshold": 3
+    }
+  ],
+  "migrations": [
+    {
+      "plugin_code": "demo_notice_install",
+      "migration_version": "1.0.0",
+      "migration_name": "demo_notice_init",
+      "direction": "up",
+      "checksum": "sha256:declaration-only",
+      "tables": [
+        "demo_notice_items"
+      ],
+      "rollback_supported": false,
+      "description": "声明型迁移示例。本轮本地插件包 dry-run 不会执行外部 raw SQL。"
+    }
+  ]
+}
+
