@@ -60,7 +60,7 @@ test.describe('plugin readiness errors', () => {
       installed = true;
       await disablePlugin(request, 'qa');
 
-      await page.goto('/admin-next/plugins');
+      await page.goto('/admin-next/plugins/list');
       await page.getByTestId(`plugin-detail-${code}`).click();
       const drawer = page.getByTestId('plugin-detail-drawer');
       await expect(drawer).toBeVisible();

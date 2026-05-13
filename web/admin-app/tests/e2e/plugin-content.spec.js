@@ -94,7 +94,7 @@ test.describe('admin plugin content detailed flow', () => {
       await expect(page.getByTestId('plugin-content-batch-result')).toContainText('成功数');
       await page.getByTestId('plugin-content-batch-result').getByRole('button', { name: '关闭' }).click();
       await page.getByTestId('plugin-content-back').click();
-      await expect(page).toHaveURL(/\/admin-next\/plugins/);
+      await expect(page).toHaveURL(/\/admin-next\/plugins\/content/);
     } finally {
       await restorePlugin(request, 'qa').catch(() => {});
       await ensurePluginEnabled(request, 'qa').catch(() => {});

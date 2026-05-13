@@ -8,7 +8,7 @@
 
 ## 当前版本结论
 
-当前 `VERSION` 为 `v1.4.0`，主题是“插件内容治理增强版”。本版本已完成 `PluginContent` 精确过滤、头部状态、禁用 / 归档历史治理提示、批量审核 / 置顶 / 加精、批量结果明细和插件审计跳转增强，并补齐 `config_schema` 自动表单增强、Hook 排障页（插件详情 Hooks Tab + 执行记录查询/详情抽屉）、插件 SDK 文档与声明型插件生成模板、插件治理统一错误码与 Readiness 诊断、前台入口与菜单可见性治理（navigation/create-options）。v1.4.0 收口验收已补跑 Go、Docker 构建、前后台 E2E 与 SEO curl 回归：后台 Playwright `33 passed`，前台 Playwright `17 passed`，`/topics/1/` 与 `/c/php/` SEO 关键字段未退化。DevHub 当前定位为多子站通用开源社区程序，默认演示为开发者社区。
+当前 `VERSION` 为 `v1.4.0`，主题是“插件内容治理增强版”。本版本已完成 `PluginContent` 精确过滤、头部状态、禁用 / 归档历史治理提示、批量审核 / 置顶 / 加精、批量结果明细和插件审计跳转增强，并补齐 `config_schema` 自动表单增强、Hook 排障页（插件详情 Hooks Tab + 执行记录查询/详情抽屉）、插件 SDK 文档与声明型插件生成模板、插件治理统一错误码与 Readiness 诊断、前台入口与菜单可见性治理（navigation/create-options），以及后台“系统插件”按功能分页重排（插件概览/列表/内容治理/安装升级/配置中心/依赖兼容/Hook 排障/事件通知/搜索索引/前台入口/权限矩阵/审计日志/开发者工具）。v1.4.0 收口验收已补跑 Go、Docker 构建、前后台 E2E 与 SEO curl 回归：后台 Playwright `35 passed`，前台 Playwright `17 passed`，`/topics/1/` 与 `/c/php/` SEO 关键字段未退化。DevHub 当前定位为多子站通用开源社区程序，默认演示为开发者社区。
 
 Core 保留用户、认证、子站、板块、通用内容、评论、标签、搜索、通知、SEO、权限、审计、插件注册和分发能力。问答、文档、Wiki、项目、招聘、AI 作品已按内置系统插件建模：`qa -> question`、`docs -> document`、`wiki -> wiki_page`、`projects -> project`、`jobs -> job`、`ai_works -> ai_work`。
 

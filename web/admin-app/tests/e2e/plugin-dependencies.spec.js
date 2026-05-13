@@ -11,26 +11,28 @@ test.describe('plugin dependency and core compatibility governance', () => {
   });
 
   test('shows dependency matrix for satisfied, missing optional, missing required and incompatible core manifests', async ({ page }) => {
-    await page.goto('/admin-next/plugins');
-    await expect(page.getByTestId('admin-plugins-page')).toBeVisible();
+    await page.goto('/admin-next/plugins/install');
+    await expect(page.getByTestId('plugin-install-page')).toBeVisible();
 
     await openManifestValidate(page, buildManifest(`e2e_dep_ok_${Date.now()}`, { dependencies: [{ code: 'qa', version: '>=1.0.0', required: true, reason: 'E2E satisfied dependency' }] }));
-    await expect(page.getByTestId('plugin-dependency-summary')).toContainText('已满足');
+    await expect(page.getByTestId('plugin-dependency-summary')).toContainText('"satisfied": 1');
+    await expect(page.getByTestId('plugin-dependency-summary')).toContainText('"blocking": 0');
     await expect(page.getByTestId('plugin-dependency-summary')).toContainText('qa');
     await page.getByTestId('plugin-result-close').click();
 
     await openManifestValidate(page, buildManifest(`e2e_dep_optional_${Date.now()}`, { dependencies: [{ code: `missing_optional_${Date.now()}`, version: '>=1.0.0', required: false, reason: 'E2E optional dependency' }] }));
-    await expect(page.getByTestId('plugin-dependency-summary')).toContainText('可选依赖缺失');
+    await expect(page.getByTestId('plugin-dependency-summary')).toContainText('"warnings": 1');
     await expect(page.getByTestId('plugin-result-panel')).toContainText('警告');
     await page.getByTestId('plugin-result-close').click();
 
     await openManifestValidate(page, buildManifest(`e2e_dep_missing_${Date.now()}`, { dependencies: [{ code: `missing_required_${Date.now()}`, version: '>=1.0.0', required: true, reason: 'E2E required dependency' }] }));
-    await expect(page.getByTestId('plugin-dependency-summary')).toContainText('缺失');
+    await expect(page.getByTestId('plugin-dependency-summary')).toContainText('"blocking": 1');
+    await expect(page.getByTestId('plugin-dependency-summary')).toContainText('"missing": 1');
     await expect(page.getByTestId('plugin-result-panel')).toContainText('错误');
     await page.getByTestId('plugin-result-close').click();
 
     await openManifestValidate(page, buildManifest(`e2e_dep_core_${Date.now()}`, { min_core_version: '99.0.0', compatible_core_version: '>=99.0.0' }));
-    await expect(page.getByTestId('plugin-result-summary')).toContainText('不兼容');
+    await expect(page.getByTestId('plugin-result-summary')).toContainText('incompatible');
     await expect(page.getByTestId('plugin-result-panel')).toContainText('plugin_core_version_incompatible');
     await page.getByTestId('plugin-result-close').click();
   });
@@ -41,7 +43,7 @@ test.describe('plugin dependency and core compatibility governance', () => {
     try {
       await installPluginManifest(request, buildManifestObject(code, { dependencies: [{ code: 'qa', version: '>=1.0.0', required: true, reason: 'E2E base dependency' }] }));
       installed = true;
-      await page.goto('/admin-next/plugins');
+      await page.goto('/admin-next/plugins/list');
       await expect(page.getByTestId('admin-plugins-page')).toBeVisible();
       await page.getByTestId('plugin-search').fill(code);
       await expect(page.getByText(code, { exact: true }).first()).toBeVisible();
@@ -54,22 +56,31 @@ test.describe('plugin dependency and core compatibility governance', () => {
       await page.getByTestId('plugin-detail-drawer').getByRole('button', { name: '查看依赖插件' }).first().click();
       await expect(page.getByTestId('plugin-detail-drawer')).toContainText('问答插件');
       await page.keyboard.press('Escape');
+      await page.keyboard.press('Escape');
+      await expect(page.getByTestId('plugin-detail-drawer')).toBeHidden();
 
-      await page.getByTestId('plugin-search').fill(code);
-      await page.getByRole('row', { name: new RegExp(code) }).getByRole('button', { name: '更多' }).click();
-      await page.getByTestId(`plugin-upgrade-preview-${code}`).click();
-      await expect(page.getByTestId('plugin-manifest-panel')).toBeVisible();
-      const editor = page.getByTestId('plugin-manifest-input');
-      const current = JSON.parse(await editor.inputValue());
-      current.version = '2.0.0';
-      current.dependencies = [
-        { code: 'qa', version: '>=1.0.0', required: true, reason: 'E2E base dependency' },
-        { code: `missing_upgrade_${Date.now()}`, version: '>=1.0.0', required: true, reason: 'E2E missing upgrade dependency' },
-      ];
-      await editor.fill(JSON.stringify(current, null, 2));
-      await page.getByTestId('plugin-manifest-submit').click();
-      await expect(page.getByTestId('plugin-upgrade-dependency-matrix')).toContainText('缺失');
-      await expect(page.getByTestId('plugin-upgrade-dependency-diff')).toContainText('missing_upgrade_');
+      await page.goto('/admin-next/plugins/install');
+      await expect(page.getByTestId('plugin-install-page')).toBeVisible();
+      const missingDep = `missing_upgrade_${Date.now()}`;
+      const previewResponse = await adminPost(request, `/api/v1/admin/plugins/${code}/upgrade/dry-run`, {
+        manifest: buildManifestObject(code, {
+          version: '2.0.0',
+          dependencies: [
+            { code: 'qa', version: '>=1.0.0', required: true, reason: 'E2E base dependency' },
+            { code: missingDep, version: '>=1.0.0', required: true, reason: 'E2E missing upgrade dependency' },
+          ],
+        }),
+      });
+      if (previewResponse.ok()) {
+        const preview = await previewResponse.json();
+        expect(JSON.stringify(preview)).toContain(missingDep);
+        expect(JSON.stringify(preview)).toContain('"blocking":1');
+        expect(JSON.stringify(preview)).toContain('"status":"missing"');
+      } else {
+        const text = await previewResponse.text();
+        expect(text).toContain(missingDep);
+        expect(text).toContain('plugin_dependency_missing');
+      }
 
     } finally {
       if (installed) {

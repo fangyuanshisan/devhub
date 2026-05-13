@@ -4,8 +4,9 @@
 
 Current `VERSION` is `v1.4.0`. The plugin-content governance enhancement work is now validated with Go tests/build plus Docker-based admin build and Playwright; see `docs/releases/v1.4.0.md`.
 
-- Closed v1.4.0 acceptance: full Go + Docker build + admin/frontend Playwright + SEO curl checks pass (admin E2E `33 passed`, frontend E2E `17 passed`), and no long-term `test.skip/test.only` remains in Playwright suites.
+- Closed v1.4.0 acceptance: full Go + Docker build + admin/frontend Playwright + SEO curl checks pass (admin E2E `35 passed`, frontend E2E `17 passed`), and no long-term `test.skip/test.only` remains in Playwright suites.
 - Began `v1.4.0` plugin-content governance enhancement work: `GET /api/v1/admin/posts` now supports precise `plugin_code + content_type` filtering and returns plugin ownership fields for admin post rows.
+- Reworked the admin plugin area into function pages under `/admin-next/plugins/overview|list|content|install|config|dependencies|hooks|events|search-index|navigation|permissions|audit|developer`, while keeping legacy plugin routes compatible.
 - Upgraded `PluginContent` into a fuller governance page with plugin name/code/status/health/type-count header, disabled/archived history notices, aligned filter/batch layout, result details, audit jump query metadata, and recent-governance entry from the detail drawer.
 - Expanded PluginContent batch governance from hide/restore to approve/reject, pin/unpin, and feature/unfeature while keeping structured plugin audit metadata.
 - Added minimal PluginContent E2E coverage for archived-history governance, precise plugin filtering, hide/restore regression, and a batch pin/unpin chain.

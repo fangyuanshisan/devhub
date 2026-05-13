@@ -13,7 +13,7 @@ test.describe('admin plugin frontend menu preview', () => {
 
   test('shows frontend menus preview with visibility and reasons', async ({ page, request }) => {
     try {
-      await page.goto('/admin-next/plugins');
+      await page.goto('/admin-next/plugins/list');
       await expectAdminPageReady(page, 'admin-plugins-page');
 
       await page.getByTestId('plugin-detail-qa').click();

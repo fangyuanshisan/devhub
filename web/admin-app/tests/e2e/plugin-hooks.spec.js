@@ -11,7 +11,7 @@ test.describe('plugin hooks troubleshooting', () => {
   });
 
   test('opens hooks tab, shows stats and recent executions, supports filtered executions drawer and detail drawer', async ({ page, request }) => {
-    await page.goto('/admin-next/plugins');
+    await page.goto('/admin-next/plugins/list');
     await expect(page.getByTestId('admin-plugins-page')).toBeVisible();
 
     await page.getByTestId('plugin-detail-qa').click();

@@ -8,17 +8,21 @@
       </button>
     </aside>
 
-    <aside v-if="showSubNav" class="sub-nav">
+    <aside v-if="showSubNav" class="sub-nav" data-testid="admin-sub-nav">
       <div class="edition">DevHub 标准版</div>
       <div class="sub-title">{{ activeGroup.meta?.title || '控制台' }}</div>
-      <button
-        v-for="child in activeChildren"
-        :key="child.key"
-        :class="['sub-item', { active: child.key === activeSub }]"
-        @click="handleSubClick(child)"
-      >
-        {{ child.label }}
-      </button>
+      <template v-for="group in activeChildGroups" :key="group.key">
+        <div class="sub-group-title" :data-testid="`admin-sub-nav-group-${group.key}`">{{ group.title }}</div>
+        <button
+          v-for="child in group.items"
+          :key="child.key"
+          :class="['sub-item', { active: child.key === activeSub }]"
+          @click="handleSubClick(child)"
+          :data-testid="`admin-sub-nav-${child.key}`"
+        >
+          {{ child.label }}
+        </button>
+      </template>
     </aside>
 
     <el-container class="workbench">
@@ -89,10 +93,43 @@ const subMenus = {
   auditLogs: [{ key: 'list', label: '审计列表' }, { key: 'filter', label: '治理筛选' }],
   tags: [{ key: 'list', label: '标签列表' }, { key: 'seo', label: 'SEO 配置' }, { key: 'topics', label: '关联内容' }],
   plugins: [
-    { key: 'list', label: '插件列表', path: '/plugins/list' },
-    { key: 'status', label: '状态治理', path: '/plugins/governance' },
-    { key: 'manifest', label: '安装 / 升级', path: '/plugins/manifest' },
-    { key: 'diagnostics', label: '诊断与排障', path: '/plugins/diagnostics' },
+    {
+      key: 'ops',
+      title: '插件运营',
+      items: [
+        { key: 'overview', label: '概览', path: '/plugins/overview' },
+        { key: 'list', label: '插件列表', path: '/plugins/list' },
+        { key: 'content', label: '内容治理', path: '/plugins/content' },
+        { key: 'config', label: '配置中心', path: '/plugins/config' },
+      ],
+    },
+    {
+      key: 'govern',
+      title: '安装与治理',
+      items: [
+        { key: 'install', label: '安装升级', path: '/plugins/install' },
+        { key: 'dependencies', label: '依赖兼容', path: '/plugins/dependencies' },
+        { key: 'permissions', label: '权限矩阵', path: '/plugins/permissions' },
+        { key: 'audit', label: '审计日志', path: '/plugins/audit' },
+      ],
+    },
+    {
+      key: 'runtime',
+      title: '运行排障',
+      items: [
+        { key: 'hooks', label: 'Hook 排障', path: '/plugins/hooks' },
+        { key: 'events', label: '事件通知', path: '/plugins/events' },
+        { key: 'searchIndex', label: '搜索索引', path: '/plugins/search-index' },
+        { key: 'navigation', label: '前台入口', path: '/plugins/navigation' },
+      ],
+    },
+    {
+      key: 'dev',
+      title: '开发者',
+      items: [
+        { key: 'developer', label: '开发者工具', path: '/plugins/developer' },
+      ],
+    },
   ],
   qaPlugin: [{ key: 'questions', label: '问题列表' }, { key: 'answers', label: '回答治理' }],
   docsPlugin: [{ key: 'documents', label: '文档列表' }, { key: 'spaces', label: '空间结构' }],
@@ -129,8 +166,22 @@ const activeChildren = computed(() => {
   if (route.meta?.subNavGroup) return subMenus[route.meta.subNavGroup] || [];
   return subMenus[activeGroup.value.name] || [];
 });
-const showSubNav = computed(() => Boolean(activeChildren.value.length));
-const activeSubLabel = computed(() => activeChildren.value.find((item) => item.key === activeSub.value)?.label || activeChildren.value[0]?.label || '');
+const activeChildGroups = computed(() => {
+  const raw = activeChildren.value || [];
+  if (raw.length && raw[0] && raw[0].items) {
+    return raw
+      .map((group) => ({
+        key: group.key,
+        title: group.title,
+        items: (group.items || []).filter((item) => !item.permission || auth.can(item.permission)),
+      }))
+      .filter((group) => group.items.length);
+  }
+  return [{ key: 'default', title: '', items: raw.filter((item) => !item.permission || auth.can(item.permission)) }];
+});
+const showSubNav = computed(() => activeChildGroups.value.some((g) => g.items.length));
+const flatActiveChildren = computed(() => activeChildGroups.value.flatMap((g) => g.items));
+const activeSubLabel = computed(() => flatActiveChildren.value.find((item) => item.key === activeSub.value)?.label || flatActiveChildren.value[0]?.label || '');
 const keepAliveNames = computed(() => menuRoutes.filter((item) => item.meta.keepAlive).map((item) => item.name));
 const scopeLabel = computed(() => {
   const site = new URLSearchParams(window.location.search).get('site') || 'portal';
@@ -144,7 +195,7 @@ watch(route, (value) => {
     activeSub.value = value.meta.subNavKey;
     return;
   }
-  activeSub.value = nextChildren[0]?.key || '';
+  activeSub.value = nextChildren[0]?.items ? nextChildren[0]?.items?.[0]?.key || '' : (nextChildren[0]?.key || '');
 }, { immediate: true });
 watch(quickSearch, (value) => {
   const matched = menuRoutes.find((item) => !item.meta.hiddenInMenu && item.meta.title.includes(value));

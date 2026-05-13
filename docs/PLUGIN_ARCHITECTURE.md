@@ -487,9 +487,9 @@ v1.3.1 采用稳妥策略：后台编辑已存在内容时禁止修改归属和�
 
 后台插件管理体验：
 
-- `/admin-next/plugins` 展示全局插件列表、状态 badge、系统插件标识、内容类型、权限数量、菜单数量和 `config_schema` 摘要。
-- `/admin-next/plugins` 现在同时展示健康总览卡片，并提供 manifest validate / dry-run / install 入口，以及批量归档 / 恢复工作面板。
-- `/admin-next/plugins` 还提供 `upgrade dry-run` 和 `upgrade` 入口，用于展示版本兼容矩阵、变更字段和 diff，并执行 manifest + 配置型插件的最小升级闭环。
+- 后台“系统插件”按功能分页呈现：`/admin-next/plugins` 重定向到 `/admin-next/plugins/overview`，二级页面包括 `overview/list/content/install/config/dependencies/hooks/events/search-index/navigation/permissions/audit/developer`。
+- 插件列表页（`/admin-next/plugins/list`）展示全局插件列表、状态 badge、系统插件标识、内容类型、权限数量、菜单数量和 `config_schema` 摘要，并提供筛选、批量归档/恢复与详情抽屉入口。
+- 安装升级页（`/admin-next/plugins/install`）提供 manifest validate / dry-run / install、`upgrade dry-run` 与 `upgrade` 入口，用于展示版本兼容矩阵、变更字段和 diff，并执行 manifest + 配置型插件的最小升级闭环。
 - 插件详情使用抽屉分区展示基础信息、内容类型、权限、菜单、配置、路由和 Hooks，避免把 JSON 直接堆在表格中。
 - 插件详情抽屉当前增加统一可读状态提示，展示运行状态说明、归档态提示、状态原因和建议操作。
 - 全局插件配置已升级为基础自动表单 + JSON 高级模式（`json-editor-vue`），并使用 Ajv 做 `config_schema` 基础校验；后续仍可增强为更完整的 JSON Schema、深层嵌套和字段分组。

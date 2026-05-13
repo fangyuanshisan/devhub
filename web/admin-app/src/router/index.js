@@ -9,12 +9,7 @@ export const menuRoutes = [
   { path: '/moderators', name: 'moderators', component: () => import('@/views/Moderators.vue'), meta: { title: '版主管理', short: '版主', icon: 'UserFilled', permission: 'moderator.read', keepAlive: true } },
   { path: '/audit-logs', name: 'auditLogs', component: () => import('@/views/AuditLogs.vue'), meta: { title: '治理审计', short: '审计', icon: 'Tickets', permission: 'log.read', keepAlive: true } },
   { path: '/tags', name: 'tags', component: () => import('@/views/Tags.vue'), meta: { title: '标签管理', short: '标签', icon: 'PriceTag', permission: 'post.read', keepAlive: true } },
-  // Note: /plugins uses sub-nav as the primary switcher between list/governance views.
-  { path: '/plugins', name: 'plugins', redirect: '/plugins/list', meta: { title: '系统插件', short: '插件', icon: 'Connection', permission: 'plugin.read', keepAlive: true } },
-  { path: '/plugins/list', name: 'pluginsList', component: () => import('@/views/Plugins.vue'), meta: { title: '系统插件', short: '插件', icon: 'Connection', permission: 'plugin.read', keepAlive: true, subNavGroup: 'plugins', subNavKey: 'list', hiddenInMenu: true } },
-  { path: '/plugins/governance', name: 'pluginsGovernance', component: () => import('@/views/Plugins.vue'), meta: { title: '系统插件', short: '插件', icon: 'Connection', permission: 'plugin.read', keepAlive: true, subNavGroup: 'plugins', subNavKey: 'status', hiddenInMenu: true } },
-  { path: '/plugins/manifest', name: 'pluginsManifest', component: () => import('@/views/Plugins.vue'), meta: { title: '系统插件', short: '插件', icon: 'Connection', permission: 'plugin.read', keepAlive: true, subNavGroup: 'plugins', subNavKey: 'manifest', hiddenInMenu: true } },
-  { path: '/plugins/diagnostics', name: 'pluginsDiagnostics', component: () => import('@/views/Plugins.vue'), meta: { title: '系统插件', short: '插件', icon: 'Connection', permission: 'plugin.read', keepAlive: true, subNavGroup: 'plugins', subNavKey: 'diagnostics', hiddenInMenu: true } },
+  { path: '/plugins', name: 'plugins', redirect: '/plugins/overview', meta: { title: '系统插件', short: '插件', icon: 'Connection', permission: 'plugin.read', keepAlive: true } },
   { path: '/qa', name: 'qaPlugin', component: () => import('@/views/PluginContent.vue'), meta: { title: '问答管理', short: '问答', icon: 'QuestionFilled', permission: 'qa.question.audit', pluginCode: 'qa', contentType: 'question', hiddenInMenu: true, keepAlive: true } },
   { path: '/docs', name: 'docsPlugin', component: () => import('@/views/PluginContent.vue'), meta: { title: '文档管理', short: '文档', icon: 'Notebook', permission: 'docs.document.audit', pluginCode: 'docs', contentType: 'document', hiddenInMenu: true, keepAlive: true } },
   { path: '/wiki', name: 'wikiPlugin', component: () => import('@/views/PluginContent.vue'), meta: { title: 'Wiki 管理', short: 'Wiki', icon: 'Document', permission: 'wiki.page.audit', pluginCode: 'wiki', contentType: 'wiki_page', hiddenInMenu: true, keepAlive: true } },
@@ -28,12 +23,34 @@ export const menuRoutes = [
   { path: '/system', name: 'system', component: () => import('@/views/System.vue'), meta: { title: '系统设置', short: '系统', icon: 'Setting', permission: 'setting.read', keepAlive: true } },
 ];
 
+export const pluginRoutes = [
+  { path: '/plugins/overview', name: 'pluginsOverview', component: () => import('@/views/plugins/PluginOverview.vue'), meta: { title: '系统插件', permission: 'plugin.read', subNavGroup: 'plugins', subNavKey: 'overview' } },
+  { path: '/plugins/list', name: 'pluginsList', component: () => import('@/views/plugins/PluginList.vue'), meta: { title: '系统插件', permission: 'plugin.read', subNavGroup: 'plugins', subNavKey: 'list' } },
+  { path: '/plugins/content', name: 'pluginsContent', component: () => import('@/views/plugins/PluginContentHub.vue'), meta: { title: '系统插件', permission: 'plugin.read', subNavGroup: 'plugins', subNavKey: 'content' } },
+  { path: '/plugins/install', name: 'pluginsInstall', component: () => import('@/views/plugins/PluginInstallUpgrade.vue'), meta: { title: '系统插件', permission: 'plugin.read', subNavGroup: 'plugins', subNavKey: 'install' } },
+  { path: '/plugins/config', name: 'pluginsConfig', component: () => import('@/views/plugins/PluginConfigHub.vue'), meta: { title: '系统插件', permission: 'plugin.read', subNavGroup: 'plugins', subNavKey: 'config' } },
+  { path: '/plugins/dependencies', name: 'pluginsDependencies', component: () => import('@/views/plugins/PluginDependencies.vue'), meta: { title: '系统插件', permission: 'plugin.read', subNavGroup: 'plugins', subNavKey: 'dependencies' } },
+  { path: '/plugins/hooks', name: 'pluginsHooks', component: () => import('@/views/plugins/PluginHooks.vue'), meta: { title: '系统插件', permission: 'plugin.read', subNavGroup: 'plugins', subNavKey: 'hooks' } },
+  { path: '/plugins/events', name: 'pluginsEvents', component: () => import('@/views/plugins/PluginEvents.vue'), meta: { title: '系统插件', permission: 'plugin.read', subNavGroup: 'plugins', subNavKey: 'events' } },
+  { path: '/plugins/search-index', name: 'pluginsSearchIndex', component: () => import('@/views/plugins/PluginSearchIndex.vue'), meta: { title: '系统插件', permission: 'plugin.read', subNavGroup: 'plugins', subNavKey: 'searchIndex' } },
+  { path: '/plugins/navigation', name: 'pluginsNavigation', component: () => import('@/views/plugins/PluginNavigation.vue'), meta: { title: '系统插件', permission: 'plugin.read', subNavGroup: 'plugins', subNavKey: 'navigation' } },
+  { path: '/plugins/permissions', name: 'pluginsPermissions', component: () => import('@/views/plugins/PluginPermissions.vue'), meta: { title: '系统插件', permission: 'plugin.read', subNavGroup: 'plugins', subNavKey: 'permissions' } },
+  { path: '/plugins/audit', name: 'pluginsAudit', component: () => import('@/views/plugins/PluginAudit.vue'), meta: { title: '系统插件', permission: 'plugin.read', subNavGroup: 'plugins', subNavKey: 'audit' } },
+  { path: '/plugins/developer', name: 'pluginsDeveloper', component: () => import('@/views/plugins/PluginDeveloper.vue'), meta: { title: '系统插件', permission: 'plugin.read', subNavGroup: 'plugins', subNavKey: 'developer' } },
+
+  // legacy compat routes
+  { path: '/plugins/governance', redirect: '/plugins/overview' },
+  { path: '/plugins/manifest', redirect: '/plugins/install' },
+  { path: '/plugins/diagnostics', redirect: '/plugins/hooks' },
+];
+
 const router = createRouter({
   history: createWebHistory('/admin-next/'),
   routes: [
     { path: '/', redirect: '/dashboard' },
     { path: '/login', name: 'login', component: () => import('@/views/Login.vue'), meta: { title: '登录' } },
     ...menuRoutes,
+    ...pluginRoutes,
     { path: '/sites', redirect: '/communities' },
     { path: '/:pathMatch(.*)*', redirect: '/dashboard' },
   ],

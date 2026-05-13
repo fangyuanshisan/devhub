@@ -19,7 +19,7 @@
 - `bash -n dev.sh`
 - `bash -n scripts/check-frontend.sh`
 - `docker compose run --rm admin-e2e npm run build`
-- `./scripts/check-frontend.sh --admin-only`（后台 build + Playwright：`33 passed`）
+- `./scripts/check-frontend.sh --admin-only`（后台 build + Playwright：`35 passed`，包含新增 `plugin-pages-navigation.spec.js`）
 - `./scripts/check-frontend.sh --frontend-only`（前台 build + Playwright：`17 passed`）
 - SEO curl 回归（在本地 8090 服务可用情况下执行）：
   - `curl -s http://127.0.0.1:8090/topics/1/ | rg '<title>|description|canonical|<h1|<article|application/ld\\+json'`
@@ -28,6 +28,22 @@
 结论：
 
 - Playwright 不再保留 `test.skip` / `test.only`；收口验收未发现长期跳过项。
+
+## v1.4.0-P1-13 收口补充（2026-05-13）
+
+本节记录插件后台信息架构与按功能分页优化后的后台验收结果。
+
+已执行并通过：
+
+- `docker compose run --rm admin-e2e npm run test:e2e -- tests/e2e/plugin-pages-navigation.spec.js`：通过，`2 passed`。
+- `docker compose run --rm admin-e2e npm run test:e2e -- tests/e2e/plugin-dependencies.spec.js`：通过，`2 passed`。
+- `docker compose run --rm admin-e2e npm run test:e2e -- tests/e2e/plugin-governance.spec.js`：通过，`13 passed`。
+- `./scripts/check-frontend.sh --admin-only`：通过，后台 build 通过，后台 Playwright `35 passed`。
+
+说明：
+
+- 本轮只改后台插件板块信息架构与管理页路由，没有触碰前台导航或 SEO 共享逻辑，因此未额外执行 `--frontend-only` 与 SEO curl。
+- 旧路由 `/admin-next/plugins`、`/admin-next/plugins/governance`、`/admin-next/qa`、`/admin-next/docs`、`/admin-next/wiki`、`/admin-next/projects`、`/admin-next/jobs`、`/admin-next/ai-works` 均保持兼容。
 
 ## 已实现必测
 

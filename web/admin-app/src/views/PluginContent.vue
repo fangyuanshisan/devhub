@@ -251,7 +251,7 @@ function open(row) {
 }
 
 function backToPlugins() {
-  router.push('/plugins');
+  router.push('/plugins/content');
 }
 
 function openDetail(row) {
