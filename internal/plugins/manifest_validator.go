@@ -52,7 +52,9 @@ func DecodePluginManifestJSON(raw []byte) (domain.PluginManifest, string, error)
 		return domain.PluginManifest{}, "", fmt.Errorf("manifest 必须是合法 JSON: %w", err)
 	}
 	contentTypesRaw := fields["content_types"]
+	dependenciesRaw := fields["dependencies"]
 	delete(fields, "content_types")
+	delete(fields, "dependencies")
 	normalizedRaw, _ := json.Marshal(fields)
 	var manifest domain.PluginManifest
 	if err := json.Unmarshal(normalizedRaw, &manifest); err != nil {
@@ -75,9 +77,53 @@ func DecodePluginManifestJSON(raw []byte) (domain.PluginManifest, string, error)
 			}
 		}
 	}
+	if len(dependenciesRaw) > 0 {
+		deps, err := decodeDependencies(dependenciesRaw)
+		if err != nil {
+			return domain.PluginManifest{}, "", err
+		}
+		manifest.Dependencies = deps
+	}
 	manifest = NormalizeManifest(manifest)
 	checksum := ManifestChecksum(manifest)
 	return manifest, checksum, nil
+}
+
+func decodeDependencies(raw json.RawMessage) ([]domain.PluginDependency, error) {
+	var names []string
+	if err := json.Unmarshal(raw, &names); err == nil {
+		out := make([]domain.PluginDependency, 0, len(names))
+		for _, name := range names {
+			name = strings.TrimSpace(name)
+			if name != "" {
+				out = append(out, domain.PluginDependency{Code: name, Required: true})
+			}
+		}
+		return out, nil
+	}
+	var wire []struct {
+		Code       string `json:"code"`
+		PluginCode string `json:"plugin_code,omitempty"`
+		Version    string `json:"version,omitempty"`
+		Required   *bool  `json:"required,omitempty"`
+		Reason     string `json:"reason,omitempty"`
+	}
+	if err := json.Unmarshal(raw, &wire); err != nil {
+		return nil, fmt.Errorf("dependencies 必须是字符串数组或依赖对象数组")
+	}
+	out := make([]domain.PluginDependency, 0, len(wire))
+	for _, item := range wire {
+		required := true
+		if item.Required != nil {
+			required = *item.Required
+		}
+		code := item.Code
+		if strings.TrimSpace(code) == "" {
+			code = item.PluginCode
+		}
+		out = append(out, domain.PluginDependency{Code: code, Version: item.Version, Required: required, Reason: item.Reason})
+	}
+	return out, nil
 }
 
 func ManifestChecksum(manifest domain.PluginManifest) string {
@@ -148,6 +194,11 @@ func NormalizeManifest(manifest domain.PluginManifest) domain.PluginManifest {
 			manifest.Migrations[i].Direction = "up"
 		}
 	}
+	for i := range manifest.Dependencies {
+		manifest.Dependencies[i].Code = strings.TrimSpace(manifest.Dependencies[i].Code)
+		manifest.Dependencies[i].Version = strings.TrimSpace(manifest.Dependencies[i].Version)
+		manifest.Dependencies[i].Reason = strings.TrimSpace(manifest.Dependencies[i].Reason)
+	}
 	return manifest
 }
 
@@ -159,7 +210,6 @@ func ValidatePluginManifest(manifest domain.PluginManifest, existing []domain.Pl
 		Warnings:           []string{},
 		NormalizedManifest: manifest,
 		Checksum:           ManifestChecksum(manifest),
-		Dependencies:       append([]string(nil), manifest.Dependencies...),
 		MigrationPlan:      append([]domain.PluginMigrationDefinition(nil), manifest.Migrations...),
 		InstallPreview: map[string]any{
 			"initial_status": "disabled",
@@ -174,7 +224,7 @@ func ValidatePluginManifest(manifest domain.PluginManifest, existing []domain.Pl
 		RoutesCount:       len(manifest.Routes),
 		HooksCount:        len(manifest.Hooks),
 		MigrationsCount:   len(manifest.Migrations),
-		Dependencies:      append([]string(nil), manifest.Dependencies...),
+		Dependencies:      dependencyCodes(manifest.Dependencies),
 	}
 	addError := func(format string, args ...any) {
 		result.Errors = append(result.Errors, fmt.Sprintf(format, args...))
@@ -193,8 +243,13 @@ func ValidatePluginManifest(manifest domain.PluginManifest, existing []domain.Pl
 	if !manifestVersionPattern.MatchString(manifest.Version) {
 		addError("version 必填且应为合法版本号")
 	}
-	if manifest.CompatibleCoreVersion != "" && currentCoreVersion != "" && !compatibleCoreVersion(manifest.CompatibleCoreVersion, currentCoreVersion) {
-		addError("compatible_core_version 与当前 Core 版本不兼容")
+	result.Compatibility = CheckPluginVersionCompatibility(manifest, currentCoreVersion)
+	for _, msg := range result.Compatibility.Messages {
+		if result.Compatibility.Status == CompatibilityIncompatible {
+			addError("plugin_core_version_incompatible: %s", msg)
+		} else if result.Compatibility.Status == CompatibilityWarning {
+			addWarning("core_version_warning: %s", msg)
+		}
 	}
 
 	existingCodes := map[string]bool{}
@@ -254,6 +309,15 @@ func ValidatePluginManifest(manifest domain.PluginManifest, existing []domain.Pl
 		if menu.Permission != "" && !permissionSet[menu.Permission] {
 			addError("菜单 %s 引用了未声明权限：%s", firstNonBlank(menu.Code, menu.Title), menu.Permission)
 		}
+		if strings.TrimSpace(menu.Location) == "" && strings.TrimSpace(menu.Area) == "" {
+			addWarning("菜单 %s 未设置 location/area，将无法被前台/后台渲染器识别", firstNonBlank(menu.Code, menu.Title))
+		}
+		if strings.TrimSpace(menu.Route) != "" && !strings.HasPrefix(strings.TrimSpace(menu.Route), "/") {
+			addError("菜单 %s route 必须以 / 开头", firstNonBlank(menu.Code, menu.Title))
+		}
+		if menu.RequireCategoryBinding && strings.TrimSpace(menu.ContentType) == "" {
+			addError("菜单 %s require_category_binding=true 时必须设置 content_type", firstNonBlank(menu.Code, menu.Title))
+		}
 	}
 	for _, route := range manifest.Routes {
 		if route.Path == "" || !strings.HasPrefix(route.Path, "/") {
@@ -308,22 +372,29 @@ func ValidatePluginManifest(manifest domain.PluginManifest, existing []domain.Pl
 		validateExternalService(manifest.ExternalService, addError, addWarning)
 		result.ImpactSummary.SecurityWarnings = append(result.ImpactSummary.SecurityWarnings, "外部服务型插件只允许通过 Webhook 元信息接入，不执行本地第三方代码")
 	}
-	for _, dep := range manifest.Dependencies {
-		dep = strings.TrimSpace(dep)
-		if dep == "" {
-			continue
-		}
-		if dep == manifest.Code {
-			addError("插件不能依赖自身")
-			continue
-		}
-		if !existingCodes[dep] {
-			addWarning("依赖插件缺失：%s", dep)
-		}
+	dependencyChecks, dependencySummary, dependencyErrors, dependencyWarnings := ValidatePluginDependencies(manifest, existing)
+	result.Dependencies = dependencyChecks
+	result.DependencySummary = dependencySummary
+	for _, msg := range dependencyErrors {
+		addError("%s", msg)
+	}
+	for _, msg := range dependencyWarnings {
+		addWarning("%s", msg)
 	}
 	sort.Strings(result.Errors)
 	sort.Strings(result.Warnings)
 	return result
+}
+
+func dependencyCodes(deps []domain.PluginDependency) []string {
+	out := make([]string, 0, len(deps))
+	for _, dep := range deps {
+		if dep.Code != "" {
+			out = append(out, dep.Code)
+		}
+	}
+	sort.Strings(out)
+	return out
 }
 
 func ValidatePluginManifestJSON(raw []byte, existing []domain.Plugin, currentCoreVersion string) domain.PluginManifestValidationResult {
@@ -386,27 +457,6 @@ func validateExternalService(service *domain.PluginExternalService, addError fun
 	if !manifestFailurePolicies[service.FailurePolicy] {
 		addError("external_service.failure_policy 不合法：%s", service.FailurePolicy)
 	}
-}
-
-func compatibleCoreVersion(requirement, current string) bool {
-	requirement = strings.TrimSpace(requirement)
-	current = strings.TrimPrefix(strings.TrimSpace(current), "v")
-	if requirement == "" || current == "" {
-		return true
-	}
-	if strings.HasPrefix(requirement, ">=") {
-		return versionCompare(current, strings.TrimSpace(strings.TrimPrefix(requirement, ">="))) >= 0
-	}
-	if strings.HasPrefix(requirement, ">") {
-		return versionCompare(current, strings.TrimSpace(strings.TrimPrefix(requirement, ">"))) > 0
-	}
-	if strings.HasPrefix(requirement, "<=") {
-		return versionCompare(current, strings.TrimSpace(strings.TrimPrefix(requirement, "<="))) <= 0
-	}
-	if strings.HasPrefix(requirement, "<") {
-		return versionCompare(current, strings.TrimSpace(strings.TrimPrefix(requirement, "<"))) < 0
-	}
-	return versionCompare(current, strings.TrimPrefix(requirement, "v")) == 0
 }
 
 // CompareVersionStrings compares semantic-ish version strings.

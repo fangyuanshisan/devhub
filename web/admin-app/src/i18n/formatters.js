@@ -61,12 +61,47 @@ export function maskSensitiveConfig(value) {
 }
 
 export function isSensitiveKey(key) {
-  return /(token|password|secret|key)/i.test(String(key || ''));
+  return /(token|password|secret|key|credential)/i.test(String(key || ''));
 }
 
 export function topLevelChangedKeys(oldConfig = {}, newConfig = {}) {
   const keys = new Set([...Object.keys(oldConfig || {}), ...Object.keys(newConfig || {})]);
   return Array.from(keys).filter((key) => JSON.stringify(oldConfig?.[key]) !== JSON.stringify(newConfig?.[key]));
+}
+
+export function changedPaths(oldConfig = {}, newConfig = {}, options = {}) {
+  const maxDepth = Number.isFinite(options?.maxDepth) ? options.maxDepth : 4;
+  const out = [];
+  walkDiff('$', oldConfig ?? {}, newConfig ?? {}, 0, maxDepth, out);
+  return out.filter((p) => p !== '$');
+}
+
+function walkDiff(path, oldVal, newVal, depth, maxDepth, out) {
+  if (JSON.stringify(oldVal) === JSON.stringify(newVal)) return;
+  if (depth >= maxDepth) {
+    out.push(path);
+    return;
+  }
+  const oldIsObj = oldVal && typeof oldVal === 'object';
+  const newIsObj = newVal && typeof newVal === 'object';
+  const oldIsArr = Array.isArray(oldVal);
+  const newIsArr = Array.isArray(newVal);
+  if (oldIsArr || newIsArr) {
+    out.push(path);
+    return;
+  }
+  if (!oldIsObj || !newIsObj) {
+    out.push(path);
+    return;
+  }
+  const keys = new Set([...Object.keys(oldVal || {}), ...Object.keys(newVal || {})]);
+  if (keys.size === 0) {
+    out.push(path);
+    return;
+  }
+  for (const key of Array.from(keys).sort()) {
+    walkDiff(`${path}.${key}`, oldVal?.[key], newVal?.[key], depth + 1, maxDepth, out);
+  }
 }
 
 export function safeJSON(value) {

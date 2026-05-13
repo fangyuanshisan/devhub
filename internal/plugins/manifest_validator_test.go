@@ -100,7 +100,7 @@ func TestValidatePluginManifestJSON(t *testing.T) {
 	}
 }
 
-func TestValidatePluginManifestJSONMissingDependencyWarns(t *testing.T) {
+func TestValidatePluginManifestJSONRequiredDependencyMissingBlocks(t *testing.T) {
 	raw := []byte(`{
 		"code": "depwarn",
 		"name": "Dependency Warning",
@@ -110,10 +110,28 @@ func TestValidatePluginManifestJSONMissingDependencyWarns(t *testing.T) {
 		"dependencies": ["missing_plugin"]
 	}`)
 	result := ValidatePluginManifestJSON(raw, Definitions(), "v1.3.4")
+	if result.Valid {
+		t.Fatalf("missing required dependency should invalidate manifest")
+	}
+	if !strings.Contains(strings.Join(result.Errors, "\n"), "required 依赖插件不存在") {
+		t.Fatalf("expected missing dependency error, got %v", result.Errors)
+	}
+}
+
+func TestValidatePluginManifestJSONOptionalDependencyMissingWarns(t *testing.T) {
+	raw := []byte(`{
+		"code": "depwarn",
+		"name": "Dependency Warning",
+		"version": "1.0.0",
+		"content_types": [{"type":"depwarn_item","create_permission":"depwarn.item.create"}],
+		"permissions": [{"code":"depwarn.item.create","name":"Create","scope":"community"}],
+		"dependencies": [{"code":"missing_plugin","required":false,"reason":"optional integration"}]
+	}`)
+	result := ValidatePluginManifestJSON(raw, Definitions(), "v1.3.4")
 	if !result.Valid {
 		t.Fatalf("missing optional dependency warning should not invalidate manifest: %v", result.Errors)
 	}
-	if !strings.Contains(strings.Join(result.Warnings, "\n"), "依赖插件缺失") {
+	if !strings.Contains(strings.Join(result.Warnings, "\n"), "optional 依赖插件不存在") {
 		t.Fatalf("expected missing dependency warning, got %v", result.Warnings)
 	}
 }

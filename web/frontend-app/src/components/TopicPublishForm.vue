@@ -93,7 +93,6 @@ type Category = {
   status?: number;
 };
 type Tag = { id?: number; name: string; slug?: string; count: number; topic_count?: number; description?: string };
-type Plugin = { code: string; status: string; content_types?: string[] };
 
 const enabledPluginCodes = ref<Set<string>>(new Set());
 
@@ -170,18 +169,36 @@ async function loadCommunityData() {
   allowedTagNames.value = new Set();
   if (!form.community_slug) return;
   try {
-    const [categoryData, tagData, pluginData] = await Promise.all([
+    const [categoryData, tagData, createData] = await Promise.all([
       ofetch(`/api/v1/communities/${encodeURIComponent(form.community_slug)}/categories`),
       ofetch(`/api/v1/tags/suggestions?community_slug=${encodeURIComponent(form.community_slug)}&limit=30`),
-      ofetch(`/api/v1/communities/${encodeURIComponent(form.community_slug)}/plugins`),
+      ofetch(`/api/v1/communities/${encodeURIComponent(form.community_slug)}/create-options`, { headers: authHeaders() }).catch(() => null),
     ]);
     categories.value = categoryData.items || [];
     setTags(tagData.items || []);
-    enabledPluginCodes.value = new Set<string>(((pluginData.items || []) as Plugin[]).map((item) => item.code));
+    if (createData && Array.isArray((createData as any).items)) {
+      const visible = new Set<string>();
+      const options = (createData as any).items as any[];
+      for (const item of options) {
+        if (item?.visible !== false && item?.plugin_code) visible.add(String(item.plugin_code));
+      }
+      enabledPluginCodes.value = visible;
+    } else {
+      // Backward compatible fallback: old backend doesn't have create-options API yet.
+      const pluginData = await ofetch(`/api/v1/communities/${encodeURIComponent(form.community_slug)}/plugins`).catch(() => ({ items: [] }));
+      enabledPluginCodes.value = new Set<string>(((pluginData.items || []) as any[]).map((item) => item.code));
+    }
     selectCategoryForType(form.content_type);
   } catch {
     setMessage('板块或标签加载失败，请切换子站后重试');
   }
+}
+
+function authHeaders() {
+  const accessKey = 'devhub_user_token';
+  const legacyAccessKey = 'devhub_access_token';
+  const token = localStorage.getItem(accessKey) || localStorage.getItem(legacyAccessKey) || '';
+  return token ? { Authorization: `Bearer ${token}` } : {};
 }
 
 async function loadTagSuggestions() {

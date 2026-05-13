@@ -51,17 +51,31 @@ type PermissionDefinition struct {
 
 // MenuDefinition 描述插件暴露的菜单入口。
 type MenuDefinition struct {
-	PluginCode string `json:"plugin_code"`
-	Code       string `json:"code,omitempty"`
-	Key        string `json:"key,omitempty"`
-	Title      string `json:"title"`
-	Short      string `json:"short,omitempty"`
-	Path       string `json:"path"`
-	Location   string `json:"location,omitempty"`
-	Area       string `json:"area,omitempty"`
-	Icon       string `json:"icon,omitempty"`
-	Permission string `json:"permission,omitempty"`
-	SortOrder  int    `json:"sort_order,omitempty"`
+	PluginCode  string `json:"plugin_code"`
+	Code        string `json:"code,omitempty"`
+	Key         string `json:"key,omitempty"`
+	Title       string `json:"title"`
+	Description string `json:"description,omitempty"`
+	Short       string `json:"short,omitempty"`
+	Path        string `json:"path"`
+	Location    string `json:"location,omitempty"`
+	Area        string `json:"area,omitempty"`
+	Icon        string `json:"icon,omitempty"`
+	Permission  string `json:"permission,omitempty"`
+	SortOrder   int    `json:"sort_order,omitempty"`
+
+	// Frontend menu governance fields (optional).
+	// Notes:
+	// - Old manifests without these fields remain compatible.
+	// - These fields only affect entry visibility; they never bypass backend permission checks.
+	Route                   string   `json:"route,omitempty"`
+	ContentType             string   `json:"content_type,omitempty"`
+	RequireLogin            bool     `json:"require_login,omitempty"`
+	RequireCommunityEnabled bool     `json:"require_community_enabled,omitempty"`
+	RequireCategoryBinding  bool     `json:"require_category_binding,omitempty"`
+	VisibleWhen             []string `json:"visible_when,omitempty"`
+	Order                   int      `json:"order,omitempty"`
+	Badge                   string   `json:"badge,omitempty"`
 }
 
 // RouteDefinition 描述插件声明的路由元数据。
@@ -108,12 +122,68 @@ type PluginManifest struct {
 	Menus                 []MenuDefinition            `json:"menus,omitempty"`
 	Routes                []RouteDefinition           `json:"routes,omitempty"`
 	ConfigSchema          any                         `json:"config_schema,omitempty"`
-	Dependencies          []string                    `json:"dependencies,omitempty"`
+	Dependencies          []PluginDependency          `json:"dependencies,omitempty"`
 	MinCoreVersion        string                      `json:"min_core_version,omitempty"`
 	Hooks                 []HookDefinition            `json:"hooks,omitempty"`
 	Migrations            []PluginMigrationDefinition `json:"migrations,omitempty"`
 	Assets                []string                    `json:"assets,omitempty"`
 	ExternalService       *PluginExternalService      `json:"external_service,omitempty"`
+}
+
+// PluginDependency describes a manifest dependency on another plugin.
+type PluginDependency struct {
+	Code     string `json:"code"`
+	Version  string `json:"version,omitempty"`
+	Required bool   `json:"required"`
+	Reason   string `json:"reason,omitempty"`
+}
+
+// PluginDependencyCheck describes the resolved state of one dependency.
+type PluginDependencyCheck struct {
+	Code           string   `json:"code"`
+	Version        string   `json:"version,omitempty"`
+	Required       bool     `json:"required"`
+	Reason         string   `json:"reason,omitempty"`
+	Status         string   `json:"status"`
+	Satisfied      bool     `json:"satisfied"`
+	Message        string   `json:"message,omitempty"`
+	PluginName     string   `json:"plugin_name,omitempty"`
+	CurrentVersion string   `json:"current_version,omitempty"`
+	CurrentStatus  string   `json:"current_status,omitempty"`
+	Chain          []string `json:"chain,omitempty"`
+}
+
+// PluginDependencySummary summarizes dependency validation results.
+type PluginDependencySummary struct {
+	Total         int `json:"total"`
+	Required      int `json:"required"`
+	Optional      int `json:"optional"`
+	Satisfied     int `json:"satisfied"`
+	Warnings      int `json:"warnings"`
+	Blocking      int `json:"blocking"`
+	Missing       int `json:"missing"`
+	Disabled      int `json:"disabled"`
+	Archived      int `json:"archived"`
+	VersionIssues int `json:"version_issues"`
+	Cycles        int `json:"cycles"`
+}
+
+// PluginCoreCompatibility describes Core-version compatibility for a manifest.
+type PluginCoreCompatibility struct {
+	CoreVersion           string   `json:"core_version"`
+	MinCoreVersion        string   `json:"min_core_version,omitempty"`
+	CompatibleCoreVersion string   `json:"compatible_core_version,omitempty"`
+	Status                string   `json:"status"`
+	Messages              []string `json:"messages,omitempty"`
+}
+
+// PluginDependencyDiff summarizes dependency changes during upgrade preview.
+type PluginDependencyDiff struct {
+	Added               []PluginDependency `json:"added,omitempty"`
+	Removed             []PluginDependency `json:"removed,omitempty"`
+	VersionChanged      []PluginDependency `json:"version_changed,omitempty"`
+	RequiredChanged     []PluginDependency `json:"required_changed,omitempty"`
+	ChangedDependencies []string           `json:"changed_dependencies,omitempty"`
 }
 
 // PluginExternalService describes reserved Webhook metadata for external-service plugins.
@@ -223,28 +293,30 @@ type PluginHealth struct {
 // Plugin 描述系统插件的注册与运行状态。
 type Plugin struct {
 	PluginManifest
-	Status                string        `json:"status"`
-	GlobalStatus          string        `json:"global_status,omitempty"`
-	CommunityStatus       string        `json:"community_status,omitempty"`
-	InstallStatus         string        `json:"install_status,omitempty"`
-	RuntimeStatus         string        `json:"runtime_status,omitempty"`
-	HealthStatus          string        `json:"health_status,omitempty"`
-	LifecycleStatus       string        `json:"lifecycle_status,omitempty"`
-	StatusReason          string        `json:"status_reason,omitempty"`
-	InstalledAt           string        `json:"installed_at,omitempty"`
-	ArchivedAt            string        `json:"archived_at,omitempty"`
-	LastHealthCheckAt     string        `json:"last_health_check_at,omitempty"`
-	SourceType            string        `json:"source_type,omitempty"`
-	ManifestJSON          string        `json:"manifest_json,omitempty"`
-	ManifestChecksum      string        `json:"manifest_checksum,omitempty"`
-	PackageChecksum       string        `json:"package_checksum,omitempty"`
-	CompatibleCoreVersion string        `json:"compatible_core_version,omitempty"`
-	SortOrder             int           `json:"sort_order,omitempty"`
-	ConfigJSON            string        `json:"config_json,omitempty"`
-	ResolvedConfig        any           `json:"resolved_config,omitempty"`
-	Health                *PluginHealth `json:"health,omitempty"`
-	CreatedAt             string        `json:"created_at,omitempty"`
-	UpdatedAt             string        `json:"updated_at,omitempty"`
+	Status                string                  `json:"status"`
+	GlobalStatus          string                  `json:"global_status,omitempty"`
+	CommunityStatus       string                  `json:"community_status,omitempty"`
+	InstallStatus         string                  `json:"install_status,omitempty"`
+	RuntimeStatus         string                  `json:"runtime_status,omitempty"`
+	HealthStatus          string                  `json:"health_status,omitempty"`
+	LifecycleStatus       string                  `json:"lifecycle_status,omitempty"`
+	StatusReason          string                  `json:"status_reason,omitempty"`
+	InstalledAt           string                  `json:"installed_at,omitempty"`
+	ArchivedAt            string                  `json:"archived_at,omitempty"`
+	LastHealthCheckAt     string                  `json:"last_health_check_at,omitempty"`
+	SourceType            string                  `json:"source_type,omitempty"`
+	ManifestJSON          string                  `json:"manifest_json,omitempty"`
+	ManifestChecksum      string                  `json:"manifest_checksum,omitempty"`
+	PackageChecksum       string                  `json:"package_checksum,omitempty"`
+	CompatibleCoreVersion string                  `json:"compatible_core_version,omitempty"`
+	SortOrder             int                     `json:"sort_order,omitempty"`
+	ConfigJSON            string                  `json:"config_json,omitempty"`
+	ResolvedConfig        any                     `json:"resolved_config,omitempty"`
+	Health                *PluginHealth           `json:"health,omitempty"`
+	DependencyChecks      []PluginDependencyCheck `json:"dependency_checks,omitempty"`
+	DependencySummary     PluginDependencySummary `json:"dependency_summary,omitempty"`
+	CreatedAt             string                  `json:"created_at,omitempty"`
+	UpdatedAt             string                  `json:"updated_at,omitempty"`
 }
 
 // PluginManifestValidationResult is returned by manifest validation and dry-run APIs.
@@ -255,7 +327,9 @@ type PluginManifestValidationResult struct {
 	ImpactSummary        PluginInstallImpact         `json:"impact_summary"`
 	NormalizedManifest   PluginManifest              `json:"normalized_manifest"`
 	Checksum             string                      `json:"checksum"`
-	Dependencies         []string                    `json:"dependencies,omitempty"`
+	Dependencies         []PluginDependencyCheck     `json:"dependencies,omitempty"`
+	DependencySummary    PluginDependencySummary     `json:"dependency_summary"`
+	Compatibility        PluginCoreCompatibility     `json:"compatibility"`
 	ContentTypeConflicts []string                    `json:"content_type_conflicts,omitempty"`
 	PermissionConflicts  []string                    `json:"permission_conflicts,omitempty"`
 	MigrationPlan        []PluginMigrationDefinition `json:"migration_plan,omitempty"`
@@ -284,6 +358,7 @@ type PluginUpgradeDryRunResult struct {
 	CompatibilityStatus   string                         `json:"compatibility_status"`
 	ChangedKeys           []string                       `json:"changed_keys,omitempty"`
 	Diff                  map[string]any                 `json:"diff,omitempty"`
+	DependencyDiff        PluginDependencyDiff           `json:"dependency_diff,omitempty"`
 	Validation            PluginManifestValidationResult `json:"validation"`
 }
 

@@ -59,9 +59,13 @@ body,
   min-height: 100vh;
   border-right: 1px solid #e9edf3;
   background: #fff;
+  overflow-y: auto;
 }
 
 .edition {
+  position: sticky;
+  top: 0;
+  z-index: 2;
   height: 52px;
   padding: 0 22px;
   border-bottom: 1px solid #edf0f5;

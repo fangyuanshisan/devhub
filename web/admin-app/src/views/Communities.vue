@@ -207,15 +207,16 @@
         <pre class="json-box compact">{{ formatJSON(pluginConfigTarget?.config_schema || {}) }}</pre>
       </el-form-item>
       <el-form-item :label="t('plugin.communityConfig.communityConfigJson')">
-        <PluginJsonEditor
+        <PluginConfigEditor
           v-model="pluginConfigValue"
           :schema="pluginConfigTarget?.config_schema || null"
-          :original-value="jsonValue(pluginConfigTarget?.config_json)"
-          :resolved-config="pluginConfigTarget?.resolved_config?.effective || pluginConfigTarget?.resolved_config || {}"
+          :default-config="pluginConfigTarget?.resolved_config?.default || {}"
+          :original-config="jsonValue(pluginConfigTarget?.config_json)"
+          :effective-config="pluginConfigTarget?.resolved_config?.effective || pluginConfigTarget?.resolved_config || {}"
           @schema-errors="onCommunityConfigSchemaErrors"
         >
           <template #title><strong>{{ t('plugin.communityConfig.communityConfigJson') }}</strong></template>
-        </PluginJsonEditor>
+        </PluginConfigEditor>
         <div class="config-actions">
           <el-button data-testid="json-clear-object" @click="clearPluginConfig">{{ t('common.clearObject') }}</el-button>
           <el-button type="primary" data-testid="community-plugin-config-save" :disabled="communityConfigSchemaErrors.length > 0" @click="savePluginConfig">{{ t('common.save') }}</el-button>
@@ -275,7 +276,7 @@ import {
   updateCommunity,
   updateCommunityPluginConfig,
 } from '@/api/admin';
-import PluginJsonEditor from '@/components/plugin/PluginJsonEditor.vue';
+import PluginConfigEditor from '@/components/plugin/PluginConfigEditor.vue';
 import { pluginStatusLabel } from '@/i18n/formatters';
 import { t } from '@/i18n';
 

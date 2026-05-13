@@ -26,6 +26,8 @@ test.describe('frontend publish flow', () => {
     await page.goto('/c/php/topics/new/');
     await expect(page.getByTestId('frontend-topic-publish-form')).toBeVisible();
     await page.getByTestId('frontend-publish-community').selectOption('php');
+    // In memory seed data, php community category ids are 101..107 (article is 101, question is 102, ...).
+    // This case publishes an article, so we must pick the article category.
     await page.getByTestId('frontend-publish-category').selectOption('101');
     await page.getByTestId('frontend-publish-content-type').selectOption('article');
     await page.getByTestId('frontend-publish-title').fill(title);
@@ -36,4 +38,3 @@ test.describe('frontend publish flow', () => {
     await expect(page.locator('article').first()).toBeVisible();
   });
 });
-

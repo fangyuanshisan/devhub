@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"os"
 	"sort"
 	"strings"
 	"time"
@@ -45,6 +46,8 @@ type Repository interface {
 	AppendHookExecution(record domain.HookExecution) (domain.HookExecution, error)
 	HookExecutions(pluginCode string, limit int) ([]domain.HookExecution, error)
 	HookStats(pluginCode string) ([]domain.HookStats, error)
+	HookExecutionsByFilter(filter domain.HookExecutionFilter) ([]domain.HookExecution, int, error)
+	// PluginReadiness is computed in service; no repo method.
 	CommunityPlugins(communityID int64) ([]domain.Plugin, error)
 	SetCommunityPluginStatus(communityID int64, code, status string) (domain.Plugin, error)
 	SetCommunityPluginConfig(communityID int64, code, configJSON string) (domain.Plugin, error)
@@ -196,7 +199,7 @@ func (s *Service) SetHookFailureInjectionForTest(pluginCode, hookName string, mo
 		return errors.New("plugin_code 和 hook_name 不能为空")
 	}
 	if _, ok := s.repo.PluginByCode(pluginCode); !ok {
-		return errors.New("插件不存在")
+		return pluginNotFound(pluginCode)
 	}
 	if mode != "" && mode != pluginregistry.HookBlocking && mode != pluginregistry.HookNonBlocking {
 		return errors.New("hook mode 不合法")
@@ -777,7 +780,10 @@ func (s *Service) InstallPluginManifest(raw []byte) (domain.Plugin, domain.Plugi
 		return domain.Plugin{}, result, err
 	}
 	if !result.Valid {
-		return domain.Plugin{}, result, errors.New("manifest 校验失败")
+		return domain.Plugin{}, result, domain.NewPluginError(PluginErrManifestInvalid, "manifest 校验失败").
+			WithStatus(400).
+			WithDetail("errors", result.Errors).
+			WithSuggestion("请根据 errors 修复 manifest 后重试。")
 	}
 	manifest := result.NormalizedManifest
 	manifest.IsSystem = false
@@ -791,14 +797,6 @@ func (s *Service) InstallPluginManifest(raw []byte) (domain.Plugin, domain.Plugi
 		ManifestJSON:          string(manifestJSON),
 		ManifestChecksum:      result.Checksum,
 		CompatibleCoreVersion: firstNonBlank(manifest.CompatibleCoreVersion, manifest.MinCoreVersion),
-	}
-	if len(manifest.Dependencies) > 0 {
-		for _, dep := range manifest.Dependencies {
-			if !s.IsPluginEnabled(dep) {
-				plugin.Status = pluginregistry.StatusDependencyMissing
-				break
-			}
-		}
 	}
 	saved, err := s.repo.SavePlugin(plugin)
 	if err != nil {
@@ -814,11 +812,15 @@ func (s *Service) InstallPluginManifest(raw []byte) (domain.Plugin, domain.Plugi
 func (s *Service) PluginUpgradeDryRun(code string, raw []byte) (domain.PluginUpgradeDryRunResult, error) {
 	current, ok := s.repo.PluginByCode(code)
 	if !ok {
-		return domain.PluginUpgradeDryRunResult{}, fmt.Errorf("插件不存在")
+		return domain.PluginUpgradeDryRunResult{}, pluginNotFound(code)
 	}
 	manifest, checksum, err := pluginregistry.DecodePluginManifestJSON(raw)
 	if err != nil {
-		return domain.PluginUpgradeDryRunResult{}, err
+		return domain.PluginUpgradeDryRunResult{}, domain.NewPluginError(PluginErrManifestInvalid, "manifest 校验失败").
+			WithStatus(400).
+			WithDetail("plugin_code", strings.TrimSpace(code)).
+			WithDetail("reason", strings.TrimSpace(err.Error())).
+			WithSuggestion("请修复 manifest JSON 后重试。")
 	}
 	existing := make([]domain.Plugin, 0, len(s.repo.Plugins()))
 	for _, item := range s.repo.Plugins() {
@@ -834,13 +836,19 @@ func (s *Service) PluginUpgradeDryRun(code string, raw []byte) (domain.PluginUpg
 		validation.Valid = false
 		validation.Errors = append(validation.Errors, fmt.Sprintf("升级预览的 manifest code 必须为 %s", code))
 	}
-	compatibility := "unknown"
+	compatibility := validation.Compatibility.Status
+	if compatibility == pluginregistry.CompatibilityWarning {
+		compatibility = pluginregistry.CompatibilityCompatible
+	}
 	if validation.Valid {
 		if pluginregistry.CompareVersionStrings(normalizedManifest.Version, current.Version) > 0 {
-			compatibility = "compatible"
+			if compatibility == "" {
+				compatibility = pluginregistry.CompatibilityCompatible
+			}
 		} else {
-			compatibility = "incompatible"
-			validation.Warnings = append(validation.Warnings, "新版本号未高于当前版本")
+			compatibility = pluginregistry.CompatibilityIncompatible
+			validation.Valid = false
+			validation.Errors = append(validation.Errors, "升级版本必须高于当前版本")
 		}
 	}
 	currentManifest := current.PluginManifest
@@ -855,6 +863,7 @@ func (s *Service) PluginUpgradeDryRun(code string, raw []byte) (domain.PluginUpg
 			"routes":                  current.Routes,
 			"hooks":                   current.Hooks,
 			"migrations":              current.Migrations,
+			"dependencies":            current.Dependencies,
 		},
 		"new": map[string]any{
 			"version":                 normalizedManifest.Version,
@@ -865,6 +874,7 @@ func (s *Service) PluginUpgradeDryRun(code string, raw []byte) (domain.PluginUpg
 			"routes":                  normalizedManifest.Routes,
 			"hooks":                   normalizedManifest.Hooks,
 			"migrations":              normalizedManifest.Migrations,
+			"dependencies":            normalizedManifest.Dependencies,
 		},
 	}
 	return domain.PluginUpgradeDryRunResult{
@@ -876,6 +886,7 @@ func (s *Service) PluginUpgradeDryRun(code string, raw []byte) (domain.PluginUpg
 		CompatibilityStatus:   compatibility,
 		ChangedKeys:           changedKeys,
 		Diff:                  diff,
+		DependencyDiff:        pluginregistry.DependencyDiff(current.Dependencies, normalizedManifest.Dependencies),
 		Validation:            validation,
 	}, nil
 }
@@ -883,20 +894,28 @@ func (s *Service) PluginUpgradeDryRun(code string, raw []byte) (domain.PluginUpg
 func (s *Service) UpgradePluginManifest(code string, raw []byte) (domain.PluginUpgradeResult, error) {
 	current, ok := s.repo.PluginByCode(code)
 	if !ok || current.Code == "" {
-		return domain.PluginUpgradeResult{}, fmt.Errorf("插件不存在")
+		return domain.PluginUpgradeResult{}, pluginNotFound(code)
 	}
 	if strings.TrimSpace(current.Status) == pluginregistry.StatusArchived {
-		return domain.PluginUpgradeResult{}, fmt.Errorf("插件已归档，请先恢复后再升级")
+		return domain.PluginUpgradeResult{}, pluginArchived(code)
 	}
 	preview, err := s.PluginUpgradeDryRun(code, raw)
 	if err != nil {
 		return domain.PluginUpgradeResult{}, err
 	}
 	if !preview.Validation.Valid {
-		return domain.PluginUpgradeResult{}, errors.New("manifest 校验失败")
+		return domain.PluginUpgradeResult{}, domain.NewPluginError(PluginErrManifestInvalid, "manifest 校验失败").
+			WithStatus(400).
+			WithDetail("plugin_code", code).
+			WithDetail("errors", preview.Validation.Errors).
+			WithSuggestion("请根据 errors 修复 manifest 后重试。")
 	}
 	if preview.CompatibilityStatus != "compatible" {
-		return domain.PluginUpgradeResult{}, errors.New("升级版本不兼容或版本号未提升")
+		return domain.PluginUpgradeResult{}, domain.NewPluginError(PluginErrCoreVersionIncompat, "升级版本不兼容或版本号未提升").
+			WithStatus(400).
+			WithDetail("plugin_code", code).
+			WithDetail("compatibility", preview.Validation.Compatibility).
+			WithSuggestion("请检查 Core 版本兼容范围和插件版本号。")
 	}
 	for _, item := range current.Migrations {
 		_ = item
@@ -907,7 +926,7 @@ func (s *Service) UpgradePluginManifest(code string, raw []byte) (domain.PluginU
 	}
 	for _, item := range records {
 		if strings.TrimSpace(item.Status) == "failed" {
-			return domain.PluginUpgradeResult{}, fmt.Errorf("插件存在失败迁移 %s，请先重试或处理迁移错误", item.MigrationName)
+			return domain.PluginUpgradeResult{}, pluginMigrationFailed(code, item.MigrationName)
 		}
 	}
 	manifest := preview.Validation.NormalizedManifest
@@ -959,14 +978,9 @@ func (s *Service) nextPluginStatusAfterUpgrade(currentStatus string, plugin doma
 	if err := pluginregistry.ValidateConfigJSON(plugin, plugin.ConfigJSON); err != nil {
 		return pluginregistry.StatusConfigInvalid
 	}
-	for _, dep := range plugin.Dependencies {
-		dep = strings.TrimSpace(dep)
-		if dep == "" {
-			continue
-		}
-		if !s.IsPluginEnabled(dep) {
-			return pluginregistry.StatusDependencyMissing
-		}
+	_, summary := pluginregistry.ResolvePluginDependencies(plugin.PluginManifest, s.repo.Plugins())
+	if summary.Blocking > 0 {
+		return pluginregistry.StatusDependencyMissing
 	}
 	switch currentStatus {
 	case pluginregistry.StatusEnabled, pluginregistry.StatusDisabled:
@@ -1035,7 +1049,12 @@ func topLevelDiffKeys(newManifest, currentManifest domain.PluginManifest) []stri
 }
 
 func currentCoreVersion() string {
-	return "v1.3.4"
+	if raw, err := os.ReadFile("VERSION"); err == nil {
+		if version := strings.TrimSpace(string(raw)); version != "" {
+			return version
+		}
+	}
+	return "v1.4.0"
 }
 
 // SetPluginStatus 更新插件状态。
@@ -1056,7 +1075,7 @@ func (s *Service) ArchivePlugin(code string) (domain.Plugin, error) {
 	code = strings.TrimSpace(code)
 	plugin, ok := s.repo.PluginByCode(code)
 	if !ok || plugin.Code == "" {
-		return domain.Plugin{}, errors.New("插件不存在")
+		return domain.Plugin{}, pluginNotFound(code)
 	}
 	if plugin.Status == pluginregistry.StatusArchived {
 		return plugin, nil
@@ -1078,18 +1097,18 @@ func (s *Service) RestorePlugin(code string) (domain.Plugin, error) {
 func (s *Service) validatePluginEnableReadiness(code string) error {
 	plugin, ok := s.repo.PluginByCode(code)
 	if !ok || plugin.Code == "" {
-		return errors.New("插件不存在")
+		return pluginNotFound(code)
 	}
 	if strings.TrimSpace(plugin.InstallStatus) == pluginregistry.StatusDiscovered {
-		return errors.New("插件尚未安装，不能启用")
+		return pluginNotInstalled(code)
 	}
 	switch strings.TrimSpace(plugin.Status) {
 	case pluginregistry.StatusDiscovered:
-		return errors.New("插件尚未安装，不能启用")
+		return pluginNotInstalled(code)
 	case pluginregistry.StatusArchived:
-		return errors.New("插件已归档，请先恢复后再启用")
+		return pluginArchived(code)
 	case pluginregistry.StatusMigrationFailed:
-		return errors.New("插件存在失败迁移，请先处理")
+		return pluginMigrationFailed(code, "")
 	}
 	return s.validatePluginRuntimeReadiness(plugin)
 }
@@ -1097,26 +1116,48 @@ func (s *Service) validatePluginEnableReadiness(code string) error {
 func (s *Service) validatePluginRestoreReadiness(code string) error {
 	plugin, ok := s.repo.PluginByCode(code)
 	if !ok || plugin.Code == "" {
-		return errors.New("插件不存在")
+		return pluginNotFound(code)
 	}
 	if plugin.Status != pluginregistry.StatusArchived {
-		return errors.New("插件未归档，无需恢复")
+		return domain.NewPluginError(PluginErrArchived, "插件未归档，无需恢复").
+			WithStatus(400).
+			WithDetail("plugin_code", code).
+			WithSuggestion("请刷新插件状态后重试。")
 	}
 	return s.validatePluginRuntimeReadiness(plugin)
 }
 
 func (s *Service) validatePluginRuntimeReadiness(plugin domain.Plugin) error {
 	if err := pluginregistry.ValidateConfigJSON(plugin, plugin.ConfigJSON); err != nil {
-		return fmt.Errorf("插件配置无效：%w", err)
+		msg := strings.TrimSpace(err.Error())
+		path := ""
+		if strings.HasPrefix(msg, "$") {
+			parts := strings.Fields(msg)
+			if len(parts) > 0 {
+				path = parts[0]
+			}
+		}
+		// config_json invalid against config_schema should be surfaced as schema-invalid
+		// for a more actionable UI (field path).
+		return pluginConfigSchemaInvalid(plugin.Code, path, msg)
 	}
-	for _, dep := range plugin.Dependencies {
-		dep = strings.TrimSpace(dep)
-		if dep == "" {
-			continue
+	checks, _, dependencyErrors, _ := pluginregistry.ValidatePluginDependencies(plugin.PluginManifest, s.repo.Plugins())
+	if len(dependencyErrors) > 0 {
+		for _, check := range checks {
+			if check.Satisfied {
+				continue
+			}
+			// Only blocking checks should block readiness; optional missing remains warning-only.
+			if !check.Required && check.Status != pluginregistry.DependencySelfDependency && check.Status != pluginregistry.DependencyCircularDependency {
+				continue
+			}
+			return dependencyAPIError(plugin.Code, check)
 		}
-		if !s.IsPluginEnabled(dep) {
-			return fmt.Errorf("插件依赖缺失：%s", dep)
-		}
+		return domain.NewPluginError(PluginErrDependencyMissing, "插件依赖未满足，无法执行该操作").
+			WithStatus(400).
+			WithDetail("plugin_code", plugin.Code).
+			WithDetail("errors", dependencyErrors).
+			WithSuggestion("请先修复依赖插件状态或版本后重试。")
 	}
 	migrations, err := s.pluginMigrationsWithDefinitions(plugin.Code)
 	if err != nil {
@@ -1124,7 +1165,7 @@ func (s *Service) validatePluginRuntimeReadiness(plugin domain.Plugin) error {
 	}
 	for _, item := range migrations {
 		if strings.TrimSpace(item.Status) == "failed" {
-			return fmt.Errorf("插件存在失败迁移 %s，请先重试或处理迁移错误", item.MigrationName)
+			return pluginMigrationFailed(plugin.Code, item.MigrationName)
 		}
 	}
 	return nil
@@ -1258,6 +1299,10 @@ func (s *Service) HookExecutions(pluginCode string, limit int) ([]domain.HookExe
 
 func (s *Service) HookStats(pluginCode string) ([]domain.HookStats, error) {
 	return s.repo.HookStats(pluginCode)
+}
+
+func (s *Service) HookExecutionsByFilter(filter domain.HookExecutionFilter) ([]domain.HookExecution, int, error) {
+	return s.repo.HookExecutionsByFilter(filter.Normalize())
 }
 
 func (s *Service) pluginMigrationsWithDefinitions(pluginCode string) ([]domain.PluginMigration, error) {
@@ -1406,22 +1451,22 @@ func (s *Service) PluginHealth(code string) (domain.PluginHealth, error) {
 		}
 	}
 
-	for _, dep := range plugin.Dependencies {
-		dep = strings.TrimSpace(dep)
-		if dep == "" {
-			continue
-		}
-		if !s.IsPluginEnabled(dep) {
+	dependencyChecks, dependencySummary := pluginregistry.ResolvePluginDependencies(plugin.PluginManifest, s.repo.Plugins())
+	if dependencySummary.Blocking > 0 {
+		for _, dep := range dependencyChecks {
+			if dep.Satisfied {
+				continue
+			}
 			if !disabled {
 				health.Status = "dependency_missing"
 			}
-			health.DependencyStatus = "missing"
+			health.DependencyStatus = dep.Status
 			if health.RecentError == "" {
-				health.RecentError = fmt.Sprintf("依赖插件 %s 未启用", dep)
+				health.RecentError = dep.Message
 			}
 			if !disabled {
 				health.SuggestedAction = "启用或修复依赖插件"
-				health.StatusReason = "依赖插件未启用或不可用"
+				health.StatusReason = "依赖插件未启用、版本不匹配或不可用"
 			}
 			break
 		}

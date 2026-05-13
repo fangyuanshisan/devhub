@@ -133,7 +133,7 @@ test.describe('plugin governance center', () => {
     await page.getByTestId('plugin-result-close').click();
   });
 
-  test.skip('opens plugin detail tabs and shows schema validation errors', async ({ page }) => {
+  test('opens plugin detail tabs and shows schema validation errors', async ({ page }) => {
     await page.goto('/admin-next/plugins');
     await expect(page.getByTestId('admin-plugins-page')).toBeVisible();
     const qaRow = page.getByRole('row', { name: /问答插件/ });
@@ -158,16 +158,17 @@ test.describe('plugin governance center', () => {
     await expect(page.getByTestId('plugin-global-config-save')).toBeDisabled();
   });
 
-  test.skip('archives plugin and shows archived state with restore entry', async ({ page, request }) => {
+  test('archives plugin and shows archived state with restore entry', async ({ page, request }) => {
     try {
       await page.goto('/admin-next/plugins');
       await expect(page.getByTestId('admin-plugins-page')).toBeVisible();
+      await page.getByRole('row', { name: /问答插件/ }).getByRole('button', { name: '更多' }).click();
       await page.getByTestId('plugin-archive-qa').click();
       const dialog = page.getByRole('dialog');
       await expect(dialog).toContainText('历史内容');
       await expect(dialog).toContainText('当前启用子站');
       await page.getByRole('button', { name: '确认归档' }).click();
-      await expect(page.getByText('插件已归档')).toBeVisible();
+      await expect(page.locator('.el-message').filter({ hasText: '插件已归档' }).first()).toBeVisible();
       await page.reload();
       await expect(page.getByText('已归档').first()).toBeVisible();
       await expect(page.getByTestId('admin-plugins-page')).toBeVisible();
@@ -179,11 +180,13 @@ test.describe('plugin governance center', () => {
       await expect(page.getByText('归档时间')).toBeVisible();
       await page.getByRole('button', { name: 'Close this dialog' }).click();
       await expect(page.getByTestId('plugin-detail-drawer')).toBeHidden();
+      await page.getByRole('row', { name: /问答插件/ }).getByRole('button', { name: '更多' }).click();
       await page.getByTestId('plugin-restore-qa').click();
       await expect(page.getByRole('dialog')).toContainText('不会自动启用');
       await page.getByRole('button', { name: '确认恢复' }).click();
-      await expect(page.getByText('插件已恢复为已禁用状态')).toBeVisible();
+      await expect(page.locator('.el-message').filter({ hasText: '插件已恢复为已禁用状态' }).first()).toBeVisible();
       await page.reload();
+      await page.getByRole('row', { name: /问答插件/ }).getByRole('button', { name: '更多' }).click();
       await expect(page.getByTestId('plugin-enable-qa')).toBeVisible();
     } finally {
       await restorePlugin(request, 'qa').catch(() => {});
@@ -256,6 +259,71 @@ test.describe('plugin governance center', () => {
     await expect(page.getByTestId('community-plugin-config-save')).toBeDisabled();
   });
 
+  test('renders enhanced config_schema auto form with grouping, enum, boolean, number, required and sensitive masking', async ({ page, request }) => {
+    const ts = Date.now();
+    const code = `e2e_form_${ts}`;
+    const contentType = `e2e_type_${ts}`;
+    const manifest = buildManifest(code, contentType);
+    let installed = false;
+
+    try {
+      const m = JSON.parse(manifest);
+      m.name = 'E2E 表单增强插件';
+      m.config_schema = {
+        type: 'object',
+        required: ['title_template', 'enable_feature'],
+        properties: {
+          title_template: { type: 'string', title: '标题模板', description: '用于 SEO 标题渲染', default: '{title}', minLength: 3, 'x-group': 'SEO' },
+          seo_mode: { type: 'string', title: 'SEO 模式', enum: ['simple', 'advanced'], enumNames: ['简单', '高级'], default: 'simple', 'x-group': 'SEO' },
+          enable_feature: { type: 'boolean', title: '启用功能', description: '是否启用该功能', default: true, 'x-group': '基础配置', 'x-labels': { true: '开启', false: '关闭' } },
+          max_items: { type: 'integer', title: '最大条目数', description: '限制为整数', minimum: 1, maximum: 10, default: 3, 'x-group': '基础配置' },
+          api_token: { type: 'string', title: 'API Token', description: '敏感字段，默认脱敏', format: 'password', default: 'secret_token', 'x-group': '敏感字段' },
+        },
+      };
+      const enhancedManifest = JSON.stringify(m, null, 2);
+
+      await installPluginManifest(request, enhancedManifest);
+      installed = true;
+      await ensurePluginEnabled(request, code);
+
+      await page.goto('/admin-next/plugins');
+      await page.getByTestId(`plugin-detail-${code}`).click();
+      const drawer = page.getByTestId('plugin-detail-drawer');
+      await expect(drawer).toBeVisible();
+      await page.getByRole('tab', { name: '配置' }).click();
+
+      const editor = drawer.getByTestId('plugin-json-editor');
+      await expect(editor).toBeVisible();
+      await expect(editor.getByTestId('config-mode-toggle')).toBeVisible();
+
+      // group cards (schema group title is used as data-testid suffix)
+      await expect(drawer.getByTestId('config-group-SEO')).toBeVisible();
+      await expect(drawer.getByTestId('config-group-基础配置')).toBeVisible();
+
+      // enum renders select
+      await expect(drawer.getByTestId('config-field-seo_mode')).toBeVisible();
+      await drawer.getByTestId('config-field-seo_mode').click();
+      await expect(page.getByRole('option', { name: '简单' })).toBeVisible();
+      await page.keyboard.press('Escape');
+
+      // boolean renders switch
+      await expect(drawer.getByTestId('config-field-enable_feature')).toBeVisible();
+
+      // integer min/max
+      await expect(drawer.getByTestId('config-field-max_items')).toBeVisible();
+
+      // sensitive masking toggle exists
+      await expect(drawer.getByTestId('config-sensitive-toggle-api_token')).toBeVisible();
+
+      // diff preview exists and masks sensitive field
+      await expect(drawer.getByTestId('plugin-config-preview')).toBeVisible();
+      await expect(drawer.getByTestId('plugin-config-preview')).toContainText('api_token');
+      await expect(drawer.getByTestId('plugin-config-preview')).toContainText('******');
+    } finally {
+      if (installed) await archivePlugin(request, code).catch(() => {});
+    }
+  });
+
   test('opens generic plugin content page with filters', async ({ page }) => {
     await page.goto('/admin-next/plugins');
     await page.getByRole('row', { name: /问答插件/ }).getByRole('button', { name: '更多' }).click();
@@ -281,11 +349,11 @@ test.describe('plugin governance center', () => {
         headers: { Authorization: 'Bearer devhub-admin-1' },
       });
       expect(globalEnable.ok()).toBeFalsy();
-      expect(await globalEnable.text()).toContain('失败迁移');
+      expect(await globalEnable.text()).toContain('plugin_migration_failed');
 
       const communityEnable = await enableCommunityPlugin(request, 1, 'qa');
       expect(communityEnable.ok()).toBeFalsy();
-      expect(await communityEnable.text()).toContain('失败迁移');
+      expect(await communityEnable.text()).toContain('plugin_migration_failed');
 
       await page.goto('/admin-next/plugins');
       await page.getByTestId('plugin-detail-qa').click();

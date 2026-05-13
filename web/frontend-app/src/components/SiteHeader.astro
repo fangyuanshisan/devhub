@@ -143,17 +143,30 @@ const navHref = (contentType: string) => `/search/?${searchScope}&content_type=$
           pluginNavItems.forEach((item) => item.classList.remove('is-hidden'));
           return;
         }
-        fetch(`/api/v1/communities/${encodeURIComponent(community)}/plugins`)
+        fetch(`/api/v1/communities/${encodeURIComponent(community)}/navigation`)
           .then((response) => response.ok ? response.json() : Promise.reject())
           .then((data) => {
-            const enabled = new Set((data.items || []).map((item) => item.code));
+            const nav = Array.isArray(data.items) ? data.items : [];
+            const visiblePluginCodes = new Set(nav.filter((n) => n.visible !== false).map((n) => String(n.plugin_code || '').trim()).filter(Boolean));
             pluginNavItems.forEach((item) => {
               const plugin = pluginCodeForType(item.dataset.pluginNav || '');
-              item.classList.toggle('is-hidden', plugin !== 'core' && !enabled.has(plugin));
+              item.classList.toggle('is-hidden', plugin !== 'core' && !visiblePluginCodes.has(plugin));
             });
           })
           .catch(() => {
-            pluginNavItems.forEach((item) => item.classList.remove('is-hidden'));
+            // Fall back to old behavior: only hide when community plugins API is available.
+            fetch(`/api/v1/communities/${encodeURIComponent(community)}/plugins`)
+              .then((response) => response.ok ? response.json() : Promise.reject())
+              .then((data) => {
+                const enabled = new Set((data.items || []).map((item) => item.code));
+                pluginNavItems.forEach((item) => {
+                  const plugin = pluginCodeForType(item.dataset.pluginNav || '');
+                  item.classList.toggle('is-hidden', plugin !== 'core' && !enabled.has(plugin));
+                });
+              })
+              .catch(() => {
+                pluginNavItems.forEach((item) => item.classList.remove('is-hidden'));
+              });
           });
       };
       headerSearchCommunity?.addEventListener('change', refreshPluginNav);

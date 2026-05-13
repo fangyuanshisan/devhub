@@ -2,7 +2,7 @@
 
 [返回文档入口](README.md)
 
-更新时间：2026-05-12（v1.4.0 插件内容治理增强收口）
+更新时间：2026-05-13（v1.4.0 插件平台收口验收）
 
 本文档只记录当前仓库真实可用 API。接口路径以 `internal/transport/httpapi/router.go` 为准；未实现能力集中放在“规划 / 未完成”小节，不写入当前真实 API 主体。
 
@@ -12,13 +12,94 @@
 - 认证方式：`Authorization: Bearer <access_token>`。
 - 前台用户 token：`token_type=user`，用于发帖、评论、关注、举报、用户中心和 `/api/v1/moderator/*`。
 - 后台管理员 token：`token_type=admin`，用于 `/api/v1/admin/*`。
-- 错误响应：`{"error":"错误信息"}`。
+- 错误响应：兼容旧结构 `{"error":"错误信息"}`，插件治理相关接口新增结构化错误字段（不会移除 `error` 字段）：
+
+```json
+{
+  "error": "插件依赖未满足，无法启用",
+  "code": "plugin_dependency_disabled",
+  "message": "插件依赖未满足，无法启用",
+  "details": {
+    "plugin_code": "docs",
+    "dependency_code": "qa",
+    "current_status": "disabled",
+    "required_version": ">=1.0.0"
+  },
+  "suggestion": "请先启用 qa 插件后重试"
+}
+```
+
+### 插件治理统一错误码（v1.4.0-P1-10）
+
+说明：
+
+- 插件治理接口在返回 `{"error": "..."} ` 的同时，会尽量补充 `code/message/details/suggestion`，供后台统一 UI 展示与可操作诊断。
+- `message` 面向用户可读；`details` 只放诊断信息（不得包含 token/secret/password 等敏感值）；`suggestion` 提供可执行的修复建议。
+
+错误码清单：
+
+| code | 含义（示例 message） | 常见 details 字段 | 典型修复建议 |
+| --- | --- | --- | --- |
+| `plugin_not_found` | 插件不存在 | `plugin_code` | 检查插件编码，或先执行 manifest 安装 |
+| `plugin_not_installed` | 插件尚未安装 | `plugin_code` | 先在安装向导中安装插件 |
+| `plugin_archived` | 插件已归档 | `plugin_code` | 先恢复插件后重试 |
+| `plugin_disabled` | 插件未启用 | `plugin_code` | 先启用插件后重试 |
+| `plugin_config_invalid` | 插件配置无效 | `plugin_code`,`reason` | 修复配置后重试 |
+| `plugin_migration_failed` | 插件迁移失败 | `plugin_code`,`migration_name` | 到“迁移”Tab 重试或处理失败原因 |
+| `plugin_dependency_missing` | 依赖缺失 | `plugin_code`,`dependency_code`,`required`,`required_version`,`current_status`,`dependency_chain` | 安装并启用依赖插件 |
+| `plugin_dependency_disabled` | 依赖未启用 | 同上 | 先启用依赖插件 |
+| `plugin_dependency_archived` | 依赖已归档 | 同上 | 先恢复依赖插件 |
+| `plugin_dependency_version_mismatch` | 依赖版本不满足 | 同上 | 升级/降级依赖插件到兼容版本 |
+| `plugin_dependency_cycle` | 循环依赖/自依赖 | `plugin_code`,`dependency_chain` | 调整依赖关系避免环 |
+| `plugin_core_version_incompatible` | Core 版本不兼容 | `plugin_code`,`core_version`,`min_core_version`,`compatible_core_version`,`messages` | 升级 Core 或选择兼容版本插件 |
+| `plugin_permission_denied` | 权限不足（插件治理） | `permission_code` | 为当前账号/角色补齐权限后重试 |
+| `plugin_config_permission_denied` | 缺少插件配置权限 | `permission_code` | 为当前账号/角色补齐配置相关权限 |
+| `plugin_content_permission_denied` | 缺少内容治理权限 | `permission_code` | 为当前账号/角色补齐治理权限 |
+| `plugin_hook_blocked` | blocking Hook 阻断 | `plugin_code`,`hook_name`,`blocking` | 查看 Hooks Tab 最近失败记录 |
+| `plugin_hook_failed` | non-blocking Hook 失败 | 同上 | 查看 Hooks Tab 最近失败记录 |
+| `plugin_config_schema_invalid` | config_schema 校验失败 | `plugin_code`,`path`,`reason` | 按字段路径修复配置后重试 |
+| `plugin_manifest_invalid` | manifest 校验失败 | `errors` | 按 errors 修复 manifest 后重试 |
 - 权限错误统一返回 `403`，典型格式为 `{"error":"无权限"}` 或 `{"error":"缺少权限 <permission_code>，不能创建该类型内容"}`；插件内容创建必须以 `ContentTypeDefinition.create_permission` 为准，`post.create` 只作为 `core.topic.create` 的历史兼容桥。
 - 分页参数：`page`、`page_size`，默认按接口实现处理，建议 `page_size <= 50`。
 
 ## 插件 API
 
 说明：后台全局插件管理页、子站插件配置抽屉和版主插件菜单均继续使用本节现有接口。2026-05-11 插件系统专项验收未新增 API，也未改变返回字段语义；验收重点是确认现有插件启停、impact、config、Hook、audit、migration 和通用插件内容治理接口可支撑后台治理中心与 E2E 回归。2026-05-11 MySQLStore / 老库升级专项同样未新增生产 API，验证的是 MySQLStore 下这些接口背后的状态、迁移、Hook、审计与配置校验链路和 MemoryStore 口径一致。
+
+### 前台导航与发布入口解析（v1.4.0-P1-11）
+
+说明：
+
+- 这组接口用于前台统一“导航入口 / 发布入口”的可见性治理，尽量由后端复用插件状态、子站插件状态、依赖、配置、迁移与权限判断，避免前端重复拼接规则。
+- 这些接口只影响“入口是否显示/是否可点击/原因提示”，不绕过后端真实写操作校验；用户直接访问创建 API 时仍会被后端强校验拦截。
+
+`GET /api/v1/navigation`
+
+- 认证：可选（guest 可访问；登录后会按权限/登录态过滤可见性）。
+- 用途：总站级导航入口（不包含子站板块绑定判断）。
+- 返回：`items` 列表，字段包括 `location/title/route/plugin_code/content_type/required_permission/visible/reason/reason_code/details`。
+
+`GET /api/v1/communities/:slug/navigation`
+
+- 认证：可选（登录态影响 `require_login/permission` 相关入口）。
+- 用途：子站级导航入口（包含子站插件启用、依赖/配置/迁移、板块绑定等判断）。
+- 返回：同上，额外返回 `community_slug`。
+
+`GET /api/v1/communities/:slug/create-options`
+
+- 认证：可选（guest 仍可访问，但会返回 `visible=false` + `plugin_login_required` 的原因提示）。
+- 用途：前台“发布内容 / 创建内容类型”候选列表；前台发布页应只展示 `visible=true` 的内容类型，并在不可见时展示可操作原因。
+- 返回：`items` 列表，字段包括 `content_type/plugin_code/title/route/required_permission/visible/reason/reason_code/details`。
+
+`GET /api/v1/admin/plugins/:code/menus/preview`
+
+- 认证：后台 admin token（不允许 user token / moderator token）。
+- 权限：`plugin.read`。
+- 用途：后台插件详情页“前台入口预览”，用于诊断某插件声明的前台菜单在指定子站/分类上下文下为什么不可见。
+- 查询参数：
+  - `community_slug`：可选
+  - `category_id`：可选
+- 返回：`items` 列表，字段包括 `location/title/route/content_type/required_permission/visible/reason/reason_code/details`。
 
 ### 全局插件 API
 
@@ -126,6 +207,40 @@
 - 权限：`plugin.read`。
 - 用途：查询单个插件的健康摘要。
 - 返回：单个 `PluginHealth` 对象，字段同 `GET /api/v1/admin/plugins` 中的 `health`。
+
+`GET /api/v1/admin/plugins/:code/readiness`
+
+- 认证：后台 admin token。
+- 权限：`plugin.read`。
+- 用途：Readiness Check / 操作阻断原因诊断接口。用于后台在“为什么不能启用/升级/配置保存”等场景下提供可操作提示；该接口只做诊断，不替代真实操作校验。
+- 查询参数：
+  - `action`：可选，默认 `enable`。当前实现优先覆盖 `enable`（其余 action 后续补齐）。
+- 返回：
+
+```json
+{
+  "plugin_code": "docs",
+  "action": "enable",
+  "status": "blocked",
+  "checks": [
+    {
+      "key": "dependency.qa",
+      "title": "依赖插件 qa",
+      "status": "blocked",
+      "reason": "依赖插件 qa 当前状态为 disabled",
+      "suggestion": "请先启用依赖插件后重试",
+      "code": "plugin_dependency_disabled",
+      "dependency_code": "qa"
+    }
+  ]
+}
+```
+
+说明：
+
+- `status`：`pass / warning / blocked`。
+- `checks[].status`：同上；warning 表示可操作但存在风险提示（例如可选依赖缺失、待处理迁移等）。
+- `checks[].code`：统一插件治理错误码，可用于后台统一 UI 提示与高亮。
 
 `POST /api/v1/admin/plugins/:code/enable`
 
@@ -249,14 +364,17 @@
 - 权限：`plugin.write`。
 - 用途：校验 manifest JSON 是否符合插件平台契约。
 - 请求体：manifest JSON，或 `{"manifest": {...}}` 包装体。
-- 返回：`valid`、`errors`、`warnings`、`impact_summary`、`normalized_manifest`、`checksum`、`dependencies`、`content_type_conflicts`、`permission_conflicts`、`migration_plan`、`install_preview`。
+- 返回：`valid`、`errors`、`warnings`、`impact_summary`、`normalized_manifest`、`checksum`、`dependency_summary`、`dependencies`、`compatibility`、`content_type_conflicts`、`permission_conflicts`、`migration_plan`、`install_preview`。
+- `dependencies` 为逐项检查结果，包含 `code`、`version`、`required`、`reason`、`status`、`satisfied`、`current_version`、`current_status`、`message`、`chain`。
+- `dependency_summary` 聚合 `total`、`required`、`optional`、`satisfied`、`warnings`、`blocking`、`missing`、`disabled`、`archived`、`version_issues`、`cycles`。
+- `compatibility` 包含 `core_version`、`min_core_version`、`compatible_core_version`、`status` 和 `messages`。`min_core_version` 高于当前 Core 会返回 `plugin_core_version_incompatible` 错误。
 
 `POST /api/v1/admin/plugins/dry-run`
 
 - 认证：后台 admin token。
 - 权限：`plugin.write`。
 - 用途：对 manifest 做安装前 dry-run，校验冲突、依赖和影响分析，不写入插件记录。
-- 返回：与 manifest validate 一致的结果视图。
+- 返回：与 manifest validate 一致的结果视图；required 依赖不满足时 `valid=false`，optional 依赖不满足时仅进入 warning。
 
 `POST /api/v1/admin/plugins/install`
 
@@ -265,6 +383,29 @@
 - 用途：安装 manifest + 配置型插件。
 - 行为：写入插件记录、默认配置、迁移待处理记录和审计，但不执行第三方代码。
 - 初始状态：`install_status=installed`、`runtime_status=disabled`。
+- 阻断：required dependency 缺失、disabled、archived、migration_failed、config_invalid、version_mismatch、自依赖、循环依赖，或 Core 版本不兼容时拒绝安装；optional dependency 缺失允许安装但返回 warning。
+
+
+### 插件 dependencies 与 Core 兼容规则
+
+`dependencies` 当前支持两种输入：旧兼容字符串数组（如 `["qa"]`，视为 required）和对象数组：
+
+```json
+{
+  "code": "qa",
+  "version": ">=1.0.0 <2.0.0",
+  "required": true,
+  "reason": "需要问答内容类型作为数据来源"
+}
+```
+
+字段：`code` 为依赖插件编码；`version` 为版本约束；`required` 默认为 `true`；`reason` 为可选说明。当前版本约束只支持数字 `x.y.z`、精确版本、`>=`、`>`、`<=`、`<` 和空格连接的范围组合（如 `>=1.2.0 <2.0.0`），不支持 `^`、`~`、`||`、预发布标签或 npm 完整语法。
+
+依赖状态：`satisfied`、`missing`、`disabled`、`archived`、`migration_failed`、`config_invalid`、`version_mismatch`、`circular_dependency`、`self_dependency`、`optional_missing`。required 不满足会阻断 validate / dry-run / install / upgrade dry-run / upgrade / enable；optional 缺失只 warning。自依赖和循环依赖当前一律阻断，包括 optional 循环。
+
+Core 兼容：`min_core_version` 缺失为 warning；`min_core_version` 高于当前 Core 为 `plugin_core_version_incompatible` 并阻断；`compatible_core_version` 存在但当前 Core 不满足时按 incompatible 阻断。当前 Core 版本来自项目 `VERSION`，不是前端写死。
+
+启用插件时会重新执行 required dependency 检查；依赖插件处于 disabled、archived、migration_failed、config_invalid、dependency_missing 时不能视为可用。错误码 / message 包含 `plugin_dependency_missing`、`plugin_dependency_disabled`、`plugin_dependency_archived`、`plugin_dependency_version_mismatch`、`plugin_dependency_cycle`、`plugin_core_version_incompatible` 等前缀或同义状态。
 
 `POST /api/v1/admin/plugins/:code/upgrade/dry-run`
 
@@ -282,6 +423,8 @@
   - `diff.current`
   - `diff.new`
   - `validation`
+  - `dependency_diff`：包含新增依赖、删除依赖、版本约束变化、required 变化和 changed_dependencies。
+- 阻断：新 manifest 的 required dependency 或 Core 兼容检查不满足时，预览返回 `validation.valid=false` / blocked 信息，不写入数据。
 
 `POST /api/v1/admin/plugins/:code/upgrade`
 
@@ -289,6 +432,7 @@
 - 权限：`plugin.write`。
 - 用途：执行 manifest + 配置型插件的安全升级。
 - 请求体：manifest JSON，要求 `code` 与路径中的 `:code` 一致，且 `version` 必须高于当前版本。
+- 阻断：required dependency 或 Core 兼容检查不满足时拒绝升级；不允许降级或同版本重复升级。
 - 行为：
   - 校验 manifest。
   - 校验版本兼容性。
@@ -398,6 +542,35 @@
 - `404 {"error":"插件不存在"}`
 - `401 {"error":"未登录"}`
 - `403 {"error":"无权限"}`
+
+`GET /api/v1/admin/plugins/:code/hooks/executions`
+
+- 认证：后台 admin token。
+- 权限：`plugin.read`。
+- 用途：Hooks 排障页查询某插件的 `hook_executions` 执行记录列表（支持基础筛选 + 分页）。该接口不提供重试、清空或告警能力。
+- 查询参数（可选）：
+  - `hook_name`
+  - `mode`
+  - `success`：`true/false/1/0`
+  - `blocking`：`true/false/1/0`
+  - `content_type`
+  - `content_id`
+  - `community_id`
+  - `actor_type`
+  - `actor_id`
+  - `request_id`
+  - `start_time` / `end_time`：`YYYY-MM-DD HH:mm:ss`
+  - `page` / `page_size`（`page_size<=100`）
+- 返回：
+
+```json
+{
+  "items": [],
+  "total": 0,
+  "page": 1,
+  "page_size": 20
+}
+```
 
 `POST /api/v1/admin/plugins/:code/hooks/:name/e2e-fail`
 
@@ -832,8 +1005,31 @@
 - 插件迁移：`plugin_migrations` 记录表、内置 migration 声明、迁移查询 API、执行 / 重试 API、迁移审计和后台迁移 Tab 已完成第一阶段闭环。
 - Manifest 校验与 dry-run：`POST /api/v1/admin/plugins/manifest/validate` 和 `POST /api/v1/admin/plugins/dry-run` 可校验 manifest、冲突、依赖和安装影响，dry-run 不写入插件记录。
 - Manifest + 配置型插件安装：`POST /api/v1/admin/plugins/install` 可安装只包含声明、配置、权限、菜单、Hook 元信息和迁移计划的插件，初始状态为 installed + disabled，不执行第三方代码。
-- 升级预览：`POST /api/v1/admin/plugins/:code/upgrade/dry-run` 可返回现有插件与新 manifest 的版本兼容矩阵、变更字段和 diff，不执行真实升级；`POST /api/v1/admin/plugins/:code/upgrade` 已提供最小执行闭环，会更新插件 manifest / version / checksum 并保留历史数据。
+- 升级预览：
+### 插件 dependencies 与 Core 兼容规则
+
+`dependencies` 当前支持两种输入：旧兼容字符串数组（如 `["qa"]`，视为 required）和对象数组：
+
+```json
+{
+  "code": "qa",
+  "version": ">=1.0.0 <2.0.0",
+  "required": true,
+  "reason": "需要问答内容类型作为数据来源"
+}
+```
+
+字段：`code` 为依赖插件编码；`version` 为版本约束；`required` 默认为 `true`；`reason` 为可选说明。当前版本约束只支持数字 `x.y.z`、精确版本、`>=`、`>`、`<=`、`<` 和空格连接的范围组合（如 `>=1.2.0 <2.0.0`），不支持 `^`、`~`、`||`、预发布标签或 npm 完整语法。
+
+依赖状态：`satisfied`、`missing`、`disabled`、`archived`、`migration_failed`、`config_invalid`、`version_mismatch`、`circular_dependency`、`self_dependency`、`optional_missing`。required 不满足会阻断 validate / dry-run / install / upgrade dry-run / upgrade / enable；optional 缺失只 warning。自依赖和循环依赖当前一律阻断，包括 optional 循环。
+
+Core 兼容：`min_core_version` 缺失为 warning；`min_core_version` 高于当前 Core 为 `plugin_core_version_incompatible` 并阻断；`compatible_core_version` 存在但当前 Core 不满足时按 incompatible 阻断。当前 Core 版本来自项目 `VERSION`，不是前端写死。
+
+启用插件时会重新执行 required dependency 检查；依赖插件处于 disabled、archived、migration_failed、config_invalid、dependency_missing 时不能视为可用。错误码 / message 包含 `plugin_dependency_missing`、`plugin_dependency_disabled`、`plugin_dependency_archived`、`plugin_dependency_version_mismatch`、`plugin_dependency_cycle`、`plugin_core_version_incompatible` 等前缀或同义状态。
+
+`POST /api/v1/admin/plugins/:code/upgrade/dry-run` 可返回现有插件与新 manifest 的版本兼容矩阵、变更字段和 diff，不执行真实升级；`POST /api/v1/admin/plugins/:code/upgrade` 已提供最小执行闭环，会更新插件 manifest / version / checksum 并保留历史数据。
 - 软卸载 / 归档 / 恢复：单个归档 / 恢复和批量归档 / 恢复 API 已提供最小闭环；归档不删除历史内容、配置、迁移记录或审计记录。
+- SDK / 模板：`docs/PLUGIN_SDK.md` 与 `docs/PLUGIN_TEMPLATE.md` 已说明 manifest 字段、生成器和安全边界；`go run ./cmd/devhub plugin:new ...` 只生成声明、配置、文档和示例，不新增 API，也不执行第三方代码。
 
 部分完成：
 

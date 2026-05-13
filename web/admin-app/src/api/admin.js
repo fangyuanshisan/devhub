@@ -9,6 +9,8 @@ export const plugins = () => http.get('/admin/plugins');
 export const pluginHealthSummary = () => http.get('/admin/plugins/health');
 export const pluginMenus = () => http.get('/admin/plugin-menus');
 export const pluginHealth = (code) => http.get(`/admin/plugins/${code}/health`);
+export const pluginReadiness = (code, params) => http.get(`/admin/plugins/${code}/readiness`, { params });
+export const pluginMenusPreview = (code, params) => http.get(`/admin/plugins/${code}/menus/preview`, { params });
 export const validatePluginManifest = (payload) => http.post('/admin/plugins/manifest/validate', payload);
 export const dryRunPluginManifest = (payload) => http.post('/admin/plugins/dry-run', payload);
 export const dryRunPluginUpgrade = (code, payload) => http.post(`/admin/plugins/${code}/upgrade/dry-run`, payload);
@@ -23,6 +25,7 @@ export const bulkRestorePlugins = (payload) => http.post('/admin/plugins/bulk-re
 export const updatePluginConfig = (code, payload) => http.put(`/admin/plugins/${code}/config`, payload);
 export const pluginImpact = (code) => http.get(`/admin/plugins/${code}/impact`);
 export const pluginHooks = (code) => http.get(`/admin/plugins/${code}/hooks`);
+export const pluginHookExecutions = (code, params) => http.get(`/admin/plugins/${code}/hooks/executions`, { params });
 export const pluginAuditLogs = (code, params) => http.get(`/admin/plugins/${code}/audit-logs`, { params });
 export const pluginMigrations = (code) => http.get(`/admin/plugins/${code}/migrations`);
 export const runPluginMigrations = (code) => http.post(`/admin/plugins/${code}/migrations/run`);

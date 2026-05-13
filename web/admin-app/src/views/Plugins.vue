@@ -6,19 +6,145 @@
         <h2>{{ t('plugin.title') }}</h2>
         <p>{{ t('plugin.description') }}</p>
       </div>
-      <div class="primary-actions">
+      <div v-if="showPrimaryActions" class="primary-actions">
         <el-button type="primary" plain data-testid="plugin-manifest-validate" @click="openManifestDialog('validate')">{{ t('plugin.ops.validateManifest') }}</el-button>
         <el-button type="primary" plain data-testid="plugin-manifest-dry-run" @click="openManifestDialog('dry-run')">{{ t('plugin.ops.dryRun') }}</el-button>
         <el-button type="success" plain data-testid="plugin-manifest-install" @click="openManifestDialog('install')">{{ t('plugin.ops.install') }}</el-button>
       </div>
     </div>
 
-    <el-tabs v-model="activeView" class="plugin-main-tabs">
-      <el-tab-pane :label="t('plugin.list')" name="list" />
-      <el-tab-pane :label="t('plugin.governance.title')" name="governance" />
-    </el-tabs>
+    <div class="plugin-view-hint muted">
+      <template v-if="activeSection === 'status'">{{ t('plugin.governance.title') }}</template>
+      <template v-else-if="activeSection === 'manifest'">安装 / 升级</template>
+      <template v-else-if="activeSection === 'diagnostics'">诊断与排障</template>
+      <template v-else>{{ t('plugin.list') }}</template>
+    </div>
 
-    <template v-if="activeView === 'list'">
+    <template v-if="activeSection === 'manifest'">
+      <section class="action-panel" data-testid="plugin-manifest-page">
+        <div class="action-panel-header">
+          <div>
+            <h3>安装 / 升级</h3>
+            <p class="muted">用于 manifest 校验、dry-run 预览、安装与升级。实际执行仍以服务端校验为准。</p>
+          </div>
+        </div>
+        <div class="filter-panel mb">
+          <div>
+            <strong>选择目标插件（用于升级）</strong>
+            <span class="muted">校验/安装不依赖该选择；升级预览/升级需要选择一个已安装插件。</span>
+          </div>
+          <div class="filter-actions">
+            <el-select v-model="manifestTargetCode" placeholder="选择插件" filterable clearable style="min-width: 220px">
+              <el-option v-for="p in items" :key="p.code" :label="`${p.name} (${p.code})`" :value="p.code" />
+            </el-select>
+            <el-button type="primary" plain @click="openManifestDialog('validate')">{{ t('plugin.ops.validateManifest') }}</el-button>
+            <el-button type="primary" plain @click="openManifestDialog('dry-run')">{{ t('plugin.ops.dryRun') }}</el-button>
+            <el-button type="success" plain @click="openManifestDialog('install')">{{ t('plugin.ops.install') }}</el-button>
+            <el-button type="warning" plain :disabled="!manifestTargetCode" @click="openManifestDialog('upgrade-dry-run', findPlugin(manifestTargetCode))">{{ t('plugin.ops.upgradePreview') }}</el-button>
+            <el-button type="danger" plain :disabled="!manifestTargetCode" @click="openManifestDialog('upgrade', findPlugin(manifestTargetCode))">{{ t('plugin.ops.upgrade') }}</el-button>
+          </div>
+        </div>
+        <el-alert type="info" show-icon :closable="false" title="提示：升级/安装不会执行第三方代码，不支持远程下载依赖，不支持动态加载。" />
+      </section>
+    </template>
+
+    <template v-else-if="activeSection === 'diagnostics'">
+      <section class="action-panel" data-testid="plugin-diagnostics-page">
+        <div class="action-panel-header">
+          <div>
+            <h3>诊断与排障</h3>
+            <p class="muted">聚合 Readiness、依赖、Hook 与前台菜单可见性诊断，统一展示“为什么不行”和建议操作。</p>
+          </div>
+        </div>
+
+        <div class="filter-panel mb">
+          <div>
+            <strong>选择插件</strong>
+            <span class="muted">此处只做诊断展示，不替代真实操作接口校验。</span>
+          </div>
+          <div class="filter-actions">
+            <el-select v-model="diagnosticCode" placeholder="选择插件" filterable clearable style="min-width: 260px">
+              <el-option v-for="p in items" :key="p.code" :label="`${p.name} (${p.code})`" :value="p.code" />
+            </el-select>
+            <el-select v-model="diagnosticAction" placeholder="动作" clearable style="min-width: 160px">
+              <el-option label="enable" value="enable" />
+              <el-option label="upgrade" value="upgrade" />
+              <el-option label="archive" value="archive" />
+              <el-option label="restore" value="restore" />
+              <el-option label="configure" value="configure" />
+            </el-select>
+            <el-button type="primary" plain :disabled="!diagnosticCode" :loading="diagnosticLoading" @click="loadDiagnostics">刷新诊断</el-button>
+            <el-button type="info" plain :disabled="!diagnosticCode" @click="openPluginDrawer(diagnosticCode, 'readiness')">打开详情：Readiness</el-button>
+            <el-button type="info" plain :disabled="!diagnosticCode" @click="openPluginDrawer(diagnosticCode, 'dependencies')">打开详情：依赖</el-button>
+            <el-button type="info" plain :disabled="!diagnosticCode" @click="openPluginDrawer(diagnosticCode, 'hooks')">打开详情：Hook</el-button>
+            <el-button type="info" plain :disabled="!diagnosticCode" @click="openPluginDrawer(diagnosticCode, 'menus')">打开详情：菜单</el-button>
+          </div>
+        </div>
+
+        <el-tabs v-model="diagnosticTab" class="plugin-main-tabs">
+          <el-tab-pane label="Readiness" name="readiness" />
+          <el-tab-pane label="前台菜单预览" name="menus" />
+        </el-tabs>
+
+        <template v-if="diagnosticTab === 'readiness'">
+          <div class="mb">
+            <el-alert type="info" show-icon :closable="false" :title="t('plugin.readiness.tip')" />
+          </div>
+          <el-empty v-if="!diagnosticCode" description="请选择插件后查看诊断" />
+          <template v-else>
+            <div class="tag-wrap mb">
+              <el-tag :type="readinessTagType(readinessResult?.status)" effect="plain">
+                总结：{{ readinessStatusLabel(readinessResult?.status) }}
+              </el-tag>
+            </div>
+            <el-table v-loading="diagnosticLoading" :data="readinessResult?.checks || []" border stripe>
+              <el-table-column prop="title" label="检查项" min-width="200" />
+              <el-table-column label="状态" width="120">
+                <template #default="{ row }">
+                  <el-tag :type="readinessTagType(row.status)" effect="plain">{{ readinessStatusLabel(row.status) }}</el-tag>
+                </template>
+              </el-table-column>
+              <el-table-column prop="reason" label="原因" min-width="240" />
+              <el-table-column prop="suggestion" label="建议" min-width="260" />
+              <el-table-column prop="code" label="错误码" width="220" />
+            </el-table>
+          </template>
+        </template>
+
+        <template v-else>
+          <el-empty v-if="!diagnosticCode" description="请选择插件后预览前台菜单" />
+          <template v-else>
+            <div class="filter-panel mb">
+              <div>
+                <strong>菜单预览上下文</strong>
+                <span class="muted">用于解释“为什么不展示”。</span>
+              </div>
+              <div class="filter-actions">
+                <el-input v-model="menuPreviewParams.community_slug" placeholder="community_slug（可选）" clearable style="max-width: 220px" />
+                <el-input v-model="menuPreviewParams.category_id" placeholder="category_id（可选）" clearable style="max-width: 180px" />
+                <el-button type="primary" plain :loading="menuPreviewLoading" @click="loadMenuPreview">刷新预览</el-button>
+              </div>
+            </div>
+            <el-table v-loading="menuPreviewLoading" :data="menuPreviewResult?.items || []" border stripe>
+              <el-table-column prop="location" label="location" width="150" />
+              <el-table-column prop="title" label="title" min-width="160" />
+              <el-table-column prop="route" label="route" min-width="200" />
+              <el-table-column prop="content_type" label="content_type" width="160" />
+              <el-table-column prop="required_permission" label="permission" width="200" />
+              <el-table-column label="可见" width="100">
+                <template #default="{ row }">
+                  <el-tag :type="row.visible ? 'success' : 'info'" effect="plain">{{ row.visible ? 'visible' : 'hidden' }}</el-tag>
+                </template>
+              </el-table-column>
+              <el-table-column prop="reason" label="原因" min-width="240" />
+              <el-table-column prop="reason_code" label="reason_code" width="220" />
+            </el-table>
+          </template>
+        </template>
+      </section>
+    </template>
+
+    <template v-else-if="activeView === 'list'">
       <div class="stats-grid" data-testid="plugin-stats">
         <button class="stat-card stat-button" type="button" @click="filters.status = 'all'">
           <div class="stat-k">{{ t('plugin.stats.total') }}</div>
@@ -166,6 +292,7 @@
                   <el-dropdown-menu>
                     <el-dropdown-item command="permissions">{{ t('plugin.capability.permissions') }}</el-dropdown-item>
                     <el-dropdown-item command="menus">{{ t('plugin.capability.menus') }}</el-dropdown-item>
+                    <el-dropdown-item command="dependencies">{{ t('plugin.tabs.dependencies') }}</el-dropdown-item>
                     <el-dropdown-item command="hooks">{{ t('plugin.tabs.hooks') }}</el-dropdown-item>
                     <el-dropdown-item command="migrations">{{ t('plugin.tabs.migrations') }}</el-dropdown-item>
                     <el-dropdown-item command="runtime">{{ t('plugin.tabs.runtime') }}</el-dropdown-item>
@@ -266,8 +393,41 @@
               <el-descriptions-item :label="t('plugin.ops.newVersion')">{{ resultUpgrade.new_version || '-' }}</el-descriptions-item>
               <el-descriptions-item :label="t('plugin.ops.currentCoreVersion')">{{ resultUpgrade.current_core_version || '-' }}</el-descriptions-item>
               <el-descriptions-item :label="t('plugin.ops.compatibilityStatus')">{{ compatibilityLabel(resultUpgrade.compatibility_status) }}</el-descriptions-item>
+              <el-descriptions-item :label="t('plugin.ops.minCoreVersion')">{{ resultCompatibility(resultUpgrade).min_core_version || '-' }}</el-descriptions-item>
+              <el-descriptions-item :label="t('plugin.ops.compatibleCoreVersion')">{{ resultCompatibility(resultUpgrade).compatible_core_version || '-' }}</el-descriptions-item>
               <el-descriptions-item :label="t('plugin.ops.changedKeys')" :span="2">{{ (resultUpgrade.changed_keys || []).join(', ') || '-' }}</el-descriptions-item>
             </el-descriptions>
+            <div class="result-grid mb">
+              <div class="result-box full-width" data-testid="plugin-upgrade-dependency-matrix">
+                <h4>{{ t('plugin.dependencies.matrix') }}</h4>
+                <div class="tag-wrap mb">
+                  <el-tag :type="dependencySummaryType(resultUpgrade.validation?.dependency_summary)" effect="plain">
+                    {{ dependencySummaryText(resultUpgrade.validation?.dependency_summary) }}
+                  </el-tag>
+                  <el-tag :type="compatibilityStatusType(resultCompatibility(resultUpgrade).status)" effect="plain">
+                    {{ compatibilityLabel(resultCompatibility(resultUpgrade).status) }}
+                  </el-tag>
+                </div>
+                <el-table :data="dependencyRows(resultUpgrade)" border stripe :empty-text="t('common.none')">
+                  <el-table-column prop="code" :label="t('plugin.code')" min-width="140" />
+                  <el-table-column prop="version" :label="t('plugin.dependencies.requiredVersion')" min-width="140" />
+                  <el-table-column :label="t('plugin.dependencies.required')" width="100">
+                    <template #default="{ row }">{{ row.required ? t('plugin.dependencies.requiredDep') : t('plugin.dependencies.optionalDep') }}</template>
+                  </el-table-column>
+                  <el-table-column :label="t('plugin.status')" width="150">
+                    <template #default="{ row }">
+                      <el-tag :type="dependencyStatusType(row.status, row.satisfied)" effect="plain">{{ dependencyStatusLabel(row.status) }}</el-tag>
+                    </template>
+                  </el-table-column>
+                  <el-table-column prop="current_version" :label="t('plugin.dependencies.currentVersion')" width="130" />
+                  <el-table-column prop="message" :label="t('plugin.dependencies.message')" min-width="220" />
+                </el-table>
+              </div>
+              <div class="result-box full-width" data-testid="plugin-upgrade-dependency-diff">
+                <h4>{{ t('plugin.dependencies.diff') }}</h4>
+                <pre class="json-box compact">{{ formatJSON(resultUpgrade.dependency_diff || {}) }}</pre>
+              </div>
+            </div>
             <el-alert v-if="isWizardConfirmStep" :title="t('plugin.wizard.confirmUpgradeTip')" type="warning" show-icon :closable="false" class="mb" />
             <div class="result-grid">
               <div class="result-box">
@@ -287,7 +447,10 @@
               <el-descriptions-item :label="t('plugin.ops.sourceType')">{{ manifestResult.install_preview?.source_type || '-' }}</el-descriptions-item>
               <el-descriptions-item :label="t('plugin.ops.checksum')"><span class="mono">{{ manifestResult.checksum || '-' }}</span></el-descriptions-item>
               <el-descriptions-item :label="t('plugin.ops.initialStatus')">{{ pluginStatusLabel(manifestResult.install_preview?.initial_status) }}</el-descriptions-item>
-              <el-descriptions-item :label="t('plugin.ops.dependencies')">{{ (manifestResult.dependencies || []).join(', ') || '-' }}</el-descriptions-item>
+              <el-descriptions-item :label="t('plugin.ops.dependencies')">{{ dependencySummaryText(manifestResult.dependency_summary) }}</el-descriptions-item>
+              <el-descriptions-item :label="t('plugin.ops.compatibilityStatus')">
+                <el-tag :type="compatibilityStatusType(manifestResult.compatibility?.status)" effect="plain">{{ compatibilityLabel(manifestResult.compatibility?.status) }}</el-tag>
+              </el-descriptions-item>
               <el-descriptions-item :label="t('plugin.ops.impactSummary')">
                 {{ t('plugin.ops.contentTypesCount') }} {{ manifestResult.impact_summary?.content_types_count ?? 0 }}，
                 {{ t('plugin.ops.permissionsCount') }} {{ manifestResult.impact_summary?.permissions_count ?? 0 }}，
@@ -295,6 +458,31 @@
                 {{ t('plugin.ops.routesCount') }} {{ manifestResult.impact_summary?.routes_count ?? 0 }}
               </el-descriptions-item>
             </el-descriptions>
+            <div class="result-grid mb">
+              <div class="result-box full-width" data-testid="plugin-dependency-summary">
+                <h4>{{ t('plugin.dependencies.matrix') }}</h4>
+                <div class="tag-wrap mb">
+                  <el-tag :type="dependencySummaryType(manifestResult.dependency_summary)" effect="plain">
+                    {{ dependencySummaryText(manifestResult.dependency_summary) }}
+                  </el-tag>
+                  <span class="muted">{{ (manifestResult.compatibility?.messages || []).join('；') || '-' }}</span>
+                </div>
+                <el-table :data="dependencyRows(manifestResult)" border stripe :empty-text="t('common.none')">
+                  <el-table-column prop="code" :label="t('plugin.code')" min-width="140" />
+                  <el-table-column prop="version" :label="t('plugin.dependencies.requiredVersion')" min-width="140" />
+                  <el-table-column :label="t('plugin.dependencies.required')" width="100">
+                    <template #default="{ row }">{{ row.required ? t('plugin.dependencies.requiredDep') : t('plugin.dependencies.optionalDep') }}</template>
+                  </el-table-column>
+                  <el-table-column :label="t('plugin.status')" width="150">
+                    <template #default="{ row }">
+                      <el-tag :type="dependencyStatusType(row.status, row.satisfied)" effect="plain">{{ dependencyStatusLabel(row.status) }}</el-tag>
+                    </template>
+                  </el-table-column>
+                  <el-table-column prop="current_version" :label="t('plugin.dependencies.currentVersion')" width="130" />
+                  <el-table-column prop="message" :label="t('plugin.dependencies.message')" min-width="220" />
+                </el-table>
+              </div>
+            </div>
             <el-alert v-if="isWizardConfirmStep" :title="t('plugin.wizard.confirmInstallTip')" type="warning" show-icon :closable="false" class="mb" />
             <div class="result-grid">
               <div class="result-box">
@@ -382,13 +570,13 @@
     </el-drawer>
   </section>
 
-  <PluginDetailDrawer v-model="manifestDialog" :plugin="manifestTarget" :initial-tab="manifestInitialTab" @refresh="load" />
+  <PluginDetailDrawer v-model="manifestDialog" :plugin="manifestTarget" :plugins="items" :initial-tab="manifestInitialTab" @refresh="load" @open-plugin="openDependencyPlugin" />
 </template>
 
 <script setup>
-import { computed, onMounted, reactive, ref } from 'vue';
+import { computed, onMounted, reactive, ref, watch } from 'vue';
 import { ElMessage, ElMessageBox } from 'element-plus';
-import { useRouter } from 'vue-router';
+import { useRoute, useRouter } from 'vue-router';
 import {
   archivePlugin,
   bulkArchivePlugins,
@@ -400,6 +588,8 @@ import {
   installPluginManifest,
   pluginHealthSummary,
   pluginImpact,
+  pluginMenusPreview,
+  pluginReadiness,
   plugins,
   restorePlugin,
   validatePluginManifest,
@@ -412,7 +602,18 @@ import { pluginHealthLabel, pluginStatusLabel } from '@/i18n/formatters';
 
 const auth = useAuthStore();
 const router = useRouter();
+const route = useRoute();
+const activeSection = computed(() => route.meta?.subNavKey || (route.path.includes('/plugins/governance') ? 'status' : 'list'));
 const items = ref([]);
+const manifestTargetCode = ref('');
+const diagnosticCode = ref('');
+const diagnosticAction = ref('enable');
+const diagnosticTab = ref('readiness');
+const diagnosticLoading = ref(false);
+const readinessResult = ref(null);
+const menuPreviewLoading = ref(false);
+const menuPreviewResult = ref(null);
+const menuPreviewParams = reactive({ community_slug: '', category_id: '' });
 const filters = reactive({
   q: '',
   status: 'all',
@@ -422,8 +623,76 @@ const filters = reactive({
   hasSchema: 'all',
 });
 const loading = ref(false);
-const activeView = ref('list');
+const activeView = computed(() => (activeSection.value === 'status' ? 'governance' : 'list'));
 const healthPanels = ref(['health']);
+
+const showPrimaryActions = computed(() => activeSection.value === 'list' || activeSection.value === 'manifest');
+
+watch(activeSection, (value, prev) => {
+  if (value === prev) return;
+  if (value === 'manifest') {
+    openManifestDialog('validate');
+  }
+}, { immediate: true });
+
+watch([diagnosticCode, diagnosticAction], ([code]) => {
+  if (!code || activeSection.value !== 'diagnostics') return;
+  loadDiagnostics();
+});
+
+function findPlugin(code) {
+  return items.value.find((p) => (p.code || p.plugin_code) === code) || null;
+}
+
+function openPluginDrawer(code, tab) {
+  const target = findPlugin(code);
+  if (!target) return;
+  openManifest(target, tab);
+}
+
+function readinessTagType(status) {
+  if (status === 'pass') return 'success';
+  if (status === 'warning') return 'warning';
+  if (status === 'blocked') return 'danger';
+  return 'info';
+}
+
+function readinessStatusLabel(status) {
+  if (status === 'pass') return 'pass';
+  if (status === 'warning') return 'warning';
+  if (status === 'blocked') return 'blocked';
+  return '-';
+}
+
+async function loadDiagnostics() {
+  if (!diagnosticCode.value) return;
+  diagnosticLoading.value = true;
+  try {
+    readinessResult.value = await pluginReadiness(diagnosticCode.value, { action: diagnosticAction.value });
+  } catch (e) {
+    readinessResult.value = null;
+    ElMessage.warning(String(e?.message || e || 'Readiness 接口不可用'));
+  } finally {
+    diagnosticLoading.value = false;
+  }
+  if (diagnosticTab.value === 'menus') loadMenuPreview();
+}
+
+async function loadMenuPreview() {
+  if (!diagnosticCode.value) return;
+  menuPreviewLoading.value = true;
+  try {
+    const params = {};
+    if (menuPreviewParams.community_slug) params.community_slug = menuPreviewParams.community_slug;
+    if (menuPreviewParams.category_id) params.category_id = menuPreviewParams.category_id;
+    menuPreviewResult.value = await pluginMenusPreview(diagnosticCode.value, params);
+  } catch (e) {
+    menuPreviewResult.value = null;
+    ElMessage.warning(String(e?.message || e || '菜单预览接口不可用'));
+  } finally {
+    menuPreviewLoading.value = false;
+  }
+}
 const manifestDialog = ref(false);
 const manifestTarget = ref(null);
 const manifestInitialTab = ref('overview');
@@ -564,15 +833,17 @@ const isWizardPreviewStep = computed(() =>
 );
 
 const canShortcutConfirm = computed(() =>
-  (manifestDialogAction.value === 'install' && (wizardStep.value === 1 || wizardStep.value === 2) && !resultErrors.value.length)
-  || (manifestDialogAction.value === 'upgrade' && wizardStep.value === 1 && !upgradeErrors.value.length),
+  (manifestDialogAction.value === 'install' && (wizardStep.value === 1 || wizardStep.value === 2) && !resultErrors.value.length && !hasBlockingDependency(manifestResult.value))
+  || (manifestDialogAction.value === 'upgrade' && wizardStep.value === 1 && !upgradeErrors.value.length && !hasBlockingDependency(resultUpgrade.value)),
 );
 
 const wizardCanProceed = computed(() => {
   if (manifestLoading.value) return false;
   if ((manifestDialogAction.value === 'dry-run' || manifestDialogAction.value === 'install') && wizardStep.value === 1 && resultErrors.value.length) return false;
   if (manifestDialogAction.value === 'install' && wizardStep.value === 2 && resultErrors.value.length) return false;
+  if ((manifestDialogAction.value === 'dry-run' || manifestDialogAction.value === 'install') && wizardStep.value > 0 && hasBlockingDependency(manifestResult.value)) return false;
   if (manifestDialogAction.value === 'upgrade' && wizardStep.value === 1 && upgradeErrors.value.length) return false;
+  if (manifestDialogAction.value === 'upgrade' && wizardStep.value === 1 && hasBlockingDependency(resultUpgrade.value)) return false;
   return true;
 });
 
@@ -618,7 +889,7 @@ const governanceGroups = computed(() => {
     {
       key: 'dependency_missing',
       title: t('plugin.governance.dependencyMissing'),
-      tab: 'runtime',
+      tab: 'dependencies',
       type: 'warning',
       items: list.filter((p) => p.status === 'dependency_missing' || p.health?.status === 'dependency_missing' || p.health?.dependency_status === 'missing'),
       suggestion: t('plugin.governance.dependencyMissingTip'),
@@ -914,7 +1185,7 @@ function openAuditLogs() {
 }
 
 function handlePluginCommand(row, command) {
-  if (command === 'permissions' || command === 'menus' || command === 'audit' || command === 'hooks' || command === 'migrations' || command === 'runtime') {
+  if (command === 'permissions' || command === 'menus' || command === 'dependencies' || command === 'audit' || command === 'hooks' || command === 'migrations' || command === 'runtime') {
     openManifest(row, command);
     return;
   }
@@ -1027,8 +1298,90 @@ function safeJSON(value) {
 
 function compatibilityLabel(status) {
   if (status === 'compatible') return t('plugin.ops.compatible');
+  if (status === 'warning') return t('plugin.ops.warningCompatibility');
   if (status === 'incompatible') return t('plugin.ops.incompatible');
   return t('plugin.ops.unknownCompatibility');
+}
+
+function compatibilityStatusType(status) {
+  if (status === 'compatible') return 'success';
+  if (status === 'warning') return 'warning';
+  if (status === 'incompatible') return 'danger';
+  return 'info';
+}
+
+function resultCompatibility(result) {
+  return result?.compatibility || result?.validation?.compatibility || {};
+}
+
+function dependencyRows(result) {
+  const validation = result?.validation || result || {};
+  if (Array.isArray(validation.dependencies) && validation.dependencies.length) return validation.dependencies;
+  const declared = Array.isArray(validation.normalized_manifest?.dependencies)
+    ? validation.normalized_manifest.dependencies
+    : parsedManifestDependencies();
+  return declared.map((dep) => clientDependencyCheck(dep));
+}
+
+function dependencySummaryText(summary) {
+  if (!summary || typeof summary !== 'object') return '-';
+  return `${t('common.total')} ${summary.total || 0} / ${t('plugin.dependencies.blocking')} ${summary.blocking || 0} / ${t('plugin.ops.warnings')} ${summary.warnings || 0}`;
+}
+
+function dependencySummaryType(summary) {
+  if (!summary || typeof summary !== 'object') return 'info';
+  if ((summary.blocking || 0) > 0) return 'danger';
+  if ((summary.warnings || 0) > 0) return 'warning';
+  return 'success';
+}
+
+function dependencyStatusType(status, satisfied) {
+  if (satisfied || status === 'satisfied') return 'success';
+  if (status === 'optional_missing') return 'warning';
+  if (['missing', 'disabled', 'archived', 'migration_failed', 'config_invalid', 'version_mismatch', 'circular_dependency', 'self_dependency'].includes(status)) return 'danger';
+  return 'info';
+}
+
+function dependencyStatusLabel(status) {
+  return t(`plugin.dependencies.status.${status || 'unknown'}`);
+}
+
+function hasBlockingDependency(result) {
+  return dependencyRows(result).some((row) => row.required !== false && !row.satisfied);
+}
+
+function parsedManifestDependencies() {
+  try {
+    const manifest = JSON.parse(manifestText.value || '{}');
+    const deps = Array.isArray(manifest.dependencies) ? manifest.dependencies : [];
+    return deps.map((dep) => (typeof dep === 'string' ? { code: dep, required: true } : dep)).filter((dep) => dep?.code || dep?.plugin_code);
+  } catch {
+    return [];
+  }
+}
+
+function clientDependencyCheck(dep) {
+  const code = dep.code || dep.plugin_code || '';
+  const plugin = (items.value || []).find((item) => item.code === code) || {};
+  const required = dep.required !== false;
+  let status = 'satisfied';
+  if (!plugin.code) status = required ? 'missing' : 'optional_missing';
+  else if (plugin.status === 'archived') status = 'archived';
+  else if (plugin.status === 'migration_failed') status = 'migration_failed';
+  else if (plugin.status === 'config_invalid') status = 'config_invalid';
+  else if (plugin.status !== 'enabled') status = 'disabled';
+  return {
+    code,
+    version: dep.version || '-',
+    required,
+    reason: dep.reason || '',
+    status,
+    satisfied: status === 'satisfied',
+    plugin_name: plugin.name || '',
+    current_version: plugin.version || '-',
+    current_status: plugin.status || '',
+    message: status === 'satisfied' ? t('plugin.dependencies.satisfiedTip') : dependencyStatusLabel(status),
+  };
 }
 
 async function impactLines(row) {
@@ -1082,6 +1435,16 @@ function openManifest(row, tab = 'overview') {
   manifestTarget.value = row;
   manifestInitialTab.value = tab || 'overview';
   manifestDialog.value = true;
+}
+
+function openDependencyPlugin(code) {
+  const target = (items.value || []).find((item) => item.code === code);
+  if (!target) {
+    filters.q = code || '';
+    ElMessage.warning(t('plugin.dependencies.locateTip'));
+    return;
+  }
+  openManifest(target, 'dependencies');
 }
 
 function statusType(status) {
@@ -1212,6 +1575,7 @@ onMounted(load);
 .result-list { margin: 0; padding-left: 18px; }
 .result-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
 .result-box { border: 1px solid #e2e8f0; border-radius: 12px; padding: 12px; background: #fff; min-width: 0; }
+.result-box.full-width { grid-column: 1 / -1; }
 .result-box h4 { margin: 0 0 10px; color: #0f172a; font-size: 14px; }
 .page-card :deep(.el-table__cell) { padding: 8px 0; }
 .page-card :deep(.el-table .cell) { line-height: 1.35; }

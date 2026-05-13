@@ -2,7 +2,7 @@
 
 [返回文档入口](README.md)
 
-更新时间：2026-05-12
+更新时间：2026-05-13
 
 ## 版本定位
 
@@ -51,6 +51,7 @@ MySQL 专项补充：2026-05-11 已完成 MySQLStore 与老库升级专项验证
 - 子站状态：`community_plugins.status` 支持子站级 `enabled` / `disabled`，并叠加 `sort_order`、`config_json`。
 - 配置：`plugins.config_json`、`community_plugins.config_json`、`resolved_config.default/global/community/effective` 已落地；后端保存时执行简化 `config_schema` 校验，后台用 JSON Editor + Ajv 做客户端基础校验。
 - 权限：插件权限来自 manifest / registry；发布链路按内容类型读取 `create_permission`；菜单按全局状态、子站状态、权限和 scope 过滤。
+- 前台入口治理：新增 `navigation/create-options/menus preview` 接口用于统一前台导航与发布入口可见性判断；插件 `disabled/archived/dependency_missing/config_invalid/migration_failed` 时隐藏新建入口但不影响历史内容与 SEO。
 - HookBus：已有内置 HookBus 和最小 handler 注册；创建、更新、删除、评论、搜索、通知、SEO 以及插件启停会派发 Hook 事件。
 - 影响分析：已有轻量 impact API，返回启用子站数、板块数、内容数、待审核内容数和菜单数等计数。
 - 健康摘要：`GET /api/v1/admin/plugins`、`GET /api/v1/admin/plugins/health` 和 `GET /api/v1/admin/plugins/:code/health` 返回轻量 `health`，由全局状态、配置校验、迁移记录、依赖状态和 Hook 失败统计计算；当前额外返回 `status_reason` 解释主要异常原因。
@@ -58,6 +59,7 @@ MySQL 专项补充：2026-05-11 已完成 MySQLStore 与老库升级专项验证
 - 迁移治理：`plugin_migrations` 表、MemoryStore / MySQLStore 读写能力、内置插件 migration 声明、up/no-op runner、失败记录、失败重试和迁移审计已存在；成功迁移不会重复执行。
 - Manifest 校验与 dry-run：`PluginManifestValidator` 已可校验 manifest JSON 的基础字段、内容类型、权限、菜单、路由、Hook、配置模型、迁移、依赖和资产路径，并返回 errors / warnings / checksum / impact summary；`dry-run` 不写入插件记录。
 - Manifest + 配置型安装：`POST /api/v1/admin/plugins/install` 可安装只含声明与配置的插件，初始为 installed + disabled；不执行第三方代码、不动态加载前端资源、不执行外部 SQL。
+- SDK / 模板：已新增 `docs/PLUGIN_SDK.md`、`docs/PLUGIN_TEMPLATE.md`、`docs/examples/plugin-manifest-example.json` 和 `go run ./cmd/devhub plugin:new ...`，用于生成声明型插件骨架；生成器复用 `PluginManifestValidator` 和当前简化 `config_schema` 校验。
 - 最小升级执行：`POST /api/v1/admin/plugins/:code/upgrade/dry-run` 和 `POST /api/v1/admin/plugins/:code/upgrade` 已支持 manifest + 配置型插件的预览和最小执行闭环；后台已提供抽屉分步升级向导；回滚、migration down、外部 SQL 和插件包升级仍未实现。
 - 软卸载 / 归档 / 恢复：插件可归档、恢复和批量归档 / 恢复；归档后禁止新建内容和子站启用，但保留历史内容、配置、迁移记录、审计记录和 SEO。
 - 后台：`/admin-next/plugins` 已具备插件列表、详情抽屉、配置、impact 提示、审计 Tab、迁移 Tab 和通用插件内容页入口；`/admin-next/communities` 已具备子站插件配置抽屉。
@@ -75,7 +77,7 @@ MySQL 专项补充：2026-05-11 已完成 MySQLStore 与老库升级专项验证
 
 - 插件包 zip 导入、本地插件包、远程安装、hard uninstall、migration down。
 - 插件健康状态：`healthy`、`warning`、`error`、`disabled`、`migration_pending`、`config_invalid`、`dependency_missing`、`hook_warning`、`hook_error` 已有轻量计算；`hook_error` 当前基于 Hook 失败次数阈值（当前为 `>= 3`）判断。告警、自动恢复、重试队列和 Prometheus/Grafana 式可观测指标仍是后续能力。
-- 插件 SDK、生成模板、插件依赖解析、版本兼容检查、插件包签名和市场分发。
+- 插件依赖解析、版本兼容检查深化、插件包签名和市场分发。
 - 外部服务型 Webhook、动态路由加载、动态执行环境、沙箱和第三方 Hook 运行时。
 
 ## 完整插件系统路线
@@ -180,6 +182,8 @@ P3：高级能力
 - `dependencies`
 - `min_core_version`
 - `hooks`
+- `migrations`
+- `assets`
 
 说明：
 
@@ -577,9 +581,10 @@ v1.3.5 的边界是治理体验收口，不新增危险运行时能力。当前�
 
 - 后台插件治理相关页面接入 `vue-i18n`，默认语言为 `zh-CN`。用户可见标签、按钮、状态、筛选项和提示文案应集中到 `web/admin-app/src/i18n` 管理；`plugin_code`、`content_type`、`hook_name`、权限码和 JSON key 等技术值继续保留原始值。
 - 当前已补齐插件中心、插件详情抽屉、子站插件配置抽屉、配置编辑器、通用 PluginContent 和审计列表中的主要插件治理文案；其中 `config_schema`、`config_json`、`resolved_config` 等作为用户可见标签时显示为“配置模型 / 子站配置 / 最终生效配置”，作为 JSON key 或接口字段时仍保持原值，便于调试。
-- 插件配置编辑器支持“表单模式 + JSON 高级模式”。表单模式根据 `config_schema.properties` 做基础浅层渲染，支持 string、number、integer、boolean、array、object 和 enum；复杂配置仍可使用 JSON 高级模式。
+- 插件配置编辑器支持“表单模式 + JSON 高级模式”。当前统一组件为 `PluginConfigEditor`（`web/admin-app/src/components/plugin/PluginConfigEditor.vue`），表单模式根据 `config_schema.properties` 做基础渲染，支持 string、number、integer、boolean、array、object 和 enum；复杂配置仍可使用 JSON 高级模式。
 - 配置编辑器展示配置差异和最终生效配置。差异预览只用于管理员确认，保存仍以后端 `config_schema` 校验为准；敏感字段会在预览中脱敏。
 - 通用 PluginContent 页支持多选、批量隐藏 / 恢复、审核通过 / 拒绝、置顶 / 取消置顶、加精 / 取消加精，并提供审计入口。审计入口会跳转到通用治理审计页并预填 `plugin_code`、`content_type`、`action`、`target_type` 和插件编码 metadata，便于定位本次插件内容批量操作。权限、插件状态、内容归属和审计仍由后端批量治理接口强制校验，前端隐藏或按钮禁用不能替代权限控制。
+- Hook 排障：插件详情抽屉 Hooks Tab 会展示 Hook 聚合统计和最近执行记录，执行记录支持筛选查询与详情抽屉；查询接口严格使用 admin token + `plugin.read`，测试/开发环境才允许通过注入接口模拟失败，不暴露为生产功能。
 
 当前限制：
 
@@ -593,6 +598,9 @@ v1.3.5 的边界是治理体验收口，不新增危险运行时能力。当前�
 
 阶段 C 已新增插件 SDK / 模板规范：
 
+- [插件 SDK 文档](PLUGIN_SDK.md)
+- [插件生成模板](PLUGIN_TEMPLATE.md)
+- [可校验 manifest 示例](examples/plugin-manifest-example.json)
 - [manifest 示例](plugins/manifest.example.json)
 - [插件目录模板](plugins/plugin-template.md)
 - [config_schema 开发指南](plugins/config-schema-guide.md)
@@ -636,3 +644,11 @@ v1.3.5 的边界是治理体验收口，不新增危险运行时能力。当前�
 | `ai_works` | `ai_work` | `ai_works.work.create` 等 | 前台 / 后台 | 声明级 | 平台 Hook | 已声明 | 平台记录 | 平台治理已接入，业务闭环待完善 |
 
 阶段 F 已新增 [外部插件生态评估与预备设计](plugins/external-plugin-ecosystem.md)。推荐路线是 manifest + 配置型插件，再评估外部服务型插件；Go 动态插件暂不推荐。当前仍不执行第三方代码，外部服务型 Hook / Webhook、升级流程、兼容矩阵和批量治理仅进入设计或预备阶段。
+
+## v1.4.0-P1-07 依赖检查与版本兼容矩阵
+
+- `dependencies` 当前支持对象数组：`code`、`version`、`required`、`reason`，并兼容旧字符串数组；旧字符串依赖按 required 处理。
+- 统一依赖检查覆盖存在性、安装 / 启用状态、归档、迁移失败、配置无效、版本约束、自依赖和循环依赖；required 不满足阻断 validate / dry-run / install / upgrade dry-run / upgrade / enable，optional 缺失只 warning。
+- 版本约束只支持数字 `x.y.z`、精确版本、`>=`、`>`、`<=`、`<` 和空格组合范围；不支持 npm 风格 `^`、`~`、`||` 或预发布标签。
+- Core 兼容矩阵由后端统一计算，当前 Core 来自项目 `VERSION`；`min_core_version` 高于当前 Core 或 `compatible_core_version` 不满足时阻断。
+- 后台安装向导、升级向导和插件详情 Dependencies 区域展示依赖总览、逐项状态、阻断原因、Core 兼容状态和升级依赖 diff；不做自动安装依赖、远程下载、市场推荐或依赖图大屏。

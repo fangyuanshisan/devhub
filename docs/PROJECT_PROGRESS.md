@@ -2,13 +2,13 @@
 
 [返回文档入口](README.md)
 
-更新时间：2026-05-12
+更新时间：2026-05-13
 
 本文档只记录当前仓库真实状态、当前风险和下一步任务。历史版本能力已并入当前分支，详情见对应 Release Notes；旧版本已解决问题不再占用当前主体。
 
 ## 当前版本结论
 
-当前 `VERSION` 已切到 `v1.4.0`，主题是“插件内容治理增强版”。本轮已完成 `PluginContent` 精确过滤、头部状态、禁用 / 归档历史治理提示、批量审核 / 置顶 / 加精、批量结果明细和插件审计跳转增强；已补跑 Go 自动化与 diff 检查，并通过 Docker runner 补跑后台构建与 Playwright（`25 passed / 2 skipped`）。DevHub 当前定位为多子站通用开源社区程序，默认演示为开发者社区。
+当前 `VERSION` 为 `v1.4.0`，主题是“插件内容治理增强版”。本版本已完成 `PluginContent` 精确过滤、头部状态、禁用 / 归档历史治理提示、批量审核 / 置顶 / 加精、批量结果明细和插件审计跳转增强，并补齐 `config_schema` 自动表单增强、Hook 排障页（插件详情 Hooks Tab + 执行记录查询/详情抽屉）、插件 SDK 文档与声明型插件生成模板、插件治理统一错误码与 Readiness 诊断、前台入口与菜单可见性治理（navigation/create-options）。v1.4.0 收口验收已补跑 Go、Docker 构建、前后台 E2E 与 SEO curl 回归：后台 Playwright `33 passed`，前台 Playwright `17 passed`，`/topics/1/` 与 `/c/php/` SEO 关键字段未退化。DevHub 当前定位为多子站通用开源社区程序，默认演示为开发者社区。
 
 Core 保留用户、认证、子站、板块、通用内容、评论、标签、搜索、通知、SEO、权限、审计、插件注册和分发能力。问答、文档、Wiki、项目、招聘、AI 作品已按内置系统插件建模：`qa -> question`、`docs -> document`、`wiki -> wiki_page`、`projects -> project`、`jobs -> job`、`ai_works -> ai_work`。
 
@@ -16,14 +16,15 @@ Core 保留用户、认证、子站、板块、通用内容、评论、标签、
 
 当前最高优先级长期主线是完成完整插件系统。DevHub 的长期目标不是只支持内置 `qa/docs/wiki`，而是形成完整插件平台：Core 只提供通用社区底座，业务能力通过插件声明、插件状态、插件权限、插件菜单、插件配置、插件 Hook、插件 migration、插件 API、插件 SEO、插件通知、插件搜索和插件测试矩阵扩展。
 
-当前最高优先级目标调整为：处理后台 Playwright 中仍保留的 `test.skip` 用例与替代覆盖说明，并继续推进插件内容治理权限矩阵、审计高亮、Hook 排障页和配置表单增强等后续平台增强；插件市场、插件包上传、远程安装、在线更新和动态加载仍属于后续路线。
+当前最高优先级目标调整为：进入 `v1.5.0` 规划与 P2 插件分发能力预研（插件包规范草案、本地插件包 dry-run、签名/checksum 草案、安装审批流草案、配置版本历史与敏感配置加密存储），并登记当前不做或后置项（远程市场、在线更新、动态加载、脚本沙箱与第三方代码执行）。
 
 ## 当前已完成
 
 - 插件注册：`internal/plugins/registry.go` 和 `internal/plugins/qa|docs|wiki|projects|jobs|aiworks` 提供内置插件定义、内容类型映射、菜单、权限和路由描述。
-- 插件声明规范：当前已统一到 manifest 风格声明，包含插件本体、内容类型定义、权限定义、菜单定义、路由定义、`config_schema`、依赖、最小 Core 版本和 Hook 声明。
-- 全局插件状态：`plugins` 表和 MemoryStore / MySQLStore 已扩展支持 `discovered`、`installed`、`migrated`、`configured`、`enabled`、`disabled`、`running`、`config_invalid`、`migration_pending`、`dependency_missing`；当前发布可用性仍只认 `enabled`，其余状态不放行新建内容。
+- 插件声明规范：当前已统一到 manifest 风格声明，包含插件本体、内容类型定义、权限定义、菜单定义、路由定义、`config_schema`、依赖、最小 Core 版本、Hook 声明、migration 声明和 assets 声明；`docs/PLUGIN_SDK.md` 与 `docs/PLUGIN_TEMPLATE.md` 已作为当前 SDK 入口。
+- 全局插件状态：`plugins` 表和 MemoryStore / MySQLStore 已扩展支持 `discovered`、`installed`、`migrated`、`configured`、`enabled`、`disabled`、`running`、`archived`、`config_invalid`、`migration_pending`、`migration_failed`、`dependency_missing`；当前发布可用性仍只认 `enabled`，其余状态不放行新建内容。
 - 插件启用 readiness：全局启用和子站启用会在 Service 层检查插件存在、配置有效、依赖已启用、没有 `failed` 迁移；当前内置 no-op 的 `pending` migration 不阻断启用，但会在健康状态和迁移 Tab 中提示。
+- 插件治理错误码与诊断：插件治理相关接口已开始统一错误码（`code/message/details/suggestion`，并保留 legacy `error`），并新增 `GET /api/v1/admin/plugins/:code/readiness?action=enable` 作为后台“为什么不能启用/升级/配置保存”的 Readiness Check 诊断接口；后台插件详情提供“操作诊断”Tab 和权限缺失/高危权限高亮与引用定位。
 - 子站插件状态：`community_plugins` 表和 MemoryStore / MySQLStore 均支持按子站启用 / 禁用、配置和排序插件。
 - 两层状态判断：插件在某个子站可用需要同时满足 `plugins.status=enabled` 和 `community_plugins.status=enabled`；`core` 作为兼容内置能力在 Service 层特殊视为可用。
 - 内容模型兼容：`topics.plugin_code`、`categories.plugin_code`、`categories.allowed_content_types` 已进入 schema 与 Store。
@@ -31,6 +32,7 @@ Core 保留用户、认证、子站、板块、通用内容、评论、标签、
 - 板块管理校验：MemoryStore / MySQLStore 在创建或编辑子站板块时校验 `plugin_code` 与 `content_type` 匹配，并拒绝绑定全局或子站未启用的插件。
 - 插件 API：全局插件 API、子站插件 API、前台子站插件展示 API 和版主插件菜单 API 已在 `router.go` 注册。
 - 插件安装 / 升级预备：已支持 manifest 校验、manifest dry-run、manifest + 配置型插件安装记录、健康总览、批量归档 / 恢复、升级 dry-run 和最小升级执行闭环；这些能力不执行第三方代码、不加载外部前端资源、不执行外部 raw SQL。
+- 插件 SDK / 模板：已新增 `go run ./cmd/devhub plugin:new ...`，默认生成到 `examples/plugins/{plugin_code}/`，包含 `manifest.json`、`README.md`、`config.example.json`、内容类型、权限、Hook、migration 文档和内置 registry 示例；生成器复用现有 ManifestValidator 与简化 `config_schema` 校验。
 - 插件软卸载：已支持全局归档 / 恢复，归档插件会阻断新建内容和子站启用，但保留历史内容、配置、迁移记录、审计记录和 SEO；恢复后默认进入 `disabled`。
 - 插件业务闭环：
   - `qa`：发布 `question` 时写入 `qa_questions`；回答写入 `qa_answers`；采纳后回写已解决状态和最佳答案。
@@ -89,12 +91,12 @@ Core 保留用户、认证、子站、板块、通用内容、评论、标签、
 
 - 插件包 zip 上传、远程安装、外部服务型 Webhook 真实调用、动态加载、脚本沙箱、hard uninstall 和 migration down。
 - 插件健康状态已有轻量摘要和 API；运行监控、告警、自动恢复、插件依赖 UI 和独立版本兼容矩阵页面仍待后续。
-- 插件 SDK 文档已建立；生成模板、插件市场、远程安装、动态加载、沙箱和第三方 Hook / Webhook 运行时仍待后续。
+- 插件 SDK 文档与声明型插件生成模板已建立；插件市场、远程安装、动态加载、沙箱和第三方 Hook / Webhook 运行时仍待后续。
 
 后续规划：
 
 - `v1.4.0 / 已切版`：插件内容治理增强已落地，当前保留项是补跑 Node/npm 环境下的后台构建和 PluginContent Playwright。
-- `v1.4.x / P1`：推进插件内容治理完整权限矩阵、`config_schema` 自动表单增强、Hook 排障页和 Docs / Wiki 专用体验信息架构。
+- `v1.4.x / P1`：推进插件内容治理完整权限矩阵、Hook 治理（更细粒度统计口径、阈值可配置、更多筛选维度与更一致的审计定位能力）、插件模板依赖/签名/包格式设计和 Docs / Wiki 专用体验信息架构。
 - `v1.5.x+ / P2`：再推进外部服务型 Webhook、插件包 zip、签名、插件包 dry-run、生产 MySQL 大库演练和插件市场雏形。
 
 ## 当前部分完成
@@ -123,7 +125,7 @@ Core 保留用户、认证、子站、板块、通用内容、评论、标签、
 - 子站插件配置 UI 的完整浏览器验收矩阵，包括多子站、禁用提示、保存失败提示和排序持久化回归。
 - 更细粒度的权限体系：例如 Core 兼容类型 `article` / `news` 的细分权限码、按子站/板块维度配置权限矩阵、以及更明确的错误码与权限配置 API（当前仍为最小校验闭环）。
 - P0 插件平台收口：HookBus 的完整业务处理器、健康状态、告警和重试策略。Search / Notification / SEO 目前已有调用点和执行记录，但缺少实际插件处理器。
-- P1 插件平台增强：`config_schema` 自动表单增强、更完整 JSON Schema、字段分组、配置版本和回滚。
+- P1 插件平台增强：`config_schema` 自动表单增强（已完成基础版）、Hook 排障页（已完成基础版）、插件 SDK 文档与生成模板（已完成基础版）、更完整 JSON Schema、字段分组、配置版本和回滚。
 - 非插件历史审计日志的结构化 diff：插件治理已写入 `old_value`、`new_value`、`metadata_json`，其他旧审计仍可能只有 `target` 文本。
 - `qa` 取消采纳最佳答案。
 - Docs 文档树专用编辑 UI。
@@ -205,17 +207,16 @@ P3：高级能力
 
 ## 下一步任务
 
-1. `v1.4.0 / 补验收`：在具备 Node/npm 的环境补跑 `cd web/admin-app && npm run build` 和 `npm run test:e2e -- tests/e2e/plugin-content.spec.js`。
-2. `v1.4.x / P1`：补插件内容治理操作权限矩阵和 RBAC 分配 UI 草案，先覆盖批量审核 / 隐藏 / 恢复 / 置顶 / 加精的权限边界。
-3. `v1.4.x / P1`：增强 `config_schema` 自动表单，优先支持 boolean、enum、number、string 的稳定控件，再处理数组、对象、字段分组和配置版本。
-4. `v1.4.x / P1`：把 Hook 健康治理升级为排障页，展示执行记录、失败详情、blocking / non-blocking、最近错误和手动重试入口。
-5. `v1.5 / P2`：在上述平台治理稳定后，再推进外部服务型 Webhook、插件包签名、真实插件包 dry-run、生产 MySQL 大库演练和插件市场雏形。
+1. `v1.5.0 / P2`：插件包规范草案与本地插件包 dry-run 导入（不引入远程市场/在线更新/动态执行）。
+2. `v1.5.0 / P2`：敏感配置加密存储与配置版本历史（仅治理与可追溯，不做复杂审批流）。
+3. `v1.5.0 / P2`：插件安装审批流草案与审计闭环（不做复杂工作流）。
+4. 技术债收口：拆分 `router.go` / `service.go` 的插件治理相关 handler/service（小步拆分，避免大重构）。
 
 ## 当前验收清单
 
 - [x] `go test ./...`
 - [x] `go build` 或 `go build -buildvcs=false ./...`
-- [ ] `cd web/frontend-app && npm run build`
+- [x] `cd web/frontend-app && npm run build`（通过 Docker runner 执行：`./scripts/check-frontend.sh --frontend-only`）
 - [x] `cd web/admin-app && npm run build`（本机已通过 Docker runner 执行：`docker compose run --rm admin-e2e npm run build`）
 - [ ] `GET /api/v1/plugins` 只返回全局 enabled 插件。
 - [ ] `GET /api/v1/communities/:slug/plugins` 只返回全局 enabled 且子站 enabled 插件。
@@ -225,9 +226,9 @@ P3：高级能力
 - [ ] 子站禁用 `docs` 后，该子站不能发布 `document`。
 - [ ] 子站禁用 `wiki` 后，该子站不能发布 `wiki_page`。
 - [ ] 板块不能绑定当前子站未启用的插件。
-- [ ] 前台发布页只展示当前子站可发布的内容类型。
+- [x] 前台发布页只展示当前子站可发布的内容类型（通过前台 Playwright：`./scripts/check-frontend.sh --frontend-only`）。
 - [ ] 版主插件菜单只返回全局 enabled、子站 enabled 且当前用户有权限的插件菜单。
-- [ ] 禁用插件后，已有 `/topics/:id` 详情页仍可访问并保留 SEO HTML。
+- [x] 禁用/归档插件后，已有 `/topics/:id` 详情页仍可访问并保留 SEO HTML（通过前台 Playwright + SEO curl）。
 - [ ] `/sitemap.xml` 和 `/robots.txt` 正常返回。
 - [ ] `Service.CreatePost` 不能绕过插件发布校验。
 - [ ] `POST/PUT/DELETE /api/v1/posts*` 写接口返回 `410 Gone` 或明确废弃。
@@ -614,7 +615,7 @@ P3：高级能力
 
 - `web/admin-app/src/views/Plugins.vue`：插件治理中心“详情/权限/菜单/配置”统一收口到插件详情抽屉；移除旧的 textarea 全局配置弹窗。
 - `web/admin-app/src/components/plugin/PluginDetailDrawer.vue`：插件详情抽屉升级为治理视图 Tabs（概览/内容类型/权限/菜单/配置/Hooks/路由）。
-- `web/admin-app/src/components/plugin/PluginJsonEditor.vue`：引入 `json-editor-vue` 作为 JSON 编辑器，并用 `Ajv` 做 `config_schema` 基础校验（客户端侧），提供格式化/复制/清空 `{}`。
+- `web/admin-app/src/components/plugin/PluginConfigEditor.vue`：配置编辑器统一组件，包含“表单模式 + JSON 高级模式”，基于 `json-editor-vue` + `Ajv` 做 `config_schema` 客户端校验，并提供格式化/复制/清空 `{}`、字段分组、敏感字段脱敏与 diff 预览。
 
 已完成事项：
 
@@ -650,7 +651,7 @@ P3：高级能力
   - 按 content_type 筛选
 - 列表字段增强：新增“配置覆盖”字段（标记子站是否覆盖了默认/全局配置）。
 - 子站 `config_json`：
-  - 使用 `PluginJsonEditor`（`json-editor-vue`）编辑
+  - 使用 `PluginConfigEditor`（`json-editor-vue`）编辑（表单模式 + JSON 高级模式）
   - 使用 Ajv 对 `config_schema` 做基础校验，校验失败禁止保存并展示错误
   - 支持清空为 `{}` 与保存后刷新
 - 保持排序能力：数字排序 + 上移/下移 + 保存排序（不引入拖拽库）。
@@ -861,7 +862,7 @@ P3：高级能力
 - 后端检查：`go test ./...` 通过，`go build -o .devhub/devhub .` 通过。
 - 后台构建：宿主机 `npm` 不存在；已使用 Docker Node 执行 `npm ci && npm run build` 并通过，Vite 仅输出 chunk size warning。
 - 临时启动：`8090` 已被占用，因此使用 `PORT=18090 CMS_STORE=memory ./.devhub/devhub` 完成验收抽查。
-- `/admin-next` 与 `/admin-next/plugins` 返回 200，后台构建产物包含 `Plugins`、`Communities`、`PluginContent` 和 `PluginJsonEditor` chunk。
+- `/admin-next` 与 `/admin-next/plugins` 返回 200，后台构建产物包含 `Plugins`、`Communities`、`PluginContent` 和 `PluginConfigEditor` chunk。
 - 全局插件 API 可返回插件声明、状态、`config_schema`、权限、菜单、路由和 `resolved_config`。
 - impact 验收：
   - `GET /api/v1/admin/plugins/qa/impact` 返回全局轻量计数。
@@ -900,7 +901,7 @@ P3：高级能力
 
 新发现风险：
 
-- 后台 bundle 中 `PluginJsonEditor` chunk 超过 500 KB，Vite 构建只警告不失败；后续可以考虑按需加载或手动拆包。
+- 后台 bundle 中 `PluginConfigEditor` chunk 超过 500 KB，Vite 构建只警告不失败；后续可以考虑按需加载或手动拆包。
 - `8090` 在当前环境已被占用，验收使用 `18090` 临时端口；正式验收时需确认默认端口对应服务状态。
 
 已执行检查：
@@ -1944,7 +1945,7 @@ P1 规划边界：
 
 修改范围：
 
-- 后台：`web/admin-app/package.json`、`web/admin-app/package-lock.json`、`web/admin-app/src/i18n/*`、`web/admin-app/src/main.js`、`web/admin-app/src/components/plugin/PluginJsonEditor.vue`、`web/admin-app/src/components/plugin/PluginDetailDrawer.vue`、`web/admin-app/src/views/Plugins.vue`、`web/admin-app/src/views/Communities.vue`、`web/admin-app/src/views/PluginContent.vue`。
+- 后台：`web/admin-app/package.json`、`web/admin-app/package-lock.json`、`web/admin-app/src/i18n/*`、`web/admin-app/src/main.js`、`web/admin-app/src/components/plugin/PluginConfigEditor.vue`、`web/admin-app/src/components/plugin/PluginConfigPreview.vue`、`web/admin-app/src/components/plugin/PluginDetailDrawer.vue`、`web/admin-app/src/views/Plugins.vue`、`web/admin-app/src/views/Communities.vue`、`web/admin-app/src/views/PluginContent.vue`。
 - 文档：`docs/PROJECT_PROGRESS.md`、`docs/TESTING.md`、`docs/PLUGIN_ARCHITECTURE.md`、`CHANGELOG.md`。
 
 已完成事项：
@@ -1953,8 +1954,8 @@ P1 规划边界：
 - 插件中心、插件详情抽屉、配置编辑器、子站插件配置和 PluginContent 页的主要用户可见英文状态值已中文化；`plugin_code`、`content_type`、`hook_name`、JSON key 等技术值继续保留原始值。
 - 根据 UI 复查截图，补齐插件详情抽屉“概览”表格和邻近 Tab 的漏网英文：`name/status/health/maturity/suggested_action`、内容类型定义列、Hook 统计列、迁移列、路由列和审计列均改为中文标签；状态值 `enabled/healthy` 通过 formatter 展示为中文。
 - 根据后续截图复查，继续补齐子站插件配置抽屉和插件详情抽屉的漏网英文：`config_schema`、`config_json`、`resolved_config`、`version`、`plugin_code`、`content_types` 等用户可见标签已统一改为中文；保留 JSON key、插件编码、内容类型和 Hook 名称等技术值原样展示。
-- `PluginJsonEditor` 从纯 JSON Editor 升级为“表单模式 + JSON 高级模式”，支持 `string`、`number`、`integer`、`boolean`、`array`、`object`、`enum`、`required`、`minimum`、`maximum`、`default`、`title` 和 `description` 的基础渲染。
-- `PluginJsonEditor` 的提示文案、复制 / 格式化 / 清空提示、schema 编译失败、无配置模型、无变更和数组占位提示均改为 i18n 字典；`PluginContent` 状态展示统一使用 `contentStatusLabel`，审计 action 展示统一使用 `auditActionLabel`。
+- `PluginConfigEditor` 提供“表单模式 + JSON 高级模式”，支持 `string`、`number`、`integer`、`boolean`、`object`、`array`、`enum`、`required`、`minimum/maximum`、`min/max`、`minLength/maxLength`、`default`、`title/description`、字段分组（`x-group/group/ui:group`）和敏感字段脱敏展示与切换。
+- `PluginConfigEditor` 的提示文案、复制 / 格式化 / 清空提示、schema 编译失败、无配置模型、无变更和数组占位提示均改为 i18n 字典；`PluginContent` 状态展示统一使用 `contentStatusLabel`，审计 action 展示统一使用 `auditActionLabel`。
 - 配置编辑器新增配置差异预览，展示原配置、新配置和变更字段；`token`、`password`、`secret`、`key` 等敏感字段在预览中脱敏。
 - 配置编辑器展示最终生效配置预览；全局插件配置和子站插件配置都复用同一编辑器。
 - `PluginContent` 增强为基础通用治理页：展示插件编码、内容类型、状态、子站、更新时间、评论数；新增内容类型筛选、详情抽屉、多选、批量隐藏、批量恢复和“查看审计日志”入口。
@@ -2245,7 +2246,7 @@ P1 规划边界：
 新发现风险：
 
 - `qa/docs/wiki` 等插件治理用例会并行改状态，新增 bulk E2E 不能再复用这三类插件，否则容易和 PluginContent 归档链路互相踩状态；当前已改为使用 `projects/jobs` 规避并发污染。
-- 后台构建仍有既有 Vite chunk size warning，主要集中在 `PluginJsonEditor` 和主后台 chunk，暂不阻断。
+- 后台构建仍有既有 Vite chunk size warning，主要集中在 `PluginConfigEditor` 和主后台 chunk，暂不阻断。
 
 已执行检查命令和结果：
 
@@ -2301,7 +2302,7 @@ P1 规划边界：
 新发现风险：
 
 - `upgrade dry-run` 必须从已存在插件出发；若服务未重启到最新 Go 进程，旧 8090 会继续返回 404。当前已通过 `./dev.sh restart --no-build` 刷新到新后端进程。
-- 后台构建仍存在既有大 chunk warning，主要来自 `PluginJsonEditor`；本轮不处理拆包。
+- 后台构建仍存在既有大 chunk warning，主要来自 `PluginConfigEditor`；本轮不处理拆包。
 
 已执行检查命令和结果：
 
@@ -2459,12 +2460,11 @@ P1 规划边界：
 - `bash -n dev.sh`：通过。
 - `bash -n scripts/check-frontend.sh`：通过。
 - `docker compose run --rm admin-e2e npm run build`：通过。
-- `./scripts/check-frontend.sh --admin-only`：通过（后台 build + Playwright：`25 passed / 2 skipped`）。
+- `./scripts/check-frontend.sh --admin-only`：通过（后台 build + Playwright：`33 passed`）。
 
 失败项或跳过项及原因：
 
-- 后台 Playwright 仍有 `2 skipped`，原因是 `web/admin-app/tests/e2e/plugin-governance.spec.js` 内两条用例被显式 `test.skip(...)` 标记（详情 Tab 全量点击与归档/恢复完整链路）。
-- 本轮未跑 `./scripts/check-frontend.sh --frontend-only`：本轮只影响后台 PluginContent / 后台 E2E 与文档，不涉及前台或 SEO 代码变更。
+- 无（v1.4.0 收口验收已恢复并通过后台归档/恢复链路用例；前台构建、前台 E2E 与 SEO curl 回归也已补齐，详见 `docs/releases/v1.4.0.md` 与 `docs/TESTING.md`）。
 
 影响范围：
 
@@ -2477,8 +2477,60 @@ P1 规划边界：
 
 下一轮建议：
 
-1. 评估并处理后台 Playwright 中保留的两条 `test.skip`：给出保留原因或替代覆盖说明，或将其改为可稳定执行的断言。
-2. 继续补插件内容治理完整权限矩阵、跨页面审计高亮和更细粒度权限配置 UI（不引入新大功能）。
+1. `v1.5.0-P0-01`：插件包规范草案与本地插件包 dry-run 导入（只做校验/报告，不引入远程市场/在线更新/动态执行）。
+2. 技术债：将插件治理相关逻辑从 `router.go` / `service.go` 小步拆分到更聚合的 handler/service 模块，降低后续维护成本。
+
+### 2026-05-12：v1.4.0-P1-06 插件 SDK 文档与插件生成模板
+
+修改范围：
+
+- 后端工具：`cmd/devhub/main.go`、`internal/plugins/scaffold/scaffold.go`、`internal/plugins/scaffold/scaffold_test.go`。
+- 示例模板：`examples/plugins/demo_links/`、`docs/examples/plugin-manifest-example.json`。
+- 文档：`docs/README.md`、`docs/PLUGIN_SDK.md`、`docs/PLUGIN_TEMPLATE.md`、`docs/API.md`、`docs/TESTING.md`、`docs/PLUGIN_ARCHITECTURE.md`、`docs/PLUGIN_SYSTEM_ROADMAP.md`、`docs/releases/v1.4.0.md`、`CHANGELOG.md`。
+
+已完成事项：
+
+- 新增 `go run ./cmd/devhub plugin:new ...` 轻量脚手架，支持 `code`、`name`、`content_type`、`content_name`、`description`、`author`、`output`、`with_config`、`with_hooks`、`with_migration` 和 `force`。
+- 生成目录默认位于 `examples/plugins/{plugin_code}/`，包含 `manifest.json`、`README.md`、`config.example.json`、`content-type.md`、`permissions.md`、`hooks.md`、`migrations.md` 和 `registry.example.go`。
+- 生成前校验 `code` / `content_type` 编码规则、`name`、输出目录覆盖策略；生成后复用现有 `PluginManifestValidator` 校验 manifest，并用当前简化 `config_schema` 校验示例配置。
+- 模板 manifest 包含 code、name、version、description、author、compatible/min core version、content_types、content_type_definitions、permissions、menus、routes、config_schema、dependencies、hooks、migrations 和 assets。
+- 新增 `docs/PLUGIN_SDK.md`，记录插件开发边界、生命周期、manifest 字段、内容类型、权限、菜单、config_schema、Hook、migration、安装 / 校验流程和安全红线。
+- 新增 `docs/PLUGIN_TEMPLATE.md`，记录脚手架命令、目录结构、校验规则、适用场景和不支持能力。
+
+未完成事项：
+
+- 本轮不做插件市场、zip 插件包上传、远程安装、在线更新、Go 动态加载、脚本沙箱、外部 Webhook 执行、插件包签名、migration down 或 hard uninstall。
+- `registry.example.go` 只是内置系统插件接入示例，不会被系统扫描或动态加载。
+
+已执行检查命令和结果：
+
+- `gofmt -w cmd/devhub/main.go internal/plugins/scaffold/scaffold.go internal/plugins/scaffold/scaffold_test.go`：通过。
+- `go test ./internal/plugins/scaffold`：通过。
+- `go run ./cmd/devhub plugin:new --code smoke_links --name "Smoke Links" --content_type smoke_link --content_name "Smoke Link" --output .devhub/tmp/plugin-template-smoke --with_config --with_hooks --with_migration --force`：通过。
+- `go test ./...`：通过。
+- `go build -o .devhub/devhub .`：通过。
+- `git diff --check`：通过。
+- `bash -n dev.sh`：通过。
+- `bash -n scripts/check-frontend.sh`：通过。
+
+未执行检查：
+
+- 未执行 `docker compose run --rm admin-e2e npm run build` 和 `./scripts/check-frontend.sh --admin-only`：本轮未修改后台页面、前端共享逻辑或 E2E，最低要求中后台 UI 检查只在改动后台页面时执行。
+- 未执行前台 SEO curl：本轮没有改前台、SEO 或共享发布逻辑。
+
+影响范围：
+
+- API：无新增生产 API；文档补充 SDK / 模板与现有 manifest validate / dry-run / install / upgrade 的关系。
+- 数据库：无变更。
+- 权限：模板生成权限声明，不改变现有权限校验逻辑。
+- SEO：无变更；模板文档继续强调不得破坏 `/topics/:id` SEO。
+- 插件系统：新增声明型插件生成与 SDK 文档，不引入第三方代码运行时。
+- 前后台 UI：无页面改动。
+
+下一轮建议：
+
+1. 将脚手架扩展为可选 `--dependency` / `--menu-location` / `--route-area` 参数，但继续保持 manifest-only。
+2. 设计插件包格式、签名和依赖解析 dry-run，但仍先不引入动态执行或远程安装。
 
 ### 2026-05-12：v1.3.5 插件治理体验与安装升级向导收口
 
@@ -2566,3 +2618,27 @@ P1 规划边界：
 - 权限：无变更。
 - SEO：无变更。
 - 插件系统：无运行时变更；仅把文档需求与当前代码事实对齐。
+
+## 2026-05-13：v1.4.0-P1-07 插件依赖检查与版本兼容矩阵增强
+
+已完成事项：
+
+- `PluginManifest.dependencies` 从旧字符串数组扩展为对象数组，兼容旧格式，支持 `code`、`version`、`required`、`reason`。
+- 新增统一依赖与版本兼容逻辑：required / optional、插件存在性、enabled、archived、migration_failed、config_invalid、版本约束、自依赖、两节点 / 多节点循环、Core `min_core_version` / `compatible_core_version`。
+- manifest validate / dry-run / install / upgrade dry-run / upgrade / enable 复用同一套阻断规则；required 不满足阻断，optional 缺失 warning。
+- 后台安装向导和升级向导展示依赖矩阵、Core 兼容状态、阻断原因和 dependency diff；插件详情新增 Dependencies 区域并支持定位依赖插件。
+- `GET /api/v1/admin/plugins` 为后台详情补充 `dependency_checks` / `dependency_summary`，避免前端伪造依赖状态。
+- 新增后端依赖 / 版本兼容单测与后台 `plugin-dependencies.spec.js`。
+
+边界：
+
+- 不做自动安装依赖、插件市场、远程安装、zip 包上传、动态加载、脚本沙箱、第三方代码执行、插件签名、migration down、hard uninstall 或配置回滚。
+- 版本约束只支持数字 `x.y.z`、精确版本、比较符和空格组合范围，不支持 npm 完整语法。
+- optional 循环依赖当前同样阻断。
+
+已执行检查：
+
+- `go test ./internal/plugins ./internal/plugins/scaffold ./internal/service ./internal/transport/httpapi`：通过。
+- `docker compose run --rm admin-e2e npm run build`：通过。
+- `docker compose run --rm admin-e2e npm run test:e2e -- tests/e2e/plugin-dependencies.spec.js`：最终通过，`2 passed`。
+- 完整最低检查矩阵在本轮最终收口中继续执行并以最终聊天摘要为准。

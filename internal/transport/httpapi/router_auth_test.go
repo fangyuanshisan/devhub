@@ -126,6 +126,20 @@ func TestPublicPluginAPIsHideConfig(t *testing.T) {
 	}
 }
 
+func TestAdminPluginReadinessRejectsUserToken(t *testing.T) {
+	router := NewRouter(service.New(store.NewMemoryStore()))
+	token := userToken(t, router, "admin")
+
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/admin/plugins/qa/readiness?action=enable", nil)
+	req.Header.Set("Authorization", "Bearer "+token)
+	w := httptest.NewRecorder()
+	router.ServeHTTP(w, req)
+
+	if w.Code != http.StatusUnauthorized && w.Code != http.StatusForbidden {
+		t.Fatalf("expected 401/403, got %d: %s", w.Code, w.Body.String())
+	}
+}
+
 func TestPluginConfigAuditAndInvalidJSON(t *testing.T) {
 	router := NewRouter(service.New(store.NewMemoryStore()))
 	token := adminToken(t, router)
@@ -221,11 +235,11 @@ func TestPluginMigrationFailureBlocksEnableAndRetryRestores(t *testing.T) {
 	}
 
 	w = do(http.MethodPost, "/api/v1/admin/plugins/qa/enable", "")
-	if w.Code != http.StatusBadRequest || !bytes.Contains(w.Body.Bytes(), []byte("失败迁移")) {
+	if w.Code != http.StatusBadRequest || (!bytes.Contains(w.Body.Bytes(), []byte("失败迁移")) && !bytes.Contains(w.Body.Bytes(), []byte(`"code":"plugin_migration_failed"`))) {
 		t.Fatalf("expected global enable blocked by failed migration, got %d: %s", w.Code, w.Body.String())
 	}
 	w = do(http.MethodPost, "/api/v1/admin/communities/1/plugins/qa/enable", "")
-	if w.Code != http.StatusBadRequest || !bytes.Contains(w.Body.Bytes(), []byte("失败迁移")) {
+	if w.Code != http.StatusBadRequest || (!bytes.Contains(w.Body.Bytes(), []byte("失败迁移")) && !bytes.Contains(w.Body.Bytes(), []byte(`"code":"plugin_migration_failed"`))) {
 		t.Fatalf("expected community enable blocked by failed migration, got %d: %s", w.Code, w.Body.String())
 	}
 

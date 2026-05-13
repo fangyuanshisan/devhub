@@ -111,10 +111,22 @@ func TestSetPluginStatusEnabledChecksMigrationReadiness(t *testing.T) {
 	if err != nil {
 		t.Fatalf("seed failed migration: %v", err)
 	}
-	if _, err := svc.SetPluginStatus("qa", pluginregistry.StatusEnabled); err == nil || !strings.Contains(err.Error(), "失败迁移") {
+	if _, err := svc.SetPluginStatus("qa", pluginregistry.StatusEnabled); err == nil {
+		t.Fatal("expected failed migration to block enable, got nil")
+	} else if apiErr, ok := err.(*domain.APIError); ok {
+		if apiErr.Code != PluginErrMigrationFailed {
+			t.Fatalf("unexpected code: %s", apiErr.Code)
+		}
+	} else if !strings.Contains(err.Error(), "失败迁移") {
 		t.Fatalf("expected failed migration to block enable, got %v", err)
 	}
-	if _, err := svc.SetCommunityPluginStatus(1, "qa", pluginregistry.StatusEnabled); err == nil || !strings.Contains(err.Error(), "失败迁移") {
+	if _, err := svc.SetCommunityPluginStatus(1, "qa", pluginregistry.StatusEnabled); err == nil {
+		t.Fatal("expected failed migration to block community enable, got nil")
+	} else if apiErr, ok := err.(*domain.APIError); ok {
+		if apiErr.Code != PluginErrMigrationFailed {
+			t.Fatalf("unexpected code: %s", apiErr.Code)
+		}
+	} else if !strings.Contains(err.Error(), "失败迁移") {
 		t.Fatalf("expected failed migration to block community enable, got %v", err)
 	}
 }
@@ -168,7 +180,13 @@ func TestPluginArchiveRestoreLifecycle(t *testing.T) {
 	}); err != nil {
 		t.Fatalf("seed failed migration: %v", err)
 	}
-	if _, err := svc.RestorePlugin("qa"); err == nil || !strings.Contains(err.Error(), "失败迁移") {
+	if _, err := svc.RestorePlugin("qa"); err == nil {
+		t.Fatal("expected failed migration to block restore, got nil")
+	} else if apiErr, ok := err.(*domain.APIError); ok {
+		if apiErr.Code != PluginErrMigrationFailed {
+			t.Fatalf("unexpected code: %s", apiErr.Code)
+		}
+	} else if !strings.Contains(err.Error(), "失败迁移") {
 		t.Fatalf("expected failed migration to block restore, got %v", err)
 	}
 }

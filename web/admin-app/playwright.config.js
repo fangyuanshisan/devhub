@@ -7,6 +7,10 @@ export default defineConfig({
   timeout: 45_000,
   expect: { timeout: 8_000 },
   fullyParallel: false,
+  // The backend is a shared in-memory service during docker-runner E2E. Many specs mutate global
+  // plugin/community state (enable/disable/archive) for governance verification, so we keep a
+  // single worker to avoid cross-file state races.
+  workers: 1,
   retries: process.env.CI ? 1 : 0,
   reporter: [['list'], ['html', { open: 'never', outputFolder: 'playwright-report' }]],
   use: {

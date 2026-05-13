@@ -8,10 +8,15 @@
       </button>
     </aside>
 
-    <aside class="sub-nav">
+    <aside v-if="showSubNav" class="sub-nav">
       <div class="edition">DevHub 标准版</div>
       <div class="sub-title">{{ activeGroup.meta?.title || '控制台' }}</div>
-      <button v-for="child in activeChildren" :key="child.key" :class="['sub-item', { active: child.key === activeSub }]" @click="activeSub = child.key">
+      <button
+        v-for="child in activeChildren"
+        :key="child.key"
+        :class="['sub-item', { active: child.key === activeSub }]"
+        @click="handleSubClick(child)"
+      >
         {{ child.label }}
       </button>
     </aside>
@@ -21,8 +26,10 @@
         <div class="header-left">
           <el-icon class="fold-icon"><Fold /></el-icon>
           <span class="route-title">{{ activeGroup.meta?.title }}</span>
-          <span class="slash">/</span>
-          <span>{{ activeSubLabel }}</span>
+          <template v-if="showSubNav && activeSubLabel">
+            <span class="slash">/</span>
+            <span>{{ activeSubLabel }}</span>
+          </template>
         </div>
         <div class="header-actions">
           <el-icon><Refresh /></el-icon>
@@ -81,7 +88,12 @@ const subMenus = {
   moderators: [{ key: 'list', label: '版主列表' }, { key: 'scope', label: '子站授权' }],
   auditLogs: [{ key: 'list', label: '审计列表' }, { key: 'filter', label: '治理筛选' }],
   tags: [{ key: 'list', label: '标签列表' }, { key: 'seo', label: 'SEO 配置' }, { key: 'topics', label: '关联内容' }],
-  plugins: [{ key: 'list', label: '插件列表' }, { key: 'status', label: '状态治理' }],
+  plugins: [
+    { key: 'list', label: '插件列表', path: '/plugins/list' },
+    { key: 'status', label: '状态治理', path: '/plugins/governance' },
+    { key: 'manifest', label: '安装 / 升级', path: '/plugins/manifest' },
+    { key: 'diagnostics', label: '诊断与排障', path: '/plugins/diagnostics' },
+  ],
   qaPlugin: [{ key: 'questions', label: '问题列表' }, { key: 'answers', label: '回答治理' }],
   docsPlugin: [{ key: 'documents', label: '文档列表' }, { key: 'spaces', label: '空间结构' }],
   wikiPlugin: [{ key: 'pages', label: '页面列表' }, { key: 'versions', label: '版本历史' }],
@@ -109,8 +121,15 @@ const visibleMenus = computed(() => menuRoutes.filter((item) => {
   if (item.meta.pluginCode && pluginStatus.value[item.meta.pluginCode] && pluginStatus.value[item.meta.pluginCode] !== 'enabled') return false;
   return !item.meta.permission || auth.can(item.meta.permission);
 }));
-const activeGroup = computed(() => menuRoutes.find((item) => item.path === route.path) || visibleMenus.value[0] || menuRoutes[0]);
-const activeChildren = computed(() => subMenus[activeGroup.value.name] || []);
+const activeGroup = computed(() => {
+  if (route.meta?.subNavGroup) return menuRoutes.find((item) => item.name === 'plugins') || menuRoutes.find((item) => item.path === '/plugins') || visibleMenus.value[0] || menuRoutes[0];
+  return menuRoutes.find((item) => item.path === route.path) || visibleMenus.value[0] || menuRoutes[0];
+});
+const activeChildren = computed(() => {
+  if (route.meta?.subNavGroup) return subMenus[route.meta.subNavGroup] || [];
+  return subMenus[activeGroup.value.name] || [];
+});
+const showSubNav = computed(() => Boolean(activeChildren.value.length));
 const activeSubLabel = computed(() => activeChildren.value.find((item) => item.key === activeSub.value)?.label || activeChildren.value[0]?.label || '');
 const keepAliveNames = computed(() => menuRoutes.filter((item) => item.meta.keepAlive).map((item) => item.name));
 const scopeLabel = computed(() => {
@@ -120,7 +139,12 @@ const scopeLabel = computed(() => {
 
 watch(route, (value) => {
   tabs.add(value);
-  activeSub.value = (subMenus[value.name] || [])[0]?.key || '';
+  const nextChildren = value.meta?.subNavGroup ? (subMenus[value.meta.subNavGroup] || []) : (subMenus[value.name] || []);
+  if (value.meta?.subNavKey) {
+    activeSub.value = value.meta.subNavKey;
+    return;
+  }
+  activeSub.value = nextChildren[0]?.key || '';
 }, { immediate: true });
 watch(quickSearch, (value) => {
   const matched = menuRoutes.find((item) => !item.meta.hiddenInMenu && item.meta.title.includes(value));
@@ -149,5 +173,10 @@ function openTab(tab) {
 async function logout() {
   await auth.logout();
   router.push('/login');
+}
+
+function handleSubClick(child) {
+  activeSub.value = child.key;
+  if (child.path) router.push(child.path);
 }
 </script>

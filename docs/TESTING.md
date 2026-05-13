@@ -2,9 +2,32 @@
 
 [返回文档入口](README.md)
 
-更新时间：2026-05-12
+更新时间：2026-05-13
 
 本文档只记录当前 v1.4.0 必测项和后续补测项。历史版本测试只保留必要回归，不再展开旧版本完整矩阵。
+
+## v1.4.0 收口验收（2026-05-13）
+
+本节记录 v1.4.0 插件平台增强（依赖治理、错误码/Readiness、前台入口治理）合并后的收口验收结果，作为当前仓库“已真实跑过的检查”口径来源。
+
+已执行并通过：
+
+- `gofmt -w $(git ls-files '*.go')`
+- `go test ./...`
+- `go build -o .devhub/devhub .`
+- `git diff --check`
+- `bash -n dev.sh`
+- `bash -n scripts/check-frontend.sh`
+- `docker compose run --rm admin-e2e npm run build`
+- `./scripts/check-frontend.sh --admin-only`（后台 build + Playwright：`33 passed`）
+- `./scripts/check-frontend.sh --frontend-only`（前台 build + Playwright：`17 passed`）
+- SEO curl 回归（在本地 8090 服务可用情况下执行）：
+  - `curl -s http://127.0.0.1:8090/topics/1/ | rg '<title>|description|canonical|<h1|<article|application/ld\\+json'`
+  - `curl -s http://127.0.0.1:8090/c/php/ | rg '<title>|description|canonical|<h1|/topics/|tag-cloud'`
+
+结论：
+
+- Playwright 不再保留 `test.skip` / `test.only`；收口验收未发现长期跳过项。
 
 ## 已实现必测
 
@@ -53,6 +76,7 @@
 - 插件 manifest 结构一致性测试覆盖 `code/name/version/is_system/content_types/permissions/menus/routes/config_schema/min_core_version`。
 - `doc -> document`、`wiki -> wiki_page` 和 `content_type -> plugin_code` 映射测试应通过。
 - 插件配置合并测试覆盖 schema 默认值、全局配置、子站配置和 `effective` 生效值。
+- 插件生成模板：`go run ./cmd/devhub plugin:new ...` 应生成 `manifest.json`、`README.md`、`config.example.json`、`content-type.md`、`permissions.md`、`hooks.md`、`migrations.md` 和 `registry.example.go`；生成的 manifest 必须通过 `PluginManifestValidator`，示例配置必须通过当前简化 `config_schema` 校验。
 
 发布与板块：
 
@@ -177,6 +201,18 @@ curl -s http://127.0.0.1:8090/sitemap.xml | rg '/topics/'
 curl -s http://127.0.0.1:8090/robots.txt
 ```
 
+插件前台入口 / 菜单可见性（v1.4.0-P1-11）：
+
+- 后端：`go test ./...`（至少覆盖 `internal/transport/httpapi/plugin_navigation_test.go` 中的 navigation/create-options/menus preview 鉴权）
+- 后台 E2E：`docker compose run --rm admin-e2e npm run test:e2e -- tests/e2e/plugin-navigation-admin.spec.js`
+- 前台 E2E：`docker compose run --rm frontend-e2e npm run test:e2e -- tests/e2e/plugin-navigation.spec.js`
+- SEO 回归：
+
+```bash
+curl -s http://127.0.0.1:8090/topics/1/ | rg '<title>|description|<h1|<article|article-tags|application/ld\\+json'
+curl -s http://127.0.0.1:8090/c/php/ | rg '<title>|description|canonical|<h1|/topics/|tag-cloud'
+```
+
 ## 后台 E2E Docker Runner
 
 ## 前后台前端统一检查脚本
@@ -233,6 +269,31 @@ docker compose build admin-e2e
 docker compose run --rm admin-e2e npm run build
 docker compose run --rm admin-e2e
 ```
+
+v1.4.0-P1-10 增量用例：
+
+```bash
+docker compose run --rm admin-e2e npm run test:e2e -- tests/e2e/plugin-readiness-errors.spec.js
+```
+
+说明：
+
+- 该用例依赖 `GET /api/v1/admin/plugins/:code/readiness`；如果当前环境仍在运行旧后端二进制且未包含 readiness 路由，会在用例内探测并 `test.skip`（避免把“后端未升级”误判为前端回归）。
+
+本轮 Hook 排障页专项最小回归：
+
+```bash
+docker compose run --rm admin-e2e npm run test:e2e -- tests/e2e/plugin-hooks.spec.js
+```
+
+本轮插件 SDK / 模板专项最小回归：
+
+```bash
+go test ./internal/plugins/scaffold
+go run ./cmd/devhub plugin:new --code smoke_links --name "Smoke Links" --content_type smoke_link --content_name "Smoke Link" --output .devhub/tmp/plugin-template-smoke --with_config --with_hooks --with_migration --force
+```
+
+2026-05-12 执行结果：上述 `go test ./internal/plugins/scaffold` 与 smoke test 均已通过；同时 `gofmt`、`go test ./...`、`go build -o .devhub/devhub .`、`git diff --check`、`bash -n dev.sh` 和 `bash -n scripts/check-frontend.sh` 通过。本轮未修改后台页面或前台 SEO，未执行后台 Docker build / E2E 与 SEO curl。
 
 说明：
 
@@ -680,7 +741,7 @@ done
 - 归档后所有插件、所有子站导航入口的完整浏览器矩阵；当前自动化以 `qa/question` 为代表路径。
 - PluginContent 归档态自动化覆盖批量隐藏 / 恢复，并以置顶 / 取消置顶覆盖新增批量治理最小链路；完整只读策略和权限矩阵仍待补。
 - 外部插件包安装、上传、远程安装、Go 动态加载、第三方沙箱和硬卸载均未实现，不能写成已验收。
-- P2：后台构建存在 Vite chunk size warning，主要来自 `PluginJsonEditor` 等大 chunk；后续可考虑按需加载或手动拆包。
+- P2：后台构建存在 Vite chunk size warning，主要来自 `PluginConfigEditor` 等大 chunk；后续可考虑按需加载或手动拆包。
 
 2026-05-12 归档态专项执行结果：
 
@@ -782,9 +843,9 @@ done
 - 状态治理页：异常插件、迁移待处理、Hook 异常、配置无效、依赖缺失和归档插件入口可读。
 - PluginContent：归档 / 禁用插件历史内容仍可查看，批量隐藏 / 恢复不退化。
 
-最新执行：
+历史执行记录：
 
-- `./scripts/check-frontend.sh --admin-only`：通过，后台 build 通过，后台 E2E `21 passed / 2 skipped`；日志目录 `.devhub/checks/20260512-165116/`。
+- `./scripts/check-frontend.sh --admin-only`：通过，后台 build 通过，后台 E2E `28 passed / 1 skipped`；日志目录 `.devhub/checks/20260512-231335/`。（该 skipped 已在 2026-05-13 的 v1.4.0 收口验收中恢复并通过）
 
 精简原则：
 
@@ -812,3 +873,25 @@ done
 
 - E2E 依赖已启动的 DevHub 服务，默认访问 `http://host.docker.internal:8090`。
 - E2E 前需要先用 `admin-e2e` 构建后台静态产物；不要和 E2E 并行写 `web/admin-vue`，否则可能读到短暂不完整的静态资源。
+
+## v1.4.0-P1-07 依赖检查与版本兼容矩阵验收
+
+已覆盖能力：
+
+- 后端单测覆盖无依赖、required 依赖满足 / 缺失 / disabled / archived / migration_failed / config_invalid、optional 缺失 warning、版本满足 / version_mismatch、自依赖、两节点 / 三节点循环、Core 兼容、upgrade dependency diff、upgrade required 新依赖阻断和 enable 时重新检查依赖。
+- 后台 Playwright 新增 `web/admin-app/tests/e2e/plugin-dependencies.spec.js`，覆盖安装向导依赖矩阵、required 缺失、optional 缺失、Core 不兼容、升级向导新增 required 依赖阻断、插件详情 Dependencies 区域和依赖插件定位入口。
+- 后台安装 / 升级向导展示 `dependency_summary`、逐项 `dependencies`、Core `compatibility` 和 `dependency_diff`；后端仍负责最终阻断，不依赖前端判断。
+
+本轮执行记录：
+
+- `gofmt -w internal/plugins/scaffold/scaffold.go internal/plugins/manifest_validator.go internal/plugins/version_compat.go internal/plugins/version_compat_test.go internal/service/service.go internal/service/plugin_dependencies_test.go internal/domain/models.go internal/transport/httpapi/router.go`：通过。
+- `go test ./internal/plugins ./internal/plugins/scaffold ./internal/service ./internal/transport/httpapi`：通过。
+- `docker compose run --rm admin-e2e npm run build`：通过；Vite 仍有既有大 chunk warning。
+- `docker compose run --rm admin-e2e npm run test:e2e -- tests/e2e/plugin-dependencies.spec.js`：首次因后端服务仍为旧进程、UI 未拿到新依赖结构失败；使用当前代码重启 DevHub 后复跑通过，`2 passed`。
+- `./scripts/check-frontend.sh --admin-only`：最终通过，后台 build 通过，后台 E2E `30 passed / 1 skipped`；日志目录 `.devhub/checks/20260513-003728/`。（该 skipped 已在 2026-05-13 的 v1.4.0 收口验收中恢复并通过）
+
+仍遗留：
+
+- 不支持自动安装依赖、远程下载依赖、插件市场推荐或依赖图大屏。
+- 不支持 npm 风格 `^`、`~`、`||`、预发布标签等复杂版本约束。
+- optional 循环依赖当前按 error 阻断，后续如要放宽需同步后端、UI 和文档。

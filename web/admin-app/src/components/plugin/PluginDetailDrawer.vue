@@ -106,6 +106,81 @@
           </el-descriptions>
         </el-tab-pane>
 
+        <el-tab-pane :label="t('plugin.tabs.readiness')" name="readiness">
+          <div class="sub-toolbar">
+            <el-tag :type="readinessTagType(readinessResult?.status)" effect="plain">
+              {{ t('plugin.readiness.overall') }}：{{ readinessStatusLabel(readinessResult?.status) }}
+            </el-tag>
+            <el-button size="small" :loading="readinessLoading" data-testid="plugin-readiness-refresh" @click="loadReadiness">{{ t('common.refresh') }}</el-button>
+          </div>
+          <el-alert type="info" show-icon :closable="false" class="mb" :title="t('plugin.readiness.tip')" />
+          <el-table v-loading="readinessLoading" :data="readinessResult?.checks || []" border stripe data-testid="plugin-readiness-table">
+            <el-table-column prop="title" :label="t('field.name')" min-width="220" />
+            <el-table-column :label="t('field.status')" width="120">
+              <template #default="{ row }">
+                <el-tag :type="readinessTagType(row.status)" effect="plain">{{ readinessStatusLabel(row.status) }}</el-tag>
+              </template>
+            </el-table-column>
+            <el-table-column prop="code" :label="t('plugin.ops.errorCode')" width="220">
+              <template #default="{ row }"><span class="mono">{{ row.code || '-' }}</span></template>
+            </el-table-column>
+            <el-table-column prop="reason" :label="t('plugin.readiness.reason')" min-width="240" />
+            <el-table-column prop="suggestion" :label="t('plugin.readiness.suggestion')" min-width="260" />
+            <el-table-column :label="t('plugin.action')" width="120">
+              <template #default="{ row }">
+                <el-button v-if="row.dependency_code" link type="primary" @click="emit('open-plugin', row.dependency_code)">{{ t('plugin.dependencies.openPlugin') }}</el-button>
+              </template>
+            </el-table-column>
+          </el-table>
+        </el-tab-pane>
+
+        <el-tab-pane :label="t('plugin.tabs.dependencies')" name="dependencies">
+          <el-alert
+            type="info"
+            show-icon
+            :closable="false"
+            class="mb"
+            :title="t('plugin.dependencies.detailTip')"
+          />
+          <div class="sub-toolbar">
+            <el-tag type="info" effect="plain">{{ t('common.total') }} {{ dependencyRows.length }}</el-tag>
+            <el-tag type="danger" effect="plain">{{ t('plugin.dependencies.requiredDep') }} {{ dependencyRows.filter((row) => row.required).length }}</el-tag>
+            <el-tag type="warning" effect="plain">{{ t('plugin.dependencies.optionalDep') }} {{ dependencyRows.filter((row) => !row.required).length }}</el-tag>
+            <el-tag :type="metricType(plugin.health?.dependency_status)" effect="plain">
+              {{ t('plugin.runtime.dependencyStatus') }}：{{ pluginHealthLabel(plugin.health?.dependency_status) }}
+            </el-tag>
+          </div>
+          <el-table :data="dependencyRows" border stripe :empty-text="`暂无${t('plugin.tabs.dependencies')}`" data-testid="plugin-dependencies-table">
+            <el-table-column prop="code" :label="t('plugin.code')" min-width="160">
+              <template #default="{ row }">
+                <span class="mono">{{ row.code }}</span>
+              </template>
+            </el-table-column>
+            <el-table-column prop="pluginName" :label="t('field.name')" min-width="160" />
+            <el-table-column prop="currentVersion" :label="t('plugin.dependencies.currentVersion')" width="130" />
+            <el-table-column prop="version" :label="t('plugin.dependencies.requiredVersion')" width="150" />
+            <el-table-column :label="t('plugin.dependencies.required')" width="110">
+              <template #default="{ row }">
+                <el-tag :type="row.required ? 'danger' : 'warning'" effect="plain">
+                  {{ row.required ? t('plugin.dependencies.requiredDep') : t('plugin.dependencies.optionalDep') }}
+                </el-tag>
+              </template>
+            </el-table-column>
+            <el-table-column :label="t('plugin.status')" width="150">
+              <template #default="{ row }">
+                <el-tag :type="dependencyStatusType(row.status, row.satisfied)" effect="plain">{{ dependencyStatusLabel(row.status) }}</el-tag>
+              </template>
+            </el-table-column>
+            <el-table-column prop="reason" :label="t('plugin.dependencies.reason')" min-width="220" />
+            <el-table-column prop="message" :label="t('plugin.dependencies.message')" min-width="220" />
+            <el-table-column :label="t('plugin.action')" width="140" fixed="right">
+              <template #default="{ row }">
+                <el-button link type="primary" :disabled="!row.code" @click="emit('open-plugin', row.code)">{{ t('plugin.dependencies.openPlugin') }}</el-button>
+              </template>
+            </el-table-column>
+          </el-table>
+        </el-tab-pane>
+
         <el-tab-pane :label="t('plugin.tabs.contentTypes')" name="contentTypes">
           <el-table :data="plugin.content_type_definitions || []" border stripe :empty-text="`暂无${t('plugin.tabs.contentTypes')}`">
             <el-table-column prop="type" :label="t('field.type')" width="140" />
@@ -129,22 +204,55 @@
         <el-tab-pane :label="t('plugin.tabs.permissions')" name="permissions">
           <div class="sub-toolbar">
             <el-input v-model="permQ" :placeholder="t('plugin.permissionsSearchPlaceholder')" clearable style="max-width: 320px" />
+            <el-checkbox v-model="permOnlyMissing" class="ml">{{ t('plugin.permissionsOnlyMissing') }}</el-checkbox>
+            <el-checkbox v-model="permOnlyHighRisk" class="ml">{{ t('plugin.permissionsOnlyHighRisk') }}</el-checkbox>
           </div>
-          <el-table :data="filteredPermissions" border stripe :empty-text="`暂无${t('plugin.tabs.permissions')}`">
+          <el-table :data="filteredPermissions" border stripe :empty-text="`暂无${t('plugin.tabs.permissions')}`" :row-class-name="permissionRowClass">
             <el-table-column prop="code" :label="t('field.code')" min-width="240">
               <template #default="{ row }">
                 <div class="mono">{{ row.code }}</div>
               </template>
             </el-table-column>
             <el-table-column prop="name" :label="t('field.name')" min-width="160" />
+            <el-table-column prop="plugin_code" :label="t('field.plugin_code')" width="120" />
             <el-table-column prop="scope" :label="t('field.scope')" width="150" />
+            <el-table-column :label="t('plugin.permissionsOpType')" width="130">
+              <template #default="{ row }">
+                <el-tag size="small" effect="plain" :type="row._opTypeTag">{{ row._opTypeLabel }}</el-tag>
+              </template>
+            </el-table-column>
+            <el-table-column :label="t('plugin.permissionsOwned')" width="160">
+              <template #default="{ row }">
+                <el-tag size="small" effect="plain" :type="row._hasPermission ? 'success' : 'danger'">
+                  {{ row._hasPermission ? t('common.yes') : t('common.no') }}
+                </el-tag>
+                <el-tag v-if="row._highRisk" size="small" effect="plain" type="warning" class="ml">{{ t('plugin.permissionsHighRisk') }}</el-tag>
+              </template>
+            </el-table-column>
             <el-table-column prop="description" :label="t('field.description')" min-width="220" />
-            <el-table-column :label="t('plugin.action')" width="90">
+            <el-table-column :label="t('plugin.action')" width="140" fixed="right">
               <template #default="{ row }">
                 <el-button link type="primary" @click="copyText(row.code)">{{ t('common.copy') }}</el-button>
+                <el-button link type="primary" @click="openPermissionRefs(row)">{{ t('plugin.permissionsRefs') }}</el-button>
               </template>
             </el-table-column>
           </el-table>
+
+          <el-dialog v-model="permissionRefsDialog" :title="t('plugin.permissionsRefsTitle')" width="720px">
+            <div v-if="selectedPermission" class="mb">
+              <div class="mono">{{ selectedPermission.code }}</div>
+              <div class="muted">{{ selectedPermission.name || '-' }}</div>
+            </div>
+            <el-alert v-if="selectedPermission && !selectedPermission._hasPermission" type="warning" show-icon :closable="false" class="mb" :title="t('plugin.permissionsMissingImpactTip')" />
+            <el-table :data="selectedPermissionRefs" border stripe :empty-text="t('plugin.permissionsNoRefs')">
+              <el-table-column prop="type" :label="t('field.type')" width="130" />
+              <el-table-column prop="title" :label="t('field.name')" min-width="220" />
+              <el-table-column prop="path" :label="t('field.path')" min-width="260" />
+            </el-table>
+            <template #footer>
+              <el-button @click="permissionRefsDialog = false">{{ t('common.close') }}</el-button>
+            </template>
+          </el-dialog>
         </el-tab-pane>
 
         <el-tab-pane :label="t('plugin.tabs.menus')" name="menus">
@@ -162,6 +270,48 @@
             <el-table-column prop="permission" :label="t('field.permission')" min-width="200" />
             <el-table-column prop="sort_order" :label="t('field.sort_order')" width="120" />
           </el-table>
+
+          <section class="mt" data-testid="plugin-frontend-menus-preview">
+            <div class="sub-toolbar">
+              <strong>{{ t('plugin.menuPreviewTitle') }}</strong>
+              <el-button size="small" :loading="menuPreviewLoading" data-testid="plugin-menu-preview-refresh" @click="loadMenuPreview">{{ t('plugin.menuPreviewRefresh') }}</el-button>
+            </div>
+            <el-alert type="info" show-icon :closable="false" class="mb" :title="t('plugin.menuPreviewTip')" />
+            <div class="sub-toolbar">
+              <el-input v-model="menuPreviewParams.community_slug" :placeholder="t('plugin.menuPreviewCommunity')" clearable style="max-width: 240px" />
+              <el-input v-model="menuPreviewParams.category_id" :placeholder="t('plugin.menuPreviewCategory')" clearable style="max-width: 200px" class="ml" />
+            </div>
+            <el-table v-loading="menuPreviewLoading" :data="menuPreviewRows" border stripe :empty-text="t('common.none')">
+              <el-table-column prop="code" :label="t('field.code')" width="180">
+                <template #default="{ row }"><span class="mono">{{ row.code || '-' }}</span></template>
+              </el-table-column>
+              <el-table-column prop="location" :label="t('plugin.menuPreviewLocation')" width="150" />
+              <el-table-column prop="title" :label="t('field.title')" min-width="180" />
+              <el-table-column prop="route" :label="t('plugin.menuPreviewRoute')" min-width="220">
+                <template #default="{ row }"><span class="mono">{{ row.route || '-' }}</span></template>
+              </el-table-column>
+              <el-table-column prop="content_type" :label="t('plugin.contentType')" width="140">
+                <template #default="{ row }"><span class="mono">{{ row.content_type || '-' }}</span></template>
+              </el-table-column>
+              <el-table-column prop="required_permission" :label="t('field.permission')" min-width="200">
+                <template #default="{ row }"><span class="mono">{{ row.required_permission || '-' }}</span></template>
+              </el-table-column>
+              <el-table-column :label="t('plugin.menuPreviewVisible')" width="110">
+                <template #default="{ row }">
+                  <el-tag :type="row.visible ? 'success' : 'danger'" effect="plain">{{ row.visible ? t('common.yes') : t('common.no') }}</el-tag>
+                </template>
+              </el-table-column>
+              <el-table-column :label="t('plugin.menuPreviewReason')" min-width="220">
+                <template #default="{ row }">
+                  <div v-if="!row.visible">
+                    <div class="muted">{{ row.reason || '-' }}</div>
+                    <div v-if="row.reason_code" class="mono">{{ row.reason_code }}</div>
+                  </div>
+                  <span v-else class="muted">-</span>
+                </template>
+              </el-table-column>
+            </el-table>
+          </section>
         </el-tab-pane>
 
         <el-tab-pane :label="t('plugin.tabs.config')" name="config">
@@ -197,17 +347,18 @@
                 <el-button size="small" type="primary" data-testid="plugin-global-config-save" :disabled="schemaErrors.length > 0" @click="saveConfig">{{ t('common.save') }}</el-button>
               </div>
             </div>
-            <PluginJsonEditor
+            <PluginConfigEditor
               v-model="editableConfig"
               :schema="plugin.config_schema || null"
-              :original-value="jsonValue(plugin.config_json)"
-              :resolved-config="plugin.resolved_config?.effective || plugin.resolved_config || {}"
+              :default-config="plugin.resolved_config?.default || {}"
+              :original-config="jsonValue(plugin.config_json)"
+              :effective-config="plugin.resolved_config?.effective || plugin.resolved_config || {}"
               @schema-errors="onSchemaErrors"
             >
               <template #title>
                 <strong>{{ t('plugin.config.globalConfig') }}</strong>
               </template>
-            </PluginJsonEditor>
+            </PluginConfigEditor>
           </section>
         </el-tab-pane>
 
@@ -256,12 +407,20 @@
             <el-table-column prop="failure_policy" :label="t('plugin.hook.failurePolicy')" width="140" />
             <el-table-column prop="description" :label="t('field.description')" min-width="240" />
           </el-table>
-          <el-divider>{{ t('plugin.hook.recentExecutions') }}</el-divider>
-          <el-table :data="hookRecent" border stripe :empty-text="`暂无${t('plugin.hook.recentExecutions')}`">
+          <div class="hook-exec-head">
+            <el-divider content-position="left">{{ t('plugin.hook.recentExecutions') }}</el-divider>
+            <el-button size="small" @click="openHookExecutions()">{{ t('plugin.hook.viewAllExecutions') }}</el-button>
+          </div>
+          <el-table :data="hookRecent" border stripe :empty-text="`暂无${t('plugin.hook.recentExecutions')}`" data-testid="hook-recent-table">
             <el-table-column prop="finished_at" :label="t('plugin.audit.time')" width="170" />
             <el-table-column prop="hook_name" :label="t('plugin.tabs.hooks')" min-width="180" />
             <el-table-column prop="mode" :label="t('plugin.hook.mode')" width="120">
               <template #default="{ row }">{{ row.mode === 'blocking' ? t('plugin.hook.blocking') : t('plugin.hook.nonBlocking') }}</template>
+            </el-table-column>
+            <el-table-column prop="blocking" :label="t('plugin.hook.blockingFlag')" width="110">
+              <template #default="{ row }">
+                <el-tag :type="row.blocking ? 'danger' : 'info'" effect="plain">{{ row.blocking ? t('plugin.hook.blocking') : t('plugin.hook.nonBlocking') }}</el-tag>
+              </template>
             </el-table-column>
             <el-table-column :label="t('plugin.hook.result')" width="90">
               <template #default="{ row }">
@@ -273,7 +432,144 @@
             <el-table-column prop="community_id" :label="t('field.community_id')" width="130" />
             <el-table-column prop="duration_ms" :label="t('plugin.hook.durationMs')" width="100" />
             <el-table-column prop="error_message" :label="t('plugin.hook.error')" min-width="220" />
+            <el-table-column :label="t('field.action')" width="120" fixed="right">
+              <template #default="{ row }">
+                <el-button link type="primary" @click="openHookExecutionDetail(row)">{{ t('common.detail') }}</el-button>
+              </template>
+            </el-table-column>
           </el-table>
+
+          <el-drawer v-model="hookExecDrawer" :title="t('plugin.hook.executionsTitle')" size="920px" data-testid="hook-executions-drawer">
+            <div class="hook-exec-filter">
+              <el-form :inline="true">
+                <el-form-item :label="t('plugin.hook.hookName')">
+                  <el-select v-model="hookExecFilters.hook_name" clearable filterable style="width: 220px" data-testid="hook-exec-filter-hook">
+                    <el-option v-for="name in allHookNames" :key="name" :label="name" :value="name" />
+                  </el-select>
+                </el-form-item>
+                <el-form-item :label="t('plugin.hook.mode')">
+                  <el-select v-model="hookExecFilters.mode" clearable style="width: 160px" data-testid="hook-exec-filter-mode">
+                    <el-option label="blocking" value="blocking" />
+                    <el-option label="non_blocking" value="non_blocking" />
+                  </el-select>
+                </el-form-item>
+                <el-form-item :label="t('plugin.hook.success')">
+                  <el-select v-model="hookExecFilters.success" style="width: 140px" data-testid="hook-exec-filter-success">
+                    <el-option :label="t('common.all')" value="all" />
+                    <el-option :label="pluginHealthLabel('success')" value="true" />
+                    <el-option :label="pluginHealthLabel('failed')" value="false" />
+                  </el-select>
+                </el-form-item>
+                <el-form-item :label="t('plugin.hook.blockingFlag')">
+                  <el-select v-model="hookExecFilters.blocking" style="width: 140px" data-testid="hook-exec-filter-blocking">
+                    <el-option :label="t('common.all')" value="all" />
+                    <el-option :label="t('plugin.hook.blocking')" value="true" />
+                    <el-option :label="t('plugin.hook.nonBlocking')" value="false" />
+                  </el-select>
+                </el-form-item>
+                <el-form-item :label="t('plugin.contentType')">
+                  <el-input v-model="hookExecFilters.content_type" clearable style="width: 140px" data-testid="hook-exec-filter-content-type" />
+                </el-form-item>
+                <el-form-item :label="t('plugin.hook.contentId')">
+                  <el-input v-model="hookExecFilters.content_id" clearable style="width: 120px" data-testid="hook-exec-filter-content-id" />
+                </el-form-item>
+                <el-form-item :label="t('field.community_id')">
+                  <el-input v-model="hookExecFilters.community_id" clearable style="width: 120px" data-testid="hook-exec-filter-community-id" />
+                </el-form-item>
+                <el-form-item :label="t('plugin.hook.actorType')">
+                  <el-input v-model="hookExecFilters.actor_type" clearable style="width: 140px" data-testid="hook-exec-filter-actor-type" />
+                </el-form-item>
+                <el-form-item :label="t('plugin.hook.actorId')">
+                  <el-input v-model="hookExecFilters.actor_id" clearable style="width: 120px" data-testid="hook-exec-filter-actor-id" />
+                </el-form-item>
+                <el-form-item :label="t('plugin.audit.timeRange')">
+                  <el-date-picker v-model="hookExecFilters.range" type="datetimerange" value-format="YYYY-MM-DD HH:mm:ss" range-separator="-" start-placeholder="start" end-placeholder="end" />
+                </el-form-item>
+                <el-form-item>
+                  <el-button type="primary" @click="loadHookExecutions(true)">{{ t('common.query') }}</el-button>
+                  <el-button @click="resetHookExecutionsFilters">{{ t('common.reset') }}</el-button>
+                </el-form-item>
+              </el-form>
+            </div>
+
+            <el-table v-loading="hookExecLoading" :data="hookExecRows" border stripe data-testid="hook-executions-table">
+              <el-table-column prop="id" label="ID" width="90" />
+              <el-table-column prop="finished_at" :label="t('plugin.audit.time')" width="170" />
+              <el-table-column prop="hook_name" :label="t('plugin.hook.hookName')" min-width="180" />
+              <el-table-column prop="mode" :label="t('plugin.hook.mode')" width="140" />
+              <el-table-column prop="blocking" :label="t('plugin.hook.blockingFlag')" width="110">
+                <template #default="{ row }">
+                  <el-tag :type="row.blocking ? 'danger' : 'info'" effect="plain">{{ row.blocking ? t('plugin.hook.blocking') : t('plugin.hook.nonBlocking') }}</el-tag>
+                </template>
+              </el-table-column>
+              <el-table-column :label="t('plugin.hook.result')" width="100">
+                <template #default="{ row }">
+                  <el-tag :type="row.success ? 'success' : 'danger'">{{ row.success ? pluginHealthLabel('success') : pluginHealthLabel('failed') }}</el-tag>
+                </template>
+              </el-table-column>
+              <el-table-column prop="duration_ms" :label="t('plugin.hook.durationMs')" width="110" />
+              <el-table-column prop="content_type" :label="t('plugin.contentType')" width="140" />
+              <el-table-column prop="content_id" :label="t('plugin.hook.contentId')" width="120" />
+              <el-table-column prop="community_id" :label="t('field.community_id')" width="130" />
+              <el-table-column prop="actor_type" :label="t('plugin.hook.actorType')" width="140" />
+              <el-table-column prop="actor_id" :label="t('plugin.hook.actorId')" width="120" />
+              <el-table-column prop="error_message" :label="t('plugin.hook.error')" min-width="220" />
+              <el-table-column :label="t('field.action')" width="120" fixed="right">
+                <template #default="{ row }">
+                  <el-button link type="primary" @click="openHookExecutionDetail(row)">{{ t('common.detail') }}</el-button>
+                </template>
+              </el-table-column>
+            </el-table>
+
+            <div class="pager">
+              <el-pagination
+                background
+                layout="total, prev, pager, next, sizes"
+                :total="hookExecTotal"
+                :page-size="hookExecFilters.pageSize"
+                :current-page="hookExecFilters.page"
+                @update:current-page="(p) => { hookExecFilters.page = p; loadHookExecutions(false); }"
+                @update:page-size="(s) => { hookExecFilters.pageSize = s; hookExecFilters.page = 1; loadHookExecutions(false); }"
+              />
+            </div>
+          </el-drawer>
+
+          <el-drawer v-model="hookDrawer" :title="t('plugin.hook.executionDetailTitle')" size="720px" data-testid="hook-execution-detail-drawer">
+            <template v-if="hookExecTarget">
+              <el-descriptions :column="2" border>
+                <el-descriptions-item label="ID">{{ hookExecTarget.id }}</el-descriptions-item>
+                <el-descriptions-item :label="t('plugin.hook.hookName')">{{ hookExecTarget.hook_name }}</el-descriptions-item>
+                <el-descriptions-item :label="t('field.plugin_code')">{{ hookExecTarget.plugin_code }}</el-descriptions-item>
+                <el-descriptions-item :label="t('plugin.hook.mode')">{{ hookExecTarget.mode }}</el-descriptions-item>
+                <el-descriptions-item :label="t('plugin.hook.blockingFlag')">
+                  <el-tag :type="hookExecTarget.blocking ? 'danger' : 'info'" effect="plain">{{ hookExecTarget.blocking ? t('plugin.hook.blocking') : t('plugin.hook.nonBlocking') }}</el-tag>
+                </el-descriptions-item>
+                <el-descriptions-item :label="t('plugin.hook.result')">
+                  <el-tag :type="hookExecTarget.success ? 'success' : 'danger'">{{ hookExecTarget.success ? pluginHealthLabel('success') : pluginHealthLabel('failed') }}</el-tag>
+                </el-descriptions-item>
+                <el-descriptions-item :label="t('plugin.hook.durationMs')">{{ hookExecTarget.duration_ms }}ms</el-descriptions-item>
+                <el-descriptions-item :label="t('plugin.audit.time')">{{ hookExecTarget.finished_at || hookExecTarget.started_at }}</el-descriptions-item>
+                <el-descriptions-item :label="t('plugin.contentType')">{{ hookExecTarget.content_type || '-' }}</el-descriptions-item>
+                <el-descriptions-item :label="t('plugin.hook.contentId')">{{ hookExecTarget.content_id || 0 }}</el-descriptions-item>
+                <el-descriptions-item :label="t('field.community_id')">{{ hookExecTarget.community_id || 0 }}</el-descriptions-item>
+                <el-descriptions-item :label="t('field.category_id')">{{ hookExecTarget.category_id || 0 }}</el-descriptions-item>
+                <el-descriptions-item :label="t('plugin.hook.actorType')">{{ hookExecTarget.actor_type || '-' }}</el-descriptions-item>
+                <el-descriptions-item :label="t('plugin.hook.actorId')">{{ hookExecTarget.actor_id || 0 }}</el-descriptions-item>
+                <el-descriptions-item :label="t('plugin.audit.requestId')" :span="2">{{ hookExecTarget.request_id || '-' }}</el-descriptions-item>
+                <el-descriptions-item :label="t('plugin.hook.error')" :span="2">
+                  <pre class="mono pre">{{ hookExecTarget.error_message || '-' }}</pre>
+                </el-descriptions-item>
+                <el-descriptions-item :label="t('plugin.hook.metadata')" :span="2">
+                  <pre class="mono pre">{{ formatJSON(jsonValue(hookExecTarget.metadata_json)) }}</pre>
+                </el-descriptions-item>
+              </el-descriptions>
+
+              <div class="detail-actions">
+                <el-button v-if="hookExecTarget.content_id" @click="openPluginContent(hookExecTarget)">{{ t('plugin.hook.openPluginContent') }}</el-button>
+                <el-button @click="openHookAudit(hookExecTarget)">{{ t('plugin.hook.openAuditLogs') }}</el-button>
+              </div>
+            </template>
+          </el-drawer>
         </el-tab-pane>
 
         <el-tab-pane :label="t('plugin.tabs.migrations')" name="migrations">
@@ -425,17 +721,22 @@
 <script setup>
 import { computed, reactive, ref, watch } from 'vue';
 import { ElMessage } from 'element-plus';
-import PluginJsonEditor from './PluginJsonEditor.vue';
-import { pluginAuditLogs, pluginHooks, pluginMigrations, retryPluginMigration, runPluginMigrations, updatePluginConfig } from '@/api/admin';
+import PluginConfigEditor from './PluginConfigEditor.vue';
+import { pluginAuditLogs, pluginHookExecutions, pluginHooks, pluginMenusPreview, pluginMigrations, pluginReadiness, retryPluginMigration, runPluginMigrations, updatePluginConfig } from '@/api/admin';
 import { t } from '@/i18n';
 import { auditActionLabel, migrationStatusLabel, pluginHealthLabel, pluginStatusLabel } from '@/i18n/formatters';
+import { useRouter } from 'vue-router';
+import { useAuthStore } from '@/stores/auth';
 
 const props = defineProps({
   modelValue: { type: Boolean, required: true },
   plugin: { type: Object, default: null },
+  plugins: { type: Array, default: () => [] },
   initialTab: { type: String, default: 'overview' },
 });
-const emit = defineEmits(['update:modelValue', 'refresh']);
+const emit = defineEmits(['update:modelValue', 'refresh', 'open-plugin']);
+const router = useRouter();
+const auth = useAuthStore();
 
 const visible = computed({
   get: () => props.modelValue,
@@ -451,6 +752,11 @@ watch(
 
 const tab = ref('overview');
 const permQ = ref('');
+const permOnlyMissing = ref(false);
+const permOnlyHighRisk = ref(false);
+const permissionRefsDialog = ref(false);
+const selectedPermission = ref(null);
+const selectedPermissionRefs = ref([]);
 const schemaErrors = ref([]);
 const configPanels = ref([]);
 const editableConfig = ref({});
@@ -472,6 +778,34 @@ const auditQ = reactive({
 const hooksLoading = ref(false);
 const hookStats = ref([]);
 const hookRecent = ref([]);
+const hookExecLoading = ref(false);
+const hookExecRows = ref([]);
+const hookExecTotal = ref(0);
+const hookExecDrawer = ref(false);
+const hookExecTarget = ref(null);
+const hookDrawer = ref(false);
+const readinessLoading = ref(false);
+const readinessResult = ref(null);
+const menuPreviewLoading = ref(false);
+const menuPreviewRows = ref([]);
+const menuPreviewParams = reactive({
+  community_slug: '',
+  category_id: '',
+});
+const hookExecFilters = reactive({
+  hook_name: '',
+  mode: '',
+  success: 'all',
+  blocking: 'all',
+  content_type: '',
+  content_id: '',
+  community_id: '',
+  actor_type: '',
+  actor_id: '',
+  range: [],
+  page: 1,
+  pageSize: 20,
+});
 const migrationsLoading = ref(false);
 const migrationRows = ref([]);
 const migrationSummary = ref({});
@@ -502,6 +836,7 @@ watch(
     hookRecent.value = [];
     migrationRows.value = [];
     migrationSummary.value = {};
+    readinessResult.value = null;
     if (visible.value && tab.value === 'hooks') loadHooks();
     if (visible.value && tab.value === 'migrations') loadMigrations();
   },
@@ -517,6 +852,7 @@ watch(
     if (t === 'audit') loadAudit();
     if (t === 'hooks') loadHooks();
     if (t === 'migrations') loadMigrations();
+    if (t === 'readiness') loadReadiness();
   },
 );
 
@@ -525,13 +861,127 @@ watch(tab, (t) => {
   if (t === 'audit') loadAudit();
   if (t === 'hooks') loadHooks();
   if (t === 'migrations') loadMigrations();
+  if (t === 'readiness') loadReadiness();
+  if (t === 'menus') loadMenuPreview();
 });
+
+function readinessTagType(status) {
+  if (status === 'pass') return 'success';
+  if (status === 'warning') return 'warning';
+  if (status === 'blocked') return 'danger';
+  return 'info';
+}
+
+function readinessStatusLabel(status) {
+  if (status === 'pass') return t('plugin.readiness.pass');
+  if (status === 'warning') return t('plugin.readiness.warning');
+  if (status === 'blocked') return t('plugin.readiness.blocked');
+  return status || '-';
+}
+
+async function loadReadiness() {
+  const p = props.plugin;
+  if (!p || !p.code) return;
+  readinessLoading.value = true;
+  try {
+    readinessResult.value = await pluginReadiness(p.code, { action: 'enable' });
+  } catch (e) {
+    readinessResult.value = null;
+    ElMessage.warning(String(e?.message || e || t('plugin.readiness.unavailable')));
+  } finally {
+    readinessLoading.value = false;
+  }
+}
+
+async function loadMenuPreview() {
+  const p = props.plugin;
+  if (!p || !p.code) return;
+  menuPreviewLoading.value = true;
+  try {
+    const params = {};
+    if (String(menuPreviewParams.community_slug || '').trim()) params.community_slug = String(menuPreviewParams.community_slug || '').trim();
+    if (String(menuPreviewParams.category_id || '').trim()) params.category_id = String(menuPreviewParams.category_id || '').trim();
+    const data = await pluginMenusPreview(p.code, params);
+    menuPreviewRows.value = Array.isArray(data.items) ? data.items : [];
+  } catch (e) {
+    menuPreviewRows.value = [];
+  } finally {
+    menuPreviewLoading.value = false;
+  }
+}
+
+function permissionOpMeta(code) {
+  const c = String(code || '');
+  const ops = [
+    { suffix: '.read', label: t('op.read'), tag: 'info', highRisk: false },
+    { suffix: '.create', label: t('op.create'), tag: 'success', highRisk: false },
+    { suffix: '.edit', label: t('op.edit'), tag: 'warning', highRisk: false },
+    { suffix: '.update', label: t('op.edit'), tag: 'warning', highRisk: false },
+    { suffix: '.delete', label: t('op.delete'), tag: 'danger', highRisk: true },
+    { suffix: '.audit', label: t('op.audit'), tag: 'warning', highRisk: true },
+    { suffix: '.manage', label: t('op.manage'), tag: 'danger', highRisk: true },
+    { suffix: '.configure', label: t('op.configure'), tag: 'warning', highRisk: true },
+    { suffix: '.write', label: t('op.manage'), tag: 'danger', highRisk: true },
+  ];
+  for (const item of ops) {
+    if (c.endsWith(item.suffix)) return item;
+  }
+  return { label: t('op.unknown'), tag: 'info', highRisk: false };
+}
+
+function buildPermissionRefs(plugin) {
+  const refs = new Map();
+  const push = (permission, item) => {
+    if (!permission) return;
+    const key = String(permission);
+    if (!refs.has(key)) refs.set(key, []);
+    refs.get(key).push(item);
+  };
+  (plugin?.menus || []).forEach((m) => {
+    push(m.permission, { type: 'menu', title: m.title || '-', path: m.path || '-' });
+  });
+  (plugin?.routes || []).forEach((r) => {
+    push(r.permission, { type: 'route', title: `${r.method || ''} ${r.path || '-'}`.trim(), path: r.path || '-' });
+  });
+  (plugin?.content_type_definitions || []).forEach((ct) => {
+    push(ct.create_permission, { type: 'content_type', title: `${ct.type} ${t('op.create')}`, path: '-' });
+    push(ct.edit_permission, { type: 'content_type', title: `${ct.type} ${t('op.edit')}`, path: '-' });
+    push(ct.delete_permission, { type: 'content_type', title: `${ct.type} ${t('op.delete')}`, path: '-' });
+    push(ct.audit_permission, { type: 'content_type', title: `${ct.type} ${t('op.audit')}`, path: '-' });
+  });
+  return refs;
+}
+
+function permissionRowClass({ row }) {
+  if (row?._highRisk && !row?._hasPermission) return 'row-warn';
+  if (!row?._hasPermission) return 'row-danger';
+  if (row?._highRisk) return 'row-warn';
+  return '';
+}
+
+function openPermissionRefs(row) {
+  const refs = buildPermissionRefs(props.plugin);
+  selectedPermission.value = row;
+  selectedPermissionRefs.value = refs.get(row.code) || [];
+  permissionRefsDialog.value = true;
+}
 
 const filteredPermissions = computed(() => {
   const q = (permQ.value || '').trim().toLowerCase();
-  const list = props.plugin?.permissions || [];
-  if (!q) return list;
-  return list.filter((p) => (p.code || '').toLowerCase().includes(q) || (p.name || '').toLowerCase().includes(q));
+  const list = (props.plugin?.permissions || []).map((p) => {
+    const meta = permissionOpMeta(p.code);
+    return {
+      ...p,
+      _hasPermission: auth.can(p.code),
+      _opTypeLabel: meta.label,
+      _opTypeTag: meta.tag,
+      _highRisk: meta.highRisk,
+    };
+  });
+  return list
+    .filter((p) => (!q ? true : (p.code || '').toLowerCase().includes(q) || (p.name || '').toLowerCase().includes(q)))
+    .filter((p) => (permOnlyMissing.value ? !p._hasPermission : true))
+    .filter((p) => (permOnlyHighRisk.value ? p._highRisk : true));
 });
 
 const allHookNames = [
@@ -593,6 +1043,41 @@ const hooksRows = computed(() => {
   });
 });
 
+const dependencyRows = computed(() => {
+  if (Array.isArray(props.plugin?.dependency_checks) && props.plugin.dependency_checks.length) {
+    return props.plugin.dependency_checks.map((row) => ({
+      code: row.code,
+      version: row.version || '-',
+      required: row.required !== false,
+      reason: row.reason || '-',
+      pluginName: row.plugin_name || '-',
+      currentVersion: row.current_version || '-',
+      currentStatus: row.current_status || '',
+      status: row.status || '',
+      satisfied: Boolean(row.satisfied),
+      message: row.message || '-',
+    }));
+  }
+  const declared = Array.isArray(props.plugin?.dependencies) ? props.plugin.dependencies : [];
+  const byCode = new Map((props.plugins || []).map((item) => [item.code, item]));
+  return declared.map((dep) => {
+    const plugin = byCode.get(dep.code) || {};
+    const status = dependencyStatus(dep, plugin);
+    return {
+      code: dep.code,
+      version: dep.version || '-',
+      required: dep.required !== false,
+      reason: dep.reason || '-',
+      pluginName: plugin.name || '-',
+      currentVersion: plugin.version || '-',
+      currentStatus: plugin.status || '',
+      status,
+      satisfied: status === 'satisfied',
+      message: dependencyMessage(status, plugin),
+    };
+  });
+});
+
 function statusType(status) {
   if (status === 'enabled') return 'success';
   if (status === 'disabled') return 'danger';
@@ -614,6 +1099,32 @@ function metricType(status) {
   if (status === 'warning' || status === 'pending' || status === 'hook_warning') return 'warning';
   if (status === 'failed' || status === 'invalid' || status === 'missing' || status === 'hook_error') return 'danger';
   return 'info';
+}
+
+function dependencyStatus(dep, plugin) {
+  if (!plugin?.code) return dep.required === false ? 'optional_missing' : 'missing';
+  if (plugin.status === 'archived') return 'archived';
+  if (plugin.status === 'migration_failed') return 'migration_failed';
+  if (plugin.status === 'config_invalid') return 'config_invalid';
+  if (plugin.status !== 'enabled') return 'disabled';
+  return 'satisfied';
+}
+
+function dependencyStatusType(status, satisfied) {
+  if (satisfied || status === 'satisfied') return 'success';
+  if (status === 'optional_missing') return 'warning';
+  if (['missing', 'disabled', 'archived', 'migration_failed', 'config_invalid', 'version_mismatch', 'circular_dependency', 'self_dependency'].includes(status)) return 'danger';
+  return 'info';
+}
+
+function dependencyStatusLabel(status) {
+  return t(`plugin.dependencies.status.${status || 'unknown'}`);
+}
+
+function dependencyMessage(status, plugin) {
+  if (status === 'satisfied') return t('plugin.dependencies.satisfiedTip');
+  if (status === 'disabled') return plugin?.status ? pluginStatusLabel(plugin.status) : t('plugin.dependencies.status.disabled');
+  return dependencyStatusLabel(status);
 }
 
 function migrationStatusType(status) {
@@ -677,6 +1188,90 @@ async function loadHooks() {
   } finally {
     hooksLoading.value = false;
   }
+}
+
+function openHookExecutions() {
+  hookExecDrawer.value = true;
+  // Load first page with current filters.
+  loadHookExecutions(true);
+}
+
+function resetHookExecutionsFilters() {
+  hookExecFilters.hook_name = '';
+  hookExecFilters.mode = '';
+  hookExecFilters.success = 'all';
+  hookExecFilters.blocking = 'all';
+  hookExecFilters.content_type = '';
+  hookExecFilters.content_id = '';
+  hookExecFilters.community_id = '';
+  hookExecFilters.actor_type = '';
+  hookExecFilters.actor_id = '';
+  hookExecFilters.range = [];
+  hookExecFilters.page = 1;
+  hookExecFilters.pageSize = 20;
+  loadHookExecutions(true);
+}
+
+async function loadHookExecutions(resetPage) {
+  const p = props.plugin;
+  if (!p || !p.code) return;
+  if (resetPage) hookExecFilters.page = 1;
+  hookExecLoading.value = true;
+  try {
+    const params = {
+      hook_name: hookExecFilters.hook_name || '',
+      mode: hookExecFilters.mode || '',
+      content_type: hookExecFilters.content_type || '',
+      content_id: Number(hookExecFilters.content_id || 0) || 0,
+      community_id: Number(hookExecFilters.community_id || 0) || 0,
+      actor_type: hookExecFilters.actor_type || '',
+      actor_id: Number(hookExecFilters.actor_id || 0) || 0,
+      page: hookExecFilters.page,
+      page_size: hookExecFilters.pageSize,
+      start_time: Array.isArray(hookExecFilters.range) ? hookExecFilters.range[0] || '' : '',
+      end_time: Array.isArray(hookExecFilters.range) ? hookExecFilters.range[1] || '' : '',
+    };
+    if (hookExecFilters.success !== 'all') params.success = hookExecFilters.success;
+    if (hookExecFilters.blocking !== 'all') params.blocking = hookExecFilters.blocking;
+    const data = await pluginHookExecutions(p.code, params);
+    hookExecRows.value = data.items || [];
+    hookExecTotal.value = data.total || 0;
+  } catch (e) {
+    hookExecRows.value = [];
+    hookExecTotal.value = 0;
+    ElMessage.warning(String(e?.message || e || t('plugin.hook.unavailable')));
+  } finally {
+    hookExecLoading.value = false;
+  }
+}
+
+function openHookExecutionDetail(row) {
+  hookExecTarget.value = row;
+  hookDrawer.value = true;
+}
+
+function openPluginContent(row) {
+  const pluginCode = row?.plugin_code || props.plugin?.code;
+  if (!pluginCode) return;
+  router.push({ path: `/admin-next/${pluginCode}` });
+}
+
+function openHookAudit(row) {
+  const pluginCode = row?.plugin_code || props.plugin?.code;
+  const hookName = row?.hook_name || '';
+  const requestId = row?.request_id || '';
+  // Reuse existing audit log page; do not fake exact match.
+  router.push({
+    path: '/admin-next/audit-logs',
+    query: {
+      plugin_code: pluginCode,
+      action: row?.blocking ? 'plugin.hook.blocked' : 'plugin.hook.failed',
+      request_id: requestId,
+      metadata: hookName ? `hook_name=${hookName}` : '',
+      target_type: 'hooks',
+      target: pluginCode ? `hooks#${pluginCode}:${hookName}` : '',
+    },
+  });
 }
 
 async function loadMigrations() {
@@ -926,5 +1521,39 @@ async function saveConfig() {
 :global(.plugin-detail-drawer .el-drawer__body) {
   padding-top: 10px;
   overflow: auto;
+}
+.hook-exec-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 10px;
+}
+.hook-exec-filter {
+  margin-bottom: 10px;
+}
+.pager {
+  display: flex;
+  justify-content: flex-end;
+  margin-top: 10px;
+}
+.pre {
+  margin: 0;
+  white-space: pre-wrap;
+  word-break: break-word;
+  max-height: 220px;
+  overflow: auto;
+}
+.detail-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 12px;
+}
+
+:global(.plugin-detail-drawer .el-table .row-danger td) {
+  background: rgba(245, 108, 108, 0.08);
+}
+:global(.plugin-detail-drawer .el-table .row-warn td) {
+  background: rgba(230, 162, 60, 0.08);
 }
 </style>

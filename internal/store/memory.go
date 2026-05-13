@@ -518,6 +518,68 @@ func (s *MemoryStore) HookStats(pluginCode string) ([]domain.HookStats, error) {
 	return out, nil
 }
 
+func (s *MemoryStore) HookExecutionsByFilter(filter domain.HookExecutionFilter) ([]domain.HookExecution, int, error) {
+	filter = filter.Normalize()
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	matched := make([]domain.HookExecution, 0)
+	for i := len(s.hookExecutions) - 1; i >= 0; i-- {
+		record := s.hookExecutions[i]
+		if filter.PluginCode != "" && record.PluginCode != filter.PluginCode {
+			continue
+		}
+		if filter.HookName != "" && record.HookName != filter.HookName {
+			continue
+		}
+		if filter.Mode != "" && record.Mode != filter.Mode {
+			continue
+		}
+		if filter.Blocking != nil && record.Blocking != *filter.Blocking {
+			continue
+		}
+		if filter.Success != nil && record.Success != *filter.Success {
+			continue
+		}
+		if filter.ContentType != "" && record.ContentType != filter.ContentType {
+			continue
+		}
+		if filter.ContentID > 0 && record.ContentID != filter.ContentID {
+			continue
+		}
+		if filter.CommunityID > 0 && record.CommunityID != filter.CommunityID {
+			continue
+		}
+		if filter.ActorType != "" && record.ActorType != filter.ActorType {
+			continue
+		}
+		if filter.ActorID > 0 && record.ActorID != filter.ActorID {
+			continue
+		}
+		if filter.RequestID != "" && record.RequestID != filter.RequestID {
+			continue
+		}
+		if filter.StartTime != "" && record.StartedAt < filter.StartTime {
+			continue
+		}
+		if filter.EndTime != "" && record.StartedAt > filter.EndTime {
+			continue
+		}
+		matched = append(matched, record)
+	}
+
+	total := len(matched)
+	start := (filter.Page - 1) * filter.PageSize
+	if start >= total {
+		return []domain.HookExecution{}, total, nil
+	}
+	end := start + filter.PageSize
+	if end > total {
+		end = total
+	}
+	return matched[start:end], total, nil
+}
+
 // Now 返回符合接口格式的当前时间字符串。
 func Now() string { return time.Now().Format(TimeLayout) }
 

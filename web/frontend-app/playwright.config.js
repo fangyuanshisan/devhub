@@ -7,6 +7,9 @@ export default defineConfig({
   timeout: 45_000,
   expect: { timeout: 8_000 },
   fullyParallel: false,
+  // E2E uses a shared in-memory backend origin; several specs toggle plugin/community/category state.
+  // Use one worker to avoid cross-spec state races.
+  workers: 1,
   retries: process.env.CI ? 1 : 0,
   reporter: [['list'], ['html', { open: 'never', outputFolder: 'playwright-report' }]],
   use: {

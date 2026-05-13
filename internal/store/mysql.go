@@ -233,6 +233,95 @@ func (s *MySQLStore) HookStats(pluginCode string) ([]domain.HookStats, error) {
 	return out, nil
 }
 
+func (s *MySQLStore) HookExecutionsByFilter(filter domain.HookExecutionFilter) ([]domain.HookExecution, int, error) {
+	filter = filter.Normalize()
+	where := "WHERE 1=1"
+	args := []any{}
+	if filter.PluginCode != "" {
+		where += " AND plugin_code=?"
+		args = append(args, filter.PluginCode)
+	}
+	if filter.HookName != "" {
+		where += " AND hook_name=?"
+		args = append(args, filter.HookName)
+	}
+	if filter.Mode != "" {
+		where += " AND mode=?"
+		args = append(args, filter.Mode)
+	}
+	if filter.Blocking != nil {
+		where += " AND blocking=?"
+		if *filter.Blocking {
+			args = append(args, 1)
+		} else {
+			args = append(args, 0)
+		}
+	}
+	if filter.Success != nil {
+		where += " AND success=?"
+		if *filter.Success {
+			args = append(args, 1)
+		} else {
+			args = append(args, 0)
+		}
+	}
+	if filter.ContentType != "" {
+		where += " AND content_type=?"
+		args = append(args, filter.ContentType)
+	}
+	if filter.ContentID > 0 {
+		where += " AND content_id=?"
+		args = append(args, filter.ContentID)
+	}
+	if filter.CommunityID > 0 {
+		where += " AND community_id=?"
+		args = append(args, filter.CommunityID)
+	}
+	if filter.ActorType != "" {
+		where += " AND actor_type=?"
+		args = append(args, filter.ActorType)
+	}
+	if filter.ActorID > 0 {
+		where += " AND actor_id=?"
+		args = append(args, filter.ActorID)
+	}
+	if filter.RequestID != "" {
+		where += " AND request_id=?"
+		args = append(args, filter.RequestID)
+	}
+	if filter.StartTime != "" {
+		where += " AND started_at>=?"
+		args = append(args, filter.StartTime)
+	}
+	if filter.EndTime != "" {
+		where += " AND started_at<=?"
+		args = append(args, filter.EndTime)
+	}
+
+	var total int
+	if err := s.db.QueryRow("SELECT COUNT(*) FROM hook_executions "+where, args...).Scan(&total); err != nil {
+		return nil, 0, err
+	}
+
+	offset := (filter.Page - 1) * filter.PageSize
+	queryArgs := append([]any{}, args...)
+	queryArgs = append(queryArgs, filter.PageSize, offset)
+	rows, err := s.db.Query(`SELECT id,hook_name,plugin_code,mode,COALESCE(content_type,''),COALESCE(content_id,0),COALESCE(community_id,0),COALESCE(category_id,0),COALESCE(actor_type,''),COALESCE(actor_id,0),COALESCE(user_id,0),COALESCE(admin_user_id,0),COALESCE(request_id,''),DATE_FORMAT(started_at,'%Y-%m-%d %H:%i:%s'),COALESCE(DATE_FORMAT(finished_at,'%Y-%m-%d %H:%i:%s'),''),duration_ms,success,COALESCE(error_message,''),blocking,COALESCE(CAST(metadata_json AS CHAR),''),DATE_FORMAT(created_at,'%Y-%m-%d %H:%i:%s')
+		FROM hook_executions `+where+` ORDER BY id DESC LIMIT ? OFFSET ?`, queryArgs...)
+	if err != nil {
+		return nil, 0, err
+	}
+	defer rows.Close()
+	out := []domain.HookExecution{}
+	for rows.Next() {
+		var it domain.HookExecution
+		if err := rows.Scan(&it.ID, &it.HookName, &it.PluginCode, &it.Mode, &it.ContentType, &it.ContentID, &it.CommunityID, &it.CategoryID, &it.ActorType, &it.ActorID, &it.UserID, &it.AdminUserID, &it.RequestID, &it.StartedAt, &it.FinishedAt, &it.DurationMS, &it.Success, &it.ErrorMessage, &it.Blocking, &it.Metadata, &it.CreatedAt); err == nil {
+			out = append(out, it)
+		}
+	}
+	return out, total, nil
+}
+
 // NewMySQLStore 创建 MySQL 仓储，自动建表并在空库时写入演示数据。
 func NewMySQLStore(cfg MySQLConfig) (*MySQLStore, error) {
 	dsn := fmt.Sprintf("%s:%s@tcp(%s:%s)/%s?charset=utf8mb4&parseTime=true&loc=Local",

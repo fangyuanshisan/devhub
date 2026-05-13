@@ -1,6 +1,7 @@
 import { expect, test } from '@playwright/test';
 import { loginAsUser } from './helpers/auth.js';
 import {
+  adminToken,
   apiPost,
   archivePlugin,
   enableCommunityPlugin,
@@ -19,11 +20,17 @@ test.describe('frontend plugin visibility and content_type guard', () => {
     await restorePlugin(request, 'qa').catch(() => {});
     await ensurePluginStatus(request, 'qa', 'enabled');
     await enableCommunityPlugin(request, 1, 'qa').catch(() => {});
-    await setCategoryEnabled(request, 102, false);
+    await setCategoryEnabled(request, 102, false).catch(() => {});
   });
 
   test('disabled plugin hides publish option, blocks direct API submit, and keeps historical SEO', async ({ page, request }) => {
     await ensurePluginStatus(request, 'qa', 'enabled');
+    // Ensure qa category is enabled so it shows up in the public categories list.
+    // Some environments may not have this seed category at all; in that case skip.
+    await apiPost(request, '/api/v1/admin/categories/102/enable', {}, adminToken).catch(() => {});
+    const categoriesRes = await request.get('/api/v1/communities/php/categories');
+    const categories = categoriesRes.ok() ? (await categoriesRes.json()).items || [] : [];
+    expect(categories.some((c) => String(c.id) === '102')).toBeTruthy();
     await setCategoryEnabled(request, 102, true);
     await loginAsUser(page);
     await page.goto('/c/php/topics/new/');
@@ -69,6 +76,10 @@ test.describe('frontend plugin visibility and content_type guard', () => {
 
   test('archived plugin hides publish option, blocks direct API submit, and keeps historical SEO', async ({ page, request }) => {
     await ensurePluginStatus(request, 'qa', 'enabled');
+    await apiPost(request, '/api/v1/admin/categories/102/enable', {}, adminToken).catch(() => {});
+    const categoriesRes = await request.get('/api/v1/communities/php/categories');
+    const categories = categoriesRes.ok() ? (await categoriesRes.json()).items || [] : [];
+    expect(categories.some((c) => String(c.id) === '102')).toBeTruthy();
     await setCategoryEnabled(request, 102, true);
     await loginAsUser(page);
 

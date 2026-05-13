@@ -4,6 +4,7 @@
 
 Current `VERSION` is `v1.4.0`. The plugin-content governance enhancement work is now validated with Go tests/build plus Docker-based admin build and Playwright; see `docs/releases/v1.4.0.md`.
 
+- Closed v1.4.0 acceptance: full Go + Docker build + admin/frontend Playwright + SEO curl checks pass (admin E2E `33 passed`, frontend E2E `17 passed`), and no long-term `test.skip/test.only` remains in Playwright suites.
 - Began `v1.4.0` plugin-content governance enhancement work: `GET /api/v1/admin/posts` now supports precise `plugin_code + content_type` filtering and returns plugin ownership fields for admin post rows.
 - Upgraded `PluginContent` into a fuller governance page with plugin name/code/status/health/type-count header, disabled/archived history notices, aligned filter/batch layout, result details, audit jump query metadata, and recent-governance entry from the detail drawer.
 - Expanded PluginContent batch governance from hide/restore to approve/reject, pin/unpin, and feature/unfeature while keeping structured plugin audit metadata.
@@ -12,8 +13,10 @@ Current `VERSION` is `v1.4.0`. The plugin-content governance enhancement work is
 - Added `docs/releases/v1.3.5.md` as the next-stage draft for plugin-governance UI and install / upgrade wizard closure.
 - Archived the old root `更新.md` product task document into `docs/archive/2026-05-09-product-requirements.md`; it is no longer a current acceptance source.
 - Began Stage B plugin-governance experience work in the admin UI with `vue-i18n` and a default zh-CN dictionary for plugin-center wording, status labels, config panels, audit labels, and PluginContent actions.
-- Completed another plugin-governance i18n cleanup pass for the plugin detail drawer, community plugin config drawer, PluginJsonEditor hints, PluginContent content statuses, and audit action labels; technical values such as `plugin_code`, `content_type`, Hook names, and JSON keys remain visible as raw values where useful.
+- Completed another plugin-governance i18n cleanup pass for the plugin detail drawer, community plugin config drawer, PluginConfigEditor hints, PluginContent content statuses, and audit action labels; technical values such as `plugin_code`, `content_type`, Hook names, and JSON keys remain visible as raw values where useful.
 - Upgraded plugin config editing from JSON-only to a basic schema-driven form mode plus JSON advanced mode, with effective-config preview and config-diff display.
+- Added a plugin Hooks troubleshooting view in the admin plugin detail drawer, including hook stats, recent `hook_executions`, a filterable executions drawer with pagination, an execution-detail drawer, and audit-log jump links.
+- Added plugin SDK/template documentation plus `go run ./cmd/devhub plugin:new` for generating manifest-only plugin skeletons that validate through the existing ManifestValidator and config schema checks.
 - Enhanced the generic PluginContent governance page with content-type filtering, detail drawer, multi-select, batch hide, batch restore, and audit-log entry points while reusing the existing audited backend batch topic API.
 - Connected PluginContent audit-log entry points to the generic audit log page with prefilled action, target type, and plugin metadata filters.
 - Aligned Stage B documentation wording so basic schema-driven forms, effective config, config diff, PluginContent batch hide/restore, and audit-log jumps are treated as landed baseline capabilities, while deep schema support and advanced batch governance remain future work.
@@ -34,6 +37,10 @@ Current `VERSION` is `v1.4.0`. The plugin-content governance enhancement work is
 - Added bulk archive / restore impact previews, succeeded / failed result tables, and audit-log jump actions in the plugin governance UI.
 - Updated the admin plugin-governance E2E suite for the new action grouping and step-flow UI; latest admin check passes with `21 passed / 2 skipped`.
 - Re-aligned plugin documentation with current code facts: `v1.3.5` is now treated as an implemented-but-unreleased governance closure, with remaining requirements reorganized into release cleanup, `v1.4` platform enhancement, and later plugin distribution work.
+- Began v1.4.0-P1-10 unified plugin governance error codes: plugin endpoints now return `code/message/details/suggestion` while keeping legacy `error`, and permission denials on plugin routes expose `details.permission_code` for actionable fixes.
+- Added admin `GET /api/v1/admin/plugins/:code/readiness` and a plugin-detail “操作诊断” tab to explain why enable/upgrade/config actions are blocked, including dependency/core/config_schema/migration checks.
+- Enhanced the plugin-detail permissions tab with missing/high-risk highlights, filters, and reference lookup across menus/routes/content types.
+- Began v1.4.0-P1-11 frontend entry/menu visibility governance: added `/api/v1/navigation`, `/api/v1/communities/:slug/navigation`, `/api/v1/communities/:slug/create-options`, and admin `/api/v1/admin/plugins/:code/menus/preview` for unified navigation/create gating and actionable “why hidden” diagnostics.
 
 ## v1.3.4
 
@@ -381,3 +388,17 @@ DevHub v1.0.0 is the first runnable archive release of the project.
 - Tag-follow and user-follow backend support exists, while richer frontend entry points remain future work.
 - Sitemap output is dynamic but not yet sharded for very large content volumes.
 - Production deployment still needs environment-specific process supervision, reverse proxy, HTTPS, logging, and backup scheduling.
+
+## v1.4.0-P1-07
+
+### Added
+
+- Plugin dependency checks now support structured `dependencies` with `code`, `version`, `required`, and `reason`, while keeping legacy string dependencies compatible.
+- Manifest validate, dry-run, install, upgrade dry-run, upgrade, and enable now share dependency and Core compatibility blocking rules.
+- Admin plugin install / upgrade flows and detail drawer now show dependency matrix, Core compatibility, blocking reasons, and dependency diff.
+- Added backend dependency/version tests and `web/admin-app/tests/e2e/plugin-dependencies.spec.js`.
+
+### Notes
+
+- Version constraints are intentionally lightweight: exact `x.y.z`, comparison operators, and whitespace-combined ranges only.
+- DevHub still does not support automatic dependency installation, plugin marketplace, remote install, dynamic loading, script sandbox, plugin signing, migration down, or hard uninstall.

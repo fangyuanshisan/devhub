@@ -49,6 +49,7 @@ func NewRouter(svc *service.Service) *gin.Engine {
 		api.GET("/sites/:site/overview", srv.siteOverview)
 		api.GET("/boards", srv.listBoards)
 		api.GET("/plugins", srv.plugins)
+		api.GET("/navigation", srv.navigation)
 		api.GET("/stats", srv.stats)
 		api.GET("/tags", srv.tags)
 		api.GET("/tags/hot", srv.hotTags)
@@ -84,6 +85,8 @@ func NewRouter(svc *service.Service) *gin.Engine {
 		api.GET("/communities/:slug/stats", srv.communityStats)
 		api.GET("/communities/:slug/categories", srv.listCategories)
 		api.GET("/communities/:slug/plugins", srv.communityPlugins)
+		api.GET("/communities/:slug/navigation", srv.communityNavigation)
+		api.GET("/communities/:slug/create-options", srv.communityCreateOptions)
 		api.GET("/communities/:slug/tags", srv.listCommunityTags)
 		api.GET("/communities/:slug/tags/:tag", srv.getCommunityTag)
 		api.GET("/communities/:slug/tags/:tag/topics", srv.communityTagTopics)
@@ -155,12 +158,15 @@ func NewRouter(svc *service.Service) *gin.Engine {
 			protected.POST("/plugins/:code/upgrade/dry-run", srv.requirePermission("plugin.write"), srv.dryRunAdminPluginUpgrade)
 			protected.POST("/plugins/:code/upgrade", srv.requirePermission("plugin.write"), srv.upgradeAdminPlugin)
 			protected.POST("/plugins/install", srv.requirePermission("plugin.write"), srv.installAdminPluginManifest)
+			protected.GET("/plugins/:code/readiness", srv.adminUserRequired(), srv.requirePermission("plugin.read"), srv.adminPluginReadiness)
 			protected.GET("/plugins/:code/health", srv.requirePermission("plugin.read"), srv.adminPluginHealth)
 			protected.GET("/plugins/:code/impact", srv.requirePermission("plugin.read"), srv.adminPluginImpact)
 			protected.GET("/plugins/:code/hooks", srv.requirePermission("plugin.read"), srv.adminPluginHooks)
+			protected.GET("/plugins/:code/hooks/executions", srv.requirePermission("plugin.read"), srv.adminPluginHookExecutions)
 			protected.POST("/plugins/:code/hooks/:name/e2e-fail", srv.requirePermission("plugin.write"), srv.injectFailedAdminPluginHookForTest)
 			protected.GET("/plugins/:code/audit-logs", srv.requirePermission("plugin.read"), srv.adminPluginAuditLogs)
 			protected.GET("/plugins/:code/migrations", srv.requirePermission("plugin.read"), srv.adminPluginMigrations)
+			protected.GET("/plugins/:code/menus/preview", srv.adminUserRequired(), srv.requirePermission("plugin.read"), srv.adminPluginMenuPreview)
 			protected.POST("/plugins/:code/migrations/run", srv.requirePermission("plugin.write"), srv.runAdminPluginMigrations)
 			protected.POST("/plugins/:code/migrations/:name/retry", srv.requirePermission("plugin.write"), srv.retryAdminPluginMigration)
 			protected.POST("/plugins/:code/migrations/:name/e2e-fail", srv.requirePermission("plugin.write"), srv.injectFailedAdminPluginMigrationForTest)
@@ -1931,6 +1937,9 @@ func (s *Server) adminPlugins(c *gin.Context) {
 			items[i].StatusReason = health.StatusReason
 			items[i].LastHealthCheckAt = health.UpdatedAt
 		}
+		checks, summary := pluginregistry.ResolvePluginDependencies(items[i].PluginManifest, items)
+		items[i].DependencyChecks = checks
+		items[i].DependencySummary = summary
 	}
 	c.JSON(http.StatusOK, gin.H{"items": items})
 }
@@ -1969,16 +1978,192 @@ func (s *Server) adminPluginHealth(c *gin.Context) {
 	code := strings.TrimSpace(c.Param("code"))
 	health, err := s.svc.PluginHealth(code)
 	if err != nil {
-		fail(c, http.StatusBadRequest, err.Error())
+		failAPIError(c, err)
 		return
 	}
 	c.JSON(http.StatusOK, health)
 }
 
+func (s *Server) adminPluginReadiness(c *gin.Context) {
+	code := strings.TrimSpace(c.Param("code"))
+	action := strings.TrimSpace(c.DefaultQuery("action", "enable"))
+	result, err := s.svc.PluginReadiness(code, action)
+	if err != nil {
+		failAPIError(c, err)
+		return
+	}
+	c.JSON(http.StatusOK, result)
+}
+
+func (s *Server) adminPluginMenuPreview(c *gin.Context) {
+	code := strings.TrimSpace(c.Param("code"))
+	plugin, ok := s.svc.PluginByCode(code)
+	if !ok || plugin.Code == "" {
+		failAPIError(c, domain.NewPluginError("plugin_not_found", "插件不存在").WithStatus(http.StatusNotFound).WithDetail("plugin_code", code))
+		return
+	}
+	communitySlug := strings.TrimSpace(c.Query("community_slug"))
+	categoryID := int64(0)
+	if raw := strings.TrimSpace(c.Query("category_id")); raw != "" {
+		if id, err := strconv.ParseInt(raw, 10, 64); err == nil && id > 0 {
+			categoryID = id
+		}
+	}
+	userID := int64(0)
+	if raw := strings.TrimSpace(c.Query("user_id")); raw != "" {
+		if id, err := strconv.ParseInt(raw, 10, 64); err == nil && id > 0 {
+			userID = id
+		}
+	}
+
+	communityID := int64(0)
+	categories := []domain.Category{}
+	if communitySlug != "" {
+		if comm, ok := s.svc.CommunityBySlug(communitySlug); ok && comm.Status == 1 {
+			communityID = comm.ID
+			categories = s.svc.Categories(comm.ID)
+		}
+	}
+
+	ctx := s.actorContext(c)
+	// Admin preview defaults to "logged-in user" unless explicitly set.
+	if userID > 0 {
+		ctx.UserID = userID
+	}
+
+	type previewItem struct {
+		Code               string         `json:"code,omitempty"`
+		Location           string         `json:"location,omitempty"`
+		Title              string         `json:"title"`
+		Route              string         `json:"route"`
+		ContentType        string         `json:"content_type,omitempty"`
+		RequiredPermission string         `json:"required_permission,omitempty"`
+		Visible            bool           `json:"visible"`
+		Reason             string         `json:"reason,omitempty"`
+		ReasonCode         string         `json:"reason_code,omitempty"`
+		Details            map[string]any `json:"details,omitempty"`
+	}
+
+	out := []previewItem{}
+	for _, menu := range plugin.Menus {
+		area := strings.TrimSpace(firstNonEmpty(menu.Area, menu.Location))
+		if area != "frontend" {
+			continue
+		}
+		loc := strings.TrimSpace(menu.Location)
+		if loc == "" {
+			loc = "global_nav"
+		}
+		r := menuRoute(menu)
+		if r == "" || !strings.HasPrefix(r, "/") {
+			continue
+		}
+		item := previewItem{
+			Code:               firstNonEmpty(menu.Code, menu.Key),
+			Location:           loc,
+			Title:              menu.Title,
+			Route:              r,
+			ContentType:        strings.TrimSpace(menu.ContentType),
+			RequiredPermission: strings.TrimSpace(menu.Permission),
+			Visible:            true,
+		}
+
+		vis := visibleWhenSet(menu.VisibleWhen)
+		requirePluginEnabled := len(vis) == 0 || vis["plugin_enabled"]
+		requireCommunityEnabled := len(vis) == 0 || vis["community_enabled"]
+		requireDependencySatisfied := len(vis) == 0 || vis["dependency_satisfied"]
+		requireConfigValid := len(vis) == 0 || vis["config_valid"]
+
+		if requirePluginEnabled && plugin.Status != pluginregistry.StatusEnabled {
+			item.Visible = false
+			item.ReasonCode = "plugin_disabled"
+			item.Reason = "插件未启用"
+		}
+		if item.Visible && requireCommunityEnabled && communityID > 0 && !s.svc.IsPluginEnabledForCommunity(communityID, plugin.Code) {
+			item.Visible = false
+			item.ReasonCode = "plugin_community_disabled"
+			item.Reason = "当前子站未启用该插件"
+			item.Details = map[string]any{"community_slug": communitySlug, "plugin_code": plugin.Code}
+		}
+		if item.Visible && requireDependencySatisfied {
+			_, summary := pluginregistry.ResolvePluginDependencies(plugin.PluginManifest, s.svc.Plugins())
+			if summary.Blocking > 0 {
+				item.Visible = false
+				item.ReasonCode = "plugin_dependency_missing"
+				item.Reason = "插件依赖未满足"
+				item.Details = map[string]any{"dependency_summary": summary}
+			}
+		}
+		if item.Visible && requireConfigValid {
+			if err := pluginregistry.ValidateConfigJSON(plugin, plugin.ConfigJSON); err != nil {
+				item.Visible = false
+				item.ReasonCode = "plugin_config_invalid"
+				item.Reason = "插件配置无效"
+			}
+		}
+		if item.Visible && menu.RequireLogin && ctx.UserID == 0 {
+			item.Visible = false
+			item.ReasonCode = "plugin_login_required"
+			item.Reason = "需要登录"
+		}
+		if item.Visible && item.RequiredPermission != "" && !ctxHasPermission(ctx, item.RequiredPermission) {
+			item.Visible = false
+			item.ReasonCode = "plugin_permission_denied"
+			item.Reason = "权限不足"
+			item.Details = map[string]any{"permission_code": item.RequiredPermission}
+		}
+		if item.Visible && menu.RequireCategoryBinding && communityID > 0 {
+			okBind := false
+			ct := pluginregistry.NormalizeContentType(menu.ContentType)
+			for _, cat := range categories {
+				if cat.Status == 0 {
+					continue
+				}
+				categoryType := pluginregistry.NormalizeContentType(firstNonEmpty(cat.ContentType, cat.Type))
+				expectedPlugin := firstNonEmpty(cat.PluginCode, pluginregistry.PluginCodeForContentType(categoryType))
+				if expectedPlugin != plugin.Code {
+					continue
+				}
+				if ct != "" && !pluginregistry.ContentTypeAllowed(cat.AllowedContentTypes, ct) {
+					continue
+				}
+				if categoryID > 0 && cat.ID != categoryID {
+					continue
+				}
+				okBind = true
+				break
+			}
+			if !okBind {
+				item.Visible = false
+				item.ReasonCode = "plugin_category_not_supported"
+				item.Reason = "分类未绑定该内容类型"
+				item.Details = map[string]any{"category_id": categoryID, "content_type": ct}
+			}
+		}
+
+		out = append(out, item)
+	}
+	sort.Slice(out, func(i, j int) bool {
+		if out[i].Location == out[j].Location {
+			if out[i].Title == out[j].Title {
+				return out[i].Code < out[j].Code
+			}
+			return out[i].Title < out[j].Title
+		}
+		return out[i].Location < out[j].Location
+	})
+	c.JSON(http.StatusOK, gin.H{
+		"plugin_code":    plugin.Code,
+		"community_slug": communitySlug,
+		"category_id":    categoryID,
+		"items":          out,
+	})
+}
+
 func (s *Server) validateAdminPluginManifest(c *gin.Context) {
 	result, err := s.parseAndValidatePluginManifest(c)
 	if err != nil {
-		fail(c, http.StatusBadRequest, err.Error())
+		failAPIError(c, err)
 		return
 	}
 	c.JSON(http.StatusOK, result)
@@ -1987,7 +2172,7 @@ func (s *Server) validateAdminPluginManifest(c *gin.Context) {
 func (s *Server) dryRunAdminPluginManifest(c *gin.Context) {
 	result, err := s.parseAndValidatePluginManifest(c)
 	if err != nil {
-		fail(c, http.StatusBadRequest, err.Error())
+		failAPIError(c, err)
 		return
 	}
 	c.JSON(http.StatusOK, result)
@@ -2002,12 +2187,12 @@ func (s *Server) dryRunAdminPluginUpgrade(c *gin.Context) {
 	}
 	manifestJSON, err := extractManifestJSON(raw)
 	if err != nil {
-		fail(c, http.StatusBadRequest, err.Error())
+		failAPIError(c, err)
 		return
 	}
 	result, err := s.svc.PluginUpgradeDryRun(code, manifestJSON)
 	if err != nil {
-		fail(c, http.StatusBadRequest, err.Error())
+		failAPIError(c, err)
 		return
 	}
 	s.auditStructured(c, "system", "plugin.upgrade.previewed", fmt.Sprintf("plugins#%s", code), nil,
@@ -2025,15 +2210,16 @@ func (s *Server) upgradeAdminPlugin(c *gin.Context) {
 	}
 	manifestJSON, err := extractManifestJSON(raw)
 	if err != nil {
-		fail(c, http.StatusBadRequest, err.Error())
+		failAPIError(c, err)
 		return
 	}
 	executor := auditActor(c)
 	preview, err := s.svc.PluginUpgradeDryRun(code, manifestJSON)
 	if err != nil {
 		s.auditStructured(c, "system", "plugin.upgrade.failed", fmt.Sprintf("plugins#%s", code), nil,
-			gin.H{"status": "failed"}, gin.H{"plugin_code": code, "operation": "plugin_upgrade", "error": err.Error(), "actor": executor})
-		fail(c, http.StatusBadRequest, err.Error())
+			gin.H{"status": "failed"},
+			mergeAuditMeta(gin.H{"plugin_code": code, "operation": "plugin_upgrade", "error": err.Error(), "actor": executor}, auditAPIErrorFields(err)))
+		failAPIError(c, err)
 		return
 	}
 	s.auditStructured(c, "system", "plugin.upgrade.started", fmt.Sprintf("plugins#%s", code), nil,
@@ -2043,8 +2229,8 @@ func (s *Server) upgradeAdminPlugin(c *gin.Context) {
 	if err != nil {
 		s.auditStructured(c, "system", "plugin.upgrade.failed", fmt.Sprintf("plugins#%s", code), nil,
 			gin.H{"status": "failed"},
-			gin.H{"plugin_code": code, "operation": "plugin_upgrade", "actor": executor, "error": err.Error(), "compatibility_status": preview.CompatibilityStatus})
-		fail(c, http.StatusBadRequest, err.Error())
+			mergeAuditMeta(gin.H{"plugin_code": code, "operation": "plugin_upgrade", "actor": executor, "error": err.Error(), "compatibility_status": preview.CompatibilityStatus}, auditAPIErrorFields(err)))
+		failAPIError(c, err)
 		return
 	}
 	s.auditStructured(c, "system", "plugin.upgraded", fmt.Sprintf("plugins#%s", code),
@@ -2062,7 +2248,7 @@ func (s *Server) installAdminPluginManifest(c *gin.Context) {
 	}
 	manifestJSON, err := extractManifestJSON(raw)
 	if err != nil {
-		fail(c, http.StatusBadRequest, err.Error())
+		failAPIError(c, err)
 		return
 	}
 	executor := auditActor(c)
@@ -2073,8 +2259,9 @@ func (s *Server) installAdminPluginManifest(c *gin.Context) {
 		gin.H{"plugin_code": validation.NormalizedManifest.Code, "operation": "plugin_install", "actor": executor, "impact_summary": validation.ImpactSummary, "before_count": beforeCount})
 	plugin, result, err := s.svc.InstallPluginManifest(manifestJSON)
 	if err != nil {
-		s.auditStructured(c, "system", "plugin.install.failed", "plugins#manifest", nil, gin.H{"status": "failed"}, gin.H{"operation": "plugin_install", "error": err.Error()})
-		fail(c, http.StatusBadRequest, err.Error())
+		s.auditStructured(c, "system", "plugin.install.failed", "plugins#manifest", nil, gin.H{"status": "failed"},
+			mergeAuditMeta(gin.H{"operation": "plugin_install", "error": err.Error()}, auditAPIErrorFields(err)))
+		failAPIError(c, err)
 		return
 	}
 	impact := result.ImpactSummary
@@ -2130,7 +2317,9 @@ func (s *Server) parseAndValidatePluginManifest(c *gin.Context) (domain.PluginMa
 func extractManifestJSON(raw []byte) ([]byte, error) {
 	trimmed := bytes.TrimSpace(raw)
 	if len(trimmed) == 0 {
-		return nil, fmt.Errorf("manifest 不能为空")
+		return nil, domain.NewPluginError("plugin_manifest_invalid", "manifest 不能为空").
+			WithStatus(http.StatusBadRequest).
+			WithSuggestion("请提供 manifest JSON。")
 	}
 	var wrapper struct {
 		Manifest json.RawMessage `json:"manifest"`
@@ -2145,7 +2334,7 @@ func (s *Server) adminPluginImpact(c *gin.Context) {
 	code := strings.TrimSpace(c.Param("code"))
 	impact, err := s.svc.PluginImpact(code)
 	if err != nil {
-		fail(c, http.StatusBadRequest, err.Error())
+		failAPIError(c, err)
 		return
 	}
 	c.JSON(http.StatusOK, impact)
@@ -2154,7 +2343,7 @@ func (s *Server) adminPluginImpact(c *gin.Context) {
 func (s *Server) adminPluginHooks(c *gin.Context) {
 	code := strings.TrimSpace(c.Param("code"))
 	if _, ok := s.svc.PluginByCode(code); !ok {
-		fail(c, http.StatusNotFound, "插件不存在")
+		failAPIError(c, domain.NewPluginError("plugin_not_found", "插件不存在").WithStatus(404).WithDetail("plugin_code", code))
 		return
 	}
 	stats, err := s.svc.HookStats(code)
@@ -2168,6 +2357,45 @@ func (s *Server) adminPluginHooks(c *gin.Context) {
 		return
 	}
 	c.JSON(http.StatusOK, gin.H{"items": stats, "recent_executions": recent})
+}
+
+func (s *Server) adminPluginHookExecutions(c *gin.Context) {
+	code := strings.TrimSpace(c.Param("code"))
+	if _, ok := s.svc.PluginByCode(code); !ok {
+		failAPIError(c, domain.NewPluginError("plugin_not_found", "插件不存在").WithStatus(404).WithDetail("plugin_code", code))
+		return
+	}
+	filter := domain.HookExecutionFilter{
+		PluginCode:  code,
+		HookName:    strings.TrimSpace(c.Query("hook_name")),
+		Mode:        strings.TrimSpace(c.Query("mode")),
+		ContentType: strings.TrimSpace(c.Query("content_type")),
+		ContentID:   int64Query(c, "content_id", 0),
+		CommunityID: int64Query(c, "community_id", 0),
+		ActorType:   strings.TrimSpace(c.Query("actor_type")),
+		ActorID:     int64Query(c, "actor_id", 0),
+		RequestID:   strings.TrimSpace(c.Query("request_id")),
+		StartTime:   strings.TrimSpace(c.Query("start_time")),
+		EndTime:     strings.TrimSpace(c.Query("end_time")),
+		Page:        intQuery(c, "page", 1),
+		PageSize:    intQuery(c, "page_size", 20),
+	}
+
+	if v := strings.TrimSpace(c.Query("success")); v != "" {
+		b := v == "1" || strings.EqualFold(v, "true") || strings.EqualFold(v, "yes")
+		filter.Success = &b
+	}
+	if v := strings.TrimSpace(c.Query("blocking")); v != "" {
+		b := v == "1" || strings.EqualFold(v, "true") || strings.EqualFold(v, "yes")
+		filter.Blocking = &b
+	}
+
+	items, total, err := s.svc.HookExecutionsByFilter(filter)
+	if err != nil {
+		fail(c, http.StatusInternalServerError, err.Error())
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"items": items, "total": total, "page": filter.Page, "page_size": filter.PageSize})
 }
 
 func (s *Server) injectFailedAdminPluginHookForTest(c *gin.Context) {
@@ -2214,7 +2442,7 @@ func (s *Server) injectFailedAdminPluginHookForTest(c *gin.Context) {
 func (s *Server) adminPluginAuditLogs(c *gin.Context) {
 	code := strings.TrimSpace(c.Param("code"))
 	if _, ok := s.svc.PluginByCode(code); !ok {
-		fail(c, http.StatusNotFound, "插件不存在")
+		failAPIError(c, domain.NewPluginError("plugin_not_found", "插件不存在").WithStatus(404).WithDetail("plugin_code", code))
 		return
 	}
 	page, pageSize := pagination(c)
@@ -2248,12 +2476,12 @@ func (s *Server) adminPluginAuditLogs(c *gin.Context) {
 func (s *Server) adminPluginMigrations(c *gin.Context) {
 	code := strings.TrimSpace(c.Param("code"))
 	if _, ok := s.svc.PluginByCode(code); !ok {
-		fail(c, http.StatusNotFound, "插件不存在")
+		failAPIError(c, domain.NewPluginError("plugin_not_found", "插件不存在").WithStatus(404).WithDetail("plugin_code", code))
 		return
 	}
 	items, err := s.svc.PluginMigrations(code)
 	if err != nil {
-		fail(c, http.StatusBadRequest, err.Error())
+		failAPIError(c, err)
 		return
 	}
 	pending, failed, success := 0, 0, 0
@@ -2287,8 +2515,8 @@ func (s *Server) runAdminPluginMigrations(c *gin.Context) {
 		s.auditStructured(c, "system", "plugin.migration.failed", fmt.Sprintf("plugins#%s/migrations", code),
 			nil,
 			gin.H{"status": "failed"},
-			gin.H{"plugin_code": code, "operation": "plugin_migration_run", "error": err.Error()})
-		fail(c, http.StatusBadRequest, err.Error())
+			mergeAuditMeta(gin.H{"plugin_code": code, "operation": "plugin_migration_run", "error": err.Error()}, auditAPIErrorFields(err)))
+		failAPIError(c, err)
 		return
 	}
 	s.auditStructured(c, "system", "plugin.migration.run", fmt.Sprintf("plugins#%s/migrations", code),
@@ -2314,8 +2542,8 @@ func (s *Server) retryAdminPluginMigration(c *gin.Context) {
 		s.auditStructured(c, "system", "plugin.migration.failed", fmt.Sprintf("plugins#%s/migrations#%s", code, name),
 			nil,
 			gin.H{"status": "failed"},
-			gin.H{"plugin_code": code, "migration_name": name, "operation": "plugin_migration_retry", "error": err.Error()})
-		fail(c, http.StatusBadRequest, err.Error())
+			mergeAuditMeta(gin.H{"plugin_code": code, "migration_name": name, "operation": "plugin_migration_retry", "error": err.Error()}, auditAPIErrorFields(err)))
+		failAPIError(c, err)
 		return
 	}
 	s.auditStructured(c, "system", "plugin.migration.retry", fmt.Sprintf("plugins#%s/migrations#%s", code, item.MigrationName),
@@ -2416,8 +2644,8 @@ func (s *Server) archiveAdminPlugin(c *gin.Context) {
 		s.auditStructured(c, "system", "plugin.archive.failed", fmt.Sprintf("plugins#%s", code),
 			gin.H{"status": before.Status},
 			gin.H{"status": before.Status},
-			gin.H{"scope": "global", "plugin_code": code, "operation": "plugin_archive_failed", "error": err.Error(), "impact_summary": impact})
-		fail(c, http.StatusBadRequest, err.Error())
+			mergeAuditMeta(gin.H{"scope": "global", "plugin_code": code, "operation": "plugin_archive_failed", "error": err.Error(), "impact_summary": impact}, auditAPIErrorFields(err)))
+		failAPIError(c, err)
 		return
 	}
 	s.auditStructured(c, "system", "plugin.archived", fmt.Sprintf("plugins#%s", plugin.Code),
@@ -2435,8 +2663,8 @@ func (s *Server) restoreAdminPlugin(c *gin.Context) {
 		s.auditStructured(c, "system", "plugin.restore.failed", fmt.Sprintf("plugins#%s", code),
 			gin.H{"status": before.Status},
 			gin.H{"status": before.Status},
-			gin.H{"scope": "global", "plugin_code": code, "operation": "plugin_restore_failed", "error": err.Error()})
-		fail(c, http.StatusBadRequest, err.Error())
+			mergeAuditMeta(gin.H{"scope": "global", "plugin_code": code, "operation": "plugin_restore_failed", "error": err.Error()}, auditAPIErrorFields(err)))
+		failAPIError(c, err)
 		return
 	}
 	s.auditStructured(c, "system", "plugin.restored", fmt.Sprintf("plugins#%s", plugin.Code),
@@ -2451,7 +2679,7 @@ func (s *Server) setAdminPluginStatus(c *gin.Context, status string) {
 	before, _ := s.svc.PluginByCode(code)
 	plugin, err := s.svc.SetPluginStatus(code, status)
 	if err != nil {
-		fail(c, http.StatusBadRequest, err.Error())
+		failAPIError(c, err)
 		return
 	}
 	s.auditStructured(c, "system", "更新插件状态", fmt.Sprintf("plugins#%s", plugin.Code),
@@ -2499,7 +2727,7 @@ func (s *Server) updateAdminPluginConfig(c *gin.Context) {
 	}
 	plugin, err := s.svc.SetPluginConfig(code, payload)
 	if err != nil {
-		fail(c, http.StatusBadRequest, err.Error())
+		failAPIError(c, err)
 		return
 	}
 	s.auditStructured(c, "system", "更新插件全局配置", fmt.Sprintf("plugins#%s", plugin.Code),
@@ -2950,7 +3178,7 @@ func (s *Server) setAdminCommunityPluginStatus(c *gin.Context, status string) {
 	}
 	plugin, err := s.svc.SetCommunityPluginStatus(id, code, status)
 	if err != nil {
-		fail(c, http.StatusBadRequest, err.Error())
+		failAPIError(c, err)
 		return
 	}
 	s.auditStructured(c, "system", "更新子站插件状态", fmt.Sprintf("community_plugins#%d:%s", id, plugin.Code),
@@ -3013,7 +3241,7 @@ func (s *Server) updateAdminCommunityPluginConfig(c *gin.Context) {
 	}
 	plugin, err := s.svc.SetCommunityPluginConfig(id, code, payload)
 	if err != nil {
-		fail(c, http.StatusBadRequest, err.Error())
+		failAPIError(c, err)
 		return
 	}
 	s.auditStructured(c, "system", "更新子站插件配置", fmt.Sprintf("community_plugins#%d:%s", id, plugin.Code),
@@ -4131,6 +4359,23 @@ func (s *Server) adminAuthRequired() gin.HandlerFunc {
 	}
 }
 
+func (s *Server) adminUserRequired() gin.HandlerFunc {
+	return func(c *gin.Context) {
+		user, ok := currentUser(c)
+		if !ok {
+			fail(c, http.StatusUnauthorized, "后台未登录")
+			c.Abort()
+			return
+		}
+		if strings.TrimSpace(user.TokenType) != "admin" {
+			fail(c, http.StatusForbidden, "需要后台管理员身份")
+			c.Abort()
+			return
+		}
+		c.Next()
+	}
+}
+
 func (s *Server) optionalAuth() gin.HandlerFunc {
 	return func(c *gin.Context) {
 		if _, ok := currentUser(c); ok {
@@ -4178,7 +4423,25 @@ func (s *Server) requirePermission(permission string) gin.HandlerFunc {
 			return
 		}
 		if !hasPermission(user.Permissions, permission) {
-			fail(c, http.StatusForbidden, "无权限")
+			path := c.FullPath()
+			if path == "" {
+				path = c.Request.URL.Path
+			}
+			code := "plugin_permission_denied"
+			if strings.Contains(path, "/plugins/") && strings.Contains(path, "/config") {
+				code = "plugin_config_permission_denied"
+			} else if strings.Contains(path, "/topics/batch") || strings.Contains(path, "/plugin-content") {
+				code = "plugin_content_permission_denied"
+			} else if !strings.Contains(path, "/plugins") && !strings.Contains(path, "/plugin") && !strings.HasPrefix(permission, "plugin.") {
+				// Non-plugin endpoints keep legacy behavior for compatibility.
+				fail(c, http.StatusForbidden, "无权限")
+				c.Abort()
+				return
+			}
+			failAPIError(c, domain.NewAPIError(code, "权限不足").
+				WithStatus(http.StatusForbidden).
+				WithDetail("permission_code", permission).
+				WithSuggestion("请联系管理员为当前账号或角色补充对应权限后重试。"))
 			c.Abort()
 			return
 		}
@@ -5262,6 +5525,67 @@ func limitReports(items []domain.Report, limit int) []domain.Report {
 // fail 输出统一错误响应。
 func fail(c *gin.Context, code int, msg string) { c.JSON(code, gin.H{"error": msg}) }
 
+func failAPIError(c *gin.Context, err error) {
+	if err == nil {
+		fail(c, http.StatusBadRequest, "请求失败")
+		return
+	}
+	if apiErr, ok := err.(*domain.APIError); ok && apiErr != nil {
+		status := apiErr.HTTPStatus
+		if status <= 0 {
+			status = http.StatusBadRequest
+		}
+		payload := gin.H{
+			"error":      apiErr.Message, // legacy for old clients
+			"code":       apiErr.Code,
+			"message":    apiErr.Message,
+			"details":    apiErr.Details,
+			"suggestion": apiErr.Suggestion,
+		}
+		c.JSON(status, payload)
+		return
+	}
+	fail(c, http.StatusBadRequest, err.Error())
+}
+
+func auditAPIErrorFields(err error) gin.H {
+	apiErr, ok := err.(*domain.APIError)
+	if !ok || apiErr == nil {
+		return nil
+	}
+	details := map[string]any{}
+	for k, v := range apiErr.CloneDetails() {
+		// Best-effort masking: avoid leaking secrets into audit metadata.
+		lower := strings.ToLower(k)
+		if strings.Contains(lower, "token") || strings.Contains(lower, "secret") || strings.Contains(lower, "password") {
+			details[k] = "***"
+			continue
+		}
+		details[k] = v
+	}
+	return gin.H{
+		"error_code":  apiErr.Code,
+		"message":     apiErr.Message,
+		"details":     details,
+		"suggestion":  apiErr.Suggestion,
+		"http_status": apiErr.HTTPStatus,
+	}
+}
+
+func mergeAuditMeta(base gin.H, extra gin.H) gin.H {
+	if base == nil && extra == nil {
+		return nil
+	}
+	out := gin.H{}
+	for k, v := range base {
+		out[k] = v
+	}
+	for k, v := range extra {
+		out[k] = v
+	}
+	return out
+}
+
 // idParam 解析正整数路径参数，解析失败时直接写入 400 响应。
 func idParam(c *gin.Context, name string) (int64, bool) {
 	id, err := strconv.ParseInt(c.Param(name), 10, 64)
@@ -5386,6 +5710,370 @@ func (s *Server) communityPlugins(c *gin.Context) {
 		}
 	}
 	c.JSON(http.StatusOK, gin.H{"items": enabled})
+}
+
+type navigationEntry struct {
+	Code               string         `json:"code,omitempty"`
+	Title              string         `json:"title"`
+	Description        string         `json:"description,omitempty"`
+	PluginCode         string         `json:"plugin_code,omitempty"`
+	Location           string         `json:"location,omitempty"`
+	Route              string         `json:"route"`
+	ContentType        string         `json:"content_type,omitempty"`
+	RequiredPermission string         `json:"required_permission,omitempty"`
+	RequireLogin       bool           `json:"require_login,omitempty"`
+	Order              int            `json:"order,omitempty"`
+	Icon               string         `json:"icon,omitempty"`
+	Badge              string         `json:"badge,omitempty"`
+	Visible            bool           `json:"visible"`
+	Disabled           bool           `json:"disabled,omitempty"`
+	Reason             string         `json:"reason,omitempty"`
+	ReasonCode         string         `json:"reason_code,omitempty"`
+	Details            map[string]any `json:"details,omitempty"`
+}
+
+func menuRoute(menu domain.MenuDefinition) string {
+	if strings.TrimSpace(menu.Route) != "" {
+		return strings.TrimSpace(menu.Route)
+	}
+	return strings.TrimSpace(menu.Path)
+}
+
+func menuOrder(menu domain.MenuDefinition) int {
+	if menu.Order != 0 {
+		return menu.Order
+	}
+	if menu.SortOrder != 0 {
+		return menu.SortOrder
+	}
+	return 0
+}
+
+func visibleWhenSet(visibleWhen []string) map[string]bool {
+	out := map[string]bool{}
+	for _, v := range visibleWhen {
+		v = strings.TrimSpace(v)
+		if v != "" {
+			out[v] = true
+		}
+	}
+	return out
+}
+
+func (s *Server) navigation(c *gin.Context) {
+	// Global navigation: only uses enabled plugins; does not include per-community binding checks.
+	ctx := s.actorContext(c)
+	entries := []navigationEntry{}
+	for _, plugin := range s.svc.Plugins() {
+		if plugin.Status != pluginregistry.StatusEnabled {
+			continue
+		}
+		for _, menu := range plugin.Menus {
+			loc := strings.TrimSpace(menu.Location)
+			area := strings.TrimSpace(firstNonEmpty(menu.Area, menu.Location))
+			if area != "frontend" {
+				continue
+			}
+			if loc == "" {
+				loc = "global_nav"
+			}
+			r := menuRoute(menu)
+			if r == "" || !strings.HasPrefix(r, "/") {
+				continue
+			}
+			entry := navigationEntry{
+				Code:               firstNonEmpty(menu.Code, menu.Key),
+				Title:              menu.Title,
+				Description:        menu.Description,
+				PluginCode:         plugin.Code,
+				Location:           loc,
+				Route:              r,
+				ContentType:        strings.TrimSpace(menu.ContentType),
+				RequiredPermission: strings.TrimSpace(menu.Permission),
+				RequireLogin:       menu.RequireLogin,
+				Order:              menuOrder(menu),
+				Icon:               menu.Icon,
+				Badge:              menu.Badge,
+				Visible:            true,
+			}
+			if entry.RequireLogin && ctx.UserID == 0 {
+				entry.Visible = false
+				entry.ReasonCode = "plugin_login_required"
+				entry.Reason = "需要登录"
+			} else if entry.RequiredPermission != "" && !ctxHasPermission(ctx, entry.RequiredPermission) {
+				entry.Visible = false
+				entry.ReasonCode = "plugin_permission_denied"
+				entry.Reason = "权限不足"
+				entry.Details = map[string]any{"permission_code": entry.RequiredPermission}
+			}
+			entries = append(entries, entry)
+		}
+	}
+	sort.Slice(entries, func(i, j int) bool {
+		if entries[i].Location == entries[j].Location {
+			if entries[i].Order == entries[j].Order {
+				return entries[i].Title < entries[j].Title
+			}
+			return entries[i].Order < entries[j].Order
+		}
+		return entries[i].Location < entries[j].Location
+	})
+	c.JSON(http.StatusOK, gin.H{"items": entries})
+}
+
+func (s *Server) communityNavigation(c *gin.Context) {
+	comm, ok := s.svc.CommunityBySlug(c.Param("slug"))
+	if !ok || comm.Status != 1 {
+		fail(c, http.StatusNotFound, "子站不存在")
+		return
+	}
+	ctx := s.actorContext(c)
+	plugins, err := s.svc.CommunityPlugins(comm.ID)
+	if err != nil {
+		fail(c, http.StatusBadRequest, err.Error())
+		return
+	}
+	categories := s.svc.Categories(comm.ID)
+	enabledPlugins := map[string]domain.Plugin{}
+	for _, p := range plugins {
+		if p.Status == pluginregistry.StatusEnabled {
+			enabledPlugins[p.Code] = p
+		}
+	}
+	entries := []navigationEntry{}
+	for _, plugin := range plugins {
+		for _, menu := range plugin.Menus {
+			area := strings.TrimSpace(firstNonEmpty(menu.Area, menu.Location))
+			if area != "frontend" {
+				continue
+			}
+			loc := strings.TrimSpace(menu.Location)
+			if loc == "" {
+				loc = "community_nav"
+			}
+			r := menuRoute(menu)
+			if r == "" || !strings.HasPrefix(r, "/") {
+				continue
+			}
+			entry := navigationEntry{
+				Code:               firstNonEmpty(menu.Code, menu.Key),
+				Title:              menu.Title,
+				Description:        menu.Description,
+				PluginCode:         plugin.Code,
+				Location:           loc,
+				Route:              r,
+				ContentType:        strings.TrimSpace(menu.ContentType),
+				RequiredPermission: strings.TrimSpace(menu.Permission),
+				RequireLogin:       menu.RequireLogin,
+				Order:              menuOrder(menu),
+				Icon:               menu.Icon,
+				Badge:              menu.Badge,
+				Visible:            true,
+			}
+
+			// Visibility conditions (default: strict for frontend).
+			vis := visibleWhenSet(menu.VisibleWhen)
+			requirePluginEnabled := len(vis) == 0 || vis["plugin_enabled"]
+			requireCommunityEnabled := len(vis) == 0 || vis["community_enabled"]
+			requireDependencySatisfied := len(vis) == 0 || vis["dependency_satisfied"]
+			requireConfigValid := len(vis) == 0 || vis["config_valid"]
+
+			_, communityEnabled := enabledPlugins[plugin.Code]
+			if requirePluginEnabled && plugin.Status != pluginregistry.StatusEnabled {
+				entry.Visible = false
+				entry.ReasonCode = "plugin_disabled"
+				entry.Reason = "插件未启用"
+			} else if requireCommunityEnabled && !communityEnabled && plugin.Code != pluginregistry.CoreCode {
+				entry.Visible = false
+				entry.ReasonCode = "plugin_community_disabled"
+				entry.Reason = "当前子站未启用该插件"
+				entry.Details = map[string]any{"community_slug": comm.Slug, "plugin_code": plugin.Code}
+			} else if requireDependencySatisfied {
+				checks, summary := pluginregistry.ResolvePluginDependencies(plugin.PluginManifest, s.svc.Plugins())
+				_ = checks
+				if summary.Blocking > 0 {
+					entry.Visible = false
+					entry.ReasonCode = "plugin_dependency_missing"
+					entry.Reason = "插件依赖未满足"
+					entry.Details = map[string]any{"plugin_code": plugin.Code, "dependency_summary": summary}
+				}
+			} else if requireConfigValid {
+				if err := pluginregistry.ValidateConfigJSON(plugin, plugin.ConfigJSON); err != nil {
+					entry.Visible = false
+					entry.ReasonCode = "plugin_config_invalid"
+					entry.Reason = "插件配置无效"
+					entry.Details = map[string]any{"plugin_code": plugin.Code}
+				}
+			}
+
+			// Binding check (optional).
+			if entry.Visible && menu.RequireCategoryBinding {
+				okBind := false
+				ct := pluginregistry.NormalizeContentType(menu.ContentType)
+				for _, cat := range categories {
+					if cat.Status == 0 {
+						continue
+					}
+					if firstNonEmpty(cat.PluginCode, pluginregistry.PluginCodeForContentType(pluginregistry.NormalizeContentType(firstNonEmpty(cat.ContentType, cat.Type)))) != plugin.Code {
+						continue
+					}
+					if ct != "" && !pluginregistry.ContentTypeAllowed(cat.AllowedContentTypes, ct) {
+						continue
+					}
+					okBind = true
+					break
+				}
+				if !okBind {
+					entry.Visible = false
+					entry.ReasonCode = "plugin_category_not_supported"
+					entry.Reason = "当前子站未绑定该内容类型板块"
+					entry.Details = map[string]any{"community_slug": comm.Slug, "content_type": ct, "plugin_code": plugin.Code}
+				}
+			}
+
+			// Login/permission gating.
+			if entry.Visible && entry.RequireLogin && ctx.UserID == 0 {
+				entry.Visible = false
+				entry.ReasonCode = "plugin_login_required"
+				entry.Reason = "需要登录"
+			}
+			if entry.Visible && entry.RequiredPermission != "" && !ctxHasPermission(ctx, entry.RequiredPermission) {
+				entry.Visible = false
+				entry.ReasonCode = "plugin_permission_denied"
+				entry.Reason = "权限不足"
+				entry.Details = map[string]any{"permission_code": entry.RequiredPermission}
+			}
+
+			entries = append(entries, entry)
+		}
+	}
+	sort.Slice(entries, func(i, j int) bool {
+		if entries[i].Location == entries[j].Location {
+			if entries[i].Order == entries[j].Order {
+				return entries[i].Title < entries[j].Title
+			}
+			return entries[i].Order < entries[j].Order
+		}
+		return entries[i].Location < entries[j].Location
+	})
+	c.JSON(http.StatusOK, gin.H{"community_slug": comm.Slug, "items": entries})
+}
+
+func (s *Server) communityCreateOptions(c *gin.Context) {
+	comm, ok := s.svc.CommunityBySlug(c.Param("slug"))
+	if !ok || comm.Status != 1 {
+		fail(c, http.StatusNotFound, "子站不存在")
+		return
+	}
+	ctx := s.actorContext(c)
+	categories := s.svc.Categories(comm.ID)
+	plugins, err := s.svc.CommunityPlugins(comm.ID)
+	if err != nil {
+		fail(c, http.StatusBadRequest, err.Error())
+		return
+	}
+	enabledPlugins := map[string]domain.Plugin{}
+	for _, p := range plugins {
+		if p.Status == pluginregistry.StatusEnabled {
+			enabledPlugins[p.Code] = p
+		}
+	}
+	type option struct {
+		ContentType        string         `json:"content_type"`
+		PluginCode         string         `json:"plugin_code"`
+		Title              string         `json:"title"`
+		Route              string         `json:"route"`
+		RequiredPermission string         `json:"required_permission,omitempty"`
+		Visible            bool           `json:"visible"`
+		Disabled           bool           `json:"disabled,omitempty"`
+		Reason             string         `json:"reason,omitempty"`
+		ReasonCode         string         `json:"reason_code,omitempty"`
+		Details            map[string]any `json:"details,omitempty"`
+	}
+	out := []option{}
+	// Built-in content types for now (keeps behavior stable; external manifests can be added later
+	// once dynamic content types are exposed to frontend).
+	for _, ct := range []string{"article", "question", "project", "ai_work", "job", "wiki_page", "document"} {
+		def, _ := pluginregistry.ContentTypeDefinitionByType(ct)
+		pluginCode := firstNonEmpty(def.PluginCode, pluginregistry.PluginCodeForContentType(ct))
+		createPerm := strings.TrimSpace(def.CreatePermission)
+		item := option{
+			ContentType:        ct,
+			PluginCode:         pluginCode,
+			Title:              firstNonEmpty(def.Name, ct),
+			Route:              "/c/" + comm.Slug + "/topics/new/?type=" + url.QueryEscape(ct),
+			RequiredPermission: createPerm,
+			Visible:            true,
+		}
+		if ctx.UserID == 0 {
+			item.Visible = false
+			item.ReasonCode = "plugin_login_required"
+			item.Reason = "需要登录"
+		} else if createPerm != "" && !ctxHasPermission(ctx, createPerm) {
+			item.Visible = false
+			item.ReasonCode = "plugin_permission_denied"
+			item.Reason = "权限不足"
+			item.Details = map[string]any{"permission_code": createPerm}
+		}
+		// Category binding.
+		if item.Visible {
+			okBind := false
+			for _, cat := range categories {
+				if cat.Status == 0 {
+					continue
+				}
+				categoryType := pluginregistry.NormalizeContentType(firstNonEmpty(cat.ContentType, cat.Type))
+				expectedPlugin := firstNonEmpty(cat.PluginCode, pluginregistry.PluginCodeForContentType(categoryType))
+				if expectedPlugin != pluginCode {
+					continue
+				}
+				if !pluginregistry.ContentTypeAllowed(cat.AllowedContentTypes, ct) {
+					continue
+				}
+				okBind = true
+				break
+			}
+			if !okBind {
+				item.Visible = false
+				item.ReasonCode = "plugin_category_not_supported"
+				item.Reason = "当前子站未绑定该内容类型板块"
+			}
+		}
+		// Plugin enablement.
+		if item.Visible && pluginCode != pluginregistry.CoreCode {
+			p, ok := s.svc.PluginByCode(pluginCode)
+			if !ok || p.Code == "" {
+				item.Visible = false
+				item.ReasonCode = "plugin_not_found"
+				item.Reason = "内容类型对应插件不存在"
+			} else if p.Status == pluginregistry.StatusArchived {
+				item.Visible = false
+				item.ReasonCode = "plugin_archived"
+				item.Reason = "插件已归档"
+			} else if p.Status != pluginregistry.StatusEnabled {
+				item.Visible = false
+				item.ReasonCode = "plugin_disabled"
+				item.Reason = "插件未启用"
+			} else if _, ok := enabledPlugins[pluginCode]; !ok {
+				item.Visible = false
+				item.ReasonCode = "plugin_community_disabled"
+				item.Reason = "当前子站未启用该插件"
+			} else {
+				// dependencies/config/migrations are global gating for create.
+				if readiness, err := s.svc.PluginReadiness(p.Code, "enable"); err == nil {
+					if readiness.Status == "blocked" {
+						item.Visible = false
+						item.ReasonCode = "plugin_dependency_missing"
+						item.Reason = "插件依赖或状态未满足"
+						item.Details = map[string]any{"readiness": readiness}
+					}
+				}
+			}
+		}
+		out = append(out, item)
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].Title < out[j].Title })
+	c.JSON(http.StatusOK, gin.H{"community_slug": comm.Slug, "items": out})
 }
 
 func (s *Server) listCommunityTags(c *gin.Context) {
@@ -5752,7 +6440,31 @@ func (s *Server) createTopic(c *gin.Context) {
 	req.ActorPermissions = req.ActorContext.Permissions
 	topic, err := s.svc.CreateTopic(req)
 	if err != nil {
-		fail(c, http.StatusBadRequest, err.Error())
+		// For plugin governance consistency, try to surface structured error codes
+		// for common plugin availability blocks. Legacy string errors remain compatible.
+		msg := strings.TrimSpace(err.Error())
+		if strings.Contains(msg, "插件未启用") {
+			failAPIError(c, domain.NewPluginError("plugin_disabled", "插件不可用，无法发布该内容类型").
+				WithStatus(http.StatusBadRequest).
+				WithDetail("reason", msg).
+				WithSuggestion("请联系管理员启用插件或切换到可发布的内容类型。"))
+			return
+		}
+		if strings.Contains(msg, "当前子站未启用插件") {
+			failAPIError(c, domain.NewPluginError("plugin_community_disabled", "当前子站未启用该插件，无法发布该内容类型").
+				WithStatus(http.StatusBadRequest).
+				WithDetail("reason", msg).
+				WithSuggestion("请在当前子站启用插件，或切换到已启用插件的子站/内容类型。"))
+			return
+		}
+		if strings.Contains(msg, "当前板块未绑定对应插件") || strings.Contains(msg, "内容类型与板块不匹配") {
+			failAPIError(c, domain.NewPluginError("plugin_category_not_supported", "当前板块不支持该内容类型").
+				WithStatus(http.StatusBadRequest).
+				WithDetail("reason", msg).
+				WithSuggestion("请切换到支持该内容类型的板块后重试。"))
+			return
+		}
+		fail(c, http.StatusBadRequest, msg)
 		return
 	}
 	c.JSON(http.StatusCreated, gin.H{

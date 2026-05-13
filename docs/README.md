@@ -25,19 +25,25 @@ DevHub 当前文档围绕 `v1.4.0` 真实状态维护。历史版本 Release Not
 7. [完整插件系统路线图](PLUGIN_SYSTEM_ROADMAP.md)
    - 长期最高优先级目标，定义插件生命周期、治理、运行时、审计、迁移、后台和 E2E 要求；当前已进入 `v1.4.0` 插件内容治理增强版。
 
-8. [测试文档](TESTING.md)
+8. [插件 SDK 文档](PLUGIN_SDK.md)
+   - 插件声明规范、生命周期、manifest 字段、内容类型、权限、菜单、配置、Hook、migration 和安全边界。
+
+9. [插件生成模板](PLUGIN_TEMPLATE.md)
+   - `go run ./cmd/devhub plugin:new` 脚手架用法、生成目录、校验规则和模板边界。
+
+10. [测试文档](TESTING.md)
    - 已实现必测项、后续补测项、必要历史回归和 SEO 回归命令。
 
-9. [v1.4.0 Release Notes](releases/v1.4.0.md)
+11. [v1.4.0 Release Notes](releases/v1.4.0.md)
    - 插件内容治理增强：精确过滤、批量治理、审计闭环和当前验收记录。
 
-10. [v1.3.5 Release Notes](releases/v1.3.5.md)
+12. [v1.3.5 Release Notes](releases/v1.3.5.md)
     - 插件治理中心信息架构、完整安装 / 升级向导、批量归档 / 恢复影响预览、状态治理页和最小 E2E 回归。
 
-11. [部署启动文档](DEPLOYMENT.md)
+13. [部署启动文档](DEPLOYMENT.md)
    - 本地启动、构建行为、8090 端口排查、Go 模块网络和二进制排障启动。
 
-12. [备份与回滚文档](BACKUP_AND_ROLLBACK.md)
+14. [备份与回滚文档](BACKUP_AND_ROLLBACK.md)
     - v1.x 上线前后需要备份的内容、MySQL 备份恢复、二进制回滚、Git 回滚和紧急回滚流程。
 
 ## 历史版本归档
@@ -60,6 +66,7 @@ DevHub 当前文档围绕 `v1.4.0` 真实状态维护。历史版本 Release Not
 
 - [Web 目录说明](../web/README.md)：前台 / 后台源码目录说明。
 - [后台前端说明](../web/admin-app/README.md)：Vue 后台开发说明。
+- [插件 manifest 示例](examples/plugin-manifest-example.json)：可通过当前 ManifestValidator 的声明型插件示例。
 - [主题与 UI 架构](THEME_AND_UI_ARCHITECTURE.md)：前台主题 token 和 UI 架构说明。
 - [UI 样式指南](UI_STYLE_GUIDE.md)：前台样式规范。
 - [历史文档归档](archive/README.md)：不再作为当前验收依据的历史规划说明。
