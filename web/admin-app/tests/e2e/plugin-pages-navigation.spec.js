@@ -44,6 +44,10 @@ test.describe('plugin pages navigation', () => {
     await expect(page.getByTestId('plugin-manifest-panel')).toBeVisible();
     await page.getByTestId('plugin-manifest-cancel').click();
 
+    await page.getByTestId('admin-sub-nav-approvals').click();
+    await expect(page).toHaveURL(/\/admin-next\/plugins\/approvals/);
+    await expect(page.getByTestId('plugin-approvals-page')).toBeVisible();
+
     await page.getByTestId('admin-sub-nav-config').click();
     await expect(page).toHaveURL(/\/admin-next\/plugins\/config/);
     await expect(page.getByTestId('plugin-config-hub-page')).toBeVisible();

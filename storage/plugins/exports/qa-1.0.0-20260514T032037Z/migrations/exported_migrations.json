@@ -1,0 +1,28 @@
+{
+  "migrations": [
+    {
+      "plugin_code": "qa",
+      "migration_version": "1.0.0",
+      "migration_name": "qa_questions",
+      "direction": "up",
+      "checksum": "builtin:qa:qa_questions:v1",
+      "tables": [
+        "qa_questions"
+      ],
+      "rollback_supported": false,
+      "description": "确认 qa_questions 问题扩展表"
+    },
+    {
+      "plugin_code": "qa",
+      "migration_version": "1.0.0",
+      "migration_name": "qa_answers",
+      "direction": "up",
+      "checksum": "builtin:qa:qa_answers:v1",
+      "tables": [
+        "qa_answers"
+      ],
+      "rollback_supported": false,
+      "description": "确认 qa_answers 回答扩展表"
+    }
+  ]
+}

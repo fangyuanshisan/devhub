@@ -126,6 +126,26 @@
             <el-tag :type="checksumStatusType(row.checksum_status)" effect="plain">{{ row.checksum_status || '-' }}</el-tag>
           </template>
         </el-table-column>
+        <el-table-column label="signature" width="190">
+          <template #default="{ row }">
+            <div style="display: flex; align-items: center; gap: 6px; flex-wrap: wrap">
+              <el-tag
+                :type="signatureTrustType(row?.signature?.trust_status || (row?.signature_found ? 'unknown' : 'unsigned'))"
+                effect="plain"
+                data-testid="plugin-package-repo-signature-trust"
+              >
+                {{ row?.signature?.trust_status || (row?.signature_found ? 'unknown' : 'unsigned') }}
+              </el-tag>
+              <el-tag
+                :type="signatureVerifyType(row?.signature?.verification_status)"
+                effect="plain"
+                data-testid="plugin-package-repo-signature-verify"
+              >
+                {{ row?.signature?.verification_status || (row?.signature_found ? '-' : 'missing') }}
+              </el-tag>
+            </div>
+          </template>
+        </el-table-column>
         <el-table-column prop="total_files" label="files" width="90" />
         <el-table-column prop="total_size" label="size" width="110" />
         <el-table-column label="actions" width="200" fixed="right">
@@ -136,8 +156,14 @@
             <span data-testid="plugin-package-repo-dryrun-btn" style="display: inline-flex" @click="dryRunRepoPackage(row)">
               <el-button link type="warning">dry-run</el-button>
             </span>
-            <span data-testid="plugin-package-repo-install-btn" style="display: inline-flex" @click="canInstallRepoPackage(row) ? openRepoInstall(row) : null">
-              <el-button link type="success" :disabled="!canInstallRepoPackage(row)">安装</el-button>
+            <span data-testid="plugin-package-repo-install-btn" style="display: inline-flex" @click="openRepoInstall(row)">
+              <el-button
+                link
+                type="success"
+                @click.stop="openRepoInstall(row)"
+              >
+                安装
+              </el-button>
             </span>
           </template>
         </el-table-column>
@@ -244,6 +270,37 @@
         <el-descriptions-item label="missing">{{ (packageResult.checksum.missing || []).length }}</el-descriptions-item>
         <el-descriptions-item label="extra">{{ (packageResult.checksum.extra || []).length }}</el-descriptions-item>
       </el-descriptions>
+
+      <el-descriptions v-if="packageResult.signature" :column="3" border class="mb" data-testid="plugin-package-signature">
+        <el-descriptions-item label="trust_status">
+          <el-tag :type="signatureTrustType(packageResult.signature.trust_status)" effect="plain" data-testid="plugin-package-signature-trust">
+            {{ packageResult.signature.trust_status || '-' }}
+          </el-tag>
+        </el-descriptions-item>
+        <el-descriptions-item label="verification_status">
+          <el-tag :type="signatureVerifyType(packageResult.signature.verification_status)" effect="plain" data-testid="plugin-package-signature-verify">
+            {{ packageResult.signature.verification_status || '-' }}
+          </el-tag>
+        </el-descriptions-item>
+        <el-descriptions-item label="algorithm">{{ packageResult.signature.algorithm || '-' }}</el-descriptions-item>
+        <el-descriptions-item label="publisher_id">{{ packageResult.signature.publisher_id || '-' }}</el-descriptions-item>
+        <el-descriptions-item label="public_key_id">{{ packageResult.signature.public_key_id || '-' }}</el-descriptions-item>
+        <el-descriptions-item label="signed_files_count">{{ packageResult.signature.signed_files_count ?? 0 }}</el-descriptions-item>
+      </el-descriptions>
+
+      <div v-if="packageResult.signature && (packageResult.signature.unsigned_files || []).length" class="mb" data-testid="plugin-package-signature-unsigned-files">
+        <h4 style="margin: 0 0 8px">unsigned_files</h4>
+        <div class="tag-wrap">
+          <el-tag v-for="item in packageResult.signature.unsigned_files || []" :key="item" type="warning" effect="plain">{{ item }}</el-tag>
+        </div>
+      </div>
+
+      <div v-if="packageResult.signature && (packageResult.signature.messages || []).length" class="mb" data-testid="plugin-package-signature-messages">
+        <h4 style="margin: 0 0 8px">signature messages</h4>
+        <ul class="result-list">
+          <li v-for="(item, idx) in packageResult.signature.messages || []" :key="`pkg-sig-msg-${idx}`">{{ item }}</li>
+        </ul>
+      </div>
 
       <div v-if="packageResult.checksum && (packageResult.checksum.mismatched || []).length" class="mb" data-testid="plugin-package-checksum-mismatched">
         <h4 style="margin: 0 0 8px">checksum mismatched</h4>
@@ -384,6 +441,37 @@
             <el-descriptions-item label="extra">{{ (repoDetail.checksum.extra || []).length }}</el-descriptions-item>
           </el-descriptions>
 
+          <el-descriptions v-if="repoDetail.signature" :column="3" border class="mb" data-testid="plugin-package-repo-detail-signature">
+            <el-descriptions-item label="trust_status">
+              <el-tag :type="signatureTrustType(repoDetail.signature.trust_status)" effect="plain" data-testid="plugin-package-repo-detail-signature-trust">
+                {{ repoDetail.signature.trust_status || '-' }}
+              </el-tag>
+            </el-descriptions-item>
+            <el-descriptions-item label="verification_status">
+              <el-tag :type="signatureVerifyType(repoDetail.signature.verification_status)" effect="plain" data-testid="plugin-package-repo-detail-signature-verify">
+                {{ repoDetail.signature.verification_status || '-' }}
+              </el-tag>
+            </el-descriptions-item>
+            <el-descriptions-item label="publisher_id">{{ repoDetail.signature.publisher_id || '-' }}</el-descriptions-item>
+            <el-descriptions-item label="public_key_id">{{ repoDetail.signature.public_key_id || '-' }}</el-descriptions-item>
+            <el-descriptions-item label="signed_files_count">{{ repoDetail.signature.signed_files_count ?? 0 }}</el-descriptions-item>
+            <el-descriptions-item label="unsigned_files_count">{{ (repoDetail.signature.unsigned_files || []).length }}</el-descriptions-item>
+          </el-descriptions>
+
+          <div v-if="repoDetail.signature && (repoDetail.signature.signed_files || []).length" class="mb" data-testid="plugin-package-repo-detail-signed-files">
+            <h4 style="margin: 0 0 8px">signed_files</h4>
+            <div class="tag-wrap">
+              <el-tag v-for="item in repoDetail.signature.signed_files || []" :key="item" type="success" effect="plain">{{ item }}</el-tag>
+            </div>
+          </div>
+
+          <div v-if="repoDetail.signature && (repoDetail.signature.unsigned_files || []).length" class="mb" data-testid="plugin-package-repo-detail-unsigned-files">
+            <h4 style="margin: 0 0 8px">unsigned_files</h4>
+            <div class="tag-wrap">
+              <el-tag v-for="item in repoDetail.signature.unsigned_files || []" :key="item" type="warning" effect="plain">{{ item }}</el-tag>
+            </div>
+          </div>
+
           <pre class="json-box compact">{{ formatJSON(repoDetail.install_dry_run?.install_preview || {}) }}</pre>
         </el-card>
       </section>
@@ -396,7 +484,7 @@
           <span class="muted">安装后默认 disabled，不会执行代码/SQL，不会加载前端资产。</span>
         </div>
       </template>
-      <section class="action-panel in-drawer" data-testid="plugin-package-repo-install-content">
+      <section v-if="repoInstallVisible" class="action-panel in-drawer" data-testid="plugin-package-repo-install-content">
         <el-alert type="info" show-icon :closable="false" class="mb" title="边界：不会执行第三方代码 / 不会执行 SQL / 不会动态加载前端资产；本轮从本地插件包写入声明与记录（disabled）。" />
 
         <el-alert v-if="repoInstallError" type="error" show-icon :closable="false" class="mb" :title="repoInstallError" />
@@ -407,6 +495,11 @@
             <el-descriptions-item label="name">{{ repoInstallDetail.package?.name || '-' }}</el-descriptions-item>
             <el-descriptions-item label="version">{{ repoInstallDetail.package?.version || '-' }}</el-descriptions-item>
             <el-descriptions-item label="path">{{ repoInstallDetail.package?.path || '-' }}</el-descriptions-item>
+            <el-descriptions-item label="status">
+              <el-tag :type="repoInstallDetail.status === 'blocked' ? 'danger' : repoInstallDetail.status === 'warning' ? 'warning' : 'success'" effect="plain" data-testid="plugin-package-repo-install-status">
+                {{ repoInstallDetail.status || '-' }}
+              </el-tag>
+            </el-descriptions-item>
             <el-descriptions-item label="risk_level">
               <el-tag :type="riskLevelType(repoInstallDetail.risk_report?.level)" effect="plain">
                 {{ repoInstallDetail.risk_report?.level || '-' }}
@@ -416,6 +509,16 @@
               <el-tag :type="checksumStatusType(repoInstallDetail.checksum?.status)" effect="plain">
                 {{ repoInstallDetail.checksum?.status || '-' }}
               </el-tag>
+            </el-descriptions-item>
+            <el-descriptions-item label="signature">
+              <div style="display: inline-flex; gap: 6px; flex-wrap: wrap" data-testid="plugin-package-repo-install-signature">
+                <el-tag :type="signatureTrustType(repoInstallDetail.signature?.trust_status)" effect="plain">
+                  {{ repoInstallDetail.signature?.trust_status || '-' }}
+                </el-tag>
+                <el-tag :type="signatureVerifyType(repoInstallDetail.signature?.verification_status)" effect="plain">
+                  {{ repoInstallDetail.signature?.verification_status || '-' }}
+                </el-tag>
+              </div>
             </el-descriptions-item>
           </el-descriptions>
 
@@ -443,6 +546,16 @@
             </div>
             <div class="filter-actions" style="justify-content: flex-end">
               <el-button :loading="repoInstallLoading" @click="repoInstallVisible = false">取消</el-button>
+              <el-button
+                type="primary"
+                plain
+                :loading="repoInstallLoading"
+                :disabled="!repoInstallDetail || String(repoInstallDetail.status || '').toLowerCase() === 'blocked'"
+                data-testid="plugin-package-repo-install-approval"
+                @click="submitRepoInstallApproval"
+              >
+                提交安装审批
+              </el-button>
               <el-button type="success" :loading="repoInstallLoading" :disabled="!repoInstallDetail || String(repoInstallDetail.status || '').toLowerCase() === 'blocked'" data-testid="plugin-package-repo-install-confirm" @click="confirmRepoInstall">确认安装</el-button>
             </div>
           </div>
@@ -632,7 +745,9 @@
 <script setup>
 import { computed, onMounted, ref } from 'vue';
 import { ElMessage, ElMessageBox } from 'element-plus';
+import { useRouter } from 'vue-router';
 import {
+  createPluginApproval,
   dryRunPluginManifest,
   dryRunPluginPackage,
   dryRunPluginUpgrade,
@@ -646,6 +761,8 @@ import {
 } from '@/api/admin';
 import { t } from '@/i18n';
 import { pluginStatusLabel } from '@/i18n/formatters';
+
+const router = useRouter();
 
 const items = ref([]);
 const loading = ref(false);
@@ -754,11 +871,12 @@ async function openRepoDetail(row) {
 }
 
 function canInstallRepoPackage(row) {
-  const status = String(row?.status || '').toLowerCase();
+  const status = String(row?.status || 'ok').toLowerCase();
   const risk = String(row?.risk_level || '').toLowerCase();
-  const checksum = String(row?.checksum_status || '').toLowerCase();
+  const checksum = String(row?.checksum_status || 'ok').toLowerCase();
   if (!row?.manifest_found) return false;
   if (!row?.code) return false;
+  if (status === 'invalid') return false;
   if (status !== 'ok' && status !== 'warning') return false;
   if (risk === 'blocked') return false;
   if (checksum === 'failed') return false;
@@ -823,6 +941,37 @@ async function confirmRepoInstall() {
   }
 }
 
+async function submitRepoInstallApproval() {
+  const path = String(repoInstallDetail.value?.package?.path || '').trim();
+  if (!path) return;
+  repoInstallLoading.value = true;
+  repoInstallError.value = '';
+  try {
+    const payload = {
+      action: 'install',
+      package_path: path,
+      plugin_code: String(repoInstallDetail.value?.package?.code || '').trim(),
+      reason: `从本地插件仓库提交安装审批：${path}`,
+    };
+    const res = await createPluginApproval(payload);
+    ElMessage.success(`已提交审批 #${res?.id || ''}`.trim());
+    repoInstallVisible.value = false;
+    await router.push('/plugins/approvals');
+  } catch (e) {
+    const data = e?.response?.data;
+    const code = String(data?.code || '').trim();
+    const message = String(data?.message || data?.error || '').trim();
+    const suggestion = String(data?.suggestion || data?.details?.suggestion || '').trim();
+    const parts = [];
+    if (code) parts.push(`[${code}]`);
+    if (message) parts.push(message);
+    if (suggestion) parts.push(`建议：${suggestion}`);
+    repoInstallError.value = parts.join(' ') || String(e?.message || '提交审批失败');
+  } finally {
+    repoInstallLoading.value = false;
+  }
+}
+
 async function dryRunRepoPackage(row) {
   const path = String(row?.path || '').trim();
   if (!path) return;
@@ -879,6 +1028,26 @@ function checksumStatusType(status) {
   if (v === 'warning') return 'warning';
   if (v === 'missing') return 'warning';
   return 'success';
+}
+
+function signatureTrustType(status) {
+  const v = String(status || '').toLowerCase();
+  if (v === 'trusted') return 'success';
+  if (v === 'unknown') return 'warning';
+  if (v === 'unsigned') return 'warning';
+  if (v === 'revoked') return 'danger';
+  if (v === 'blocked') return 'danger';
+  return 'info';
+}
+
+function signatureVerifyType(status) {
+  const v = String(status || '').toLowerCase();
+  if (v === 'verified') return 'success';
+  if (v === 'structural_only') return 'warning';
+  if (v === 'missing') return 'warning';
+  if (v === 'unsupported') return 'danger';
+  if (v === 'failed') return 'danger';
+  return 'info';
 }
 
 // === legacy wizard state/methods (copied with minimal adjustments) ===

@@ -1,0 +1,8 @@
+{
+  "app_secret": "REPLACE_ME",
+  "enabled": true,
+  "oauth": {
+    "client_secret": "REPLACE_ME"
+  },
+  "title_prefix": "[Export]"
+}

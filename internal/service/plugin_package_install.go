@@ -47,6 +47,16 @@ func (s *Service) InstallPluginPackage(req domain.PluginPackageInstallRequest) (
 		switch strings.TrimSpace(dry.BlockedCode) {
 		case "plugin_package_dangerous_file":
 			code = "plugin_package_dangerous_file"
+		case "plugin_package_signature_invalid",
+			"plugin_package_signature_unsupported_algorithm",
+			"plugin_package_signature_verification_failed",
+			"plugin_package_signature_manifest_unsigned",
+			"plugin_package_signature_signed_file_missing",
+			"plugin_package_signature_path_invalid",
+			"plugin_package_publisher_invalid",
+			"plugin_package_publisher_blocked",
+			"plugin_package_publisher_revoked":
+			code = strings.TrimSpace(dry.BlockedCode)
 		case "plugin_package_checksum_invalid", "plugin_package_checksum_mismatch", "plugin_package_checksum_file_missing", "plugin_package_checksum_duplicate_path", "plugin_package_checksum_unsupported_algorithm":
 			code = strings.TrimSpace(dry.BlockedCode)
 		case "plugin_package_manifest_invalid", "plugin_package_manifest_missing":

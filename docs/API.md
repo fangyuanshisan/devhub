@@ -2,7 +2,7 @@
 
 [返回文档入口](README.md)
 
-更新时间：2026-05-13（v1.4.0 插件平台收口验收）
+更新时间：2026-05-14（v1.4.0 插件平台收口验收；v1.5.0 阶段能力持续落地）
 
 本文档只记录当前仓库真实可用 API。接口路径以 `internal/transport/httpapi/router.go` 为准；未实现能力集中放在“规划 / 未完成”小节，不写入当前真实 API 主体。
 
@@ -80,6 +80,16 @@
 | `plugin_package_size_limit_exceeded` | 文件大小超限（禁止） | `path` | 缩小文件体积或移除大文件 |
 | `plugin_package_file_count_exceeded` | 文件数量超限（禁止） | `total_files` | 减少文件数量 |
 | `plugin_package_risk_blocked` | 风险评估阻断 dry-run | `items` | 根据风险项修复后重试 |
+| `plugin_package_signature_invalid` | signature.json 非法或签名字段不合法 | `path`,`reason` | 修复 signature.json 后重试 |
+| `plugin_package_signature_unsupported_algorithm` | 不支持的签名算法 | `algorithm` | 当前仅支持 ed25519 |
+| `plugin_package_signature_verification_failed` | 签名验签失败 | `publisher_id`,`public_key_id` | 检查 checksums.json/签名是否匹配，必要时重新生成签名 |
+| `plugin_package_signature_signed_file_missing` | signature.json 声明的签名文件不存在 | `path` | 补齐文件或修复 signed_files 列表 |
+| `plugin_package_signature_path_invalid` | signature.json signed_files 路径不合法 | `path` | 使用包内相对路径且禁止 `..` |
+| `plugin_package_signature_manifest_unsigned` | signature.json 未签名 manifest/checksums | `missing` | 在 signed_files 中补齐 manifest.json 与 checksums.json |
+| `plugin_package_publisher_invalid` | publisher.json 非法 | `path`,`reason` | 修复 publisher.json 后重试 |
+| `plugin_package_publisher_blocked` | publisher 被本地策略 blocked | `publisher_id`,`public_key_id` | 更换发布者或调整 trusted_publishers 策略 |
+| `plugin_package_publisher_revoked` | publisher 被本地策略 revoked | `publisher_id`,`public_key_id` | 更换发布者或移除插件包 |
+| `plugin_package_trusted_publishers_unavailable` | trusted_publishers 配置不可用（warning） | `path`,`reason` | 检查 `storage/plugins/trusted_publishers.json` 访问权限与 JSON 格式 |
 | `plugin_package_repository_not_found` | 插件包仓库目录不存在 | `root` | 创建仓库目录或检查路径 |
 | `plugin_package_repository_forbidden` | 插件包仓库路径不允许 | `root`,`allowed_roots` | 使用白名单目录下的仓库路径 |
 | `plugin_package_scan_failed` | 插件包仓库扫描失败 | `root`,`reason` | 检查目录权限或文件状态 |
@@ -90,6 +100,34 @@
 | `plugin_package_already_installed` | 同编码插件已安装 | `plugin_code` | 走 upgrade 流程升级插件 |
 | `plugin_package_dependency_missing` | required 依赖未满足 | `dependencies` | 先安装并启用 required 依赖插件 |
 | `plugin_package_core_incompatible` | Core 版本不兼容 | `core_version`,`min_core_version`,`compatible_core_version` | 升级 Core 或选择兼容版本插件包 |
+| `plugin_config_version_not_found` | 配置版本不存在 | `version_id` | 刷新版本列表后重试 |
+| `plugin_config_version_invalid_scope` | 配置版本 scope 不匹配 | `scope`,`actual_scope` | 从正确 scope 打开版本 |
+| `plugin_config_version_schema_invalid` | 目标版本配置未通过 schema（用于 rollback dry-run 的 `blocked_code`） | `schema_validation.errors` | 修复配置或选择其他版本 |
+| `plugin_config_encryption_key_missing` | 缺少插件配置加密密钥（敏感字段无法保存） | - | 配置 `DEVHUB_PLUGIN_CONFIG_KEY` 后重试 |
+| `plugin_config_encryption_key_invalid` | 插件配置加密密钥不合法 | - | 检查密钥长度/格式（推荐 base64 32 bytes） |
+| `plugin_config_encrypt_failed` | 敏感字段加密失败 | `plugin_code` | 检查密钥配置后重试 |
+| `plugin_config_decrypt_failed` | 敏感字段解密失败 | `plugin_code` | 检查密钥是否变更；避免轮换导致旧密文不可读 |
+| `plugin_approval_not_found` | 审批记录不存在 | `id` | 刷新审批列表后重试 |
+| `plugin_approval_invalid_action` | 不支持的审批动作 | `action` | action 仅支持 install / upgrade |
+| `plugin_approval_invalid_status` | 状态不允许该操作 | `status` | 检查状态流转后重试 |
+| `plugin_approval_create_blocked` | 创建审批被阻断 | `blocked_code`,`blocked_reasons` | 先修复 dry-run 阻断项再提交审批 |
+| `plugin_approval_permission_denied` | 无权限执行该审批动作 | `requested_by` | 使用申请人或具备更高权限账号处理 |
+| `plugin_approval_reject_reason_required` | 拒绝原因必填 | - | 提交 comment 后重试 |
+| `plugin_approval_execute_blocked` | 执行前重新校验阻断 | `blocked_code`,`blocked_reasons` | 修复后重新提交审批 |
+| `plugin_approval_execute_failed` | 审批执行失败 | `error_code` | 查看后台日志，修复后重试 |
+| `plugin_approval_already_executed` | 审批已执行 | `id` | 无需重复执行 |
+| `plugin_approval_already_canceled` | 审批已撤销 | `id` | 重新提交审批 |
+| `plugin_export_not_supported` | 插件不支持导出 | `plugin_code`,`reason` | 仅导出声明型插件；运行时代码/用户数据不在导出范围 |
+| `plugin_export_dry_run_failed` | 导出 dry-run 失败 | `plugin_code`,`reason` | 根据预览错误修复后重试 |
+| `plugin_export_failed` | 导出写入失败 | `plugin_code`,`output_dir`,`reason` | 检查导出目录权限和磁盘状态 |
+| `plugin_export_path_invalid` | 导出目录不合法 | `output_dir` | 使用 `storage/plugins/exports/` 下的相对目录 |
+| `plugin_export_output_exists` | 导出目录已存在 | `output_dir` | 换一个目录或使用 `force=true` |
+| `plugin_export_manifest_invalid` | 导出 manifest 校验失败 | `plugin_code`,`errors` | 修复插件 manifest 声明后重试 |
+| `plugin_export_sensitive_value_detected` | 检测到敏感配置泄露风险 | `plugin_code`,`paths` | 仅导出脱敏示例配置，不导出真实配置 |
+| `plugin_export_user_data_forbidden` | 检测到用户数据导出风险 | `plugin_code` | 移除用户内容/通知/审计等业务数据 |
+| `plugin_export_checksum_failed` | checksums.json 生成失败 | `output_dir`,`reason` | 检查文件写入结果后重试 |
+| `plugin_export_package_dry_run_failed` | 导出后包自检失败 | `output_dir`,`status` | 根据 package dry-run warning/error 修复导出内容 |
+| `plugin_export_permission_denied` | 缺少插件导出权限 | `permission_code` | 查看预览需 `plugin.read`，正式导出需 `plugin.write` |
 - 权限错误统一返回 `403`，典型格式为 `{"error":"无权限"}` 或 `{"error":"缺少权限 <permission_code>，不能创建该类型内容"}`；插件内容创建必须以 `ContentTypeDefinition.create_permission` 为准，`post.create` 只作为 `core.topic.create` 的历史兼容桥。
 - 分页参数：`page`、`page_size`，默认按接口实现处理，建议 `page_size <= 50`。
 
@@ -389,6 +427,48 @@
   当前同时写入 `admin_logs.target` 文本摘要和 `old_value` / `new_value` / `metadata_json` 结构化字段；`metadata_json.changed_keys` 记录本次变更的顶层配置键。
 - 清空：提交 `{"config_json": null}` 或空配置会清空全局覆盖配置，并同样写入配置审计。
 
+### 插件配置版本历史（v1.5.0-P1-05）
+
+> 说明：版本历史与 diff 会对敏感字段脱敏；本轮提供“回滚 dry-run 预览”，不提供真实回滚写入。
+
+`GET /api/v1/admin/plugins/:code/config/versions`
+
+- 认证：后台 admin token。
+- 权限：`plugin.read`。
+- 查询参数：`page`、`page_size`。
+- 返回：`items/pagination`，每项包含 `version_no/scope/community_id/changed_keys/source/operator_name/created_at/config_hash`。
+
+`GET /api/v1/admin/plugins/:code/config/versions/:version_id`
+
+- 认证：后台 admin token。
+- 权限：`plugin.read`。
+- 返回：版本详情（`config_json` 已脱敏）+ `diff`（已脱敏）。
+
+`POST /api/v1/admin/plugins/:code/config/versions/:version_id/rollback/dry-run`
+
+- 认证：后台 admin token。
+- 权限：`plugin.write`。
+- 用途：回滚预览（dry-run）。不会写入配置、不会生成新版本、不会改变插件状态。
+- 行为：读取目标版本配置，与当前配置做 diff，并使用**当前** `config_schema` 重新校验；校验失败返回 `status=blocked`，并返回 `blocked_code=plugin_config_version_schema_invalid` 与 `suggestion`。
+
+`GET /api/v1/admin/communities/:id/plugins/:code/config/versions`
+
+- 认证：后台 admin token。
+- 权限：`plugin.read`。
+- 返回：子站 scope 的版本历史（`scope=community`，`community_id=:id`）。
+
+`GET /api/v1/admin/communities/:id/plugins/:code/config/versions/:version_id`
+
+- 认证：后台 admin token。
+- 权限：`plugin.read`。
+- 返回：子站配置版本详情（`config_json/diff` 已脱敏）。
+
+`POST /api/v1/admin/communities/:id/plugins/:code/config/versions/:version_id/rollback/dry-run`
+
+- 认证：后台 admin token。
+- 权限：`plugin.write`。
+- 用途：子站配置回滚预览（dry-run），不写入配置。
+
 `POST /api/v1/admin/plugins/manifest/validate`
 
 - 认证：后台 admin token。
@@ -424,13 +504,18 @@
   - `examples/plugins/`
   - `plugins-local/`
   - `storage/plugins/packages/`
+  - `storage/plugins/exports/`
   - `.devhub/plugins/`
-- 返回：包含 `package`、`file_scan`、`checksum`、`risk_report`、`manifest_validation`、`install_dry_run`、`status`、`blocked_code`、`blocked_reasons`、`warnings`、`errors`。
+- 返回：包含 `package`、`file_scan`、`checksum`、`signature`、`risk_report`、`manifest_validation`、`install_dry_run`、`status`、`blocked_code`、`blocked_reasons`、`warnings`、`errors`。
 - `status`：`ok|warning|blocked`。
 - `blocked_code`：当 `status=blocked` 时返回阻断原因代码（例如 `plugin_package_dangerous_file` / `plugin_package_manifest_invalid`）。
   - `blocked_reasons`：可选，返回所有阻断原因 code（用于 UI 逐项展示）。
   - `checksum.status`：`ok|warning|failed|missing`；缺失 checksums.json 为 `missing`（warning），不匹配为 `failed`（blocked）。
   - `risk_report.level`：`low|medium|high|blocked`，由后端根据扫描/校验/依赖/兼容结果评估，前端不得伪造。
+  - `signature`：签名与可信来源摘要（可选能力，但字段会返回）。
+    - `trust_status`：`trusted|unknown|blocked|revoked|unsigned`
+    - `verification_status`：`verified|failed|missing|unsupported|structural_only`
+    - 说明：`publisher.json` 不会被自动信任；可信状态只来自本地 `storage/plugins/trusted_publishers.json`。
 
 `GET /api/v1/admin/plugins/packages`
 
@@ -445,7 +530,7 @@
   - `checksum_status`：可选，`ok|warning|failed|missing`
   - `manifest_valid`：可选，`true|false`
   - `page` / `page_size`
-- 返回：`items/pagination/summary`，其中 `items` 每项包含 `path/code/name/version/status/risk_level/risk_summary/checksum_status/manifest_valid/total_files/total_size/updated_at/warnings/errors`。
+- 返回：`items/pagination/summary`，其中 `items` 每项包含 `path/code/name/version/status/risk_level/risk_summary/checksum_status/manifest_valid/total_files/total_size/updated_at/warnings/errors`，以及可选签名摘要 `signature`（同 dry-run）。
 
 `GET /api/v1/admin/plugins/packages/detail`
 
@@ -454,12 +539,12 @@
 - 用途：查看单个插件包详情（复用 dry-run 结果视图；blocked/invalid 也可查看原因）。
 - 查询参数：
   - `path`：必填，例如 `storage/plugins/packages/demo_notice`
-- 返回：与 `POST /api/v1/admin/plugins/packages/dry-run` 相同的结构（包含 `checksum/risk_report/manifest_validation/install_dry_run` 等）。
+- 返回：与 `POST /api/v1/admin/plugins/packages/dry-run` 相同的结构（包含 `checksum/signature/risk_report/manifest_validation/install_dry_run` 等）。
 
 `POST /api/v1/admin/plugins/packages/install`
 
 - 认证：后台 admin token。
-- 权限：`plugin.write`。
+- 权限：`plugin.approve`（仅审批人可直接执行；普通管理员需先提交审批申请）。
 - 用途：从**本地插件包**安装声明型插件（最小闭环）。服务端会强制复跑 package dry-run（scan/checksum/risk/manifest validate/install preview），通过后复用现有 manifest install 写入插件记录。
 - 请求：
 
@@ -475,6 +560,114 @@
   - 安装成功后插件状态固定为 `disabled`（不自动启用）。
   - 若同 `code` 插件已安装，返回 `plugin_package_already_installed`（提示走 upgrade）。
 - 返回：`plugin`（含 `source_type=local_package`）、`package`、`checksum`、`risk_level`、`install_result`、`warnings`。
+
+`POST /api/v1/admin/plugins/:code/export/dry-run`
+
+- 认证：后台 admin token。
+- 权限：`plugin.read`。
+- 用途：预览“已安装声明型插件”导出为本地插件包目录；不写文件、不生成目录、不导出真实配置。
+- 请求：
+
+```json
+{
+  "include_docs": true,
+  "include_migrations": true,
+  "include_publisher": false,
+  "include_signature_stub": false
+}
+```
+
+- 返回字段：
+  - `plugin_code` / `version` / `status`：插件与预览状态（`ok|warning|blocked`）。
+  - `export_preview.files`：预计生成的相对文件列表，至少包含 `manifest.json`、`README.md`、`config.example.json`、`checksums.json`。
+  - `export_preview.output_dir`：预计输出目录，默认在 `storage/plugins/exports/{plugin_code}-{version}-{timestamp}`。
+  - `contains_sensitive_values=false` / `contains_user_data=false` / `contains_runtime_code=false` / `contains_external_sql=false`：导出安全边界检查。
+  - `warnings` / `errors`：可读提示；敏感字段不会进入 details。
+
+`POST /api/v1/admin/plugins/:code/export`
+
+- 认证：后台 admin token。
+- 权限：`plugin.write`。
+- 用途：正式导出已安装声明型插件为受控本地插件包目录。
+- 请求字段：同 dry-run，额外支持 `output_dir`（必须位于 `storage/plugins/exports/`）和 `force`（已存在目录时是否清理重写）。
+- 行为：
+  - 执行前强制调用导出 dry-run。
+  - 写入 `manifest.json`、`README.md`、`config.example.json`、`checksums.json`，可选写入 `docs/usage.md`、`migrations/exported_migrations.json`、`publisher.json`、`signature.json` 结构草案。
+  - `config.example.json` 只来自 `default_config` 或 `config_schema` 示例生成，敏感字段统一写为 `REPLACE_ME`，不会导出当前全局/子站真实配置，也不会导出 `enc:v1:` 密文。
+  - 生成 `checksums.json` 后自动执行 package dry-run 自检；自检失败会以 warning 返回，不会写入插件安装数据。
+  - 成功/失败均写入 `admin_logs`，details 不包含敏感配置、用户数据或密文。
+- 返回字段：
+  - `plugin_code` / `version` / `output_dir`
+  - `files`
+  - `checksum_status=generated`
+  - `package_dry_run_status=ok|warning|failed`
+  - `warnings`
+
+边界：
+
+- 不生成 zip、不远程上传、不发布到插件市场。
+- 不导出用户数据、帖子/评论/通知/审计原始明细、Hook 执行历史、搜索索引、运行时代码、外部 SQL、私钥或任何真实 token/secret/password/credential。
+
+`POST /api/v1/admin/plugins/approvals`
+
+- 认证：后台 admin token。
+- 权限：`plugin.write`。
+- 用途：创建插件治理审批申请（本轮覆盖：本地插件包 install、插件 upgrade）。
+- 请求示例：
+
+```json
+{
+  "action": "install",
+  "package_path": "storage/plugins/packages/demo_notice",
+  "reason": "安装公告插件用于测试"
+}
+```
+
+- 返回：审批记录（`id/status/action/plugin_code/package_path/risk_report_json/dry_run_json` 等）。
+
+`GET /api/v1/admin/plugins/approvals`
+
+- 认证：后台 admin token。
+- 权限：`plugin.read`。
+- 用途：审批列表（分页/筛选）。
+- 查询参数：
+  - `status`：可选，`pending|approved|rejected|canceled|executed|failed`
+  - `action`：可选，`install|upgrade`
+  - `plugin_code`：可选
+  - `requested_by` / `reviewed_by`：可选
+  - `page` / `page_size`
+
+`GET /api/v1/admin/plugins/approvals/:id`
+
+- 认证：后台 admin token。
+- 权限：`plugin.read`。
+- 用途：审批详情（包含 dry-run/risk 快照；不包含敏感配置明文或密文）。
+
+`POST /api/v1/admin/plugins/approvals/:id/approve`
+
+- 认证：后台 admin token。
+- 权限：`plugin.approve`。
+- 用途：审批通过。
+- 请求：`{"comment":"...可选..."}`。
+
+`POST /api/v1/admin/plugins/approvals/:id/reject`
+
+- 认证：后台 admin token。
+- 权限：`plugin.approve`。
+- 用途：审批拒绝（comment 必填）。
+- 请求：`{"comment":"...必填..."}`。
+
+`POST /api/v1/admin/plugins/approvals/:id/cancel`
+
+- 认证：后台 admin token。
+- 权限：`plugin.write`。
+- 用途：撤销 pending 申请（默认仅申请人可撤销；审批人可强制撤销）。
+
+`POST /api/v1/admin/plugins/approvals/:id/execute`
+
+- 认证：后台 admin token。
+- 权限：`plugin.approve`。
+- 用途：执行已通过审批的申请。服务端会强制**重新 dry-run 校验**（scan/checksum/risk/依赖/兼容），校验通过后才会真正安装/升级。
 
 `POST /api/v1/admin/plugins/install`
 
@@ -529,7 +722,7 @@ Core 兼容：`min_core_version` 缺失为 warning；`min_core_version` 高于�
 `POST /api/v1/admin/plugins/:code/upgrade`
 
 - 认证：后台 admin token。
-- 权限：`plugin.write`。
+- 权限：`plugin.approve`（仅审批人可直接执行；普通管理员需先提交升级审批申请）。
 - 用途：执行 manifest + 配置型插件的安全升级。
 - 请求体：manifest JSON，要求 `code` 与路径中的 `:code` 一致，且 `version` 必须高于当前版本。
 - 阻断：required dependency 或 Core 兼容检查不满足时拒绝升级；不允许降级或同版本重复升级。

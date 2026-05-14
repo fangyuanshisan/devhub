@@ -500,6 +500,72 @@ func (s *MySQLStore) migrateSiteScopedAudit() error {
 	if !s.columnExists("plugin_migrations", "updated_at") {
 		_, _ = s.db.Exec(`ALTER TABLE plugin_migrations ADD COLUMN updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP`)
 	}
+	// v1.5.0-P1-05: plugin config versions (history + diff + rollback preview).
+	_, _ = s.db.Exec(`CREATE TABLE IF NOT EXISTS plugin_config_versions (
+		id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+		plugin_code VARCHAR(64) NOT NULL,
+		scope VARCHAR(32) NOT NULL DEFAULT 'global',
+		community_id BIGINT UNSIGNED NOT NULL DEFAULT 0,
+		version_no INT NOT NULL DEFAULT 0,
+		config_json JSON NULL,
+		config_hash VARCHAR(128) NOT NULL DEFAULT '',
+		changed_keys_json JSON NULL,
+		diff_json JSON NULL,
+		source VARCHAR(32) NOT NULL DEFAULT 'manual',
+		operator_type VARCHAR(32) NOT NULL DEFAULT 'admin_user',
+		operator_id BIGINT UNSIGNED NOT NULL DEFAULT 0,
+		operator_name VARCHAR(128) NOT NULL DEFAULT '',
+		reason VARCHAR(255) NOT NULL DEFAULT '',
+		previous_version_id BIGINT UNSIGNED NOT NULL DEFAULT 0,
+		rollback_from_version_id BIGINT UNSIGNED NOT NULL DEFAULT 0,
+		metadata_json JSON NULL,
+		created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+		PRIMARY KEY (id),
+		KEY idx_plugin_config_versions_lookup (plugin_code, scope, community_id, version_no),
+		KEY idx_plugin_config_versions_created (created_at)
+	) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci`)
+	// v1.5.0-P1-07: plugin approvals (install/upgrade approvals + audit snapshots).
+	_, _ = s.db.Exec(`CREATE TABLE IF NOT EXISTS plugin_approval_requests (
+		id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+		request_no VARCHAR(64) NOT NULL DEFAULT '',
+		action VARCHAR(32) NOT NULL,
+		plugin_code VARCHAR(64) NOT NULL DEFAULT '',
+		plugin_name VARCHAR(128) NOT NULL DEFAULT '',
+		current_version VARCHAR(32) NOT NULL DEFAULT '',
+		target_version VARCHAR(32) NOT NULL DEFAULT '',
+		package_path VARCHAR(500) NOT NULL DEFAULT '',
+		package_checksum_status VARCHAR(32) NOT NULL DEFAULT '',
+		package_risk_level VARCHAR(32) NOT NULL DEFAULT '',
+		status VARCHAR(32) NOT NULL DEFAULT 'pending',
+		reason VARCHAR(1000) NOT NULL DEFAULT '',
+		requested_by BIGINT UNSIGNED NOT NULL DEFAULT 0,
+		requested_by_name VARCHAR(128) NOT NULL DEFAULT '',
+		requested_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+		reviewed_by BIGINT UNSIGNED NOT NULL DEFAULT 0,
+		reviewed_by_name VARCHAR(128) NOT NULL DEFAULT '',
+		reviewed_at DATETIME NULL,
+		review_comment VARCHAR(1000) NOT NULL DEFAULT '',
+		executed_by BIGINT UNSIGNED NOT NULL DEFAULT 0,
+		executed_at DATETIME NULL,
+		execute_result_json JSON NULL,
+		manifest_json JSON NULL,
+		dry_run_json JSON NULL,
+		risk_report_json JSON NULL,
+		dependency_summary_json JSON NULL,
+		compatibility_json JSON NULL,
+		changed_keys_json JSON NULL,
+		diff_json JSON NULL,
+		error_code VARCHAR(64) NOT NULL DEFAULT '',
+		error_message VARCHAR(1000) NOT NULL DEFAULT '',
+		metadata_json JSON NULL,
+		created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+		updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+		PRIMARY KEY (id),
+		KEY idx_plugin_approvals_status_created (status, created_at),
+		KEY idx_plugin_approvals_action_created (action, created_at),
+		KEY idx_plugin_approvals_plugin_created (plugin_code, created_at),
+		KEY idx_plugin_approvals_requested (requested_by, requested_at)
+	) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci`)
 	_, _ = s.db.Exec(`CREATE TABLE IF NOT EXISTS hook_executions (
 		id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
 		hook_name VARCHAR(128) NOT NULL,
@@ -923,6 +989,7 @@ func (s *MySQLStore) seedAuthData() error {
 		{"log.read", "log", "read", "查看日志"},
 		{"plugin.read", "plugin", "read", "查看插件"},
 		{"plugin.write", "plugin", "write", "管理插件"},
+		{"plugin.approve", "plugin", "approve", "审批插件高危操作"},
 		{"qa.question.create", "qa", "question.create", "发布问题"},
 		{"qa.question.audit", "qa", "question.audit", "审核问题"},
 		{"qa.answer.create", "qa", "answer.create", "提交回答"},
@@ -1701,6 +1768,401 @@ func (s *MySQLStore) SetPluginConfig(code, configJSON string) (domain.Plugin, er
 	}
 	plugin, _ := s.PluginByCode(def.Code)
 	return plugin, nil
+}
+
+// ===== Plugin config versions (v1.5.0-P1-05) =====
+
+func (s *MySQLStore) AppendPluginConfigVersion(record domain.PluginConfigVersion) (domain.PluginConfigVersion, error) {
+	record.PluginCode = strings.TrimSpace(record.PluginCode)
+	record.Scope = strings.TrimSpace(record.Scope)
+	if record.Scope == "" {
+		record.Scope = domain.PluginConfigScopeGlobal
+	}
+	if record.PluginCode == "" {
+		return domain.PluginConfigVersion{}, errors.New("plugin_code 不能为空")
+	}
+	if record.Scope != domain.PluginConfigScopeGlobal && record.Scope != domain.PluginConfigScopeCommunity {
+		return domain.PluginConfigVersion{}, errors.New("scope 不合法")
+	}
+
+	tx, err := s.db.Begin()
+	if err != nil {
+		return domain.PluginConfigVersion{}, err
+	}
+	defer func() { _ = tx.Rollback() }()
+
+	var prevID int64 = 0
+	var prevNo int = 0
+	_ = tx.QueryRow(`SELECT id, version_no FROM plugin_config_versions WHERE plugin_code=? AND scope=? AND community_id=? ORDER BY version_no DESC, id DESC LIMIT 1`,
+		record.PluginCode, record.Scope, record.CommunityID).Scan(&prevID, &prevNo)
+	record.VersionNo = prevNo + 1
+	record.PreviousVersionID = prevID
+
+	var config any = nil
+	if strings.TrimSpace(record.ConfigJSON) != "" {
+		config = json.RawMessage(record.ConfigJSON)
+	}
+	var changed any = nil
+	if strings.TrimSpace(record.ChangedKeysJSON) != "" && json.Valid([]byte(record.ChangedKeysJSON)) {
+		changed = json.RawMessage(record.ChangedKeysJSON)
+	}
+	var diff any = nil
+	if strings.TrimSpace(record.DiffJSON) != "" && json.Valid([]byte(record.DiffJSON)) {
+		diff = json.RawMessage(record.DiffJSON)
+	}
+	var meta any = nil
+	if strings.TrimSpace(record.MetadataJSON) != "" && json.Valid([]byte(record.MetadataJSON)) {
+		meta = json.RawMessage(record.MetadataJSON)
+	}
+
+	res, err := tx.Exec(`INSERT INTO plugin_config_versions
+		(plugin_code, scope, community_id, version_no, config_json, config_hash, changed_keys_json, diff_json, source, operator_type, operator_id, operator_name, reason, previous_version_id, rollback_from_version_id, metadata_json, created_at)
+		VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,NOW())`,
+		record.PluginCode, record.Scope, record.CommunityID, record.VersionNo, config, record.ConfigHash, changed, diff, record.Source,
+		record.OperatorType, record.OperatorID, record.OperatorName, record.Reason, record.PreviousVersionID, record.RollbackFromVersion, meta)
+	if err != nil {
+		return domain.PluginConfigVersion{}, err
+	}
+	id, _ := res.LastInsertId()
+	record.ID = id
+	_ = tx.Commit()
+
+	// Fetch created_at for API consistency.
+	_ = s.db.QueryRow(`SELECT DATE_FORMAT(created_at,'%Y-%m-%d %H:%i:%s') FROM plugin_config_versions WHERE id=?`, record.ID).Scan(&record.CreatedAt)
+	return record, nil
+}
+
+func (s *MySQLStore) PluginConfigVersions(pluginCode, scope string, communityID int64, page, pageSize int) ([]domain.PluginConfigVersion, int, error) {
+	pluginCode = strings.TrimSpace(pluginCode)
+	scope = strings.TrimSpace(scope)
+	if scope == "" {
+		scope = domain.PluginConfigScopeGlobal
+	}
+	if page <= 0 {
+		page = 1
+	}
+	if pageSize <= 0 {
+		pageSize = 20
+	}
+	if pageSize > 100 {
+		pageSize = 100
+	}
+	offset := (page - 1) * pageSize
+
+	var total int
+	if err := s.db.QueryRow(`SELECT COUNT(*) FROM plugin_config_versions WHERE plugin_code=? AND scope=? AND community_id=?`,
+		pluginCode, scope, communityID).Scan(&total); err != nil {
+		return nil, 0, err
+	}
+	rows, err := s.db.Query(`SELECT id, plugin_code, scope, community_id, version_no,
+		COALESCE(CAST(config_json AS CHAR),''), config_hash,
+		COALESCE(CAST(changed_keys_json AS CHAR),''), COALESCE(CAST(diff_json AS CHAR),''), source,
+		operator_type, operator_id, operator_name, reason, previous_version_id, rollback_from_version_id,
+		COALESCE(CAST(metadata_json AS CHAR),''), DATE_FORMAT(created_at,'%Y-%m-%d %H:%i:%s')
+		FROM plugin_config_versions
+		WHERE plugin_code=? AND scope=? AND community_id=?
+		ORDER BY version_no DESC, id DESC
+		LIMIT ? OFFSET ?`, pluginCode, scope, communityID, pageSize, offset)
+	if err != nil {
+		return nil, 0, err
+	}
+	defer rows.Close()
+	out := []domain.PluginConfigVersion{}
+	for rows.Next() {
+		var it domain.PluginConfigVersion
+		if err := rows.Scan(&it.ID, &it.PluginCode, &it.Scope, &it.CommunityID, &it.VersionNo,
+			&it.ConfigJSON, &it.ConfigHash, &it.ChangedKeysJSON, &it.DiffJSON, &it.Source,
+			&it.OperatorType, &it.OperatorID, &it.OperatorName, &it.Reason, &it.PreviousVersionID, &it.RollbackFromVersion,
+			&it.MetadataJSON, &it.CreatedAt); err != nil {
+			return nil, 0, err
+		}
+		out = append(out, it)
+	}
+	return out, total, nil
+}
+
+func (s *MySQLStore) PluginConfigVersionByID(id int64) (domain.PluginConfigVersion, bool) {
+	var it domain.PluginConfigVersion
+	err := s.db.QueryRow(`SELECT id, plugin_code, scope, community_id, version_no,
+		COALESCE(CAST(config_json AS CHAR),''), config_hash,
+		COALESCE(CAST(changed_keys_json AS CHAR),''), COALESCE(CAST(diff_json AS CHAR),''), source,
+		operator_type, operator_id, operator_name, reason, previous_version_id, rollback_from_version_id,
+		COALESCE(CAST(metadata_json AS CHAR),''), DATE_FORMAT(created_at,'%Y-%m-%d %H:%i:%s')
+		FROM plugin_config_versions WHERE id=? LIMIT 1`, id).
+		Scan(&it.ID, &it.PluginCode, &it.Scope, &it.CommunityID, &it.VersionNo,
+			&it.ConfigJSON, &it.ConfigHash, &it.ChangedKeysJSON, &it.DiffJSON, &it.Source,
+			&it.OperatorType, &it.OperatorID, &it.OperatorName, &it.Reason, &it.PreviousVersionID, &it.RollbackFromVersion,
+			&it.MetadataJSON, &it.CreatedAt)
+	if err != nil {
+		return domain.PluginConfigVersion{}, false
+	}
+	return it, true
+}
+
+// ===== Plugin approvals (v1.5.0-P1-07) =====
+
+func (s *MySQLStore) AppendPluginApprovalRequest(record domain.PluginApprovalRequest) (domain.PluginApprovalRequest, error) {
+	record.Action = strings.TrimSpace(record.Action)
+	record.PluginCode = strings.TrimSpace(record.PluginCode)
+	record.PluginName = strings.TrimSpace(record.PluginName)
+	record.Status = strings.TrimSpace(record.Status)
+	if record.Status == "" {
+		record.Status = domain.PluginApprovalStatusPending
+	}
+
+	var execRes any = nil
+	if strings.TrimSpace(record.ExecuteResultJSON) != "" && json.Valid([]byte(record.ExecuteResultJSON)) {
+		execRes = json.RawMessage(record.ExecuteResultJSON)
+	}
+	var manifest any = nil
+	if strings.TrimSpace(record.ManifestJSON) != "" && json.Valid([]byte(record.ManifestJSON)) {
+		manifest = json.RawMessage(record.ManifestJSON)
+	}
+	var dry any = nil
+	if strings.TrimSpace(record.DryRunJSON) != "" && json.Valid([]byte(record.DryRunJSON)) {
+		dry = json.RawMessage(record.DryRunJSON)
+	}
+	var risk any = nil
+	if strings.TrimSpace(record.RiskReportJSON) != "" && json.Valid([]byte(record.RiskReportJSON)) {
+		risk = json.RawMessage(record.RiskReportJSON)
+	}
+	var deps any = nil
+	if strings.TrimSpace(record.DependencySummaryJSON) != "" && json.Valid([]byte(record.DependencySummaryJSON)) {
+		deps = json.RawMessage(record.DependencySummaryJSON)
+	}
+	var compat any = nil
+	if strings.TrimSpace(record.CompatibilityJSON) != "" && json.Valid([]byte(record.CompatibilityJSON)) {
+		compat = json.RawMessage(record.CompatibilityJSON)
+	}
+	var changed any = nil
+	if strings.TrimSpace(record.ChangedKeysJSON) != "" && json.Valid([]byte(record.ChangedKeysJSON)) {
+		changed = json.RawMessage(record.ChangedKeysJSON)
+	}
+	var diff any = nil
+	if strings.TrimSpace(record.DiffJSON) != "" && json.Valid([]byte(record.DiffJSON)) {
+		diff = json.RawMessage(record.DiffJSON)
+	}
+	var meta any = nil
+	if strings.TrimSpace(record.MetadataJSON) != "" && json.Valid([]byte(record.MetadataJSON)) {
+		meta = json.RawMessage(record.MetadataJSON)
+	}
+
+	res, err := s.db.Exec(`INSERT INTO plugin_approval_requests
+		(request_no, action, plugin_code, plugin_name, current_version, target_version,
+		package_path, package_checksum_status, package_risk_level,
+		status, reason, requested_by, requested_by_name, requested_at,
+		reviewed_by, reviewed_by_name, reviewed_at, review_comment,
+		executed_by, executed_at, execute_result_json,
+		manifest_json, dry_run_json, risk_report_json, dependency_summary_json, compatibility_json,
+		changed_keys_json, diff_json,
+		error_code, error_message, metadata_json, created_at, updated_at)
+		VALUES (?,?,?,?,?,?,?,?,?,?, ?,?,?, NOW(), ?,?,?, ?,?, ?, ?,?,?,?,?,?,?, ?,?,?,?, NOW(), NOW())`,
+		record.RequestNo, record.Action, record.PluginCode, record.PluginName, record.CurrentVersion, record.TargetVersion,
+		record.PackagePath, record.PackageChecksumStatus, record.PackageRiskLevel,
+		record.Status, record.Reason, record.RequestedBy, record.RequestedByName,
+		record.ReviewedBy, record.ReviewedByName, nullTime(record.ReviewedAt), record.ReviewComment,
+		record.ExecutedBy, nullTime(record.ExecutedAt), execRes,
+		manifest, dry, risk, deps, compat,
+		changed, diff,
+		record.ErrorCode, record.ErrorMessage, meta)
+	if err != nil {
+		return domain.PluginApprovalRequest{}, err
+	}
+	id, _ := res.LastInsertId()
+	record.ID = id
+	_ = s.db.QueryRow(`SELECT DATE_FORMAT(requested_at,'%Y-%m-%d %H:%i:%s'), DATE_FORMAT(created_at,'%Y-%m-%d %H:%i:%s'), DATE_FORMAT(updated_at,'%Y-%m-%d %H:%i:%s') FROM plugin_approval_requests WHERE id=?`, record.ID).
+		Scan(&record.RequestedAt, &record.CreatedAt, &record.UpdatedAt)
+	_ = s.db.QueryRow(`SELECT COALESCE(DATE_FORMAT(reviewed_at,'%Y-%m-%d %H:%i:%s'),''), COALESCE(DATE_FORMAT(executed_at,'%Y-%m-%d %H:%i:%s'),'') FROM plugin_approval_requests WHERE id=?`, record.ID).
+		Scan(&record.ReviewedAt, &record.ExecutedAt)
+	return record, nil
+}
+
+func (s *MySQLStore) SavePluginApprovalRequest(record domain.PluginApprovalRequest) (domain.PluginApprovalRequest, error) {
+	if record.ID <= 0 {
+		return domain.PluginApprovalRequest{}, errors.New("approval id 不能为空")
+	}
+	record.Action = strings.TrimSpace(record.Action)
+	record.PluginCode = strings.TrimSpace(record.PluginCode)
+	record.PluginName = strings.TrimSpace(record.PluginName)
+	record.Status = strings.TrimSpace(record.Status)
+
+	var execRes any = nil
+	if strings.TrimSpace(record.ExecuteResultJSON) != "" && json.Valid([]byte(record.ExecuteResultJSON)) {
+		execRes = json.RawMessage(record.ExecuteResultJSON)
+	}
+	var manifest any = nil
+	if strings.TrimSpace(record.ManifestJSON) != "" && json.Valid([]byte(record.ManifestJSON)) {
+		manifest = json.RawMessage(record.ManifestJSON)
+	}
+	var dry any = nil
+	if strings.TrimSpace(record.DryRunJSON) != "" && json.Valid([]byte(record.DryRunJSON)) {
+		dry = json.RawMessage(record.DryRunJSON)
+	}
+	var risk any = nil
+	if strings.TrimSpace(record.RiskReportJSON) != "" && json.Valid([]byte(record.RiskReportJSON)) {
+		risk = json.RawMessage(record.RiskReportJSON)
+	}
+	var deps any = nil
+	if strings.TrimSpace(record.DependencySummaryJSON) != "" && json.Valid([]byte(record.DependencySummaryJSON)) {
+		deps = json.RawMessage(record.DependencySummaryJSON)
+	}
+	var compat any = nil
+	if strings.TrimSpace(record.CompatibilityJSON) != "" && json.Valid([]byte(record.CompatibilityJSON)) {
+		compat = json.RawMessage(record.CompatibilityJSON)
+	}
+	var changed any = nil
+	if strings.TrimSpace(record.ChangedKeysJSON) != "" && json.Valid([]byte(record.ChangedKeysJSON)) {
+		changed = json.RawMessage(record.ChangedKeysJSON)
+	}
+	var diff any = nil
+	if strings.TrimSpace(record.DiffJSON) != "" && json.Valid([]byte(record.DiffJSON)) {
+		diff = json.RawMessage(record.DiffJSON)
+	}
+	var meta any = nil
+	if strings.TrimSpace(record.MetadataJSON) != "" && json.Valid([]byte(record.MetadataJSON)) {
+		meta = json.RawMessage(record.MetadataJSON)
+	}
+
+	_, err := s.db.Exec(`UPDATE plugin_approval_requests SET
+		request_no=?, action=?, plugin_code=?, plugin_name=?, current_version=?, target_version=?,
+		package_path=?, package_checksum_status=?, package_risk_level=?,
+		status=?, reason=?,
+		requested_by=?, requested_by_name=?,
+		reviewed_by=?, reviewed_by_name=?, reviewed_at=?, review_comment=?,
+		executed_by=?, executed_at=?, execute_result_json=?,
+		manifest_json=?, dry_run_json=?, risk_report_json=?, dependency_summary_json=?, compatibility_json=?,
+		changed_keys_json=?, diff_json=?,
+		error_code=?, error_message=?, metadata_json=?, updated_at=NOW()
+		WHERE id=?`,
+		record.RequestNo, record.Action, record.PluginCode, record.PluginName, record.CurrentVersion, record.TargetVersion,
+		record.PackagePath, record.PackageChecksumStatus, record.PackageRiskLevel,
+		record.Status, record.Reason,
+		record.RequestedBy, record.RequestedByName,
+		record.ReviewedBy, record.ReviewedByName, nullTime(record.ReviewedAt), record.ReviewComment,
+		record.ExecutedBy, nullTime(record.ExecutedAt), execRes,
+		manifest, dry, risk, deps, compat,
+		changed, diff,
+		record.ErrorCode, record.ErrorMessage, meta, record.ID)
+	if err != nil {
+		return domain.PluginApprovalRequest{}, err
+	}
+	out, _ := s.PluginApprovalRequestByID(record.ID)
+	return out, nil
+}
+
+func (s *MySQLStore) PluginApprovalRequestByID(id int64) (domain.PluginApprovalRequest, bool) {
+	var it domain.PluginApprovalRequest
+	err := s.db.QueryRow(`SELECT id, request_no, action, plugin_code, plugin_name, current_version, target_version,
+		package_path, package_checksum_status, package_risk_level,
+		status, reason,
+		requested_by, requested_by_name, DATE_FORMAT(requested_at,'%Y-%m-%d %H:%i:%s'),
+		reviewed_by, reviewed_by_name, COALESCE(DATE_FORMAT(reviewed_at,'%Y-%m-%d %H:%i:%s'),''), review_comment,
+		executed_by, COALESCE(DATE_FORMAT(executed_at,'%Y-%m-%d %H:%i:%s'),''), COALESCE(CAST(execute_result_json AS CHAR),''),
+		COALESCE(CAST(manifest_json AS CHAR),''), COALESCE(CAST(dry_run_json AS CHAR),''), COALESCE(CAST(risk_report_json AS CHAR),''),
+		COALESCE(CAST(dependency_summary_json AS CHAR),''), COALESCE(CAST(compatibility_json AS CHAR),''),
+		COALESCE(CAST(changed_keys_json AS CHAR),''), COALESCE(CAST(diff_json AS CHAR),''),
+		error_code, error_message, COALESCE(CAST(metadata_json AS CHAR),''),
+		DATE_FORMAT(created_at,'%Y-%m-%d %H:%i:%s'), DATE_FORMAT(updated_at,'%Y-%m-%d %H:%i:%s')
+		FROM plugin_approval_requests WHERE id=? LIMIT 1`, id).
+		Scan(&it.ID, &it.RequestNo, &it.Action, &it.PluginCode, &it.PluginName, &it.CurrentVersion, &it.TargetVersion,
+			&it.PackagePath, &it.PackageChecksumStatus, &it.PackageRiskLevel,
+			&it.Status, &it.Reason,
+			&it.RequestedBy, &it.RequestedByName, &it.RequestedAt,
+			&it.ReviewedBy, &it.ReviewedByName, &it.ReviewedAt, &it.ReviewComment,
+			&it.ExecutedBy, &it.ExecutedAt, &it.ExecuteResultJSON,
+			&it.ManifestJSON, &it.DryRunJSON, &it.RiskReportJSON,
+			&it.DependencySummaryJSON, &it.CompatibilityJSON,
+			&it.ChangedKeysJSON, &it.DiffJSON,
+			&it.ErrorCode, &it.ErrorMessage, &it.MetadataJSON,
+			&it.CreatedAt, &it.UpdatedAt)
+	if err != nil {
+		return domain.PluginApprovalRequest{}, false
+	}
+	return it, true
+}
+
+func (s *MySQLStore) PluginApprovalRequests(filter domain.PluginApprovalFilter) ([]domain.PluginApprovalRequest, int, error) {
+	status := strings.TrimSpace(filter.Status)
+	action := strings.TrimSpace(filter.Action)
+	pluginCode := strings.TrimSpace(filter.PluginCode)
+	if filter.Page <= 0 {
+		filter.Page = 1
+	}
+	if filter.PageSize <= 0 {
+		filter.PageSize = 20
+	}
+	if filter.PageSize > 100 {
+		filter.PageSize = 100
+	}
+	offset := (filter.Page - 1) * filter.PageSize
+
+	where := []string{"1=1"}
+	args := []any{}
+	if status != "" && status != "all" {
+		where = append(where, "status=?")
+		args = append(args, status)
+	}
+	if action != "" && action != "all" {
+		where = append(where, "action=?")
+		args = append(args, action)
+	}
+	if pluginCode != "" {
+		where = append(where, "plugin_code=?")
+		args = append(args, pluginCode)
+	}
+	if filter.RequestedBy > 0 {
+		where = append(where, "requested_by=?")
+		args = append(args, filter.RequestedBy)
+	}
+	if filter.ReviewedBy > 0 {
+		where = append(where, "reviewed_by=?")
+		args = append(args, filter.ReviewedBy)
+	}
+	whereSQL := strings.Join(where, " AND ")
+
+	var total int
+	if err := s.db.QueryRow("SELECT COUNT(*) FROM plugin_approval_requests WHERE "+whereSQL, args...).Scan(&total); err != nil {
+		return nil, 0, err
+	}
+	args2 := append(append([]any{}, args...), filter.PageSize, offset)
+	rows, err := s.db.Query(`SELECT id, request_no, action, plugin_code, plugin_name, current_version, target_version,
+		package_path, package_checksum_status, package_risk_level,
+		status, reason,
+		requested_by, requested_by_name, DATE_FORMAT(requested_at,'%Y-%m-%d %H:%i:%s'),
+		reviewed_by, reviewed_by_name, COALESCE(DATE_FORMAT(reviewed_at,'%Y-%m-%d %H:%i:%s'),''), review_comment,
+		executed_by, COALESCE(DATE_FORMAT(executed_at,'%Y-%m-%d %H:%i:%s'),''), COALESCE(CAST(execute_result_json AS CHAR),''),
+		COALESCE(CAST(manifest_json AS CHAR),''), COALESCE(CAST(dry_run_json AS CHAR),''), COALESCE(CAST(risk_report_json AS CHAR),''),
+		COALESCE(CAST(dependency_summary_json AS CHAR),''), COALESCE(CAST(compatibility_json AS CHAR),''),
+		COALESCE(CAST(changed_keys_json AS CHAR),''), COALESCE(CAST(diff_json AS CHAR),''),
+		error_code, error_message, COALESCE(CAST(metadata_json AS CHAR),''),
+		DATE_FORMAT(created_at,'%Y-%m-%d %H:%i:%s'), DATE_FORMAT(updated_at,'%Y-%m-%d %H:%i:%s')
+		FROM plugin_approval_requests
+		WHERE `+whereSQL+`
+		ORDER BY id DESC
+		LIMIT ? OFFSET ?`, args2...)
+	if err != nil {
+		return nil, 0, err
+	}
+	defer rows.Close()
+	out := []domain.PluginApprovalRequest{}
+	for rows.Next() {
+		var it domain.PluginApprovalRequest
+		if err := rows.Scan(&it.ID, &it.RequestNo, &it.Action, &it.PluginCode, &it.PluginName, &it.CurrentVersion, &it.TargetVersion,
+			&it.PackagePath, &it.PackageChecksumStatus, &it.PackageRiskLevel,
+			&it.Status, &it.Reason,
+			&it.RequestedBy, &it.RequestedByName, &it.RequestedAt,
+			&it.ReviewedBy, &it.ReviewedByName, &it.ReviewedAt, &it.ReviewComment,
+			&it.ExecutedBy, &it.ExecutedAt, &it.ExecuteResultJSON,
+			&it.ManifestJSON, &it.DryRunJSON, &it.RiskReportJSON,
+			&it.DependencySummaryJSON, &it.CompatibilityJSON,
+			&it.ChangedKeysJSON, &it.DiffJSON,
+			&it.ErrorCode, &it.ErrorMessage, &it.MetadataJSON,
+			&it.CreatedAt, &it.UpdatedAt); err != nil {
+			return nil, 0, err
+		}
+		out = append(out, it)
+	}
+	return out, total, nil
 }
 
 func (s *MySQLStore) CommunityPlugins(communityID int64) ([]domain.Plugin, error) {

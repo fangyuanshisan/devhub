@@ -48,6 +48,7 @@
 
 - `plugin.read`：查看插件列表、健康、impact、审计和迁移信息。
 - `plugin.write`：启用 / 禁用、配置、归档 / 恢复、dry-run、manifest validate、install、批量归档 / 恢复。
+- `plugin.approve`：审批/执行高风险治理动作（例如本地插件包安装、插件升级审批执行）。
 
 后续若要拆分更细权限，可再预留：
 

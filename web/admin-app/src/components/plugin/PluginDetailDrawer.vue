@@ -70,6 +70,13 @@
             :closable="false"
             :title="t('plugin.maturityNote')"
           />
+          <section class="export-panel mt" data-testid="plugin-export-panel">
+            <div>
+              <h4>导出本地插件包</h4>
+              <p>导出声明型插件包：manifest、README、config.example.json、checksums，不包含敏感配置、用户数据、运行时代码或外部 SQL。</p>
+            </div>
+            <el-button type="primary" plain data-testid="plugin-export-open" @click="openExportDialog">导出本地插件包</el-button>
+          </section>
         </el-tab-pane>
 
         <el-tab-pane :label="t('plugin.tabs.runtime')" name="runtime">
@@ -342,6 +349,7 @@
                 <el-tag :type="schemaErrors.length ? 'danger' : 'success'" effect="plain">
                   {{ schemaErrors.length ? t('plugin.capability.schemaInvalid') : t('plugin.capability.schemaValid') }}
                 </el-tag>
+                <el-button size="small" data-testid="plugin-config-versions-open" @click="configVersionsVisible = true">版本历史</el-button>
                 <el-button size="small" @click="reloadConfig">{{ t('plugin.config.resetCurrent') }}</el-button>
                 <el-button size="small" data-testid="plugin-global-config-clear" @click="clearGlobalConfig">{{ t('common.clearObject') }}</el-button>
                 <el-button size="small" type="primary" data-testid="plugin-global-config-save" :disabled="schemaErrors.length > 0" @click="saveConfig">{{ t('common.save') }}</el-button>
@@ -716,13 +724,82 @@
       </div>
     </template>
   </el-drawer>
+
+  <PluginConfigVersionsDialog
+    v-model="configVersionsVisible"
+    :plugin-code="plugin.code"
+    scope="global"
+    :community-id="0"
+  />
+
+  <el-dialog v-model="exportDialogVisible" title="导出本地插件包" width="820px" destroy-on-close data-testid="plugin-export-dialog">
+    <template v-if="plugin">
+      <el-alert
+        type="info"
+        show-icon
+        :closable="false"
+        class="mb"
+        title="仅导出声明型插件包；不导出敏感配置、用户数据、运行时代码、外部 SQL，也不生成 zip 或远程发布。"
+      />
+      <div class="sub-toolbar">
+        <el-checkbox v-model="exportForm.include_docs">include_docs</el-checkbox>
+        <el-checkbox v-model="exportForm.include_migrations">include_migrations</el-checkbox>
+        <el-checkbox v-model="exportForm.include_publisher">include_publisher</el-checkbox>
+        <el-checkbox v-model="exportForm.include_signature_stub">include_signature_stub</el-checkbox>
+      </div>
+      <el-input v-model="exportForm.output_dir" class="mb" placeholder="可选 output_dir，例如 storage/plugins/exports/demo-1.0.0" data-testid="plugin-export-output-dir" />
+      <div class="sub-toolbar">
+        <el-button :loading="exportLoading" data-testid="plugin-export-dry-run" @click="dryRunExport">Dry-run</el-button>
+        <el-button
+          type="success"
+          :loading="exportLoading"
+          :disabled="!exportPreview || exportPreview.status === 'blocked'"
+          data-testid="plugin-export-submit"
+          @click="confirmExport"
+        >
+          正式导出
+        </el-button>
+      </div>
+      <el-alert v-if="exportError" type="error" show-icon :closable="false" class="mb" :title="exportError" />
+      <section v-if="exportPreview" class="export-result" data-testid="plugin-export-preview">
+        <div class="sub-toolbar">
+          <el-tag :type="exportPreview.status === 'blocked' ? 'danger' : exportPreview.status === 'warning' ? 'warning' : 'success'" effect="plain">
+            {{ exportPreview.status }}
+          </el-tag>
+          <span class="mono">{{ exportPreview.export_preview?.output_dir || '-' }}</span>
+        </div>
+        <el-alert type="success" show-icon :closable="false" class="mb" title="安全检查：不包含敏感配置 / 不包含用户数据 / 不包含运行时代码 / 不包含外部 SQL" />
+        <el-table :data="exportPreviewFiles" border stripe size="small" data-testid="plugin-export-files">
+          <el-table-column prop="path" label="将导出文件" min-width="260" />
+        </el-table>
+        <el-alert v-if="(exportPreview.warnings || []).length" type="warning" show-icon :closable="false" class="mt" title="warnings">
+          <ul class="result-list">
+            <li v-for="(item, idx) in exportPreview.warnings" :key="`export-preview-warning-${idx}`">{{ item }}</li>
+          </ul>
+        </el-alert>
+      </section>
+      <section v-if="exportResult" class="export-result" data-testid="plugin-export-result">
+        <el-alert type="success" show-icon :closable="false" class="mb" :title="exportResult.message || '导出成功'" />
+        <el-descriptions :column="2" border>
+          <el-descriptions-item label="output_dir">
+            <span class="mono">{{ exportResult.output_dir }}</span>
+            <el-button link type="primary" data-testid="plugin-export-copy-path" @click="copyText(exportResult.output_dir)">复制</el-button>
+          </el-descriptions-item>
+          <el-descriptions-item label="checksums">{{ exportResult.checksum_status || '-' }}</el-descriptions-item>
+          <el-descriptions-item label="package_dry_run">{{ exportResult.package_dry_run_status || '-' }}</el-descriptions-item>
+          <el-descriptions-item label="提示">可将该目录复制到本地插件仓库并执行 dry-run 验证。</el-descriptions-item>
+        </el-descriptions>
+      </section>
+    </template>
+  </el-dialog>
 </template>
 
 <script setup>
 import { computed, reactive, ref, watch } from 'vue';
-import { ElMessage } from 'element-plus';
+import { ElMessage, ElMessageBox } from 'element-plus';
 import PluginConfigEditor from './PluginConfigEditor.vue';
-import { pluginAuditLogs, pluginHookExecutions, pluginHooks, pluginMenusPreview, pluginMigrations, pluginReadiness, retryPluginMigration, runPluginMigrations, updatePluginConfig } from '@/api/admin';
+import PluginConfigVersionsDialog from './PluginConfigVersionsDialog.vue';
+import { dryRunPluginExport, exportPluginPackage, pluginAuditLogs, pluginHookExecutions, pluginHooks, pluginMenusPreview, pluginMigrations, pluginReadiness, retryPluginMigration, runPluginMigrations, updatePluginConfig } from '@/api/admin';
 import { t } from '@/i18n';
 import { auditActionLabel, migrationStatusLabel, pluginHealthLabel, pluginStatusLabel } from '@/i18n/formatters';
 import { useRouter } from 'vue-router';
@@ -758,6 +835,7 @@ const permissionRefsDialog = ref(false);
 const selectedPermission = ref(null);
 const selectedPermissionRefs = ref([]);
 const schemaErrors = ref([]);
+const configVersionsVisible = ref(false);
 const configPanels = ref([]);
 const editableConfig = ref({});
 const auditLoading = ref(false);
@@ -809,8 +887,22 @@ const hookExecFilters = reactive({
 const migrationsLoading = ref(false);
 const migrationRows = ref([]);
 const migrationSummary = ref({});
+const exportDialogVisible = ref(false);
+const exportLoading = ref(false);
+const exportError = ref('');
+const exportPreview = ref(null);
+const exportResult = ref(null);
+const exportForm = reactive({
+  include_docs: true,
+  include_migrations: true,
+  include_publisher: false,
+  include_signature_stub: false,
+  output_dir: '',
+  force: false,
+});
 
 const title = computed(() => `${props.plugin?.name || ''} ${t('plugin.detailTitle')}`);
+const exportPreviewFiles = computed(() => (exportPreview.value?.export_preview?.files || []).map((path) => ({ path })));
 
 watch(
   () => props.plugin,
@@ -837,6 +929,9 @@ watch(
     migrationRows.value = [];
     migrationSummary.value = {};
     readinessResult.value = null;
+    exportPreview.value = null;
+    exportResult.value = null;
+    exportError.value = '';
     if (visible.value && tab.value === 'hooks') loadHooks();
     if (visible.value && tab.value === 'migrations') loadMigrations();
   },
@@ -1382,6 +1477,81 @@ async function saveConfig() {
     ElMessage.error(String(e?.message || e || t('common.saveFailed')));
   }
 }
+
+function exportPayload() {
+  const payload = {
+    include_docs: Boolean(exportForm.include_docs),
+    include_migrations: Boolean(exportForm.include_migrations),
+    include_publisher: Boolean(exportForm.include_publisher),
+    include_signature_stub: Boolean(exportForm.include_signature_stub),
+    force: Boolean(exportForm.force),
+  };
+  const out = String(exportForm.output_dir || '').trim();
+  if (out) payload.output_dir = out;
+  return payload;
+}
+
+function openExportDialog() {
+  exportDialogVisible.value = true;
+  exportError.value = '';
+  exportPreview.value = null;
+  exportResult.value = null;
+  exportForm.include_docs = true;
+  exportForm.include_migrations = true;
+  exportForm.include_publisher = false;
+  exportForm.include_signature_stub = false;
+  exportForm.force = false;
+  exportForm.output_dir = '';
+}
+
+function formatAPIError(e, fallback) {
+  const data = e?.response?.data;
+  const code = String(data?.code || '').trim();
+  const message = String(data?.message || data?.error || e?.message || fallback || '').trim();
+  const suggestion = String(data?.suggestion || data?.details?.suggestion || '').trim();
+  return [code ? `[${code}]` : '', message, suggestion ? `建议：${suggestion}` : ''].filter(Boolean).join(' ');
+}
+
+async function dryRunExport() {
+  const p = props.plugin;
+  if (!p?.code) return;
+  exportLoading.value = true;
+  exportError.value = '';
+  exportResult.value = null;
+  try {
+    exportPreview.value = await dryRunPluginExport(p.code, exportPayload());
+  } catch (e) {
+    exportPreview.value = null;
+    exportError.value = formatAPIError(e, '导出 dry-run 失败');
+  } finally {
+    exportLoading.value = false;
+  }
+}
+
+async function confirmExport() {
+  const p = props.plugin;
+  if (!p?.code) return;
+  try {
+    await ElMessageBox.confirm('确认导出声明型插件包？导出不会包含敏感配置、用户数据、运行时代码或外部 SQL。', '确认导出', {
+      confirmButtonText: '确认导出',
+      cancelButtonText: t('common.cancel'),
+      type: 'warning',
+    });
+  } catch {
+    return;
+  }
+  exportLoading.value = true;
+  exportError.value = '';
+  try {
+    exportResult.value = await exportPluginPackage(p.code, exportPayload());
+    ElMessage.success('导出成功');
+  } catch (e) {
+    exportResult.value = null;
+    exportError.value = formatAPIError(e, '导出失败');
+  } finally {
+    exportLoading.value = false;
+  }
+}
 </script>
 
 <style scoped>
@@ -1517,6 +1687,32 @@ async function saveConfig() {
   justify-content: flex-end;
   gap: 8px;
   min-width: 320px;
+}
+.export-panel {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 14px;
+  padding: 14px;
+  border: 1px solid #dbeafe;
+  border-radius: 12px;
+  background: #f8fbff;
+}
+.export-panel h4 {
+  margin: 0;
+  color: #0f172a;
+}
+.export-panel p {
+  margin: 4px 0 0;
+  color: #64748b;
+  font-size: 13px;
+}
+.export-result {
+  margin-top: 12px;
+}
+.result-list {
+  margin: 6px 0 0;
+  padding-left: 18px;
 }
 :global(.plugin-detail-drawer .el-drawer__body) {
   padding-top: 10px;

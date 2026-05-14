@@ -50,7 +50,7 @@ examples/plugins/demo_links/
   registry.example.go
 ```
 
-说明：模板目录本身也符合“本地插件包目录规范”的最小形态，可用于后台“本地插件包 dry-run”预览（见 `docs/PLUGIN_PACKAGE.md`），但当前仍不会被系统自动扫描或安装。
+说明：模板目录本身也符合“本地插件包目录规范”的最小形态，可用于后台“本地插件包 dry-run”预览（见 `docs/PLUGIN_PACKAGE.md`）。已安装的声明型插件也可以从后台导出为同类目录（manifest、README、脱敏 `config.example.json`、`checksums.json`），但导出不会包含真实敏感配置、用户数据、运行时代码或外部 SQL。
 
 ## 校验规则
 

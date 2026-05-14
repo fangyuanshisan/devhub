@@ -54,6 +54,7 @@ func pluginPackageAllowedRoots(workdir string) []string {
 		filepath.Join(workdir, "examples", "plugins"),
 		filepath.Join(workdir, "plugins-local"),
 		filepath.Join(workdir, "storage", "plugins", "packages"),
+		filepath.Join(workdir, "storage", "plugins", "exports"),
 		filepath.Join(workdir, ".devhub", "plugins"),
 	}
 	out := make([]string, 0, len(roots))
@@ -141,7 +142,7 @@ func NormalizePluginPackagePath(input string) (abs string, clean string, err err
 			WithStatus(400).
 			WithDetail("path", input).
 			WithDetail("allowed_roots", roots).
-			WithSuggestion("请把插件包放到 examples/plugins、plugins-local、storage/plugins/packages、.devhub/plugins 目录下后重试。")
+			WithSuggestion("请把插件包放到 examples/plugins、plugins-local、storage/plugins/packages、storage/plugins/exports、.devhub/plugins 目录下后重试。")
 	}
 	return abs, clean, nil
 }
@@ -357,7 +358,7 @@ func classifyPluginPackageFile(rel string, info fs.FileInfo) (category string, r
 	}
 
 	// Allow list.
-	if base == "manifest.json" || base == "readme.md" || base == "license" || base == "config.example.json" || base == "checksums.json" {
+	if base == "manifest.json" || base == "readme.md" || base == "license" || base == "config.example.json" || base == "checksums.json" || base == "publisher.json" || base == "signature.json" {
 		return "allowed", "allowed"
 	}
 	if strings.HasPrefix(lower, "docs/") && strings.HasSuffix(lower, ".md") {

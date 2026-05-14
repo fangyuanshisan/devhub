@@ -1,0 +1,25 @@
+{
+  "algorithm": "sha256",
+  "files": [
+    {
+      "path": "README.md",
+      "sha256": "9f566324ff47ded3fcf0201bcef1e7816c1dde5436cb934eb6ce5ecd94502d8d"
+    },
+    {
+      "path": "config.example.json",
+      "sha256": "f7e766d1b2c30667c223037bab46b68eb24e4eac0f1723609831cdac5cf9dbd5"
+    },
+    {
+      "path": "docs/usage.md",
+      "sha256": "49d26cd103819f3835bdf49b1d26f84865d02184c095775b16bb6edf41115871"
+    },
+    {
+      "path": "manifest.json",
+      "sha256": "21526121fc8aa275df2faed2fc3033406b9e932dde6747f2bf5e39c1bc3fa783"
+    },
+    {
+      "path": "migrations/exported_migrations.json",
+      "sha256": "2700927a77299898f2c377d238a168d6bb71dde48d82178ac610150607fe1867"
+    }
+  ]
+}

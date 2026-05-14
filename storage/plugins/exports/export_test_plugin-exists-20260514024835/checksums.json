@@ -1,0 +1,17 @@
+{
+  "algorithm": "sha256",
+  "files": [
+    {
+      "path": "README.md",
+      "sha256": "5e214c5868f0f95baca007fd8dd1debc5e56ec7ca95dc9f90d39aa4b5a7722d4"
+    },
+    {
+      "path": "config.example.json",
+      "sha256": "ff97565d251d5f4ec0790a0e73bd178a893ff944a1ca38edd5e348661c2a66b2"
+    },
+    {
+      "path": "manifest.json",
+      "sha256": "2d47da82a8dd18e048aca1ac407a332c3d780a30c46a5070923ae2827e33d7c0"
+    }
+  ]
+}

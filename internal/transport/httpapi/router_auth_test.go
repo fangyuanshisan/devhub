@@ -203,6 +203,59 @@ func TestPluginConfigAuditAndInvalidJSON(t *testing.T) {
 	}
 }
 
+func TestPluginConfigAuditRedactsSensitiveValuesAndLinksConfigVersion(t *testing.T) {
+	t.Setenv("CMS_STORE", "memory")
+	repo := store.NewMemoryStore()
+	svc := service.New(repo)
+
+	manifest := map[string]any{
+		"code":    "redact_demo",
+		"name":    "Redact Demo",
+		"version": "1.0.0",
+		"config_schema": map[string]any{
+			"type": "object",
+			"properties": map[string]any{
+				"enabled": map[string]any{"type": "boolean"},
+				"token":   map[string]any{"type": "string", "x-sensitive": true},
+			},
+		},
+	}
+	raw, _ := json.Marshal(manifest)
+	if _, _, err := svc.InstallPluginManifest(raw); err != nil {
+		t.Fatalf("InstallPluginManifest: %v", err)
+	}
+
+	router := NewRouter(svc)
+	token := adminToken(t, router)
+
+	secret := "supersecret-token-value"
+	req := httptest.NewRequest(http.MethodPut, "/api/v1/admin/plugins/redact_demo/config", bytes.NewBufferString(`{"config_json":{"enabled":true,"token":"`+secret+`"}}`))
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Authorization", "Bearer "+token)
+	w := httptest.NewRecorder()
+	router.ServeHTTP(w, req)
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected plugin config update success, got %d: %s", w.Code, w.Body.String())
+	}
+
+	req = httptest.NewRequest(http.MethodGet, "/api/v1/admin/audit-logs", nil)
+	req.Header.Set("Authorization", "Bearer "+token)
+	w = httptest.NewRecorder()
+	router.ServeHTTP(w, req)
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected audit logs, got %d: %s", w.Code, w.Body.String())
+	}
+	if bytes.Contains(w.Body.Bytes(), []byte(secret)) {
+		t.Fatalf("audit logs should redact sensitive value, got %s", w.Body.String())
+	}
+	if !bytes.Contains(w.Body.Bytes(), []byte(`\"plugin_code\":\"redact_demo\"`)) {
+		t.Fatalf("expected plugin_code in audit metadata, got %s", w.Body.String())
+	}
+	if !bytes.Contains(w.Body.Bytes(), []byte(`\"config_version_id\":`)) || bytes.Contains(w.Body.Bytes(), []byte(`\"config_version_id\":0`)) {
+		t.Fatalf("expected non-zero config_version_id in audit metadata, got %s", w.Body.String())
+	}
+}
+
 func TestPluginMigrationFailureBlocksEnableAndRetryRestores(t *testing.T) {
 	t.Setenv("CMS_STORE", "memory")
 	router := NewRouter(service.New(store.NewMemoryStore()))

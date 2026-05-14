@@ -1,5 +1,12 @@
 # Changelog
 
+## v1.5.0 (2026-05-14)
+
+Current `VERSION` is `v1.5.0`. v1.5.0 closes the plugin package governance track: local package dry-run, checksums and risk reports, local repository scanning, local package install, config version history, sensitive config encryption, approval flow, signing/trusted-source draft, installed-plugin export, and the matching docs/E2E surface are now in place. See `docs/releases/v1.5.0.md`.
+
+- Added the local plugin package governance track: package dry-run, checksum/risk reporting, repository scanning, install closure, config history, sensitive config encryption, approval flow, signing/trusted-source draft, and local plugin export, all with admin-facing UI and tests.
+- Kept the package governance boundary strict: no zip uploads, no remote market, no remote install/download, no dynamic loading, no third-party code execution, no external SQL execution, and no user-data export.
+
 ## Unreleased
 
 - Added a local plugin package spec draft (`docs/PLUGIN_PACKAGE.md`) and an admin dry-run API for scanning and previewing local plugin packages (`POST /api/v1/admin/plugins/packages/dry-run`); this is a safe read/validate/preview flow only (no install, no code/SQL execution, no dynamic frontend asset loading).
@@ -7,6 +14,12 @@
 - Extended local plugin package dry-run with sha256 `checksums.json` verification, strengthened dangerous-file rules (symlink/executable/hidden dirs), and a backend-generated `risk_report` (low/medium/high/blocked) rendered in the admin UI.
 - Added a local plugin package repository scanner (`GET /api/v1/admin/plugins/packages`) with filters/pagination plus a detail endpoint (`GET /api/v1/admin/plugins/packages/detail`), and surfaced the repository view under the admin install/upgrade page.
 - Added a minimal local plugin package install flow (`POST /api/v1/admin/plugins/packages/install`) that re-runs dry-run server-side and installs manifest-only plugins as `disabled` with `source_type=local_package` (no code/SQL execution, no dynamic frontend asset loading).
+- Added a draft plugin package signature + trusted publisher model: optional `publisher.json`/`signature.json`, local-only `storage/plugins/trusted_publishers.json`, Ed25519 verification over `sha256(raw checksums.json bytes)`, risk-report integration, and admin UI display in the package repository/dry-run/detail/install confirmation flows.
+- Added plugin config version history for global/community plugin configs, including redacted diff views, version details, audit linkage via `config_version_id`, and a rollback **dry-run** preview API/UI (no actual rollback write).
+- Added backend encryption for sensitive plugin config fields (AES-256-GCM with `enc:v1:` prefix) while keeping API/audit/history outputs redacted; supports placeholder retention (`[ENCRYPTED]`/`******`) and empty-string clearing.
+- Added a minimal plugin approval flow for high-risk operations (install/upgrade): approval requests + admin approval center (`/admin-next/plugins/approvals`) + execution with mandatory re-dry-run checks; direct local package install and plugin upgrade execution now require `plugin.approve`.
+- Refactored plugin governance backend structure by splitting plugin-related HTTP handlers and service methods into focused modules (no API/behavior changes); updated E2E compose defaults so Playwright runs against an internal `devhub` service (`DEVHUB_E2E_ORIGIN=http://devhub:8090` by default).
+- Added installed declarative plugin export to local plugin package directories (`POST /api/v1/admin/plugins/:code/export/dry-run` and `/export`), generating `manifest.json`, README, redacted `config.example.json`, `checksums.json`, optional docs/migration/signature stubs, and an admin detail-drawer export panel; exports never include sensitive config, user data, runtime code, SQL, zip downloads, or remote publishing.
 
 ## v1.4.0 (2026-05-12)
 

@@ -380,9 +380,27 @@ run_e2e_default() {
   fi
 
   local opts=("${RUN_OPTS[@]}")
-  if [[ -n "${DEVHUB_E2E_ORIGIN:-}" ]]; then
-    opts+=(-e "DEVHUB_E2E_ORIGIN=${DEVHUB_E2E_ORIGIN}")
+  local origin="${DEVHUB_E2E_ORIGIN:-}"
+  if [[ -n "${origin}" ]]; then
+    opts+=(-e "DEVHUB_E2E_ORIGIN=${origin}")
   fi
+
+  # In non-interactive CI or local runs, it's easy to forget starting the Go server.
+  # When origin is set, do a lightweight /api/v1/health probe to fail fast with a clear hint.
+  #
+  # NOTE: Do NOT rely on host.docker.internal always being reachable (some Linux setups map it
+  # to docker0 gateway but do not route container->host traffic). Also avoid proxy env impact.
+  if [[ -n "${origin}" ]]; then
+    if ! command -v curl >/dev/null 2>&1; then
+      echo "${C_YELLOW}提示：未找到 curl，跳过 ${origin}/api/v1/health 探测。${C_RESET}"
+    else
+      if ! curl --noproxy '*' -fsS "${origin}/api/v1/health" >/dev/null 2>&1; then
+        echo "${C_YELLOW}提示：无法探测 ${origin}/api/v1/health（可能是容器到宿主网络不可达或后端未启动）。${C_RESET}"
+        echo "${C_YELLOW}将继续执行 E2E；如失败为 ERR_CONNECTION_REFUSED，请先启动后端并检查 DEVHUB_E2E_ORIGIN。${C_RESET}"
+      fi
+    fi
+  fi
+
   run_step "${title} E2E" "${DC[@]}" run "${opts[@]}" "$service"
 }
 

@@ -1,11 +1,20 @@
 services:
+  devhub:
+    image: debian:bookworm-slim
+    working_dir: /workspace
+    command: ["bash", "-lc", "PORT=8090 CMS_STORE=memory ./.devhub/devhub"]
+    volumes:
+      - .:/workspace
+
   admin-e2e:
     build:
       context: ./web/admin-app
       dockerfile: Dockerfile.e2e
     working_dir: /workspace/web/admin-app
+    depends_on:
+      - devhub
     environment:
-      DEVHUB_E2E_ORIGIN: ${DEVHUB_E2E_ORIGIN:-http://host.docker.internal:8090}
+      DEVHUB_E2E_ORIGIN: ${DEVHUB_E2E_ORIGIN:-http://devhub:8090}
     extra_hosts:
       - "host.docker.internal:host-gateway"
     volumes:
@@ -17,8 +26,10 @@ services:
       context: ./web/frontend-app
       dockerfile: Dockerfile.e2e
     working_dir: /workspace/web/frontend-app
+    depends_on:
+      - devhub
     environment:
-      DEVHUB_E2E_ORIGIN: ${DEVHUB_E2E_ORIGIN:-http://host.docker.internal:8090}
+      DEVHUB_E2E_ORIGIN: ${DEVHUB_E2E_ORIGIN:-http://devhub:8090}
     extra_hosts:
       - "host.docker.internal:host-gateway"
     volumes:

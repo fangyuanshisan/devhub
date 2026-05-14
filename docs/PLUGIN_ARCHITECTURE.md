@@ -2,7 +2,7 @@
 
 [返回文档入口](README.md)
 
-更新时间：2026-05-13
+更新时间：2026-05-14
 
 ## 版本定位
 
@@ -61,6 +61,7 @@ MySQL 专项补充：2026-05-11 已完成 MySQLStore 与老库升级专项验证
 - Manifest + 配置型安装：`POST /api/v1/admin/plugins/install` 可安装只含声明与配置的插件，初始为 installed + disabled；不执行第三方代码、不动态加载前端资源、不执行外部 SQL。
 - SDK / 模板：已新增 `docs/PLUGIN_SDK.md`、`docs/PLUGIN_TEMPLATE.md`、`docs/examples/plugin-manifest-example.json` 和 `go run ./cmd/devhub plugin:new ...`，用于生成声明型插件骨架；生成器复用 `PluginManifestValidator` 和当前简化 `config_schema` 校验。
 - 最小升级执行：`POST /api/v1/admin/plugins/:code/upgrade/dry-run` 和 `POST /api/v1/admin/plugins/:code/upgrade` 已支持 manifest + 配置型插件的预览和最小执行闭环；后台已提供抽屉分步升级向导；回滚、migration down、外部 SQL 和插件包升级仍未实现。
+- 安装/升级审批流：新增 `plugin_approval_requests` 与审批 API（`/api/v1/admin/plugins/approvals*`），后台提供 `/admin-next/plugins/approvals` 审批中心；审批通过后执行时会重新 dry-run 校验，审批不等于绕过后端强校验。
 - 软卸载 / 归档 / 恢复：插件可归档、恢复和批量归档 / 恢复；归档后禁止新建内容和子站启用，但保留历史内容、配置、迁移记录、审计记录和 SEO。
 - 后台：`/admin-next/plugins` 已具备插件列表、详情抽屉、配置、impact 提示、审计 Tab、迁移 Tab 和通用插件内容页入口；`/admin-next/communities` 已具备子站插件配置抽屉。
 
@@ -75,7 +76,7 @@ MySQL 专项补充：2026-05-11 已完成 MySQLStore 与老库升级专项验证
 
 预留：
 
-- 插件包分发：本地插件包 **dry-run 导入预览** 与“本地插件仓库扫描（discovered packages）”已落地（含 `checksums.json` sha256 校验与 `risk_report` 风险报告，见 `docs/PLUGIN_PACKAGE.md`）；zip 导入/正式安装/远程安装仍处于预留阶段。
+- 插件包分发：本地插件包 **dry-run 导入预览**、“本地插件仓库扫描（discovered packages）”与“已安装声明型插件导出为本地插件包”已落地（含 `checksums.json` sha256 校验、`risk_report` 风险报告，以及签名/可信来源草案：`publisher.json`/`signature.json` + 本地 `trusted_publishers`，见 `docs/PLUGIN_PACKAGE.md`）；zip 导入/远程安装仍处于预留阶段。
 - 插件健康状态：`healthy`、`warning`、`error`、`disabled`、`migration_pending`、`config_invalid`、`dependency_missing`、`hook_warning`、`hook_error` 已有轻量计算；`hook_error` 当前基于 Hook 失败次数阈值（当前为 `>= 3`）判断。告警、自动恢复、重试队列和 Prometheus/Grafana 式可观测指标仍是后续能力。
 - 插件依赖解析、版本兼容检查深化、插件包签名和市场分发。
 - 外部服务型 Webhook、动态路由加载、动态执行环境、沙箱和第三方 Hook 运行时。
@@ -189,7 +190,7 @@ P3：高级能力
 
 - manifest 只描述能力和元数据，不直接承载业务执行流程。
 - `qa/docs/wiki/projects/jobs/ai_works` 当前都通过统一 registry 返回相同结构。
-- `config_schema` 当前已经用于全局 / 子站插件配置的简化后端校验，并供后台基础自动表单、JSON 高级模式和 Ajv 做客户端基础校验；完整 JSON Schema、深层嵌套、字段分组和配置版本能力仍是后续任务。
+- `config_schema` 当前已经用于全局 / 子站插件配置的简化后端校验，并供后台基础自动表单、JSON 高级模式和 Ajv 做客户端基础校验；v1.5.0 已补齐“配置版本历史 + diff（脱敏）+ 回滚 dry-run 预览（不写入）”。完整 JSON Schema、字段分组、更复杂嵌套矩阵、真实回滚与敏感配置加密仍是后续任务。
 
 ## 内容类型声明
 
@@ -322,8 +323,8 @@ HookBus 完整化属于插件平台 P0 收口任务。当前只服务内置系�
 - `plugins.config_json` 已落库，并可通过后台插件页和 `PUT /api/v1/admin/plugins/:code/config` 管理。
 - `community_plugins.config_json` 已落地，并可通过后台子站插件配置和 `PUT /api/v1/admin/communities/:id/plugins/:code/config` 管理。
 - API 返回的 `resolved_config` 以 `default`、`global`、`community`、`effective` 四段表达当前合并视图。
-- 当前已完成 JSON 合法性校验与简化 `config_schema` 后端强校验；支持 `type`、`required`、`enum`、`object`、`boolean`、`string`、`number`、`integer`、`default` 和数字 `min/max`。后台插件配置支持基础自动表单 + JSON 高级模式，并用 Ajv 做客户端校验，后端保存时仍会二次校验。完整 JSON Schema、深层嵌套、字段分组、配置版本回滚和敏感字段加密是后续任务。
-- 配置审计记录 `old_value`、`new_value` 和 `metadata_json.changed_keys`；当前 diff 为顶层 key diff，不做深层路径级 diff。
+- 当前已完成 JSON 合法性校验与简化 `config_schema` 后端强校验；支持 `type`、`required`、`enum`、`object`、`boolean`、`string`、`number`、`integer`、`default` 和数字 `min/max`。后台插件配置支持基础自动表单 + JSON 高级模式，并用 Ajv 做客户端校验，后端保存时仍会二次校验；同时已补齐配置版本历史、版本详情与稳定 diff（脱敏），并提供“回滚 dry-run 预览”（不写入）。完整 JSON Schema、字段分组、更复杂嵌套矩阵、真实回滚和敏感字段加密是后续任务。
+- 配置审计记录 `old_value`、`new_value` 和 `metadata_json.changed_keys`；配置版本 diff 支持嵌套路径（object 展开），array 以整体值对比输出稳定 diff。
 
 ## 两层插件状态
 
@@ -511,7 +512,9 @@ v1.3.1 采用稳妥策略：后台编辑已存在内容时禁止修改归属和�
 - 子站插件配置和排序已有 API 与增强后的后台 UI，但仍需继续做真实浏览器矩阵验收。
 - 插件治理审计已新增 `admin_logs.old_value`、`admin_logs.new_value` 和 `admin_logs.metadata_json` 结构化字段，同时保留 `target` 文本摘要兼容旧展示；非插件历史日志可能仍没有结构化 diff。
 - 新装库已在 `db/mysql/001_schema.sql` 和 `internal/store/schema.go` 包含结构化审计字段；老库升级使用 `db/mysql/migrations/007_admin_logs_structured_plugin_audit.sql`，启动迁移辅助也会尝试补齐这些列。
-- `plugins.config_json` 与 `community_plugins.config_json` 已可写，并已做 JSON 格式校验和简化 `config_schema` 基础校验；基础自动表单、配置 diff UI 和 effective config 预览已接入后台插件治理体验，更完整 JSON Schema、深层嵌套、字段分组和配置版本回滚属于 P1/P3。
+- `plugins.config_json` 与 `community_plugins.config_json` 已可写，并已做 JSON 格式校验和简化 `config_schema` 基础校验；基础自动表单、配置 diff UI、effective config 预览与配置版本历史/回滚预览已接入后台插件治理体验；更完整 JSON Schema、字段分组、更复杂嵌套矩阵、真实回滚与敏感字段加密属于后续任务。
+- v1.5.0 起，插件配置支持“敏感字段加密存储”最小闭环：保存配置时会按 `config_schema` 标记与字段名规则识别敏感字段，并对敏感字段值使用 AES-256-GCM 加密后入库（`enc:v1:<nonce_b64>:<cipher_b64>`）；API/审计/版本历史/diff/回滚预览只返回脱敏占位（例如 `[REDACTED]` / `[ENCRYPTED]`），不会返回明文或密文。当前不支持 KMS/Vault、密钥轮换、多版本密钥解密与历史明文批量迁移（需后续专项）。
+- v1.5.0-P2-10 起，已安装声明型插件可导出为本地插件包目录：导出 `manifest.json`、自动 README、脱敏 `config.example.json`、`checksums.json` 与可选 docs/migrations/publisher/signature 草案，输出目录固定在 `storage/plugins/exports/`。导出不会包含真实全局/子站配置、敏感明文或 `enc:v1:` 密文，不包含用户数据、Hook 历史、审计原始明细、搜索索引、运行时代码或外部 SQL；导出后会自动执行 package dry-run 自检。
 - HookBus 当前是内置插件运行时调度器；调用点已覆盖内容创建、更新、删除、评论、搜索、通知和 SEO，并记录执行结果与失败审计。搜索 / 通知 / SEO 仍是预留级事件派发，完整业务处理器、重试策略和健康状态属于 P0/P1。
 - 插件生命周期当前已能派生安装 / 运行 / 健康状态，但仍不是完整外部插件包安装器状态机；代码真实运行门禁仍以 `plugins.status`、`community_plugins.status`、`plugin_migrations.status`、依赖检查和配置校验为准。
 - `v1.3.4` 的架构重点不是扩展具体业务插件，而是验证平台治理：failed migration 必须阻断启用并可 retry 恢复，blocking Hook 必须能阻断主流程，non-blocking Hook 必须不阻断但可追踪，权限矩阵必须继续弱化 `post.create` 兼容桥，MySQLStore / 老库升级必须与 MemoryStore 口径一致，ManifestValidator / dry-run / manifest + 配置型安装和升级预览 / 执行提供安全的外部生态预备能力。当前 MySQLStore / 老库升级专项已完成关键链路验证，剩余风险主要是生产大库备份、回滚、耗时、外部插件真实 DDL migration、外部服务 Webhook、升级流程和版本兼容矩阵设计。
@@ -585,11 +588,12 @@ v1.3.5 的边界是治理体验收口，不新增危险运行时能力。当前�
 - 配置编辑器展示配置差异和最终生效配置。差异预览只用于管理员确认，保存仍以后端 `config_schema` 校验为准；敏感字段会在预览中脱敏。
 - 通用 PluginContent 页支持多选、批量隐藏 / 恢复、审核通过 / 拒绝、置顶 / 取消置顶、加精 / 取消加精，并提供审计入口。审计入口会跳转到通用治理审计页并预填 `plugin_code`、`content_type`、`action`、`target_type` 和插件编码 metadata，便于定位本次插件内容批量操作。权限、插件状态、内容归属和审计仍由后端批量治理接口强制校验，前端隐藏或按钮禁用不能替代权限控制。
 - Hook 排障：插件详情抽屉 Hooks Tab 会展示 Hook 聚合统计和最近执行记录，执行记录支持筛选查询与详情抽屉；查询接口严格使用 admin token + `plugin.read`，测试/开发环境才允许通过注入接口模拟失败，不暴露为生产功能。
+- 代码结构治理：插件治理后端 handler 与 service 已按功能拆分，路由与返回结构不变；入口路由仍在 `internal/transport/httpapi/router.go`，插件相关 handler 分散到 `internal/transport/httpapi/plugin_*_handler.go`；插件生命周期相关 service 方法从 `internal/service/service.go` 迁出到 `internal/service/plugin_lifecycle_service.go`，其余插件能力继续维持按 `plugin_*.go` 分文件组织。
 
 当前限制：
 
 - 当前 `en-US` 只是占位语言包；若后续需要完整多语言生态，需要补齐翻译和语言切换入口。
-- 自动表单是基础版本，不包含完整 JSON Schema、字段分组、配置版本、配置回滚或敏感字段加密。
+- 自动表单是基础版本，不包含完整 JSON Schema、字段分组或更复杂嵌套字段矩阵；v1.5.0 已补齐配置版本历史与回滚 dry-run 预览，但真实回滚与敏感字段加密仍在后续版本推进。
 - PluginContent 已接入批量隐藏 / 恢复、审核、置顶和加精；更细粒度权限矩阵、跨页面审计高亮和更完整审计筛选 E2E 仍待后续补测。
 
 ## 阶段 C/D/E/F：SDK 模板、生命周期、软卸载和外部生态设计

@@ -28,6 +28,7 @@ export const pluginRoutes = [
   { path: '/plugins/list', name: 'pluginsList', component: () => import('@/views/plugins/PluginList.vue'), meta: { title: '系统插件', permission: 'plugin.read', subNavGroup: 'plugins', subNavKey: 'list' } },
   { path: '/plugins/content', name: 'pluginsContent', component: () => import('@/views/plugins/PluginContentHub.vue'), meta: { title: '系统插件', permission: 'plugin.read', subNavGroup: 'plugins', subNavKey: 'content' } },
   { path: '/plugins/install', name: 'pluginsInstall', component: () => import('@/views/plugins/PluginInstallUpgrade.vue'), meta: { title: '系统插件', permission: 'plugin.read', subNavGroup: 'plugins', subNavKey: 'install' } },
+  { path: '/plugins/approvals', name: 'pluginsApprovals', component: () => import('@/views/plugins/PluginApprovals.vue'), meta: { title: '系统插件', permission: 'plugin.read', subNavGroup: 'plugins', subNavKey: 'approvals' } },
   { path: '/plugins/config', name: 'pluginsConfig', component: () => import('@/views/plugins/PluginConfigHub.vue'), meta: { title: '系统插件', permission: 'plugin.read', subNavGroup: 'plugins', subNavKey: 'config' } },
   { path: '/plugins/dependencies', name: 'pluginsDependencies', component: () => import('@/views/plugins/PluginDependencies.vue'), meta: { title: '系统插件', permission: 'plugin.read', subNavGroup: 'plugins', subNavKey: 'dependencies' } },
   { path: '/plugins/hooks', name: 'pluginsHooks', component: () => import('@/views/plugins/PluginHooks.vue'), meta: { title: '系统插件', permission: 'plugin.read', subNavGroup: 'plugins', subNavKey: 'hooks' } },

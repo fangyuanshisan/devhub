@@ -2,13 +2,15 @@ package domain
 
 // PluginPackageRepositoryListItem is returned by GET /api/v1/admin/plugins/packages.
 type PluginPackageRepositoryListItem struct {
-	Path          string `json:"path"`
-	Code          string `json:"code,omitempty"`
-	Name          string `json:"name,omitempty"`
-	Version       string `json:"version,omitempty"`
-	ManifestFound bool   `json:"manifest_found"`
-	ChecksumFound bool   `json:"checksum_found"`
-	ReadmeFound   bool   `json:"readme_found"`
+	Path           string `json:"path"`
+	Code           string `json:"code,omitempty"`
+	Name           string `json:"name,omitempty"`
+	Version        string `json:"version,omitempty"`
+	ManifestFound  bool   `json:"manifest_found"`
+	ChecksumFound  bool   `json:"checksum_found"`
+	SignatureFound bool   `json:"signature_found,omitempty"`
+	PublisherFound bool   `json:"publisher_found,omitempty"`
+	ReadmeFound    bool   `json:"readme_found"`
 
 	// status: ok|warning|blocked|invalid
 	Status string `json:"status"`
@@ -18,6 +20,8 @@ type PluginPackageRepositoryListItem struct {
 
 	ChecksumStatus string `json:"checksum_status,omitempty"`
 	ManifestValid  *bool  `json:"manifest_valid,omitempty"`
+
+	Signature *PluginPackageSignatureResult `json:"signature,omitempty"`
 
 	TotalFiles int   `json:"total_files,omitempty"`
 	TotalSize  int64 `json:"total_size,omitempty"`

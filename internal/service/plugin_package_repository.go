@@ -62,11 +62,13 @@ func (s *Service) ListPluginPackages(root string, filter PluginPackageRepository
 		checksumPath := filepath.Join(it.AbsPath, "checksums.json")
 
 		row := domain.PluginPackageRepositoryListItem{
-			Path:          it.CleanPath,
-			ManifestFound: fileExists(manifestPath),
-			ReadmeFound:   fileExists(readmePath),
-			ChecksumFound: fileExists(checksumPath),
-			UpdatedAt:     it.UpdatedAt.Unix(),
+			Path:           it.CleanPath,
+			ManifestFound:  fileExists(manifestPath),
+			ReadmeFound:    fileExists(readmePath),
+			ChecksumFound:  fileExists(checksumPath),
+			SignatureFound: fileExists(filepath.Join(it.AbsPath, "signature.json")),
+			PublisherFound: fileExists(filepath.Join(it.AbsPath, "publisher.json")),
+			UpdatedAt:      it.UpdatedAt.Unix(),
 		}
 
 		if !row.ManifestFound {
@@ -96,6 +98,7 @@ func (s *Service) ListPluginPackages(root string, filter PluginPackageRepository
 				row.RiskLevel = res.RiskReport.Level
 				row.RiskSummary = res.RiskReport.Summary
 				row.ChecksumStatus = res.Checksum.Status
+				row.Signature = &res.Signature
 				mv := res.ManifestValidation.Valid
 				row.ManifestValid = &mv
 			}

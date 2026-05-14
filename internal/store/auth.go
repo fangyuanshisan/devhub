@@ -192,6 +192,20 @@ func firstNonEmptyString(values ...string) string {
 	return ""
 }
 
+// nullTime converts an API datetime string into a nullable SQL argument.
+// It returns nil when empty or invalid, so callers can pass it to database/sql Exec.
+func nullTime(value string) any {
+	value = strings.TrimSpace(value)
+	if value == "" {
+		return nil
+	}
+	t, err := time.ParseInLocation("2006-01-02 15:04:05", value, time.Local)
+	if err != nil {
+		return nil
+	}
+	return t
+}
+
 func notificationInSite(n domain.Notification, site string) bool {
 	site = normalizeSiteScope(site)
 	return site == "portal" || normalizeSiteScope(n.Site) == site || normalizeSiteScope(n.Site) == "portal"

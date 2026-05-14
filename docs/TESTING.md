@@ -2,7 +2,7 @@
 
 [返回文档入口](README.md)
 
-更新时间：2026-05-13
+更新时间：2026-05-14
 
 本文档只记录当前 v1.4.0 必测项和后续补测项。历史版本测试只保留必要回归，不再展开旧版本完整矩阵。
 
@@ -123,6 +123,87 @@
 
 - 插件包安装仍只写入声明/配置/迁移 pending/审计；不执行第三方代码/SQL，不动态加载前端资产。
 - 本轮只涉及后端与后台插件安装升级页，不涉及前台与 SEO，因此未执行 `--frontend-only` 与 SEO curl。
+
+## v1.5.0-P1-05 插件配置版本历史与回滚预览（dry-run）（2026-05-13）
+
+已执行（通过）：
+
+- `gofmt -w internal/domain/plugin_config_versions.go internal/plugins/config_diff.go internal/plugins/config_diff_test.go internal/service/plugin_config_versions.go internal/service/plugin_config_versions_test.go internal/transport/httpapi/router_auth_test.go`：通过。
+- `go test ./...`：通过。
+- `go build -o .devhub/devhub .`：通过。
+- `git diff --check`：通过。
+- `bash -n dev.sh`：通过。
+- `bash -n scripts/check-frontend.sh`：通过。
+- `docker compose run --rm admin-e2e npm run build`：通过。
+- `PORT=8091 CMS_STORE=memory DEVHUB_E2E_TESTING=1 ./.devhub/devhub`：启动用于 Playwright 的本机后端；随后执行：
+- `docker compose run --rm -e DEVHUB_E2E_ORIGIN=http://host.docker.internal:8091 admin-e2e npm run test:e2e -- tests/e2e/plugin-config-versions.spec.js`：通过，`1 passed`。
+
+说明：
+
+- 本轮新增配置版本历史与回滚预览（dry-run），只涉及后端与后台插件配置页，不涉及前台与 SEO，因此未执行 `--frontend-only` 与 SEO curl。
+- 回滚仅提供 dry-run 预览，不提供真实回滚写入。
+
+## v1.5.0-P1-06 插件敏感配置加密存储（2026-05-13）
+
+已执行（通过）：
+
+- `gofmt -w $(git ls-files '*.go')`：通过。
+- `go test ./...`：通过。
+- `go build -o .devhub/devhub .`：通过。
+- `git diff --check`：通过。
+- `bash -n dev.sh`：通过。
+- `bash -n scripts/check-frontend.sh`：通过。
+- `docker compose run --rm admin-e2e npm run build`：通过。
+- `PORT=8091 CMS_STORE=memory DEVHUB_E2E_TESTING=1 DEVHUB_PLUGIN_CONFIG_KEY=<test_key> ./.devhub/devhub`：启动用于 Playwright 的本机后端；随后执行：
+- `docker compose run --rm -e DEVHUB_E2E_ORIGIN=http://host.docker.internal:8091 admin-e2e npm run test:e2e -- tests/e2e/plugin-config-encryption.spec.js`：通过，`1 passed`。
+
+说明：
+
+- 本轮只涉及后端与后台插件配置链路，不涉及前台与 SEO，因此未执行 `--frontend-only` 与 SEO curl。
+
+## v1.5.0-P1-07 插件安装 / 升级审批流（2026-05-14）
+
+已执行（通过）：
+
+- `gofmt -w internal/domain/plugin_approvals.go internal/service/plugin_approvals.go internal/service/plugin_approval_sanitize.go internal/store/auth.go internal/store/memory.go internal/store/mysql.go internal/store/schema.go internal/transport/httpapi/router.go`：通过。
+- `go test ./...`：通过。
+- `go build -o .devhub/devhub .`：通过。
+- `git diff --check`：通过。
+- `bash -n dev.sh`：通过。
+- `bash -n scripts/check-frontend.sh`：通过。
+- `docker compose run --rm admin-e2e npm run build`：通过。
+- 后台 E2E（通过，本轮新增 spec）：
+  - `docker compose run --rm -e DEVHUB_E2E_ORIGIN=http://127.0.0.1:8091 admin-e2e bash -lc 'cd /workspace && PORT=8091 CMS_STORE=memory DEVHUB_E2E_TESTING=1 ./.devhub/devhub & sleep 0.8; cd /workspace/web/admin-app && npm run test:e2e -- tests/e2e/plugin-approvals.spec.js'`：通过，`1 passed`。
+
+未通过 / 未执行（原因）：
+
+- `./scripts/check-frontend.sh --admin-only`：失败（本环境无法从 `admin-e2e` 容器访问 `host.docker.internal:8090`，且脚本不会自动启动后端；失败日志：`.devhub/checks/20260514-001823/-web-admin-app-E2E.log`）。本轮已用“容器内启动后端 + 指定 `DEVHUB_E2E_ORIGIN`”方式验证新增 `plugin-approvals` E2E。
+
+## v1.5.0-P2-10 已安装插件导出为本地插件包（2026-05-14）
+
+本轮新增声明型插件包导出能力，测试重点是：dry-run 不写文件、正式导出生成 `manifest.json` / `README.md` / 脱敏 `config.example.json` / `checksums.json`，导出后 package dry-run 自检通过，后台导出面板展示安全边界且不提供 zip/远程发布入口。
+
+已执行（阶段性通过，最终完整矩阵以本轮结束记录为准）：
+
+- `gofmt -w internal/domain/plugin_export.go internal/service/plugin_export_service.go internal/service/plugin_package_service.go internal/plugins/package_scanner.go internal/transport/httpapi/plugin_package_handler.go internal/transport/httpapi/router.go`：通过。
+- `go test ./internal/service ./internal/transport/httpapi ./internal/plugins`：通过。
+- `go test ./internal/service -run 'TestPluginPackageExport' -count=1`：通过。
+- `docker compose run --rm admin-e2e npm run build`：通过。
+
+本轮最终还需执行：
+
+- `go test ./...`
+- `go build -o .devhub/devhub .`
+- `git diff --check`
+- `bash -n dev.sh`
+- `bash -n scripts/check-frontend.sh`
+- `docker compose run --rm admin-e2e npm run test:e2e -- tests/e2e/plugin-package-export.spec.js`
+- `./scripts/check-frontend.sh --admin-only`
+
+说明：
+
+- 本轮只改后端插件导出 API 与后台插件详情抽屉，不涉及前台页面、前台导航或 SEO 共享逻辑，因此不强制执行 `--frontend-only` 与 SEO curl。
+- 导出结果会写入 `storage/plugins/exports/`；该目录仅作为受控本地输出目录，不代表 zip 下载、远程市场发布或插件市场审核。
 
 ## 已实现必测
 
@@ -966,7 +1047,8 @@ done
 
 注意：
 
-- E2E 依赖已启动的 DevHub 服务，默认访问 `http://host.docker.internal:8090`。
+- E2E 默认通过 `docker-compose.yml` 内部启动一个 `devhub` 服务（memory store），并将 `DEVHUB_E2E_ORIGIN` 设为 `http://devhub:8090`；因此通常不再要求你先在宿主机启动后端。
+- 如需改为访问宿主机已启动的 DevHub（例如用 MySQLStore/自定义端口），可覆盖 `DEVHUB_E2E_ORIGIN=http://host.docker.internal:<port>`（或按实际可达地址设置）。
 - E2E 前需要先用 `admin-e2e` 构建后台静态产物；不要和 E2E 并行写 `web/admin-vue`，否则可能读到短暂不完整的静态资源。
 
 ## v1.4.0-P1-07 依赖检查与版本兼容矩阵验收

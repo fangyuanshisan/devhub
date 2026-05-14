@@ -138,7 +138,10 @@ func VerifyPluginPackageChecksums(packageDir string, scan domain.PluginPackageFi
 	// Extra/uncovered files: warn only in this stage.
 	all := packageFilesFromScan(scan)
 	for _, p := range all {
-		if p == "checksums.json" {
+		// checksums.json and signature metadata files are allowed to be outside checksums coverage.
+		// - checksums.json: self
+		// - signature.json/publisher.json: signing metadata (covered by signature over checksums.json)
+		if p == "checksums.json" || p == "signature.json" || p == "publisher.json" {
 			continue
 		}
 		if _, ok := declared[p]; !ok {

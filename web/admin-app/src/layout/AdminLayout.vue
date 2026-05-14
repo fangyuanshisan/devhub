@@ -108,6 +108,7 @@ const subMenus = {
       title: '安装与治理',
       items: [
         { key: 'install', label: '安装升级', path: '/plugins/install' },
+        { key: 'approvals', label: '审批中心', path: '/plugins/approvals' },
         { key: 'dependencies', label: '依赖兼容', path: '/plugins/dependencies' },
         { key: 'permissions', label: '权限矩阵', path: '/plugins/permissions' },
         { key: 'audit', label: '审计日志', path: '/plugins/audit' },

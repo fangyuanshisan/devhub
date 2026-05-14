@@ -23,6 +23,7 @@ type MemoryStore struct {
 	nextCommentID       int64
 	nextNoticeID        int64
 	nextLogID           int64
+	nextPluginConfigVer int64
 	nextReactionID      int64
 	nextFavoriteID      int64
 	nextFollowID        int64
@@ -35,6 +36,7 @@ type MemoryStore struct {
 	nextTagAliasID      int64
 	nextUserID          int64
 	nextHookExecutionID int64
+	nextApprovalID      int64
 	sites               map[string]domain.Site
 	boards              map[string]domain.Board
 	communities         map[int64]*domain.Community
@@ -67,6 +69,8 @@ type MemoryStore struct {
 	roles               map[int64]domain.AdminRole
 	settings            domain.AdminSettings
 	logs                []domain.AdminLog
+	pluginConfigVers    []domain.PluginConfigVersion
+	pluginApprovals     []domain.PluginApprovalRequest
 }
 
 func countPluginMenus(def domain.Plugin, area string) int {
@@ -277,6 +281,7 @@ func NewMemoryStore() *MemoryStore {
 		nextCommentID:       1,
 		nextNoticeID:        1,
 		nextLogID:           1,
+		nextPluginConfigVer: 1,
 		nextReactionID:      1,
 		nextFavoriteID:      1,
 		nextFollowID:        1,
@@ -289,6 +294,7 @@ func NewMemoryStore() *MemoryStore {
 		nextTagAliasID:      1,
 		nextUserID:          1,
 		nextHookExecutionID: 1,
+		nextApprovalID:      1,
 		sites:               map[string]domain.Site{},
 		boards:              map[string]domain.Board{},
 		communities:         map[int64]*domain.Community{},
@@ -332,6 +338,8 @@ func NewMemoryStore() *MemoryStore {
 			HotLikeWeight:     8,
 			HotCommentWeight:  15,
 		},
+		pluginConfigVers: []domain.PluginConfigVersion{},
+		pluginApprovals:  []domain.PluginApprovalRequest{},
 	}
 	s.seed()
 	return s
@@ -6363,4 +6371,185 @@ func normalizeMemoryPage(page, pageSize int) (int, int) {
 		pageSize = 50
 	}
 	return page, pageSize
+}
+
+// ===== Plugin config versions (v1.5.0-P1-05) =====
+
+func (s *MemoryStore) AppendPluginConfigVersion(record domain.PluginConfigVersion) (domain.PluginConfigVersion, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	// Compute version_no and previous_version_id per (plugin_code, scope, community_id).
+	maxNo := 0
+	prevID := int64(0)
+	for _, it := range s.pluginConfigVers {
+		if it.PluginCode != record.PluginCode || it.Scope != record.Scope || it.CommunityID != record.CommunityID {
+			continue
+		}
+		if it.VersionNo > maxNo {
+			maxNo = it.VersionNo
+			prevID = it.ID
+		}
+	}
+	record.VersionNo = maxNo + 1
+	record.PreviousVersionID = prevID
+
+	record.ID = s.nextPluginConfigVer
+	s.nextPluginConfigVer++
+	if strings.TrimSpace(record.CreatedAt) == "" {
+		record.CreatedAt = Now()
+	}
+	s.pluginConfigVers = append(s.pluginConfigVers, record)
+	return record, nil
+}
+
+func (s *MemoryStore) PluginConfigVersions(pluginCode, scope string, communityID int64, page, pageSize int) ([]domain.PluginConfigVersion, int, error) {
+	page, pageSize = normalizeMemoryPage(page, pageSize)
+	pluginCode = strings.TrimSpace(pluginCode)
+	scope = strings.TrimSpace(scope)
+
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	all := make([]domain.PluginConfigVersion, 0, len(s.pluginConfigVers))
+	for _, it := range s.pluginConfigVers {
+		if pluginCode != "" && it.PluginCode != pluginCode {
+			continue
+		}
+		if scope != "" && it.Scope != scope {
+			continue
+		}
+		if scope == domain.PluginConfigScopeCommunity && communityID > 0 && it.CommunityID != communityID {
+			continue
+		}
+		all = append(all, it)
+	}
+	sort.Slice(all, func(i, j int) bool {
+		if all[i].VersionNo == all[j].VersionNo {
+			return all[i].ID > all[j].ID
+		}
+		return all[i].VersionNo > all[j].VersionNo
+	})
+	total := len(all)
+	start := (page - 1) * pageSize
+	if start > total {
+		start = total
+	}
+	end := start + pageSize
+	if end > total {
+		end = total
+	}
+	return all[start:end], total, nil
+}
+
+func (s *MemoryStore) PluginConfigVersionByID(id int64) (domain.PluginConfigVersion, bool) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	for _, it := range s.pluginConfigVers {
+		if it.ID == id {
+			return it, true
+		}
+	}
+	return domain.PluginConfigVersion{}, false
+}
+
+// ===== Plugin approvals (v1.5.0-P1-07) =====
+
+func (s *MemoryStore) AppendPluginApprovalRequest(record domain.PluginApprovalRequest) (domain.PluginApprovalRequest, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	record.ID = s.nextApprovalID
+	s.nextApprovalID++
+	if strings.TrimSpace(record.Status) == "" {
+		record.Status = domain.PluginApprovalStatusPending
+	}
+	now := Now()
+	if strings.TrimSpace(record.RequestedAt) == "" {
+		record.RequestedAt = now
+	}
+	if strings.TrimSpace(record.CreatedAt) == "" {
+		record.CreatedAt = now
+	}
+	record.UpdatedAt = now
+	s.pluginApprovals = append(s.pluginApprovals, record)
+	return record, nil
+}
+
+func (s *MemoryStore) SavePluginApprovalRequest(record domain.PluginApprovalRequest) (domain.PluginApprovalRequest, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	now := Now()
+	for i := range s.pluginApprovals {
+		if s.pluginApprovals[i].ID != record.ID {
+			continue
+		}
+		record.UpdatedAt = now
+		s.pluginApprovals[i] = record
+		return record, nil
+	}
+	// Not found -> append as new (best-effort; should not happen in normal flow).
+	if record.ID == 0 {
+		record.ID = s.nextApprovalID
+		s.nextApprovalID++
+	}
+	if strings.TrimSpace(record.CreatedAt) == "" {
+		record.CreatedAt = now
+	}
+	record.UpdatedAt = now
+	s.pluginApprovals = append(s.pluginApprovals, record)
+	return record, nil
+}
+
+func (s *MemoryStore) PluginApprovalRequestByID(id int64) (domain.PluginApprovalRequest, bool) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	for _, it := range s.pluginApprovals {
+		if it.ID == id {
+			return it, true
+		}
+	}
+	return domain.PluginApprovalRequest{}, false
+}
+
+func (s *MemoryStore) PluginApprovalRequests(filter domain.PluginApprovalFilter) ([]domain.PluginApprovalRequest, int, error) {
+	page, pageSize := normalizeMemoryPage(filter.Page, filter.PageSize)
+	status := strings.TrimSpace(filter.Status)
+	action := strings.TrimSpace(filter.Action)
+	pluginCode := strings.TrimSpace(filter.PluginCode)
+
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	all := make([]domain.PluginApprovalRequest, 0, len(s.pluginApprovals))
+	for _, it := range s.pluginApprovals {
+		if status != "" && status != "all" && it.Status != status {
+			continue
+		}
+		if action != "" && action != "all" && it.Action != action {
+			continue
+		}
+		if pluginCode != "" && it.PluginCode != pluginCode {
+			continue
+		}
+		if filter.RequestedBy > 0 && it.RequestedBy != filter.RequestedBy {
+			continue
+		}
+		if filter.ReviewedBy > 0 && it.ReviewedBy != filter.ReviewedBy {
+			continue
+		}
+		all = append(all, it)
+	}
+	sort.Slice(all, func(i, j int) bool {
+		// Desc by id as proxy of time.
+		return all[i].ID > all[j].ID
+	})
+	total := len(all)
+	start := (page - 1) * pageSize
+	if start > total {
+		start = total
+	}
+	end := start + pageSize
+	if end > total {
+		end = total
+	}
+	return append([]domain.PluginApprovalRequest(nil), all[start:end]...), total, nil
 }

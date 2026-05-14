@@ -13,6 +13,7 @@
 - 内置系统插件：随 DevHub 源码编译发布，通过代码 registry 注册。
 - Manifest + 配置型插件：通过 `manifest.json` 描述内容类型、权限、菜单、路由、配置模型、Hook 声明和 migration 声明；可走后台 validate / dry-run / install / upgrade 流程。
 - 本地插件包 dry-run 导入预览：按 `docs/PLUGIN_PACKAGE.md` 规范扫描目录、校验与预览（不安装、不执行代码/SQL、不动态加载前端资产）。
+- 已安装声明型插件导出：后台插件详情可导出本地插件包目录（manifest、README、脱敏 `config.example.json`、`checksums.json`），用于备份/迁移/二次分发草案；不会导出真实敏感配置、用户数据、运行时代码或外部 SQL。
 
 当前不支持：
 

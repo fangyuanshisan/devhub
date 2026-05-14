@@ -31,6 +31,8 @@ func (s *Service) DryRunPluginPackage(inputPath string) (domain.PluginPackageDry
 	readmePath := filepath.Join(abs, "README.md")
 	configExamplePath := filepath.Join(abs, "config.example.json")
 	checksumPath := filepath.Join(abs, "checksums.json")
+	signaturePath := filepath.Join(abs, "signature.json")
+	publisherPath := filepath.Join(abs, "publisher.json")
 
 	info := domain.PluginPackageInfo{
 		Path:               clean,
@@ -39,6 +41,8 @@ func (s *Service) DryRunPluginPackage(inputPath string) (domain.PluginPackageDry
 		ReadmeFound:        fileExists(readmePath),
 		ConfigExampleFound: fileExists(configExamplePath),
 		ChecksumFound:      fileExists(checksumPath),
+		SignatureFound:     fileExists(signaturePath),
+		PublisherFound:     fileExists(publisherPath),
 	}
 
 	// If manifest is missing, return an explicit error code (blocked).
@@ -130,6 +134,24 @@ func (s *Service) DryRunPluginPackage(inputPath string) (domain.PluginPackageDry
 		}
 	}
 
+	// signature/publisher verification (optional, but invalid/unsupported/failed blocks dry-run).
+	signatureResult, sigErr := pluginregistry.VerifyPluginPackageSignature(abs, scan, checksumResult)
+	if sigErr != nil {
+		if apiErr, ok := sigErr.(*domain.APIError); ok && apiErr != nil {
+			status = "blocked"
+			if blockedCode == "" {
+				blockedCode = apiErr.Code
+			}
+			blockedReasons = append(blockedReasons, apiErr.Code)
+			errorsList = append(errorsList, fmt.Sprintf("[%s] %s", apiErr.Code, apiErr.Message))
+			if apiErr.Suggestion != "" {
+				warnings = append(warnings, fmt.Sprintf("建议：%s", apiErr.Suggestion))
+			}
+		} else {
+			return domain.PluginPackageDryRunResult{}, sigErr
+		}
+	}
+
 	// config.example.json sanity (optional, warning only).
 	if info.ConfigExampleFound {
 		raw, cfgErr := os.ReadFile(configExamplePath)
@@ -162,7 +184,15 @@ func (s *Service) DryRunPluginPackage(inputPath string) (domain.PluginPackageDry
 		}
 	}
 
-	validation, _ := s.ValidatePluginManifestJSON(manifestRaw)
+	existing := make([]domain.Plugin, 0, len(s.repo.Plugins()))
+	for _, item := range s.repo.Plugins() {
+		if strings.TrimSpace(item.Code) == strings.TrimSpace(manifest.Code) {
+			continue
+		}
+		existing = append(existing, item)
+	}
+	validation := pluginregistry.ValidatePluginManifest(manifest, existing, currentCoreVersion())
+	validation.Checksum = checksum
 	manifestValidation := domain.PluginPackageManifestValidation{
 		Valid:    validation.Valid,
 		Errors:   append([]string(nil), validation.Errors...),
@@ -178,7 +208,7 @@ func (s *Service) DryRunPluginPackage(inputPath string) (domain.PluginPackageDry
 	// In v1.4, "install dry-run" shares the same payload as manifest validation result.
 	installDryRun := validation
 
-	risk := pluginregistry.BuildPluginPackageRiskReport(info, scan, checksumResult, manifestValidation, installDryRun, blockedCode)
+	risk := pluginregistry.BuildPluginPackageRiskReport(info, scan, checksumResult, signatureResult, manifestValidation, installDryRun, blockedCode)
 	if risk.Level == "blocked" {
 		status = "blocked"
 	}
@@ -190,6 +220,7 @@ func (s *Service) DryRunPluginPackage(inputPath string) (domain.PluginPackageDry
 		Package:            info,
 		FileScan:           scan,
 		Checksum:           checksumResult,
+		Signature:          signatureResult,
 		ManifestValidation: manifestValidation,
 		InstallDryRun:      installDryRun,
 		RiskReport:         risk,

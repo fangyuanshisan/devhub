@@ -1,0 +1,8 @@
+{
+  "version": "1.0.0",
+  "name": "demo_notice_init",
+  "direction": "up",
+  "mode": "declaration-only",
+  "description": "声明型迁移描述示例。本文件仅用于插件包目录规范演示；本轮 dry-run 不会执行任何 SQL。"
+}
+

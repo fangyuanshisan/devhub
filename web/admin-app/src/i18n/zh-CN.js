@@ -435,7 +435,7 @@ export default {
       minimum: '最小值',
       maximum: '最大值',
       sensitive: '敏感字段',
-      sensitivePlaceholder: '敏感字段（默认隐藏）',
+      sensitivePlaceholder: '[ENCRYPTED]',
       arrayObjectTip: '数组项为对象，建议切换到 JSON 高级模式编辑',
       schemaPassed: '配置模型通过',
       schemaFailed: '配置模型校验失败',

@@ -1,0 +1,211 @@
+{
+  "code": "qa",
+  "plugin_code": "qa",
+  "name": "问答插件",
+  "version": "1.0.0",
+  "description": "提供 question 内容类型、问题发布、回答、采纳和已解决状态。",
+  "is_system": false,
+  "source_type": "manifest",
+  "content_types": [
+    "question"
+  ],
+  "content_type_definitions": [
+    {
+      "type": "question",
+      "name": "问答",
+      "plugin_code": "qa",
+      "create_permission": "qa.question.create",
+      "edit_permission": "post.update",
+      "delete_permission": "post.delete",
+      "audit_permission": "qa.question.audit",
+      "default_status": "publish",
+      "allow_comment": true,
+      "allow_like": true,
+      "allow_favorite": true,
+      "seo_type": "QAPage"
+    }
+  ],
+  "permissions": [
+    {
+      "plugin_code": "qa",
+      "code": "qa.question.create",
+      "name": "发布问题",
+      "description": "创建 question 内容",
+      "scope": "community,category"
+    },
+    {
+      "plugin_code": "qa",
+      "code": "qa.question.audit",
+      "name": "审核问题",
+      "description": "审核 question 内容",
+      "scope": "community,category"
+    },
+    {
+      "plugin_code": "qa",
+      "code": "qa.answer.create",
+      "name": "提交回答",
+      "description": "在 question 下创建回答",
+      "scope": "community,category"
+    },
+    {
+      "plugin_code": "qa",
+      "code": "qa.answer.accept",
+      "name": "采纳回答",
+      "description": "采纳最佳回答",
+      "scope": "own,community"
+    }
+  ],
+  "menus": [
+    {
+      "plugin_code": "qa",
+      "code": "qa",
+      "key": "qa",
+      "title": "问答管理",
+      "short": "问答",
+      "path": "/qa",
+      "location": "admin",
+      "area": "admin",
+      "icon": "QuestionFilled",
+      "permission": "qa.question.audit",
+      "sort_order": 200
+    },
+    {
+      "plugin_code": "qa",
+      "code": "qa-moderator",
+      "key": "qa-moderator",
+      "title": "问答治理",
+      "short": "问答",
+      "path": "/moderator/topics?content_type=question",
+      "location": "moderator",
+      "area": "moderator",
+      "icon": "QuestionFilled",
+      "permission": "qa.question.audit",
+      "sort_order": 200
+    },
+    {
+      "plugin_code": "qa",
+      "code": "qa-community-nav",
+      "key": "qa-community-nav",
+      "title": "问答",
+      "description": "浏览问答内容",
+      "path": "/search/",
+      "location": "community_nav",
+      "area": "frontend",
+      "icon": "QuestionFilled",
+      "sort_order": 120,
+      "route": "/search/",
+      "content_type": "question",
+      "require_community_enabled": true,
+      "visible_when": [
+        "plugin_enabled",
+        "community_enabled",
+        "dependency_satisfied",
+        "config_valid"
+      ],
+      "order": 120
+    }
+  ],
+  "routes": [
+    {
+      "plugin_code": "qa",
+      "area": "frontend",
+      "method": "POST",
+      "path": "/api/v1/topics",
+      "handler": "qa.question.create"
+    },
+    {
+      "plugin_code": "qa",
+      "area": "frontend",
+      "method": "POST",
+      "path": "/api/v1/topics/:id/comments",
+      "handler": "qa.answer.create"
+    },
+    {
+      "plugin_code": "qa",
+      "area": "frontend",
+      "method": "POST",
+      "path": "/api/v1/topics/:id/comments/:commentId/accept",
+      "handler": "qa.answer.accept"
+    },
+    {
+      "plugin_code": "qa",
+      "area": "admin",
+      "method": "GET",
+      "path": "/api/v1/admin/posts?content_type=question",
+      "handler": "qa.question.audit"
+    }
+  ],
+  "config_schema": {
+    "additionalProperties": false,
+    "properties": {
+      "allow_anonymous_answer": {
+        "description": "是否允许匿名回答",
+        "type": "boolean"
+      },
+      "default_question_status": {
+        "default": "publish",
+        "description": "问题默认状态",
+        "enum": [
+          "publish",
+          "review"
+        ],
+        "type": "string"
+      },
+      "require_accept_permission": {
+        "default": true,
+        "description": "采纳答案是否要求 qa.answer.accept 权限",
+        "type": "boolean"
+      }
+    },
+    "required": [
+      "allow_anonymous_answer",
+      "default_question_status"
+    ],
+    "type": "object"
+  },
+  "min_core_version": "v1.3.0",
+  "hooks": [
+    {
+      "plugin_code": "qa",
+      "name": "AfterCreateComment",
+      "description": "回答创建后同步问答状态",
+      "blocking": false,
+      "critical": false,
+      "failure_policy": "log"
+    },
+    {
+      "plugin_code": "qa",
+      "name": "OnSEOBuild",
+      "description": "构建问答详情页 SEO 元信息",
+      "blocking": false,
+      "critical": false,
+      "failure_policy": "log"
+    }
+  ],
+  "migrations": [
+    {
+      "plugin_code": "qa",
+      "migration_version": "1.0.0",
+      "migration_name": "qa_questions",
+      "direction": "up",
+      "checksum": "builtin:qa:qa_questions:v1",
+      "tables": [
+        "qa_questions"
+      ],
+      "rollback_supported": false,
+      "description": "确认 qa_questions 问题扩展表"
+    },
+    {
+      "plugin_code": "qa",
+      "migration_version": "1.0.0",
+      "migration_name": "qa_answers",
+      "direction": "up",
+      "checksum": "builtin:qa:qa_answers:v1",
+      "tables": [
+        "qa_answers"
+      ],
+      "rollback_supported": false,
+      "description": "确认 qa_answers 回答扩展表"
+    }
+  ]
+}

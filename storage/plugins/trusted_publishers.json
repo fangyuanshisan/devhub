@@ -1,0 +1,32 @@
+{
+  "publishers": [
+    {
+      "publisher_id": "devhub-official",
+      "name": "DevHub Official (Example)",
+      "public_key_id": "devhub-official-2026",
+      "public_key_algorithm": "ed25519",
+      "public_key": "Jf8LxG7EtiK11AHz1Ce3zxPdzIoIk0cUWmPFsNyJAi0=",
+      "status": "trusted",
+      "notes": "示例可信发布者（仅用于本地测试/演示）"
+    },
+    {
+      "publisher_id": "devhub-revoked",
+      "name": "DevHub Revoked (Fixture)",
+      "public_key_id": "devhub-revoked-2026",
+      "public_key_algorithm": "ed25519",
+      "public_key": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=",
+      "status": "revoked",
+      "notes": "测试用 revoked 发布者"
+    },
+    {
+      "publisher_id": "devhub-blocked",
+      "name": "DevHub Blocked (Fixture)",
+      "public_key_id": "devhub-blocked-2026",
+      "public_key_algorithm": "ed25519",
+      "public_key": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=",
+      "status": "blocked",
+      "notes": "测试用 blocked 发布者"
+    }
+  ]
+}
+

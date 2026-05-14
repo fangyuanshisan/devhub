@@ -1,0 +1,5 @@
+{
+  "allow_anonymous_answer": false,
+  "default_question_status": "publish",
+  "require_accept_permission": true
+}

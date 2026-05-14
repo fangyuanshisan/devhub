@@ -2,7 +2,7 @@
 
 [返回文档入口](README.md)
 
-更新时间：2026-05-13
+更新时间：2026-05-14
 
 本文件是 **v1.5.0-P0-01 ~ P0-04** 的阶段性成果：为 DevHub 定义“本地插件包 / 本地插件仓库”规范，并提供 **dry-run 导入预览** 与 **最小安装闭环** 能力。
 
@@ -148,6 +148,11 @@ devhub-plugin-demo/
 
 `POST /api/v1/admin/plugins/packages/install`
 
+认证与权限：
+
+- 需要 admin token。
+- 直接执行安装需要 `plugin.approve`（审批人权限）；普通管理员应先通过 `POST /api/v1/admin/plugins/approvals` 提交安装审批。
+
 用途：
 
 - 从白名单仓库目录中选择一个**校验通过**的插件包，执行“声明型插件”安装闭环。
@@ -248,6 +253,7 @@ Dry-run 会返回 `risk_report`：
 示例路径：
 
 - `examples/plugins/demo_notice/`
+ - `examples/plugins/demo_signed_notice/`（签名/可信来源示例，见下文）
 
 包含：
 
@@ -256,3 +262,209 @@ Dry-run 会返回 `risk_report`：
 - `config.example.json`
 - `docs/usage.md`
 - `migrations/001_init.json`（声明示例，不执行）
+
+## 插件包签名与可信来源（草案，v1.5.0-P2-09）
+
+本章节为后续“插件市场/可信分发”打基础：在不引入远程市场、不自动下载、不做 PKI 证书链/公钥服务器的前提下，定义插件包签名元数据与本地可信来源配置，并将签名状态纳入 dry-run / 风险报告。
+
+边界（本轮明确不做）：
+
+- 不从远程拉取 publisher 信息，不自动信任包内 `publisher.json`。
+- 不做证书链验证、不做可信发布者平台、不做密钥轮换。
+- 不执行任何第三方代码/SQL，不动态加载前端资产。
+
+### 目录结构新增文件
+
+插件包可选包含：
+
+```text
+publisher.json
+signature.json
+```
+
+说明：
+
+- 缺少 `publisher.json` / `signature.json` **不阻断** dry-run，但会产生风险 warning。
+- `publisher.json` / `signature.json` 非法 JSON 会 **blocked**。
+
+### publisher.json（发布者声明）
+
+示例结构：
+
+```json
+{
+  "publisher_id": "devhub-official",
+  "name": "DevHub Official",
+  "homepage": "https://example.com",
+  "email": "security@example.com",
+  "public_key_id": "devhub-official-2026",
+  "public_key_algorithm": "ed25519",
+  "public_key": "base64-public-key",
+  "trust_level": "unknown"
+}
+```
+
+规则（简化）：
+
+- `publisher.json` 仅作为**包内声明**，不代表可信；可信状态由本地 `trusted_publishers` 决定。
+- 禁止存放私钥；后端不会返回任何私钥字段。
+
+### signature.json（签名声明）
+
+示例结构：
+
+```json
+{
+  "version": "1",
+  "algorithm": "ed25519",
+  "signed_at": "2026-01-01T00:00:00Z",
+  "publisher_id": "devhub-official",
+  "public_key_id": "devhub-official-2026",
+  "signed_files": [
+    "manifest.json",
+    "checksums.json",
+    "README.md",
+    "config.example.json"
+  ],
+  "signature": "base64-signature"
+}
+```
+
+规则（简化）：
+
+- 当前仅支持 `ed25519`；不支持算法会 **blocked**。
+- `signed_files` 必须是相对路径，禁止 `..`、禁止绝对路径；声明不存在文件会 **blocked**。
+- `signed_files` 必须至少包含 `manifest.json` 与 `checksums.json`；否则 **blocked**。
+- 为避免“签名覆盖未校验文件”，除 `manifest.json` / `checksums.json` 外，`signed_files` 中的文件必须出现在 `checksums.json` 覆盖列表中；否则 **blocked**。
+
+签名对象（当前实现）：
+
+- `message = sha256(raw_bytes_of_checksums.json)`（注意：是 checksums.json 的原始 bytes，不做 canonical JSON）
+- `signature = ed25519.Sign(public_key, message)`
+
+### 本地可信来源 trusted_publishers
+
+可信来源只来自本地配置文件（不会从远程同步）：
+
+- `storage/plugins/trusted_publishers.json`
+
+示例结构：
+
+```json
+{
+  "publishers": [
+    {
+      "publisher_id": "devhub-official",
+      "name": "DevHub Official",
+      "public_key_id": "devhub-official-2026",
+      "public_key_algorithm": "ed25519",
+      "public_key": "base64-public-key",
+      "status": "trusted",
+      "notes": "DevHub 官方示例发布者"
+    }
+  ]
+}
+```
+
+规则（简化）：
+
+- 只有 `publisher_id + public_key_id` 与本地配置匹配，且本地配置 `status=trusted`，才会标记 `trust_status=trusted`。
+- 若本地配置标记为 `blocked` / `revoked`：dry-run 直接 **blocked**（即使包内自称可信或验签通过）。
+- 若 publisher 不在本地配置中：`trust_status=unknown`（不阻断，但会产生高风险提示）。
+
+### 签名状态与风险报告联动
+
+dry-run / 仓库扫描 / 详情接口会返回 `signature` 字段摘要，并纳入 `risk_report`：
+
+- `trusted + verified`：不新增风险项（仍以 checksum/危险文件等为准）。
+- `unsigned / signature missing`：warning（风险至少 medium）。
+- `unknown publisher + verified`：风险至少 high（提示仅技术验签通过，未建立可信来源）。
+- `unsupported algorithm / verification failed / publisher blocked|revoked`：blocked。
+
+## 已安装插件导出为本地插件包（v1.5.0-P2-10）
+
+目标：把已安装的**声明型插件**导出为可被本地插件包 dry-run / 仓库扫描识别的目录，便于备份、迁移、二次分发和后续仓库治理。导出不等于发布到市场，也不会导出运行时代码或真实配置。
+
+### 导出目录结构
+
+默认输出到受控目录：
+
+- `storage/plugins/exports/{plugin_code}-{version}-{timestamp}/`
+
+导出包结构：
+
+```text
+exported-plugin/
+├─ manifest.json
+├─ README.md
+├─ config.example.json
+├─ checksums.json
+├─ publisher.json              # 可选，仅草案结构
+├─ signature.json              # 可选，仅草案结构
+├─ docs/
+│  └─ usage.md                 # 可选
+└─ migrations/
+   └─ exported_migrations.json # 可选，声明型摘要，不含外部 SQL
+```
+
+`storage/plugins/exports/` 已加入本地插件包允许读取目录，因此导出后可以直接用 package dry-run 自检；如需作为正式仓库包，可复制到 `storage/plugins/packages/`。
+
+### 导出范围
+
+会导出：
+
+- `manifest.json`：来自已安装插件当前 manifest / registry / 数据库声明。
+- `README.md`：自动生成，包含插件名称、code、版本、描述、内容类型、权限、配置、依赖、安装方式、安全边界、导出时间和 DevHub Core 版本。
+- `config.example.json`：示例配置，不是当前环境配置备份。
+- `checksums.json`：sha256，覆盖核心导出文件。
+- 可选 `docs/usage.md`、`migrations/exported_migrations.json`、`publisher.json`、`signature.json` 草案。
+
+不会导出：
+
+- 敏感配置明文或 `enc:v1:` 密文。
+- 当前全局配置真实值、子站覆盖配置真实值。
+- 用户数据、帖子、评论、通知、审计原始明细、Hook 执行历史、搜索索引。
+- 插件运行时代码、动态前端资产、外部 SQL、私钥、token、secret、password、credential。
+- zip 包、远程市场发布信息或上传任务。
+
+### manifest.json 规则
+
+- 保留声明型字段：`code/name/version/description/author/license/min_core_version/compatible_core_version/content_types/content_type_definitions/permissions/menus/routes/config_schema/dependencies/hooks/events/notification_templates/search/migrations`。
+- 不导出运行时状态字段作为安装默认值，例如 `enabled/disabled/archived`、`status_reason`、安装来源等。
+- 导出时会把包内安装默认状态保持为普通 manifest 声明；插件安装后的 enabled/disabled 仍由目标环境安装流程决定。
+- 导出的 manifest 必须通过当前 manifest validate；同 code 已安装只影响目标环境安装，不影响导出包本身生成。
+
+### config.example.json 脱敏规则
+
+- 优先使用 `default_config`；缺失时按 `config_schema` 生成示例。
+- 敏感字段统一写为 `REPLACE_ME`。
+- 敏感字段识别复用插件配置规则：`x-sensitive`、`writeOnly`、`format=password` 以及字段名命中 `password/passwd/secret/token/api_key/key/credential/app_secret/aes_key/private_key/client_secret` 等。
+- boolean / number / enum 使用默认值或安全示例；object 生成对象结构；array 为空数组。
+- 不读取当前生产配置真实值，不读取子站配置真实值，不输出密文。
+
+### checksums.json 生成规则
+
+- 固定使用 `sha256`。
+- 覆盖 `manifest.json`、`README.md`、`config.example.json`、`docs/**/*.md`、`migrations/**/*.json`、`publisher.json`、`signature.json`、`package.json`（如存在）。
+- `checksums.json` 不包含自身。
+- 路径使用包内相对路径，按字典序稳定排序。
+- 导出后 package dry-run 应能通过 checksum 校验；若自检 warning，会在导出结果中展示。
+
+### API
+
+- `POST /api/v1/admin/plugins/:code/export/dry-run`
+  - 权限：`plugin.read`
+  - 不写文件，只返回预计文件列表、输出目录和安全边界检查。
+- `POST /api/v1/admin/plugins/:code/export`
+  - 权限：`plugin.write`
+  - 正式写入 `storage/plugins/exports/`，生成 checksums，并自动执行 package dry-run 自检。
+
+### 后台入口
+
+插件详情抽屉 Overview 中提供“导出本地插件包”面板：
+
+- 支持选择 `include_docs`、`include_migrations`、`include_publisher`、`include_signature_stub`。
+- 先执行 dry-run，展示将导出的文件、安全检查、输出目录、warning/error。
+- dry-run 未 blocked 后才允许正式导出。
+- 导出成功展示输出目录、checksums 状态、package dry-run 自检状态，并提供复制路径。
+- 页面明确不提供 zip 下载、远程发布或插件市场发布入口。

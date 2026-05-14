@@ -1,0 +1,16 @@
+{
+  "migrations": [
+    {
+      "plugin_code": "export_test_plugin",
+      "migration_version": "1.0.0",
+      "migration_name": "export_test_init",
+      "direction": "up",
+      "checksum": "sha256:declaration-only",
+      "tables": [
+        "export_test_items"
+      ],
+      "rollback_supported": false,
+      "description": "declaration only"
+    }
+  ]
+}

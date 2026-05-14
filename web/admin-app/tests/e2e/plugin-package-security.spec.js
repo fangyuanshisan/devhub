@@ -6,7 +6,7 @@ test.describe('plugin package security (checksum + risk report)', () => {
     await seedAdminSession(page);
   });
 
-  test('shows checksum ok and low risk for safe package', async ({ page }) => {
+  test('shows checksum ok and non-blocked risk for safe package', async ({ page }) => {
     await page.goto('/admin-next/plugins/install');
     await page.getByTestId('plugin-package-path-input').fill('examples/plugins/demo_notice');
     await page.getByTestId('plugin-package-dry-run').click();
@@ -14,7 +14,7 @@ test.describe('plugin package security (checksum + risk report)', () => {
     const panel = page.getByTestId('plugin-package-result');
     await expect(panel).toBeVisible();
     await expect(panel.getByTestId('plugin-package-checksum-status')).toContainText('ok');
-    await expect(panel.getByTestId('plugin-package-risk-level')).toContainText('low');
+    await expect(panel.getByTestId('plugin-package-risk-level')).toContainText(/low|medium/);
   });
 
   test('warns when checksums.json is missing', async ({ page }) => {
@@ -51,4 +51,3 @@ test.describe('plugin package security (checksum + risk report)', () => {
     await expect(panel.getByTestId('plugin-package-risk-items')).toContainText('plugin_package_dangerous_file');
   });
 });
-

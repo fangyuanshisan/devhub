@@ -1,0 +1,17 @@
+{
+  "version": "1",
+  "algorithm": "ed25519",
+  "signed_at": "2026-05-14T00:00:00Z",
+  "publisher_id": "devhub-revoked",
+  "public_key_id": "devhub-revoked-2026",
+  "signed_files": [
+    "manifest.json",
+    "checksums.json",
+    "README.md",
+    "config.example.json",
+    "publisher.json",
+    "docs/usage.md",
+    "migrations/001_init.json"
+  ],
+  "signature": "7DkmQTtmtijQWukGqmcYsf13whzOl3NnmA3YSSCUXGa4IkulVvYGrRUF36XP7yCeazKJ2IPQxNVHQMrS5QLOCw=="
+}

@@ -12,6 +12,8 @@ type PluginPackageInfo struct {
 	ReadmeFound        bool   `json:"readme_found"`
 	ConfigExampleFound bool   `json:"config_example_found"`
 	ChecksumFound      bool   `json:"checksum_found,omitempty"`
+	SignatureFound     bool   `json:"signature_found,omitempty"`
+	PublisherFound     bool   `json:"publisher_found,omitempty"`
 }
 
 type PluginPackageFileEntry struct {
@@ -81,6 +83,7 @@ type PluginPackageDryRunResult struct {
 	Package            PluginPackageInfo               `json:"package"`
 	FileScan           PluginPackageFileScan           `json:"file_scan"`
 	Checksum           PluginPackageChecksumResult     `json:"checksum"`
+	Signature          PluginPackageSignatureResult    `json:"signature,omitempty"`
 	ManifestValidation PluginPackageManifestValidation `json:"manifest_validation"`
 	InstallDryRun      PluginManifestValidationResult  `json:"install_dry_run"`
 	RiskReport         PluginPackageRiskReport         `json:"risk_report"`

@@ -4,20 +4,21 @@
 
 状态：完整插件平台长期路线与当前需求分层文档。本文定义 DevHub 插件系统的目标流程、治理能力、运行时能力、审计能力和测试要求，并按当前代码事实区分已完成、收尾、下一阶段和预留能力。
 
-更新时间：2026-05-13
+更新时间：2026-05-14
 
 ## 当前实现快照与需求分层
 
-`VERSION` 当前为 `v1.4.0`，已进入“插件内容治理增强版”。在 `v1.3.4` 异常治理与 `v1.3.5` 治理中心体验基线基础上，`v1.4.0` 补齐 `PluginContent` 精确 `plugin_code + content_type` 过滤、批量治理与审计跳转闭环；当前仍不支持插件市场、外部插件包上传、远程安装、在线更新、Go 动态加载、第三方脚本沙箱、硬卸载或执行第三方本地代码。
+`VERSION` 当前为 `v1.5.0`，已进入“插件包治理收口版”。在 `v1.4.0` 插件内容治理增强与 P1 / P2 插件治理增强的基础上，`v1.5.0` 补齐本地插件包规范、dry-run、checksum / 风险报告、仓库扫描、安装闭环、配置版本历史、敏感配置加密、审批流、签名/可信来源草案和已安装插件导出；当前仍不支持远程插件市场、远程安装、在线更新、Go 动态加载、第三方脚本沙箱、硬卸载或执行第三方本地代码。
 
-当前仍不支持插件市场、外部插件包上传、远程安装、在线更新、Go 动态加载、第三方脚本沙箱、硬卸载或执行第三方本地代码。
+当前仍不支持远程插件市场、远程安装、在线更新、Go 动态加载、第三方脚本沙箱、硬卸载或执行第三方本地代码。
 
 当前实现快照：
 
 - 已完成：生命周期派生字段、归档 / 恢复、归档后新建强拦截、ManifestValidator、manifest dry-run、manifest + 配置型插件安装记录、健康总览 API、批量归档 / 恢复 API、归档态前台入口 / 后台历史治理 / SEO 回归 E2E、升级 dry-run / 版本兼容矩阵 / 最小升级执行闭环、插件 SDK 文档、声明型插件生成模板，以及后台“系统插件”治理中心按功能分页重排（`/admin-next/plugins/*`）。
 - 已完成：安装向导、升级向导、批量归档 / 恢复影响预览、`succeeded` / `failed` 结果明细、审计跳转和状态治理视图已落地为抽屉式后台流程，并已有最小后台 E2E 覆盖。
-- 部分完成：Hook 超时 / failure_policy 已有 manifest 字段和运行记录基础，但外部服务 Webhook 尚未接入真实 HTTP 调用；迁移 runner 仍是内置 up/no-op 与记录型迁移，不执行外部 raw SQL；PluginContent 已能按 `plugin_code + content_type` 精确治理历史内容并支持批量审核 / 置顶 / 加精，完整权限矩阵仍待增强。
-- 仍未完成：插件包 zip 上传、外部服务型 Webhook 执行、插件包签名、远程市场、动态加载、脚本沙箱、硬卸载、migration down、独立版本兼容矩阵页面和更细粒度升级影响对象列表。
+- 已完成：本地插件包规范 / dry-run / checksum / 风险报告 / 仓库扫描 / 安装闭环、配置版本历史与回滚 dry-run、敏感配置加密、审批流、签名与可信来源草案、已安装插件导出为本地插件包。
+- 部分完成：Hook 超时 / failure_policy 已有 manifest 字段和运行记录基础，但外部服务 Webhook 尚未接入真实 HTTP 调用；迁移 runner 仍是内置 up/no-op 与记录型迁移，不执行外部 raw SQL；PluginContent 已能按 `plugin_code + content_type` 精确治理历史内容并支持批量审核 / 置顶 / 加精，完整权限矩阵仍待增强；签名当前仍以草案/结构校验为主，未做完整远程可信源同步与完整 PKI 平台。
+- 仍未完成：插件包 zip 上传、外部服务型 Webhook 执行、远程市场、动态加载、脚本沙箱、硬卸载、migration down、独立版本兼容矩阵页面、插件包 zip 导出和更细粒度升级影响对象列表。
 
 ## 历史收尾：v1.3.5 插件治理体验与安装升级向导
 
@@ -67,19 +68,25 @@ P1 建议优先级：
 - 插件包导入 dry-run（只做校验/影响分析与报告，不做远程下载、不自动安装依赖、不执行第三方代码）。
 - 插件签名 / checksum 草案（仅定义与校验接口，先不引入完整证书体系）。
 - 本地插件仓库目录规范（为未来市场做准备，但不做市场 UI）。
-- 插件安装审批流草案（轻量：审批记录 + 审计，不做复杂工作流）。
-- 插件配置版本历史（diff/回滚能力，最小可用；不做复杂灰度）。
+- 插件安装/升级审批流（轻量：审批记录 + 审计 + 执行前重新 dry-run 校验，不做复杂工作流）。
+- 插件配置版本历史（diff + 回滚 dry-run 预览已落地；真实回滚与灰度不在当前范围）。
 - 敏感配置加密存储（服务端加密、审计脱敏；前端仅展示脱敏值）。
 - 搜索索引异步重建队列（将重建从同步请求拆出，保留可观测与错误码）。
 - 插件治理 handler/service 小步拆分（降低 `router.go` / `service.go` 继续膨胀的风险）。
 
-当前已落地（v1.5.0-P0-01 / P0-02）：
+当前已落地（v1.5.0-P0-01 / P0-02 / P0-03 / P0-04 / P1-05 / P1-07 / P1-08 / P2-09 / P2-10）：
 
 - 本地插件包规范草案：`docs/PLUGIN_PACKAGE.md`。
 - 本地插件包 dry-run API：`POST /api/v1/admin/plugins/packages/dry-run`（白名单目录、安全扫描与预览）。
 - 后台安装升级页新增“本地插件包 dry-run”区域与示例插件包 `examples/plugins/demo_notice/`。
 - `checksums.json`（sha256）校验与 `risk_report` 风险报告（low/medium/high/blocked）。
 - 本地插件仓库扫描：发现包列表/详情/dry-run（仓库目录建议 `storage/plugins/packages/`）。
+- 本地插件包安装闭环：`POST /api/v1/admin/plugins/packages/install`（安装前强制复跑 dry-run；安装后默认 disabled）。
+- 配置版本历史与回滚 dry-run 预览：保存全局/子站插件配置会写入版本记录，后台提供版本列表/详情（diff 脱敏）与回滚预览（不写入）。
+- 插件安装/升级审批流：`/admin-next/plugins/approvals` + `POST /api/v1/admin/plugins/approvals`（审批通过后执行；执行前重新校验）。
+- 插件治理 service/handler 拆分：插件 manifest/package/config/approval 等 handler 拆文件，生命周期 service 迁出，保持 API 兼容。
+- 插件包签名与可信来源草案：`publisher.json`、`signature.json`、本地 `storage/plugins/trusted_publishers.json`、签名风险联动。
+- 已安装声明型插件导出：`POST /api/v1/admin/plugins/:code/export/dry-run` 与 `POST /api/v1/admin/plugins/:code/export`，输出 `storage/plugins/exports/`，生成 manifest/README/脱敏 config.example/checksums 并自动 package dry-run 自检。
 
 仍明确不做 / 后置：
 

@@ -394,6 +394,74 @@ CREATE TABLE IF NOT EXISTS plugin_migrations (
   KEY idx_plugin_migrations_executed (executed_at)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
+-- Plugin Config Versions (插件配置版本历史)
+CREATE TABLE IF NOT EXISTS plugin_config_versions (
+  id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+  plugin_code VARCHAR(64) NOT NULL,
+  scope VARCHAR(32) NOT NULL DEFAULT 'global',
+  community_id BIGINT UNSIGNED NOT NULL DEFAULT 0,
+  version_no INT NOT NULL DEFAULT 0,
+  config_json JSON NULL,
+  config_hash VARCHAR(128) NOT NULL DEFAULT '',
+  changed_keys_json JSON NULL,
+  diff_json JSON NULL,
+  source VARCHAR(32) NOT NULL DEFAULT 'manual',
+  operator_type VARCHAR(32) NOT NULL DEFAULT 'admin_user',
+  operator_id BIGINT UNSIGNED NOT NULL DEFAULT 0,
+  operator_name VARCHAR(128) NOT NULL DEFAULT '',
+  reason VARCHAR(255) NOT NULL DEFAULT '',
+  previous_version_id BIGINT UNSIGNED NOT NULL DEFAULT 0,
+  rollback_from_version_id BIGINT UNSIGNED NOT NULL DEFAULT 0,
+  metadata_json JSON NULL,
+  created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (id),
+  KEY idx_plugin_config_versions_lookup (plugin_code, scope, community_id, version_no),
+  KEY idx_plugin_config_versions_created (created_at)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- Plugin Approval Requests (插件安装/升级审批)
+CREATE TABLE IF NOT EXISTS plugin_approval_requests (
+  id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+  request_no VARCHAR(64) NOT NULL DEFAULT '',
+  action VARCHAR(32) NOT NULL,
+  plugin_code VARCHAR(64) NOT NULL DEFAULT '',
+  plugin_name VARCHAR(128) NOT NULL DEFAULT '',
+  current_version VARCHAR(32) NOT NULL DEFAULT '',
+  target_version VARCHAR(32) NOT NULL DEFAULT '',
+  package_path VARCHAR(500) NOT NULL DEFAULT '',
+  package_checksum_status VARCHAR(32) NOT NULL DEFAULT '',
+  package_risk_level VARCHAR(32) NOT NULL DEFAULT '',
+  status VARCHAR(32) NOT NULL DEFAULT 'pending',
+  reason VARCHAR(1000) NOT NULL DEFAULT '',
+  requested_by BIGINT UNSIGNED NOT NULL DEFAULT 0,
+  requested_by_name VARCHAR(128) NOT NULL DEFAULT '',
+  requested_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  reviewed_by BIGINT UNSIGNED NOT NULL DEFAULT 0,
+  reviewed_by_name VARCHAR(128) NOT NULL DEFAULT '',
+  reviewed_at DATETIME NULL,
+  review_comment VARCHAR(1000) NOT NULL DEFAULT '',
+  executed_by BIGINT UNSIGNED NOT NULL DEFAULT 0,
+  executed_at DATETIME NULL,
+  execute_result_json JSON NULL,
+  manifest_json JSON NULL,
+  dry_run_json JSON NULL,
+  risk_report_json JSON NULL,
+  dependency_summary_json JSON NULL,
+  compatibility_json JSON NULL,
+  changed_keys_json JSON NULL,
+  diff_json JSON NULL,
+  error_code VARCHAR(64) NOT NULL DEFAULT '',
+  error_message VARCHAR(1000) NOT NULL DEFAULT '',
+  metadata_json JSON NULL,
+  created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  PRIMARY KEY (id),
+  KEY idx_plugin_approvals_status_created (status, created_at),
+  KEY idx_plugin_approvals_action_created (action, created_at),
+  KEY idx_plugin_approvals_plugin_created (plugin_code, created_at),
+  KEY idx_plugin_approvals_requested (requested_by, requested_at)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
 -- Hook Executions (内置插件 HookBus 执行记录)
 CREATE TABLE IF NOT EXISTS hook_executions (
   id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,

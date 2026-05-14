@@ -1,0 +1,10 @@
+{
+  "publisher_id": "devhub-official",
+  "name": "DevHub Official (Example)",
+  "homepage": "https://devhub.local",
+  "email": "security@devhub.local",
+  "public_key_id": "devhub-official-2026",
+  "public_key_algorithm": "ed25519",
+  "public_key": "Jf8LxG7EtiK11AHz1Ce3zxPdzIoIk0cUWmPFsNyJAi0=",
+  "trust_level": "unknown"
+}

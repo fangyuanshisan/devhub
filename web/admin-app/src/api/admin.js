@@ -15,11 +15,27 @@ export const validatePluginManifest = (payload) => http.post('/admin/plugins/man
 export const dryRunPluginManifest = (payload) => http.post('/admin/plugins/dry-run', payload);
 export const dryRunPluginUpgrade = (code, payload) => http.post(`/admin/plugins/${code}/upgrade/dry-run`, payload);
 export const upgradePlugin = (code, payload) => http.post(`/admin/plugins/${code}/upgrade`, payload);
+export const dryRunPluginExport = (code, payload) => http.post(`/admin/plugins/${code}/export/dry-run`, payload);
+export const exportPluginPackage = (code, payload) => http.post(`/admin/plugins/${code}/export`, payload);
 export const installPluginManifest = (payload) => http.post('/admin/plugins/install', payload);
 export const dryRunPluginPackage = (payload) => http.post('/admin/plugins/packages/dry-run', payload);
 export const listPluginPackages = (params) => http.get('/admin/plugins/packages', { params });
 export const getPluginPackageDetail = (params) => http.get('/admin/plugins/packages/detail', { params });
 export const installPluginPackage = (payload) => http.post('/admin/plugins/packages/install', payload);
+// plugin approvals (v1.5.0-P1-07)
+export const createPluginApproval = (payload) => http.post('/admin/plugins/approvals', payload);
+export const listPluginApprovals = (params) => http.get('/admin/plugins/approvals', { params });
+export const getPluginApproval = (id) => http.get(`/admin/plugins/approvals/${id}`);
+export const approvePluginApproval = (id, payload) => http.post(`/admin/plugins/approvals/${id}/approve`, payload);
+export const rejectPluginApproval = (id, payload) => http.post(`/admin/plugins/approvals/${id}/reject`, payload);
+export const cancelPluginApproval = (id, payload) => http.post(`/admin/plugins/approvals/${id}/cancel`, payload);
+export const executePluginApproval = (id) => http.post(`/admin/plugins/approvals/${id}/execute`);
+export const listPluginConfigVersions = (code, params) => http.get(`/admin/plugins/${code}/config/versions`, { params });
+export const getPluginConfigVersionDetail = (code, versionId) => http.get(`/admin/plugins/${code}/config/versions/${versionId}`);
+export const dryRunPluginConfigRollback = (code, versionId) => http.post(`/admin/plugins/${code}/config/versions/${versionId}/rollback/dry-run`);
+export const listCommunityPluginConfigVersions = (communityId, code, params) => http.get(`/admin/communities/${communityId}/plugins/${code}/config/versions`, { params });
+export const getCommunityPluginConfigVersionDetail = (communityId, code, versionId) => http.get(`/admin/communities/${communityId}/plugins/${code}/config/versions/${versionId}`);
+export const dryRunCommunityPluginConfigRollback = (communityId, code, versionId) => http.post(`/admin/communities/${communityId}/plugins/${code}/config/versions/${versionId}/rollback/dry-run`);
 export const enablePlugin = (code) => http.post(`/admin/plugins/${code}/enable`);
 export const disablePlugin = (code) => http.post(`/admin/plugins/${code}/disable`);
 export const archivePlugin = (code) => http.post(`/admin/plugins/${code}/archive`);

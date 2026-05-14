@@ -2,17 +2,23 @@
 
 [返回文档入口](README.md)
 
-更新时间：2026-05-13
+更新时间：2026-05-14
 
 本文档只记录当前仓库真实状态、当前风险和下一步任务。历史版本能力已并入当前分支，详情见对应 Release Notes；旧版本已解决问题不再占用当前主体。
 
 ## 当前版本结论
 
-当前 `VERSION` 为 `v1.4.0`，主题是“插件内容治理增强版”。本版本已完成 `PluginContent` 精确过滤、头部状态、禁用 / 归档历史治理提示、批量审核 / 置顶 / 加精、批量结果明细和插件审计跳转增强，并补齐 `config_schema` 自动表单增强、Hook 排障页（插件详情 Hooks Tab + 执行记录查询/详情抽屉）、插件 SDK 文档与声明型插件生成模板、插件治理统一错误码与 Readiness 诊断、前台入口与菜单可见性治理（navigation/create-options），以及后台“系统插件”按功能分页重排（插件概览/列表/内容治理/安装升级/配置中心/依赖兼容/Hook 排障/事件通知/搜索索引/前台入口/权限矩阵/审计日志/开发者工具）。v1.4.0 收口验收已补跑 Go、Docker 构建、前后台 E2E 与 SEO curl 回归：后台 Playwright `35 passed`，前台 Playwright `17 passed`，`/topics/1/` 与 `/c/php/` SEO 关键字段未退化。DevHub 当前定位为多子站通用开源社区程序，默认演示为开发者社区。
+当前 `VERSION` 为 `v1.5.0`，主题是“插件包治理收口版”。本版本已完成本地插件包规范、dry-run、checksum / 风险报告、本地插件仓库扫描、本地插件包安装闭环、配置版本历史、敏感配置加密、审批流、签名/可信来源草案、已安装插件导出为本地插件包，以及与之对应的后台信息架构、前台入口治理和 E2E 验收。DevHub 当前定位为多子站通用开源社区程序，默认演示为开发者社区。
 
-进入 `v1.5.0` 规划阶段：已落地“本地插件包规范草案 + 本地插件包 dry-run 导入预览”（安全读取/校验/预览，不执行代码/SQL、不动态加载前端资产），并在 P0-02 补齐 `checksums.json`（sha256）校验、危险文件规则强化与 `risk_report` 风险报告；示例插件包位于 `examples/plugins/demo_notice/`，后台入口位于插件安装升级页的“本地插件包 dry-run”区域；详见 `docs/PLUGIN_PACKAGE.md` 与 `docs/releases/v1.5.0.md`。
+进入 `v1.6.0` 前的过渡阶段：继续收口插件包治理、整理技术债并准备 zip 上传安全沙箱、真实签名验签和 trusted publishers 管理等下一阶段能力；详见 `docs/PLUGIN_PACKAGE.md` 与 `docs/releases/v1.5.0.md`。
 v1.5.0-P0-03 已新增“本地插件仓库目录扫描”：支持扫描仓库目录下多个插件包并展示 discovered packages 列表/详情/dry-run（不执行、不动态加载）；默认仓库目录建议为 `storage/plugins/packages/`，测试 fixtures 位于 `plugins-local/repository-fixtures/`；详见 `docs/PLUGIN_PACKAGE.md` 与 `docs/releases/v1.5.0.md`。
 v1.5.0-P0-04 已新增“本地插件包安装闭环”：允许从本地插件仓库选择校验通过的插件包执行安装（安装前强制复跑 dry-run；安装后默认 `disabled`，`source_type=local_package`），仍不执行第三方代码/SQL、不动态加载前端资产；详见 `docs/PLUGIN_PACKAGE.md` 与 `docs/releases/v1.5.0.md`。
+v1.5.0-P1-05 已新增“插件配置版本历史与回滚预览”：保存全局/子站配置会记录版本、diff、changed_keys 和审计跳转；回滚仅提供 dry-run 预览，不写入配置；详见 `docs/releases/v1.5.0.md` 与 `docs/API.md`。
+v1.5.0-P1-06 已新增“插件敏感配置加密存储”：敏感字段按规则加密入库，API / diff / 历史 / 审计继续脱敏；当前不做 KMS/Vault/轮换/历史明文批量迁移；详见 `docs/releases/v1.5.0.md` 与 `docs/API.md`。
+v1.5.0-P1-07 已新增“插件安装/升级审批流”：提供审批申请、审批中心与执行闭环；执行时会重新 dry-run 校验，审批不等于绕过后端强校验；详见 `docs/releases/v1.5.0.md` 与 `docs/API.md`。
+v1.5.0-P1-08 已完成“插件治理 service/handler 拆分”：在不改变 API/错误码/权限语义的前提下拆分插件治理后端代码结构（`httpapi` 插件相关 handler 拆文件、`service` 生命周期方法迁出），并调整 E2E compose 默认通过内部 `devhub` 服务运行，提升 Playwright 可执行性；详见 `docs/releases/v1.5.0.md` 与 `docs/TESTING.md`。
+v1.5.0-P2-09 已落地“插件包签名与可信来源草案”：支持读取 `publisher.json` / `signature.json` 结构、本地 `trusted_publishers` 配置与签名风险提示；当前仅支持草案 / structural-only 口径，不做远程可信源同步或完整 PKI 平台；详见 `docs/PLUGIN_PACKAGE.md` 与 `docs/releases/v1.5.0.md`。
+v1.5.0-P2-10 已新增“已安装插件导出为本地插件包”：支持导出声明型插件的 `manifest.json`、`README.md`、脱敏 `config.example.json`、`checksums.json` 与可选 docs/migrations/publisher/signature 草案；导出目录限制在 `storage/plugins/exports/`，导出后会自动 package dry-run 自检，仍不导出敏感配置、用户数据、运行时代码、外部 SQL，不生成 zip 或远程发布；详见 `docs/PLUGIN_PACKAGE.md` 与 `docs/releases/v1.5.0.md`。
 
 Core 保留用户、认证、子站、板块、通用内容、评论、标签、搜索、通知、SEO、权限、审计、插件注册和分发能力。问答、文档、Wiki、项目、招聘、AI 作品已按内置系统插件建模：`qa -> question`、`docs -> document`、`wiki -> wiki_page`、`projects -> project`、`jobs -> job`、`ai_works -> ai_work`。
 
@@ -20,7 +26,7 @@ Core 保留用户、认证、子站、板块、通用内容、评论、标签、
 
 当前最高优先级长期主线是完成完整插件系统。DevHub 的长期目标不是只支持内置 `qa/docs/wiki`，而是形成完整插件平台：Core 只提供通用社区底座，业务能力通过插件声明、插件状态、插件权限、插件菜单、插件配置、插件 Hook、插件 migration、插件 API、插件 SEO、插件通知、插件搜索和插件测试矩阵扩展。
 
-当前最高优先级目标调整为：进入 `v1.5.0` 规划与 P2 插件分发能力预研（插件包规范草案、本地插件包 dry-run、签名/checksum 草案、安装审批流草案、配置版本历史与敏感配置加密存储），并登记当前不做或后置项（远程市场、在线更新、动态加载、脚本沙箱与第三方代码执行）。
+当前最高优先级目标调整为：进入 `v1.5.0` 规划与 P2 插件分发能力预研（插件包规范草案、本地插件包 dry-run、签名/checksum 草案、本地包安装闭环、安装/升级审批流、配置版本历史、敏感配置加密存储、已安装声明型插件导出），并登记当前不做或后置项（远程市场、在线更新、动态加载、脚本沙箱与第三方代码执行）。
 
 ## 当前已完成
 
@@ -87,7 +93,7 @@ Core 保留用户、认证、子站、板块、通用内容、评论、标签、
 - 生命周期：`install_status`、`lifecycle_status`、`status_reason`、`installed_at`、`archived_at`、`last_health_check_at` 已作为后台展示字段返回；但它们仍是派生展示，不是完整外部插件安装器状态机，当前代码以 `plugins.status`、`community_plugins.status`、配置校验、依赖和 `plugin_migrations.status` 为判断依据。
 - Hook 治理：Hook 能执行，已有 `hook_executions`、失败统计、最近错误、平均耗时、失败率和 `plugin.hook.failed` / `plugin.hook.blocked` 审计；重试策略、告警和更多业务处理器仍待后续。
 - 插件迁移：已有内置插件 up/no-op runner、失败记录、失败重试、后台迁移 Tab 和迁移审计；manifest + 配置型插件安装会生成 pending migration 记录，但不执行外部 raw SQL。migration down、真实 rollback、迁移前备份和外部插件迁移包仍未完成。
-- 插件安装 / 升级：manifest 校验、dry-run、manifest + 配置型安装记录、upgrade dry-run 和最小升级执行已经落地；后台已完成抽屉式安装 / 升级向导。回滚、版本迁移向导、插件包 zip 上传和签名仍待后续。
+- 插件安装 / 升级：manifest 校验、dry-run、manifest + 配置型安装记录、upgrade dry-run 和最小升级执行已经落地；后台已完成抽屉式安装 / 升级向导。回滚、版本迁移向导与插件包 zip 上传仍待后续；插件包签名/可信来源已落地“草案 + 本地 trusted_publishers + dry-run 验签/风险提示”（不含证书链/远程可信源/市场）。
 - 权限矩阵：当前是最小权限码校验，不是完整 RBAC 矩阵；community/category 作用域、角色分配 UI 和权限配置 API 仍待后续。
 - 插件内容治理：通用页、基础详情抽屉、后端 `plugin_code + content_type` 精确过滤、批量隐藏 / 恢复、批量审核、批量置顶、批量加精和审计跳转已接入；专属详情和完整权限矩阵仍待后续。
 
@@ -212,7 +218,8 @@ P3：高级能力
 ## 下一步任务
 
 1. `v1.5.0 / P2`：插件包规范草案与本地插件包 dry-run 导入（不引入远程市场/在线更新/动态执行）。
-2. `v1.5.0 / P2`：敏感配置加密存储与配置版本历史（仅治理与可追溯，不做复杂审批流）。
+2. `v1.5.0 / P1`：配置版本历史与回滚 dry-run 预览已落地（不含真实回滚）；下一步聚焦敏感配置加密存储（仅治理与可追溯，不做复杂审批流）。
+3. `v1.5.0 / P1`：敏感配置加密存储（AES-256-GCM）与密钥管理最小闭环（不做 KMS/Vault/轮换/历史全量迁移）。
 3. `v1.5.0 / P2`：插件安装审批流草案与审计闭环（不做复杂工作流）。
 4. 技术债收口：拆分 `router.go` / `service.go` 的插件治理相关 handler/service（小步拆分，避免大重构）。
 
@@ -271,7 +278,7 @@ P3：高级能力
 未完成事项：
 
 - 当前 diff 只记录顶层 `changed_keys`，不做深层路径级 diff。
-- 当前不做自动表单生成器、配置版本回滚、灰度配置或敏感字段加密。
+- 当前不做自动表单生成器、配置版本**真实回滚写入**、灰度配置或敏感字段加密。
 - 配置校验失败暂未写入审计日志，避免把大量无效输入刷入治理日志；后续如需要可单独做安全审计策略。
 
 新发现风险：
@@ -1970,7 +1977,7 @@ P1 规划边界：
 
 - 本轮只接入后台插件治理相关主要页面；前台和后台非插件页面仍按后续模块逐步清理。
 - 本轮只覆盖插件治理相关主要页面，后台其它页面仍可能存在少量用户可见英文，需要后续按模块继续清理。
-- `config_schema` 自动表单是基础版本；深层嵌套对象、复杂数组、字段分组、敏感字段编辑策略和配置版本回滚仍待 P1 后续增强。
+- `config_schema` 自动表单是基础版本；深层嵌套对象、复杂数组、字段分组、敏感字段编辑策略仍待 P1 后续增强；配置版本历史与回滚 dry-run 预览已落地，但真实回滚写入与敏感配置加密仍是后续任务。
 - PluginContent 已支持批量隐藏 / 恢复，但审核通过 / 拒绝、置顶、加精等批量治理按钮仍待后续补齐完整权限矩阵和 UI；审计跳转已预填筛选条件，但跨页面审计高亮和更完整 E2E 仍待后续。
 
 新发现风险：

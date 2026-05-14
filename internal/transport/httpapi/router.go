@@ -156,11 +156,23 @@ func NewRouter(svc *service.Service) *gin.Engine {
 			protected.POST("/plugins/manifest/validate", srv.requirePermission("plugin.write"), srv.validateAdminPluginManifest)
 			protected.POST("/plugins/dry-run", srv.requirePermission("plugin.write"), srv.dryRunAdminPluginManifest)
 			protected.POST("/plugins/packages/dry-run", srv.requirePermission("plugin.write"), srv.dryRunAdminPluginPackage)
-			protected.POST("/plugins/packages/install", srv.requirePermission("plugin.write"), srv.installAdminPluginPackage)
+			// Direct install is restricted: requesters use approvals; approvers execute.
+			protected.POST("/plugins/packages/install", srv.requirePermission("plugin.approve"), srv.installAdminPluginPackage)
 			protected.GET("/plugins/packages", srv.requirePermission("plugin.read"), srv.listAdminPluginPackages)
 			protected.GET("/plugins/packages/detail", srv.requirePermission("plugin.read"), srv.adminPluginPackageDetail)
+			// v1.5.0-P1-07: approvals (install/upgrade).
+			protected.POST("/plugins/approvals", srv.requirePermission("plugin.write"), srv.createAdminPluginApproval)
+			protected.GET("/plugins/approvals", srv.requirePermission("plugin.read"), srv.listAdminPluginApprovals)
+			protected.GET("/plugins/approvals/:id", srv.requirePermission("plugin.read"), srv.adminPluginApprovalDetail)
+			protected.POST("/plugins/approvals/:id/approve", srv.requirePermission("plugin.approve"), srv.approveAdminPluginApproval)
+			protected.POST("/plugins/approvals/:id/reject", srv.requirePermission("plugin.approve"), srv.rejectAdminPluginApproval)
+			protected.POST("/plugins/approvals/:id/cancel", srv.requirePermission("plugin.write"), srv.cancelAdminPluginApproval)
+			protected.POST("/plugins/approvals/:id/execute", srv.requirePermission("plugin.approve"), srv.executeAdminPluginApproval)
 			protected.POST("/plugins/:code/upgrade/dry-run", srv.requirePermission("plugin.write"), srv.dryRunAdminPluginUpgrade)
-			protected.POST("/plugins/:code/upgrade", srv.requirePermission("plugin.write"), srv.upgradeAdminPlugin)
+			// Direct upgrade is restricted: requesters use approvals; approvers execute.
+			protected.POST("/plugins/:code/upgrade", srv.requirePermission("plugin.approve"), srv.upgradeAdminPlugin)
+			protected.POST("/plugins/:code/export/dry-run", srv.requirePermission("plugin.read"), srv.dryRunAdminPluginExport)
+			protected.POST("/plugins/:code/export", srv.requirePermission("plugin.write"), srv.exportAdminPluginPackage)
 			protected.POST("/plugins/install", srv.requirePermission("plugin.write"), srv.installAdminPluginManifest)
 			protected.GET("/plugins/:code/readiness", srv.adminUserRequired(), srv.requirePermission("plugin.read"), srv.adminPluginReadiness)
 			protected.GET("/plugins/:code/health", srv.requirePermission("plugin.read"), srv.adminPluginHealth)
@@ -181,6 +193,9 @@ func NewRouter(svc *service.Service) *gin.Engine {
 			protected.POST("/plugins/bulk-archive", srv.requirePermission("plugin.write"), srv.bulkArchiveAdminPlugins)
 			protected.POST("/plugins/bulk-restore", srv.requirePermission("plugin.write"), srv.bulkRestoreAdminPlugins)
 			protected.PUT("/plugins/:code/config", srv.requirePermission("plugin.write"), srv.updateAdminPluginConfig)
+			protected.GET("/plugins/:code/config/versions", srv.requirePermission("plugin.read"), srv.listAdminPluginConfigVersions)
+			protected.GET("/plugins/:code/config/versions/:version_id", srv.requirePermission("plugin.read"), srv.adminPluginConfigVersionDetail)
+			protected.POST("/plugins/:code/config/versions/:version_id/rollback/dry-run", srv.requirePermission("plugin.write"), srv.dryRunAdminPluginConfigRollback)
 			protected.GET("/overview", srv.requirePermission("dashboard.read"), srv.adminOverview)
 			protected.GET("/communities", srv.requirePermission("site.read"), srv.adminCommunities)
 			protected.POST("/communities", srv.requirePermission("site.write"), srv.createAdminCommunity)
@@ -194,6 +209,9 @@ func NewRouter(svc *service.Service) *gin.Engine {
 			protected.POST("/communities/:id/plugins/:code/enable", srv.requirePermission("site.write"), srv.enableAdminCommunityPlugin)
 			protected.POST("/communities/:id/plugins/:code/disable", srv.requirePermission("site.write"), srv.disableAdminCommunityPlugin)
 			protected.PUT("/communities/:id/plugins/:code/config", srv.requirePermission("site.write"), srv.updateAdminCommunityPluginConfig)
+			protected.GET("/communities/:id/plugins/:code/config/versions", srv.requirePermission("plugin.read"), srv.listAdminCommunityPluginConfigVersions)
+			protected.GET("/communities/:id/plugins/:code/config/versions/:version_id", srv.requirePermission("plugin.read"), srv.adminCommunityPluginConfigVersionDetail)
+			protected.POST("/communities/:id/plugins/:code/config/versions/:version_id/rollback/dry-run", srv.requirePermission("plugin.write"), srv.dryRunAdminCommunityPluginConfigRollback)
 			protected.PUT("/communities/:id/plugins/sort", srv.requirePermission("site.write"), srv.reorderAdminCommunityPlugins)
 			protected.GET("/communities/:id/categories", srv.requirePermission("board.read"), srv.adminCommunityCategories)
 			protected.POST("/communities/:id/categories", srv.requirePermission("board.write"), srv.createAdminCommunityCategory)
@@ -2164,218 +2182,6 @@ func (s *Server) adminPluginMenuPreview(c *gin.Context) {
 	})
 }
 
-func (s *Server) validateAdminPluginManifest(c *gin.Context) {
-	result, err := s.parseAndValidatePluginManifest(c)
-	if err != nil {
-		failAPIError(c, err)
-		return
-	}
-	c.JSON(http.StatusOK, result)
-}
-
-func (s *Server) dryRunAdminPluginManifest(c *gin.Context) {
-	result, err := s.parseAndValidatePluginManifest(c)
-	if err != nil {
-		failAPIError(c, err)
-		return
-	}
-	c.JSON(http.StatusOK, result)
-}
-
-func (s *Server) dryRunAdminPluginPackage(c *gin.Context) {
-	var req struct {
-		Path string `json:"path"`
-	}
-	if err := c.ShouldBindJSON(&req); err != nil {
-		fail(c, http.StatusBadRequest, err.Error())
-		return
-	}
-	result, err := s.svc.DryRunPluginPackage(req.Path)
-	if err != nil {
-		failAPIError(c, err)
-		return
-	}
-	c.JSON(http.StatusOK, result)
-}
-
-func (s *Server) installAdminPluginPackage(c *gin.Context) {
-	var req domain.PluginPackageInstallRequest
-	if err := c.ShouldBindJSON(&req); err != nil {
-		fail(c, http.StatusBadRequest, err.Error())
-		return
-	}
-	executor := auditActor(c)
-	s.auditStructured(c, "system", "plugin.package.install.started", "plugins", nil,
-		gin.H{"status": "started"},
-		mergeAuditMeta(gin.H{"operation": "plugin_package_install", "path": strings.TrimSpace(req.Path), "actor": executor}, nil))
-
-	res, err := s.svc.InstallPluginPackage(req)
-	if err != nil {
-		s.auditStructured(c, "system", "plugin.package.install.failed", "plugins", nil,
-			gin.H{"status": "failed"},
-			mergeAuditMeta(gin.H{"operation": "plugin_package_install", "path": strings.TrimSpace(req.Path), "error": err.Error(), "actor": executor}, auditAPIErrorFields(err)))
-		failAPIError(c, err)
-		return
-	}
-	s.auditStructured(c, "system", "plugin.package.installed", fmt.Sprintf("plugins#%s", res.Plugin.Code), nil,
-		gin.H{"status": "installed"},
-		mergeAuditMeta(gin.H{
-			"operation":       "plugin_package_install",
-			"plugin_code":     res.Plugin.Code,
-			"install_source":  res.Plugin.SourceType,
-			"package_path":    res.Package.Path,
-			"risk_level":      res.RiskLevel,
-			"checksum_status": res.Checksum.Status,
-			"actor":           executor,
-		}, nil))
-	c.JSON(http.StatusOK, res)
-}
-
-func (s *Server) listAdminPluginPackages(c *gin.Context) {
-	root := strings.TrimSpace(c.Query("root"))
-	status := strings.TrimSpace(c.DefaultQuery("status", "all"))
-	keyword := strings.TrimSpace(c.Query("keyword"))
-	risk := strings.TrimSpace(c.Query("risk_level"))
-	checksum := strings.TrimSpace(c.Query("checksum_status"))
-	manifestValid := strings.TrimSpace(c.Query("manifest_valid"))
-
-	page := 1
-	pageSize := 20
-	if raw := strings.TrimSpace(c.Query("page")); raw != "" {
-		if n, err := strconv.Atoi(raw); err == nil && n > 0 {
-			page = n
-		}
-	}
-	if raw := strings.TrimSpace(c.Query("page_size")); raw != "" {
-		if n, err := strconv.Atoi(raw); err == nil && n > 0 {
-			pageSize = n
-		}
-	}
-
-	resp, err := s.svc.ListPluginPackages(root, service.PluginPackageRepositoryFilter{
-		Status:         status,
-		Keyword:        keyword,
-		RiskLevel:      risk,
-		ChecksumStatus: checksum,
-		ManifestValid:  manifestValid,
-		Page:           page,
-		PageSize:       pageSize,
-	})
-	if err != nil {
-		failAPIError(c, err)
-		return
-	}
-	c.JSON(http.StatusOK, resp)
-}
-
-func (s *Server) adminPluginPackageDetail(c *gin.Context) {
-	path := strings.TrimSpace(c.Query("path"))
-	if path == "" {
-		failAPIError(c, domain.NewPluginError("plugin_package_path_invalid", "缺少插件包路径").WithStatus(400).WithSuggestion("请提供 query 参数 path，例如 storage/plugins/packages/demo_notice。"))
-		return
-	}
-	res, err := s.svc.GetPluginPackageDetail(path)
-	if err != nil {
-		failAPIError(c, err)
-		return
-	}
-	c.JSON(http.StatusOK, res)
-}
-
-func (s *Server) dryRunAdminPluginUpgrade(c *gin.Context) {
-	code := strings.TrimSpace(c.Param("code"))
-	raw, err := c.GetRawData()
-	if err != nil {
-		fail(c, http.StatusBadRequest, err.Error())
-		return
-	}
-	manifestJSON, err := extractManifestJSON(raw)
-	if err != nil {
-		failAPIError(c, err)
-		return
-	}
-	result, err := s.svc.PluginUpgradeDryRun(code, manifestJSON)
-	if err != nil {
-		failAPIError(c, err)
-		return
-	}
-	s.auditStructured(c, "system", "plugin.upgrade.previewed", fmt.Sprintf("plugins#%s", code), nil,
-		gin.H{"status": "previewed"},
-		gin.H{"plugin_code": code, "operation": "plugin_upgrade_preview", "compatibility_status": result.CompatibilityStatus, "changed_keys": result.ChangedKeys})
-	c.JSON(http.StatusOK, result)
-}
-
-func (s *Server) upgradeAdminPlugin(c *gin.Context) {
-	code := strings.TrimSpace(c.Param("code"))
-	raw, err := c.GetRawData()
-	if err != nil {
-		fail(c, http.StatusBadRequest, err.Error())
-		return
-	}
-	manifestJSON, err := extractManifestJSON(raw)
-	if err != nil {
-		failAPIError(c, err)
-		return
-	}
-	executor := auditActor(c)
-	preview, err := s.svc.PluginUpgradeDryRun(code, manifestJSON)
-	if err != nil {
-		s.auditStructured(c, "system", "plugin.upgrade.failed", fmt.Sprintf("plugins#%s", code), nil,
-			gin.H{"status": "failed"},
-			mergeAuditMeta(gin.H{"plugin_code": code, "operation": "plugin_upgrade", "error": err.Error(), "actor": executor}, auditAPIErrorFields(err)))
-		failAPIError(c, err)
-		return
-	}
-	s.auditStructured(c, "system", "plugin.upgrade.started", fmt.Sprintf("plugins#%s", code), nil,
-		gin.H{"status": "pending"},
-		gin.H{"plugin_code": code, "operation": "plugin_upgrade", "actor": executor, "compatibility_status": preview.CompatibilityStatus, "changed_keys": preview.ChangedKeys})
-	result, err := s.svc.UpgradePluginManifest(code, manifestJSON)
-	if err != nil {
-		s.auditStructured(c, "system", "plugin.upgrade.failed", fmt.Sprintf("plugins#%s", code), nil,
-			gin.H{"status": "failed"},
-			mergeAuditMeta(gin.H{"plugin_code": code, "operation": "plugin_upgrade", "actor": executor, "error": err.Error(), "compatibility_status": preview.CompatibilityStatus}, auditAPIErrorFields(err)))
-		failAPIError(c, err)
-		return
-	}
-	s.auditStructured(c, "system", "plugin.upgraded", fmt.Sprintf("plugins#%s", code),
-		gin.H{"status": "pending"},
-		gin.H{"status": result.Plugin.Status},
-		gin.H{"plugin_code": code, "operation": "plugin_upgraded", "actor": executor, "current_version": preview.CurrentVersion, "new_version": preview.NewVersion, "compatibility_status": preview.CompatibilityStatus, "changed_keys": preview.ChangedKeys})
-	c.JSON(http.StatusOK, result)
-}
-
-func (s *Server) installAdminPluginManifest(c *gin.Context) {
-	raw, err := c.GetRawData()
-	if err != nil {
-		fail(c, http.StatusBadRequest, err.Error())
-		return
-	}
-	manifestJSON, err := extractManifestJSON(raw)
-	if err != nil {
-		failAPIError(c, err)
-		return
-	}
-	executor := auditActor(c)
-	validation, _ := s.svc.ValidatePluginManifestJSON(manifestJSON)
-	beforeCount := len(s.svc.Plugins())
-	s.auditStructured(c, "system", "plugin.install.started", "plugins#manifest", nil,
-		gin.H{"status": "pending", "source_type": firstNonEmpty(validation.NormalizedManifest.SourceType, "manifest")},
-		gin.H{"plugin_code": validation.NormalizedManifest.Code, "operation": "plugin_install", "actor": executor, "impact_summary": validation.ImpactSummary, "before_count": beforeCount})
-	plugin, result, err := s.svc.InstallPluginManifest(manifestJSON)
-	if err != nil {
-		s.auditStructured(c, "system", "plugin.install.failed", "plugins#manifest", nil, gin.H{"status": "failed"},
-			mergeAuditMeta(gin.H{"operation": "plugin_install", "error": err.Error()}, auditAPIErrorFields(err)))
-		failAPIError(c, err)
-		return
-	}
-	impact := result.ImpactSummary
-	s.auditStructured(c, "system", "plugin.installed", fmt.Sprintf("plugins#%s", plugin.Code),
-		gin.H{"status": "pending"},
-		gin.H{"status": plugin.Status},
-		gin.H{"plugin_code": plugin.Code, "operation": "plugin_installed", "impact_summary": impact})
-	c.JSON(http.StatusCreated, gin.H{"plugin": plugin, "validation": result})
-}
-
 func (s *Server) bulkArchiveAdminPlugins(c *gin.Context) {
 	var req struct {
 		Codes []string `json:"codes"`
@@ -2807,42 +2613,6 @@ func (s *Server) setAdminPluginStatus(c *gin.Context, status string) {
 			Metadata:   map[string]any{"scope": "global", "status": status},
 		},
 	})
-	c.JSON(http.StatusOK, plugin)
-}
-
-func (s *Server) updateAdminPluginConfig(c *gin.Context) {
-	code := strings.TrimSpace(c.Param("code"))
-	before, _ := s.svc.PluginByCode(code)
-	var req struct {
-		ConfigJSON any `json:"config_json"`
-	}
-	if err := c.ShouldBindJSON(&req); err != nil {
-		fail(c, http.StatusBadRequest, err.Error())
-		return
-	}
-	payload := ""
-	if req.ConfigJSON != nil {
-		raw, err := json.Marshal(req.ConfigJSON)
-		if err != nil || !json.Valid(raw) {
-			fail(c, http.StatusBadRequest, "config_json 必须是合法 JSON")
-			return
-		}
-		payload = string(raw)
-	}
-	plugin, err := s.svc.SetPluginConfig(code, payload)
-	if err != nil {
-		failAPIError(c, err)
-		return
-	}
-	s.auditStructured(c, "system", "更新插件全局配置", fmt.Sprintf("plugins#%s", plugin.Code),
-		gin.H{"config_json": jsonAuditValue(before.ConfigJSON)},
-		gin.H{"config_json": jsonAuditValue(plugin.ConfigJSON)},
-		gin.H{
-			"scope":        "global",
-			"plugin_code":  plugin.Code,
-			"operation":    "plugin_config",
-			"changed_keys": configChangedKeys(before.ConfigJSON, plugin.ConfigJSON),
-		})
 	c.JSON(http.StatusOK, plugin)
 }
 
@@ -3307,57 +3077,6 @@ func (s *Server) setAdminCommunityPluginStatus(c *gin.Context, status string) {
 			Metadata:    map[string]any{"scope": "community", "community_id": id, "status": status},
 		},
 	})
-	c.JSON(http.StatusOK, plugin)
-}
-
-func (s *Server) updateAdminCommunityPluginConfig(c *gin.Context) {
-	id, ok := idParam(c, "id")
-	if !ok {
-		return
-	}
-	if !s.canManageCommunityConfig(c, id) {
-		return
-	}
-	code := strings.TrimSpace(c.Param("code"))
-	beforeItems, _ := s.svc.CommunityPlugins(id)
-	beforeConfig := ""
-	for _, item := range beforeItems {
-		if item.Code == code {
-			beforeConfig = item.ConfigJSON
-			break
-		}
-	}
-	var req struct {
-		ConfigJSON any `json:"config_json"`
-	}
-	if err := c.ShouldBindJSON(&req); err != nil {
-		fail(c, http.StatusBadRequest, err.Error())
-		return
-	}
-	payload := ""
-	if req.ConfigJSON != nil {
-		raw, err := json.Marshal(req.ConfigJSON)
-		if err != nil || !json.Valid(raw) {
-			fail(c, http.StatusBadRequest, "config_json 必须是合法 JSON")
-			return
-		}
-		payload = string(raw)
-	}
-	plugin, err := s.svc.SetCommunityPluginConfig(id, code, payload)
-	if err != nil {
-		failAPIError(c, err)
-		return
-	}
-	s.auditStructured(c, "system", "更新子站插件配置", fmt.Sprintf("community_plugins#%d:%s", id, plugin.Code),
-		gin.H{"config_json": jsonAuditValue(beforeConfig)},
-		gin.H{"config_json": jsonAuditValue(plugin.ConfigJSON)},
-		gin.H{
-			"scope":        "community",
-			"community_id": id,
-			"plugin_code":  plugin.Code,
-			"operation":    "community_plugin_config",
-			"changed_keys": configChangedKeys(beforeConfig, plugin.ConfigJSON),
-		})
 	c.JSON(http.StatusOK, plugin)
 }
 

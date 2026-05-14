@@ -13,7 +13,7 @@ func TestInstallPluginPackage_Success_DisabledAndSource(t *testing.T) {
 
 	resp, err := svc.InstallPluginPackage(domain.PluginPackageInstallRequest{
 		Path:             "plugins-local/repository-fixtures/demo_notice_install",
-		ConfirmRiskLevel: "low",
+		ConfirmRiskLevel: "medium",
 	})
 	if err != nil {
 		t.Fatalf("InstallPluginPackage: %v", err)
@@ -42,11 +42,17 @@ func TestInstallPluginPackage_AlreadyInstalled(t *testing.T) {
 	repo := store.NewMemoryStore()
 	svc := New(repo)
 
-	_, err := svc.InstallPluginPackage(domain.PluginPackageInstallRequest{Path: "plugins-local/repository-fixtures/demo_notice_install"})
+	_, err := svc.InstallPluginPackage(domain.PluginPackageInstallRequest{
+		Path:             "plugins-local/repository-fixtures/demo_notice_install",
+		ConfirmRiskLevel: "medium",
+	})
 	if err != nil {
 		t.Fatalf("first install: %v", err)
 	}
-	_, err = svc.InstallPluginPackage(domain.PluginPackageInstallRequest{Path: "plugins-local/repository-fixtures/demo_notice_install"})
+	_, err = svc.InstallPluginPackage(domain.PluginPackageInstallRequest{
+		Path:             "plugins-local/repository-fixtures/demo_notice_install",
+		ConfirmRiskLevel: "medium",
+	})
 	if err == nil {
 		t.Fatalf("expected error")
 	}

@@ -218,6 +218,7 @@
           <template #title><strong>{{ t('plugin.communityConfig.communityConfigJson') }}</strong></template>
         </PluginConfigEditor>
         <div class="config-actions">
+          <el-button data-testid="community-plugin-config-versions-open" @click="pluginConfigVersionsVisible = true">版本历史</el-button>
           <el-button data-testid="json-clear-object" @click="clearPluginConfig">{{ t('common.clearObject') }}</el-button>
           <el-button type="primary" data-testid="community-plugin-config-save" :disabled="communityConfigSchemaErrors.length > 0" @click="savePluginConfig">{{ t('common.save') }}</el-button>
         </div>
@@ -233,6 +234,14 @@
       <el-button @click="pluginConfigDialog = false">{{ t('common.close') }}</el-button>
     </template>
   </el-dialog>
+
+  <PluginConfigVersionsDialog
+    v-if="pluginConfigTarget && pluginConfigTarget.code"
+    v-model="pluginConfigVersionsVisible"
+    :plugin-code="pluginConfigTarget.code"
+    scope="community"
+    :community-id="Number(siteForm?.id || 0)"
+  />
 
   <el-dialog v-model="categoryDialog" :title="categoryForm.id ? '编辑板块' : '新增板块'" width="520px">
     <el-form :model="categoryForm" label-width="100px">
@@ -277,6 +286,7 @@ import {
   updateCommunityPluginConfig,
 } from '@/api/admin';
 import PluginConfigEditor from '@/components/plugin/PluginConfigEditor.vue';
+import PluginConfigVersionsDialog from '@/components/plugin/PluginConfigVersionsDialog.vue';
 import { pluginStatusLabel } from '@/i18n/formatters';
 import { t } from '@/i18n';
 
@@ -296,6 +306,7 @@ const pluginConfigDialog = ref(false);
 const pluginConfigTarget = ref(null);
 const pluginConfigValue = ref({});
 const communityConfigSchemaErrors = ref([]);
+const pluginConfigVersionsVisible = ref(false);
 const pluginFilters = reactive({ mode: 'all', q: '', contentType: '' });
 const pluginFilterModes = computed(() => [
   { label: t('common.all'), value: 'all' },

@@ -43,6 +43,11 @@ type Repository interface {
 	PluginMigrations(pluginCode string) ([]domain.PluginMigration, error)
 	AppendPluginMigration(record domain.PluginMigration) (domain.PluginMigration, error)
 	SavePluginMigration(record domain.PluginMigration) (domain.PluginMigration, error)
+	// Plugin approvals (v1.5.0-P1-07).
+	AppendPluginApprovalRequest(record domain.PluginApprovalRequest) (domain.PluginApprovalRequest, error)
+	SavePluginApprovalRequest(record domain.PluginApprovalRequest) (domain.PluginApprovalRequest, error)
+	PluginApprovalRequests(filter domain.PluginApprovalFilter) ([]domain.PluginApprovalRequest, int, error)
+	PluginApprovalRequestByID(id int64) (domain.PluginApprovalRequest, bool)
 	AppendHookExecution(record domain.HookExecution) (domain.HookExecution, error)
 	HookExecutions(pluginCode string, limit int) ([]domain.HookExecution, error)
 	HookStats(pluginCode string) ([]domain.HookStats, error)
@@ -108,6 +113,11 @@ type Repository interface {
 	ReadAllNotices(site string) int
 	UnreadNoticeCount(site string) int
 	UserProfile() domain.UserProfile
+
+	// ===== Plugin config versions (v1.5.0-P1-05) =====
+	AppendPluginConfigVersion(record domain.PluginConfigVersion) (domain.PluginConfigVersion, error)
+	PluginConfigVersions(pluginCode, scope string, communityID int64, page, pageSize int) ([]domain.PluginConfigVersion, int, error)
+	PluginConfigVersionByID(id int64) (domain.PluginConfigVersion, bool)
 
 	// ===== 新增：DevHub 通用社区系统 =====
 	Communities() []domain.Community
@@ -474,39 +484,6 @@ func (s *Service) UpdateBoard(key string, req domain.Board) (domain.Board, bool)
 	return s.repo.UpdateBoard(key, req)
 }
 
-// Plugins 返回系统插件注册信息与运行状态。
-func (s *Service) Plugins() []domain.Plugin { return s.repo.Plugins() }
-
-// PluginByCode 按插件唯一标识获取插件。
-func (s *Service) PluginByCode(code string) (domain.Plugin, bool) {
-	return s.repo.PluginByCode(code)
-}
-
-// CommunityPlugins returns plugin list with community runtime state overlay.
-func (s *Service) CommunityPlugins(communityID int64) ([]domain.Plugin, error) {
-	return s.repo.CommunityPlugins(communityID)
-}
-
-// SetCommunityPluginStatus updates per-community plugin enablement.
-func (s *Service) SetCommunityPluginStatus(communityID int64, code, status string) (domain.Plugin, error) {
-	if strings.TrimSpace(status) == pluginregistry.StatusEnabled {
-		if err := s.validatePluginEnableReadiness(code); err != nil {
-			return domain.Plugin{}, err
-		}
-	}
-	return s.repo.SetCommunityPluginStatus(communityID, code, status)
-}
-
-// SetCommunityPluginConfig updates per-community plugin config blob.
-func (s *Service) SetCommunityPluginConfig(communityID int64, code, configJSON string) (domain.Plugin, error) {
-	return s.repo.SetCommunityPluginConfig(communityID, code, configJSON)
-}
-
-// ReorderCommunityPlugins updates per-community plugin sort order.
-func (s *Service) ReorderCommunityPlugins(communityID int64, codes []string) (int, error) {
-	return s.repo.ReorderCommunityPlugins(communityID, codes)
-}
-
 func (s *Service) QAQuestionByTopicID(topicID int64) (*domain.QAQuestion, error) {
 	return s.repo.QAQuestionByTopicID(topicID)
 }
@@ -529,51 +506,6 @@ func (s *Service) WikiPageByTopicID(topicID int64) (*domain.WikiPage, error) {
 
 func (s *Service) WikiVersionsByTopicID(topicID int64) ([]domain.WikiRevision, error) {
 	return s.repo.WikiVersionsByTopicID(topicID)
-}
-
-// IsPluginEnabled checks whether a plugin is globally enabled.
-// Core is always enabled and not persisted in plugins table.
-func (s *Service) IsPluginEnabled(pluginCode string) bool {
-	pluginCode = strings.TrimSpace(pluginCode)
-	if pluginCode == "" || pluginCode == pluginregistry.CoreCode {
-		return true
-	}
-	plugin, ok := s.repo.PluginByCode(pluginCode)
-	return ok && plugin.Status == pluginregistry.StatusEnabled
-}
-
-// IsPluginEnabledForCommunity checks whether a plugin is enabled for a community,
-// requiring both global and community status enabled.
-func (s *Service) IsPluginEnabledForCommunity(communityID int64, pluginCode string) bool {
-	pluginCode = strings.TrimSpace(pluginCode)
-	if pluginCode == "" || pluginCode == pluginregistry.CoreCode {
-		return true
-	}
-	items, err := s.repo.CommunityPlugins(communityID)
-	if err != nil {
-		return false
-	}
-	for _, item := range items {
-		if item.Code == pluginCode {
-			return item.Status == pluginregistry.StatusEnabled
-		}
-	}
-	return false
-}
-
-// ListEnabledPluginsForCommunity returns plugins enabled for a community.
-func (s *Service) ListEnabledPluginsForCommunity(communityID int64) ([]domain.Plugin, error) {
-	items, err := s.repo.CommunityPlugins(communityID)
-	if err != nil {
-		return nil, err
-	}
-	out := make([]domain.Plugin, 0, len(items))
-	for _, item := range items {
-		if item.Status == pluginregistry.StatusEnabled {
-			out = append(out, item)
-		}
-	}
-	return out, nil
 }
 
 // ValidateTopicPluginAccess validates plugin enablement and category bindings for publishing.
@@ -1178,7 +1110,17 @@ func (s *Service) validatePluginRuntimeReadiness(plugin domain.Plugin) error {
 
 // SetPluginConfig updates global plugin config_json.
 func (s *Service) SetPluginConfig(code, configJSON string) (domain.Plugin, error) {
-	return s.repo.SetPluginConfig(code, configJSON)
+	code = strings.TrimSpace(code)
+	plugin, ok := s.repo.PluginByCode(code)
+	if !ok || plugin.Code == "" {
+		return domain.Plugin{}, pluginNotFound(code)
+	}
+
+	res, err := s.encryptPluginConfigJSON(plugin, plugin.ConfigJSON, configJSON)
+	if err != nil {
+		return domain.Plugin{}, err
+	}
+	return s.repo.SetPluginConfig(code, res.EncryptedJSON)
 }
 
 func (s *Service) PluginImpact(code string) (domain.PluginImpact, error) {
