@@ -296,6 +296,28 @@ npm_dependency_hash() {
   ) | sha256sum | awk '{print $1}'
 }
 
+npm_command_path() {
+  local path_dir candidate
+  IFS=':' read -r -a path_dirs <<< "$PATH"
+  for path_dir in "${path_dirs[@]}"; do
+    candidate="$path_dir/npm"
+    if [[ -x "$candidate" && ! "$candidate" =~ ^/mnt/ ]]; then
+      printf '%s\n' "$candidate"
+      return 0
+    fi
+  done
+  candidate="$(command -v npm 2>/dev/null || true)"
+  if [[ -n "$candidate" && ! "$candidate" =~ ^/mnt/ ]]; then
+    printf '%s\n' "$candidate"
+    return 0
+  fi
+  return 1
+}
+
+npm_use_local() {
+  npm_command_path >/dev/null 2>&1
+}
+
 npm_install_marker() {
   local app_dir="$1"
   mkdir -p "$RUNTIME_DIR"
@@ -727,9 +749,12 @@ build_frontend() {
     check_static_output "Astro frontend" "$FRONTEND_DIST_DIR/index.html"
     return
   fi
-  if command -v npm >/dev/null 2>&1; then
+  if npm_use_local; then
     build_frontend_with_local_npm
   else
+    if [[ -n "$(npm_command_path)" ]]; then
+      warn "Detected Windows npm at $(npm_command_path); using Docker Node for Astro frontend build instead."
+    fi
     build_frontend_with_docker_node
   fi
 }
@@ -740,9 +765,12 @@ build_admin() {
     check_static_output "Vue admin" "$ADMIN_DIST_DIR/index.html"
     return
   fi
-  if command -v npm >/dev/null 2>&1; then
+  if npm_use_local; then
     build_admin_with_local_npm
   else
+    if [[ -n "$(npm_command_path)" ]]; then
+      warn "Detected Windows npm at $(npm_command_path); using Docker Node for Vue admin build instead."
+    fi
     build_admin_with_docker_node
   fi
 }
