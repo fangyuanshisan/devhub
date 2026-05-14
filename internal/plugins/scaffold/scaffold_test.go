@@ -13,16 +13,17 @@ import (
 func TestGenerateDemoPlugin(t *testing.T) {
 	dir := t.TempDir()
 	result, err := Generate(Options{
-		Code:          "demo_links",
-		Name:          "Demo Links",
-		ContentType:   "demo_link",
-		ContentName:   "演示链接",
-		Description:   "Demo links plugin",
-		Author:        "DevHub",
-		Output:        dir,
-		WithConfig:    true,
-		WithHooks:     true,
-		WithMigration: true,
+		Code:                   "demo_links",
+		Name:                   "Demo Links",
+		ContentType:            "demo_link",
+		ContentName:            "演示链接",
+		Description:            "Demo links plugin",
+		Author:                 "DevHub",
+		Output:                 dir,
+		WithConfig:             true,
+		WithHooks:              true,
+		WithMigration:          true,
+		IncludeRegistryExample: true,
 	})
 	if err != nil {
 		t.Fatalf("Generate failed: %v", err)

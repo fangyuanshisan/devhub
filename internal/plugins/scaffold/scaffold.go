@@ -18,17 +18,19 @@ import (
 var codePattern = regexp.MustCompile(`^[a-z][a-z0-9_]{1,63}$`)
 
 type Options struct {
-	Code          string
-	Name          string
-	ContentType   string
-	ContentName   string
-	Description   string
-	Author        string
-	Output        string
-	WithConfig    bool
-	WithHooks     bool
-	WithMigration bool
-	Force         bool
+	Code                   string
+	Name                   string
+	ContentType            string
+	ContentName            string
+	Description            string
+	Author                 string
+	Output                 string
+	WithConfig             bool
+	WithHooks              bool
+	WithMigration          bool
+	IncludeRegistryExample bool
+	IncludeRegistryDoc     bool
+	Force                  bool
 }
 
 type Result struct {
@@ -37,60 +39,43 @@ type Result struct {
 	Manifest domain.PluginManifest
 }
 
+type PreviewResult struct {
+	Dir      string
+	Files    []string
+	Manifest domain.PluginManifest
+}
+
 func Generate(opts Options) (Result, error) {
-	opts = normalizeOptions(opts)
-	if err := validateOptions(opts); err != nil {
-		return Result{}, err
-	}
-
-	dir := filepath.Join(opts.Output, opts.Code)
-	if _, err := os.Stat(dir); err == nil && !opts.Force {
-		return Result{}, fmt.Errorf("输出目录已存在：%s（如需覆盖请加 --force）", dir)
-	} else if err != nil && !errors.Is(err, os.ErrNotExist) {
-		return Result{}, err
-	}
-	if opts.Force {
-		if err := os.RemoveAll(dir); err != nil {
-			return Result{}, err
-		}
-	}
-	if err := os.MkdirAll(dir, 0o755); err != nil {
-		return Result{}, err
-	}
-
-	manifest := Manifest(opts)
-	manifestRaw, err := marshalManifest(manifest)
+	preview, files, err := prepare(opts)
 	if err != nil {
 		return Result{}, err
 	}
-	validation := pluginregistry.ValidatePluginManifestJSON(manifestRaw, pluginregistry.Definitions(), "v1.4.0")
-	if !validation.Valid {
-		return Result{}, fmt.Errorf("生成 manifest 未通过校验：%s", strings.Join(validation.Errors, "; "))
-	}
-	if err := pluginregistry.ValidateConfigJSON(domain.Plugin{PluginManifest: manifest}, configJSON(opts)); err != nil {
-		return Result{}, fmt.Errorf("生成 config.example.json 未通过 config_schema 校验：%w", err)
+
+	if err := os.MkdirAll(preview.Dir, 0o755); err != nil {
+		return Result{}, err
 	}
 
-	files := map[string][]byte{
-		"manifest.json":       manifestRaw,
-		"README.md":           []byte(readme(opts)),
-		"config.example.json": []byte(configJSON(opts) + "\n"),
-		"content-type.md":     []byte(contentTypeDoc(opts)),
-		"permissions.md":      []byte(permissionsDoc(opts)),
-		"hooks.md":            []byte(hooksDoc(opts)),
-		"migrations.md":       []byte(migrationsDoc(opts)),
-		"registry.example.go": []byte(registryExample(opts)),
-	}
 	written := make([]string, 0, len(files))
 	for name, data := range files {
-		path := filepath.Join(dir, name)
+		path := filepath.Join(preview.Dir, name)
+		if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+			return Result{}, err
+		}
 		if err := os.WriteFile(path, data, 0o644); err != nil {
 			return Result{}, err
 		}
 		written = append(written, path)
 	}
 	sort.Strings(written)
-	return Result{Dir: dir, Files: written, Manifest: manifest}, nil
+	return Result{Dir: preview.Dir, Files: written, Manifest: preview.Manifest}, nil
+}
+
+func Preview(opts Options) (PreviewResult, error) {
+	preview, _, err := prepare(opts)
+	if err != nil {
+		return PreviewResult{}, err
+	}
+	return preview, nil
 }
 
 func marshalManifest(manifest domain.PluginManifest) ([]byte, error) {
@@ -272,6 +257,10 @@ func configJSON(opts Options) string {
 }
 
 func readme(opts Options) string {
+	registryEntry := "- registry.example.go：内置系统插件接入示例，不会被动态加载。"
+	if opts.IncludeRegistryDoc {
+		registryEntry = "- docs/registry-example.md：内置系统插件接入示例说明，不会被动态加载。"
+	}
 	return fmt.Sprintf(`# %s
 
 这是 DevHub 声明型插件模板。它只包含 manifest、配置、文档和示例，不会被系统自动扫描或动态加载。
@@ -290,7 +279,7 @@ func readme(opts Options) string {
 - permissions.md：权限声明说明。
 - hooks.md：Hook 声明边界。
 - migrations.md：迁移声明边界。
-- registry.example.go：内置系统插件接入示例，不会被动态加载。
+%s
 
 ## 如何定义插件能力
 
@@ -315,7 +304,7 @@ func readme(opts Options) string {
 - 不影响历史内容访问。
 - 不破坏 /topics/:id SEO。
 - 不在示例配置中保存明文敏感字段。
-`, opts.Name)
+`, opts.Name, registryEntry)
 }
 
 func contentTypeDoc(opts Options) string {
@@ -379,4 +368,73 @@ func registryExample(opts Options) string {
 // 本文件只是内置系统插件接入示例，不会被 DevHub 动态扫描或加载。
 // 如需成为内置系统插件，需要在 DevHub 源码 registry 中显式注册并随系统一起编译发布。
 `, opts.Code)
+}
+
+func registryExampleDoc(opts Options) string {
+	return fmt.Sprintf(`# Registry 示例说明
+
+本文件仅用于解释如何把声明型插件接入 DevHub 源码 registry；它不是动态加载入口，也不会被本地插件包扫描器当作运行时代码执行。
+
+## 说明
+
+- plugin_code: %s
+- content_type: %s
+- content_name: %s
+
+如需成为内置系统插件，必须在 DevHub 源码中显式注册并随系统一起编译发布。
+`, opts.Code, opts.ContentType, opts.ContentName)
+}
+
+func prepare(opts Options) (PreviewResult, map[string][]byte, error) {
+	opts = normalizeOptions(opts)
+	if err := validateOptions(opts); err != nil {
+		return PreviewResult{}, nil, err
+	}
+
+	dir := filepath.Join(opts.Output, opts.Code)
+	if _, err := os.Stat(dir); err == nil && !opts.Force {
+		return PreviewResult{}, nil, fmt.Errorf("输出目录已存在：%s（如需覆盖请加 --force）", dir)
+	} else if err != nil && !errors.Is(err, os.ErrNotExist) {
+		return PreviewResult{}, nil, err
+	}
+	if opts.Force {
+		if err := os.RemoveAll(dir); err != nil {
+			return PreviewResult{}, nil, err
+		}
+	}
+
+	manifest := Manifest(opts)
+	manifestRaw, err := marshalManifest(manifest)
+	if err != nil {
+		return PreviewResult{}, nil, err
+	}
+	validation := pluginregistry.ValidatePluginManifestJSON(manifestRaw, pluginregistry.Definitions(), "v1.4.0")
+	if !validation.Valid {
+		return PreviewResult{}, nil, fmt.Errorf("生成 manifest 未通过校验：%s", strings.Join(validation.Errors, "; "))
+	}
+	if err := pluginregistry.ValidateConfigJSON(domain.Plugin{PluginManifest: manifest}, configJSON(opts)); err != nil {
+		return PreviewResult{}, nil, fmt.Errorf("生成 config.example.json 未通过 config_schema 校验：%w", err)
+	}
+
+	files := map[string][]byte{
+		"manifest.json":       manifestRaw,
+		"README.md":           []byte(readme(opts)),
+		"config.example.json": []byte(configJSON(opts) + "\n"),
+		"content-type.md":     []byte(contentTypeDoc(opts)),
+		"permissions.md":      []byte(permissionsDoc(opts)),
+		"hooks.md":            []byte(hooksDoc(opts)),
+		"migrations.md":       []byte(migrationsDoc(opts)),
+	}
+	if opts.IncludeRegistryExample {
+		files["registry.example.go"] = []byte(registryExample(opts))
+	}
+	if opts.IncludeRegistryDoc {
+		files["docs/registry-example.md"] = []byte(registryExampleDoc(opts))
+	}
+	written := make([]string, 0, len(files))
+	for name := range files {
+		written = append(written, filepath.Join(dir, name))
+	}
+	sort.Strings(written)
+	return PreviewResult{Dir: dir, Files: written, Manifest: manifest}, files, nil
 }

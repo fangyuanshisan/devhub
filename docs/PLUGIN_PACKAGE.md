@@ -4,12 +4,13 @@
 
 更新时间：2026-05-14
 
-本文件是 **v1.5.0-P0-01 ~ P0-04** 的阶段性成果：为 DevHub 定义“本地插件包 / 本地插件仓库”规范，并提供 **dry-run 导入预览** 与 **最小安装闭环** 能力。
+本文件是 **v1.5.0-P0-01 ~ P0-04** 与 **v1.6.0-P0-01** 的阶段性成果：为 DevHub 定义“本地插件包 / 本地插件仓库”规范，并提供 **dry-run 导入预览**、**最小安装闭环** 和 **后台初始化插件包** 能力。
 
 注意：
 
 - P0-01 ~ P0-03：只做 **安全读取 + 校验 + 预览**（dry-run），不安装插件。
 - P0-04：补齐“从本地插件包安装声明型插件”的最小闭环，但仍然 **不执行插件代码、不执行外部 SQL、不动态加载前端资产**。
+- v1.6.0-P0-01：后台“初始化插件包”会在 `storage/plugins/packages/{code}` 下生成声明型模板，并自动执行 package dry-run。
 
 ## 目标与边界
 
@@ -17,17 +18,17 @@
 
 - 定义本地插件包目录结构与字段口径。
 - 后台支持从允许目录读取插件包，并返回 dry-run 预览信息（文件扫描 / manifest 校验 / 安装预览）。
+- 后台支持初始化声明型插件包模板，并把模板写入受控本地插件仓库目录。
 
 明确不做：
 
 - 不做 zip 上传。
 - 不做远程市场 / 远程下载 / 在线更新。
-- P0-01 ~ P0-03 不做正式安装本地插件包（只做 dry-run）。
 - 不做动态加载 Go 代码，不执行 JS / WASM / Lua，不提供脚本沙箱。
 - 不执行任何第三方本地代码。
 - 不执行外部 raw SQL。
 - 不动态加载前端资产。
-- 不做插件签名与可信发布者体系（后续版本再做）。
+- 不做完整 PKI / 远程可信源 / 可信发布者平台；当前仅保留 `publisher.json` / `signature.json` 草案与本地可信来源结构校验。
 
 ## 插件包目录结构
 
@@ -58,7 +59,65 @@ devhub-plugin-demo/
 7. 目录名建议与 `manifest.code` 一致；不一致会 warning。
 8. 未知文件默认 warning；危险文件会 blocked。
 
-> 注：v1.5.0 当前只支持“声明型插件”安装（写入 manifest/配置/迁移记录/审计），不支持携带代码或可执行资产的插件包。
+> 注：v1.5.0 当前支持本地插件仓库扫描、插件包详情、dry-run、安装确认与审批执行链路；安装仍走 `plugin.approve` 执行权限，不允许携带代码或可执行资产的插件包。
+
+## 后台初始化插件包（v1.6.0-P0-01）
+
+入口：
+
+```text
+系统插件 -> 安装升级 -> 初始化插件包
+```
+
+API：
+
+- `POST /api/v1/admin/plugins/packages/templates/preview`
+- `POST /api/v1/admin/plugins/packages/templates`
+
+权限：
+
+- 需要 admin token。
+- 需要 `plugin.write`。
+
+生成规则：
+
+- 输出目录固定为 `storage/plugins/packages/{code}`。
+- `code` / `content_type` 必须满足小写字母、数字、下划线并以小写字母开头的现有编码规则。
+- 不允许任意 path。
+- 不暴露 `force`；目标目录已存在时返回 `plugin_package_template_exists`。
+- 初始化成功后写入 `admin_logs`。
+- 初始化成功后自动执行 package dry-run，并返回 dry-run 状态、风险等级、manifest 校验结果、warnings/errors。
+
+后台初始化生成文件：
+
+```text
+storage/plugins/packages/{code}/
+├─ manifest.json
+├─ README.md
+├─ config.example.json
+├─ content-type.md
+├─ permissions.md
+├─ hooks.md
+├─ migrations.md
+└─ docs/
+   └─ registry-example.md
+```
+
+与 CLI `plugin:new` 的差异：
+
+- CLI 默认仍生成 `registry.example.go`，用于源码内置插件接入示例。
+- 后台初始化版默认不生成 `registry.example.go`，避免 `.go` 文件触发插件包扫描器的 dangerous file blocked。
+- 后台初始化版把 registry 接入说明放在 `docs/registry-example.md`。
+- dry-run 未 blocked 时，后台允许继续提交“安装审批”；直接安装仍需 `plugin.approve`。
+
+边界：
+
+- 不做 zip 上传。
+- 不做远程市场 / 远程下载。
+- 不执行插件代码。
+- 不执行 SQL。
+- 不生成前端动态页面。
+- 不改变插件运行时边界。
 
 ## 允许文件 / 未知文件 / 危险文件
 
@@ -244,7 +303,7 @@ Dry-run 会返回 `risk_report`：
 
 限制：
 
-- 后台安装升级页当前只提供“提交安装审批”和“审批中心”入口，不提供本地插件包一键正式安装按钮；正式安装由审批执行 API 完成。
+- 后台安装升级页当前提供本地插件仓库扫描、详情、dry-run 和安装审批入口；直接安装需要 `plugin.approve`，普通管理员走审批提交。
 - 不提供 zip 上传按钮。
 - 不提供远程市场入口。
 

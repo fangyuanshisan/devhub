@@ -12,6 +12,54 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
+func (s *Server) previewAdminPluginPackageTemplate(c *gin.Context) {
+	var req domain.PluginPackageTemplateRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		fail(c, http.StatusBadRequest, err.Error())
+		return
+	}
+	res, err := s.svc.PreviewPluginPackageTemplate(req)
+	if err != nil {
+		failAPIError(c, err)
+		return
+	}
+	c.JSON(http.StatusOK, res)
+}
+
+func (s *Server) createAdminPluginPackageTemplate(c *gin.Context) {
+	var req domain.PluginPackageTemplateRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		fail(c, http.StatusBadRequest, err.Error())
+		return
+	}
+	actor := auditActor(c)
+	s.auditStructured(c, "system", "plugin.package.template.create.started", "plugins", nil,
+		gin.H{"status": "started"},
+		gin.H{"operation": "plugin_package_template_create", "plugin_code": strings.TrimSpace(req.Code), "actor": actor})
+	res, err := s.svc.CreatePluginPackageTemplate(req)
+	if err != nil {
+		s.auditStructured(c, "system", "plugin.package.template.create.failed", "plugins", nil,
+			gin.H{"status": "failed"},
+			mergeAuditMeta(gin.H{"operation": "plugin_package_template_create", "plugin_code": strings.TrimSpace(req.Code), "actor": actor, "error": err.Error()}, auditAPIErrorFields(err)))
+		failAPIError(c, err)
+		return
+	}
+	s.auditStructured(c, "system", "plugin.package.template.created", fmt.Sprintf("plugin-packages#%s", res.Template.Code), nil,
+		gin.H{"status": res.Status},
+		gin.H{
+			"operation":           "plugin_package_template_create",
+			"plugin_code":         res.Template.Code,
+			"package_path":        res.Template.PackagePath,
+			"dry_run_status":      res.DryRun.Status,
+			"risk_level":          res.DryRun.RiskReport.Level,
+			"manifest_valid":      res.DryRun.ManifestValidation.Valid,
+			"generated_files":     res.Template.Files,
+			"registry_go_omitted": true,
+			"actor":               actor,
+		})
+	c.JSON(http.StatusOK, res)
+}
+
 func (s *Server) dryRunAdminPluginPackage(c *gin.Context) {
 	var req struct {
 		Path string `json:"path"`

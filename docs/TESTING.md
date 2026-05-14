@@ -4,11 +4,11 @@
 
 更新时间：2026-05-14
 
-本文档只记录当前 v1.4.0 必测项和后续补测项。历史版本测试只保留必要回归，不再展开旧版本完整矩阵。
+本文档只记录当前 v1.5.0 必测项、收口验证和后续补测项。历史版本测试只保留必要回归，不再展开旧版本完整矩阵。
 
-## v1.4.0 收口验收（2026-05-13）
+## v1.5.0 收口验收（2026-05-14）
 
-本节记录 v1.4.0 插件平台增强（依赖治理、错误码/Readiness、前台入口治理）合并后的收口验收结果，作为当前仓库“已真实跑过的检查”口径来源。
+本节记录 v1.5.0 插件包治理收口后的最终验收结果，作为当前仓库“已真实跑过的检查”口径来源。
 
 已执行并通过：
 
@@ -19,8 +19,8 @@
 - `bash -n dev.sh`
 - `bash -n scripts/check-frontend.sh`
 - `docker compose run --rm admin-e2e npm run build`
-- `./scripts/check-frontend.sh --admin-only`（后台 build + Playwright：`35 passed`，包含新增 `plugin-pages-navigation.spec.js`）
-- `./scripts/check-frontend.sh --frontend-only`（前台 build + Playwright：`17 passed`）
+- `./scripts/check-frontend.sh --admin-only`（后台 build + Playwright：通过，包含插件包 dry-run、仓库、安装、审批、签名、导出等用例）
+- `./scripts/check-frontend.sh --frontend-only`（前台 build + Playwright：通过）
 - SEO curl 回归（在本地 8090 服务可用情况下执行）：
   - `curl -s http://127.0.0.1:8090/topics/1/ | rg '<title>|description|canonical|<h1|<article|application/ld\\+json'`
   - `curl -s http://127.0.0.1:8090/c/php/ | rg '<title>|description|canonical|<h1|/topics/|tag-cloud'`
@@ -28,6 +28,25 @@
 结论：
 
 - Playwright 不再保留 `test.skip` / `test.only`；收口验收未发现长期跳过项。
+
+## v1.6.0-P0-01 后台初始化插件包（2026-05-14）
+
+本节记录后台“系统插件 -> 安装升级 -> 初始化插件包”能力的本轮验证结果。
+
+已执行并通过：
+
+- `gofmt -w cmd/devhub/main.go internal/domain/plugin_package_template.go internal/plugins/scaffold/scaffold.go internal/plugins/scaffold/scaffold_test.go internal/service/plugin_package_template_service.go internal/service/plugin_package_template_test.go internal/transport/httpapi/plugin_package_handler.go internal/transport/httpapi/router.go`
+- `go test ./...`
+- `go build -o .devhub/devhub .`
+- `bash -n dev.sh`
+- `bash -n scripts/check-frontend.sh`
+- `git diff --check`
+- `./scripts/check-frontend.sh --admin-only`（后台 build 通过；后台 Playwright `49 passed`）
+
+覆盖结论：
+
+- 后端新增模板 preview/create 服务测试：预览不写文件；正式初始化不生成 `registry.example.go`，生成 `docs/registry-example.md`，并自动 package dry-run。
+- 后台构建和现有后台 E2E 全量通过；本轮未改前台页面、前台 SEO 或前台导航，因此未执行 `--frontend-only` 与 SEO curl。
 
 ## v1.4.0-P1-13 收口补充（2026-05-13）
 
@@ -204,6 +223,24 @@
 
 - 本轮只改后端插件导出 API 与后台插件详情抽屉，不涉及前台页面、前台导航或 SEO 共享逻辑，因此不强制执行 `--frontend-only` 与 SEO curl。
 - 导出结果会写入 `storage/plugins/exports/`；该目录仅作为受控本地输出目录，不代表 zip 下载、远程市场发布或插件市场审核。
+
+## v1.5.0 最终收口验证（2026-05-14）
+
+已执行并通过：
+
+- `go test ./...`
+- `go build -o .devhub/devhub .`
+- `git diff --check`
+- `bash -n dev.sh`
+- `bash -n scripts/check-frontend.sh`
+- `./scripts/check-frontend.sh --admin-only`
+- `./scripts/check-frontend.sh --frontend-only`
+
+结论：
+
+- 当前版本口径已统一为 `v1.5.0`。
+- 插件包治理收口链路（dry-run、checksum、风险报告、仓库扫描、安装、配置历史、敏感配置加密、审批、签名/可信来源草案、导出）与后台 / 前台 / SEO 回归已收口。
+- 历史 `v1.4.0` / `v1.3.x` 仅保留追溯，不再作为当前必测项标题。
 
 ## 已实现必测
 

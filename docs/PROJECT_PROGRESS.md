@@ -11,6 +11,7 @@
 当前 `VERSION` 为 `v1.5.0`，主题是“插件包治理收口版”。本版本已完成本地插件包规范、dry-run、checksum / 风险报告、本地插件仓库扫描、本地插件包安装闭环、配置版本历史、敏感配置加密、审批流、签名/可信来源草案、已安装插件导出为本地插件包，以及与之对应的后台信息架构、前台入口治理和 E2E 验收。DevHub 当前定位为多子站通用开源社区程序，默认演示为开发者社区。
 
 进入 `v1.6.0` 前的过渡阶段：继续收口插件包治理、整理技术债并准备 zip 上传安全沙箱、真实签名验签和 trusted publishers 管理等下一阶段能力；详见 `docs/PLUGIN_PACKAGE.md` 与 `docs/releases/v1.5.0.md`。
+v1.6.0-P0-01 已新增“后台初始化插件包”入口：`系统插件 -> 安装升级` 可填写 `code/name/content_type/content_name/description/author/with_config/with_hooks/with_migration`，后端固定在 `storage/plugins/packages/{code}` 下生成声明型插件模板并自动 package dry-run；CLI 与 HTTP 复用同一套模板生成逻辑，后台版不生成 `registry.example.go`，改写入 `docs/registry-example.md` 以避免 `.go` dangerous file 阻断。已通过 `go test ./...`、`go build -o .devhub/devhub .`、`git diff --check`、`bash -n dev.sh`、`bash -n scripts/check-frontend.sh` 和 `./scripts/check-frontend.sh --admin-only`（后台 Playwright `49 passed`）。当前仍不做 zip 上传、远程市场、动态加载、插件代码执行或 SQL 执行。
 v1.5.0-P0-03 已新增“本地插件仓库目录扫描”：支持扫描仓库目录下多个插件包并展示 discovered packages 列表/详情/dry-run（不执行、不动态加载）；默认仓库目录建议为 `storage/plugins/packages/`，测试 fixtures 位于 `plugins-local/repository-fixtures/`；详见 `docs/PLUGIN_PACKAGE.md` 与 `docs/releases/v1.5.0.md`。
 v1.5.0-P0-04 已新增“本地插件包安装闭环”：允许从本地插件仓库选择校验通过的插件包执行安装（安装前强制复跑 dry-run；安装后默认 `disabled`，`source_type=local_package`），仍不执行第三方代码/SQL、不动态加载前端资产；详见 `docs/PLUGIN_PACKAGE.md` 与 `docs/releases/v1.5.0.md`。
 v1.5.0-P1-05 已新增“插件配置版本历史与回滚预览”：保存全局/子站配置会记录版本、diff、changed_keys 和审计跳转；回滚仅提供 dry-run 预览，不写入配置；详见 `docs/releases/v1.5.0.md` 与 `docs/API.md`。
@@ -2621,6 +2622,15 @@ P1 规划边界：
 已执行检查命令和结果：
 
 - `git diff --check`：通过。
+
+## 2026-05-14：v1.5.0 release 收口结论
+
+结论：
+
+- 当前仓库当前版本已统一为 `v1.5.0`，`README.md`、`VERSION`、`CHANGELOG.md`、`docs/README.md`、`docs/API.md`、`docs/TESTING.md` 与 `docs/releases/v1.5.0.md` 已完成同口径收口。
+- v1.5.0 已完成的插件包治理能力包括：本地插件包规范 / dry-run / checksum / 风险报告 / 仓库扫描 / 安装闭环 / 配置版本历史 / 敏感配置加密 / 审批流 / 签名与可信来源草案 / 已安装插件导出。
+- 当前未引入 v1.6 功能；后续仍聚焦 zip 上传安全沙箱、签名真实验签、trusted publishers 管理、插件包版本仓库和密钥轮换等后续能力。
+- 历史版本号 `v1.4.0`、`v1.3.4` 仅保留在历史记录与追溯段中，不再作为当前版本口径。
 
 影响范围：
 

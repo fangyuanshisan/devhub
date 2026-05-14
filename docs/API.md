@@ -2,7 +2,7 @@
 
 [返回文档入口](README.md)
 
-更新时间：2026-05-14（v1.4.0 插件平台收口验收；v1.5.0 阶段能力持续落地）
+更新时间：2026-05-14（v1.5.0 插件包治理收口验收；历史 v1.4.0 能力保持可追溯）
 
 本文档只记录当前仓库真实可用 API。接口路径以 `internal/transport/httpapi/router.go` 为准；未实现能力集中放在“规划 / 未完成”小节，不写入当前真实 API 主体。
 
@@ -61,6 +61,8 @@
 | `plugin_manifest_invalid` | manifest 校验失败 | `errors` | 按 errors 修复 manifest 后重试 |
 | `plugin_package_path_invalid` | 插件包路径不合法 | `path`,`allowed_roots` | 使用允许目录内的相对路径 |
 | `plugin_package_not_found` | 插件包目录不存在 | `path` | 检查路径或先创建插件包目录 |
+| `plugin_package_template_invalid` | 插件包模板初始化参数无效 | `reason` | 修复 code/content_type/name 等字段后重试 |
+| `plugin_package_template_exists` | 初始化目标目录已存在 | `path` | 换用新 code；当前后台初始化不暴露 force 覆盖 |
 | `plugin_package_manifest_missing` | 缺少 manifest.json | `path` | 在插件包根目录补充 manifest.json |
 | `plugin_package_manifest_invalid` | manifest.json 非法 | `path`,`reason` | 修复 manifest 后重试 |
 | `plugin_package_dangerous_file` | 检测到危险文件 | `path` | 移除 `.sh/.sql/.js/.ts` 等危险文件 |
@@ -516,6 +518,75 @@
     - `trust_status`：`trusted|unknown|blocked|revoked|unsigned`
     - `verification_status`：`verified|failed|missing|unsupported|structural_only`
     - 说明：`publisher.json` 不会被自动信任；可信状态只来自本地 `storage/plugins/trusted_publishers.json`。
+
+`POST /api/v1/admin/plugins/packages/templates/preview`
+
+- 认证：后台 admin token（不允许 user token / moderator token）。
+- 权限：`plugin.write`。
+- 用途：预览后台“初始化插件包”将要生成的声明型插件模板；不写入文件、不创建目录、不执行 dry-run。
+- 请求：
+
+```json
+{
+  "code": "demo_notice",
+  "name": "示例公告插件",
+  "content_type": "notice",
+  "content_name": "公告",
+  "description": "用于公告内容类型的声明型插件。",
+  "author": "DevHub Team",
+  "with_config": true,
+  "with_hooks": true,
+  "with_migration": true
+}
+```
+
+- 输出目录固定为 `storage/plugins/packages/{code}`；不接受任意 path，不暴露 `force` 覆盖。
+- 返回：
+
+```json
+{
+  "template": {
+    "code": "demo_notice",
+    "name": "示例公告插件",
+    "content_type": "notice",
+    "content_name": "公告",
+    "output_dir": "storage/plugins/packages/demo_notice",
+    "package_path": "storage/plugins/packages/demo_notice",
+    "files": ["manifest.json", "README.md", "config.example.json", "docs/registry-example.md"]
+  },
+  "status": "ok",
+  "warnings": []
+}
+```
+
+`POST /api/v1/admin/plugins/packages/templates`
+
+- 认证：后台 admin token。
+- 权限：`plugin.write`。
+- 用途：在 `storage/plugins/packages/{code}` 下初始化声明型插件包模板，然后服务端自动执行 package dry-run。
+- 行为：
+  - 复用 CLI `plugin:new` 的同一套模板生成服务，不复制两套生成逻辑。
+  - 后台初始化默认不生成 `registry.example.go`，避免 `.go` 文件触发插件包 dangerous file 阻断；registry 接入说明写入 `docs/registry-example.md`。
+  - 目标目录已存在时返回 `plugin_package_template_exists`，当前后台不支持覆盖。
+  - 初始化成功后写入 `admin_logs`，并返回自动 dry-run 的 `status/risk_report/manifest_validation/warnings/errors`。
+- 返回：
+
+```json
+{
+  "message": "插件包模板已初始化，并已完成 package dry-run",
+  "template": {
+    "package_path": "storage/plugins/packages/demo_notice",
+    "files": ["manifest.json", "README.md", "config.example.json", "docs/registry-example.md"]
+  },
+  "dry_run": {
+    "status": "warning",
+    "risk_report": { "level": "medium" },
+    "manifest_validation": { "valid": true }
+  },
+  "status": "warning",
+  "warnings": []
+}
+```
 
 `GET /api/v1/admin/plugins/packages`
 

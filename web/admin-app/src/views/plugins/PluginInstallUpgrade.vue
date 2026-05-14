@@ -15,6 +15,107 @@
 
     <el-alert type="info" show-icon :closable="false" class="mb" title="限制：不自动安装依赖、不远程下载、不动态加载、不执行第三方代码。" />
 
+    <el-card shadow="never" class="mb" data-testid="plugin-package-template-card">
+      <template #header>
+        <div class="card-head">
+          <strong>初始化插件包</strong>
+          <span class="muted">在 storage/plugins/packages/{code} 下生成声明型模板，并自动 package dry-run。</span>
+        </div>
+      </template>
+
+      <el-form :model="templateForm" label-width="120px" class="template-form" data-testid="plugin-package-template-form">
+        <div class="template-grid">
+          <el-form-item label="code">
+            <el-input v-model="templateForm.code" data-testid="plugin-template-code" placeholder="demo_notice" clearable />
+          </el-form-item>
+          <el-form-item label="插件名称">
+            <el-input v-model="templateForm.name" data-testid="plugin-template-name" placeholder="示例公告插件" clearable />
+          </el-form-item>
+          <el-form-item label="content_type">
+            <el-input v-model="templateForm.content_type" data-testid="plugin-template-content-type" placeholder="notice" clearable />
+          </el-form-item>
+          <el-form-item label="内容类型名">
+            <el-input v-model="templateForm.content_name" data-testid="plugin-template-content-name" placeholder="公告" clearable />
+          </el-form-item>
+          <el-form-item label="描述" class="wide">
+            <el-input v-model="templateForm.description" data-testid="plugin-template-description" placeholder="声明型插件描述" clearable />
+          </el-form-item>
+          <el-form-item label="作者">
+            <el-input v-model="templateForm.author" data-testid="plugin-template-author" placeholder="DevHub Team" clearable />
+          </el-form-item>
+        </div>
+        <div class="filter-actions" style="justify-content: space-between">
+          <div class="template-switches">
+            <el-checkbox v-model="templateForm.with_config" data-testid="plugin-template-with-config">config_schema</el-checkbox>
+            <el-checkbox v-model="templateForm.with_hooks" data-testid="plugin-template-with-hooks">Hook 声明</el-checkbox>
+            <el-checkbox v-model="templateForm.with_migration" data-testid="plugin-template-with-migration">migration 声明</el-checkbox>
+          </div>
+          <div class="filter-actions">
+            <el-button plain :loading="templateLoading" data-testid="plugin-template-preview" @click="previewPackageTemplate">预览</el-button>
+            <el-button type="primary" :loading="templateLoading" data-testid="plugin-template-create" @click="createPackageTemplate">初始化插件包</el-button>
+          </div>
+        </div>
+      </el-form>
+
+      <el-alert
+        type="info"
+        show-icon
+        :closable="false"
+        class="mb"
+        title="后台初始化不会生成 registry.example.go；registry 接入说明会写入 docs/registry-example.md，避免 .go 文件触发危险文件阻断。"
+      />
+      <el-alert v-if="templateError" type="error" show-icon :closable="false" class="mb" :title="templateError" />
+
+      <el-card v-if="templateResult" shadow="never" class="mb" data-testid="plugin-template-result">
+        <template #header>
+          <div class="card-head">
+            <strong>{{ templateResult.template?.code || '-' }}</strong>
+            <el-tag :type="templateResult.status === 'blocked' ? 'danger' : templateResult.status === 'warning' ? 'warning' : 'success'" effect="plain">
+              {{ templateResult.status || 'preview' }}
+            </el-tag>
+          </div>
+        </template>
+        <el-descriptions :column="2" border class="mb">
+          <el-descriptions-item label="插件包路径">{{ templateResult.template?.package_path || templateResult.template?.output_dir || '-' }}</el-descriptions-item>
+          <el-descriptions-item label="dry-run 状态">{{ templateResult.dry_run?.status || '-' }}</el-descriptions-item>
+          <el-descriptions-item label="风险等级">
+            <el-tag :type="riskLevelType(templateResult.dry_run?.risk_report?.level)" effect="plain">
+              {{ templateResult.dry_run?.risk_report?.level || '-' }}
+            </el-tag>
+          </el-descriptions-item>
+          <el-descriptions-item label="manifest valid">{{ templateResult.dry_run?.manifest_validation?.valid ?? '-' }}</el-descriptions-item>
+        </el-descriptions>
+        <div class="result-grid mb">
+          <div class="result-box">
+            <h4>将生成文件</h4>
+            <div class="tag-wrap">
+              <el-tag v-for="file in templateResult.template?.files || []" :key="file" effect="plain">{{ file }}</el-tag>
+            </div>
+          </div>
+          <div class="result-box">
+            <h4>warnings / errors</h4>
+            <ul class="result-list">
+              <li v-for="(item, idx) in templateWarnings" :key="`tpl-w-${idx}`">{{ item }}</li>
+              <li v-for="(item, idx) in templateErrors" :key="`tpl-e-${idx}`">{{ item }}</li>
+              <li v-if="!templateWarnings.length && !templateErrors.length" class="muted">-</li>
+            </ul>
+          </div>
+        </div>
+        <div class="filter-actions" style="justify-content: flex-end">
+          <el-button v-if="templateResult.template?.package_path" @click="useTemplatePathForDryRun">填入 dry-run 路径</el-button>
+          <el-button
+            v-if="templateResult.dry_run && String(templateResult.dry_run.status || '').toLowerCase() !== 'blocked'"
+            type="primary"
+            plain
+            data-testid="plugin-template-submit-approval"
+            @click="submitTemplateInstallApproval"
+          >
+            提交安装审批
+          </el-button>
+        </div>
+      </el-card>
+    </el-card>
+
     <div class="filter-panel mb">
       <div>
         <strong>升级目标插件</strong>
@@ -748,6 +849,7 @@ import { ElMessage, ElMessageBox } from 'element-plus';
 import { useRouter } from 'vue-router';
 import {
   createPluginApproval,
+  createPluginPackageTemplate,
   dryRunPluginManifest,
   dryRunPluginPackage,
   dryRunPluginUpgrade,
@@ -755,6 +857,7 @@ import {
   installPluginManifest,
   installPluginPackage,
   listPluginPackages,
+  previewPluginPackageTemplate,
   plugins,
   upgradePlugin,
   validatePluginManifest,
@@ -767,6 +870,29 @@ const router = useRouter();
 const items = ref([]);
 const loading = ref(false);
 const targetCode = ref('');
+
+const templateForm = ref({
+  code: '',
+  name: '',
+  content_type: '',
+  content_name: '',
+  description: '',
+  author: '',
+  with_config: true,
+  with_hooks: true,
+  with_migration: true,
+});
+const templateLoading = ref(false);
+const templateError = ref('');
+const templateResult = ref(null);
+const templateWarnings = computed(() => [
+  ...(templateResult.value?.warnings || []),
+  ...(templateResult.value?.dry_run?.warnings || []),
+]);
+const templateErrors = computed(() => [
+  ...(templateResult.value?.errors || []),
+  ...(templateResult.value?.dry_run?.errors || []),
+]);
 
 const packagePath = ref('examples/plugins/demo_notice');
 const packageLoading = ref(false);
@@ -799,6 +925,91 @@ const repoInstallDetail = ref(null);
 const repoInstallConfirmRiskLevel = ref('');
 
 onMounted(load);
+
+function templatePayload() {
+  return {
+    code: String(templateForm.value.code || '').trim(),
+    name: String(templateForm.value.name || '').trim(),
+    content_type: String(templateForm.value.content_type || '').trim(),
+    content_name: String(templateForm.value.content_name || '').trim(),
+    description: String(templateForm.value.description || '').trim(),
+    author: String(templateForm.value.author || '').trim(),
+    with_config: !!templateForm.value.with_config,
+    with_hooks: !!templateForm.value.with_hooks,
+    with_migration: !!templateForm.value.with_migration,
+  };
+}
+
+function formatAPIError(e, fallback) {
+  const data = e?.response?.data;
+  const code = String(data?.code || '').trim();
+  const message = String(data?.message || data?.error || '').trim();
+  const suggestion = String(data?.suggestion || data?.details?.suggestion || '').trim();
+  const parts = [];
+  if (code) parts.push(`[${code}]`);
+  if (message) parts.push(message);
+  if (suggestion) parts.push(`建议：${suggestion}`);
+  return parts.join(' ') || String(e?.message || fallback);
+}
+
+async function previewPackageTemplate() {
+  templateError.value = '';
+  templateLoading.value = true;
+  try {
+    templateResult.value = await previewPluginPackageTemplate(templatePayload());
+  } catch (e) {
+    templateResult.value = null;
+    templateError.value = formatAPIError(e, '预览失败');
+  } finally {
+    templateLoading.value = false;
+  }
+}
+
+async function createPackageTemplate() {
+  templateError.value = '';
+  templateLoading.value = true;
+  try {
+    templateResult.value = await createPluginPackageTemplate(templatePayload());
+    ElMessage.success(templateResult.value?.message || '插件包模板已初始化');
+    const path = String(templateResult.value?.template?.package_path || '').trim();
+    if (path) packagePath.value = path;
+    await scanRepository(true);
+  } catch (e) {
+    templateResult.value = null;
+    templateError.value = formatAPIError(e, '初始化失败');
+  } finally {
+    templateLoading.value = false;
+  }
+}
+
+function useTemplatePathForDryRun() {
+  const path = String(templateResult.value?.template?.package_path || '').trim();
+  if (!path) return;
+  packagePath.value = path;
+  runPackageDryRun();
+}
+
+async function submitTemplateInstallApproval() {
+  const path = String(templateResult.value?.template?.package_path || '').trim();
+  const code = String(templateResult.value?.template?.code || '').trim();
+  if (!path || !code) return;
+  templateLoading.value = true;
+  templateError.value = '';
+  try {
+    const res = await createPluginApproval({
+      action: 'install',
+      package_path: path,
+      plugin_code: code,
+      reason: `从后台初始化插件包提交安装审批：${path}`,
+    });
+    ElMessage.success(`已提交审批 #${res?.id || ''}`.trim());
+    await router.push('/plugins/approvals');
+  } catch (e) {
+    templateError.value = formatAPIError(e, '提交审批失败');
+  } finally {
+    templateLoading.value = false;
+  }
+}
 
 async function load() {
   loading.value = true;
@@ -1291,3 +1502,36 @@ function dependencyStatusLabel(status) {
   return status || '-';
 }
 </script>
+
+<style scoped>
+.template-form {
+  margin-bottom: 12px;
+}
+
+.template-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(260px, 1fr));
+  column-gap: 18px;
+}
+
+.template-grid .wide {
+  grid-column: span 2;
+}
+
+.template-switches {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+@media (max-width: 1100px) {
+  .template-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .template-grid .wide {
+    grid-column: span 1;
+  }
+}
+</style>

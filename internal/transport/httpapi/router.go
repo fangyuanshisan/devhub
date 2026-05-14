@@ -155,6 +155,8 @@ func NewRouter(svc *service.Service) *gin.Engine {
 			protected.GET("/plugin-menus", srv.adminPluginMenus)
 			protected.POST("/plugins/manifest/validate", srv.requirePermission("plugin.write"), srv.validateAdminPluginManifest)
 			protected.POST("/plugins/dry-run", srv.requirePermission("plugin.write"), srv.dryRunAdminPluginManifest)
+			protected.POST("/plugins/packages/templates/preview", srv.requirePermission("plugin.write"), srv.previewAdminPluginPackageTemplate)
+			protected.POST("/plugins/packages/templates", srv.requirePermission("plugin.write"), srv.createAdminPluginPackageTemplate)
 			protected.POST("/plugins/packages/dry-run", srv.requirePermission("plugin.write"), srv.dryRunAdminPluginPackage)
 			// Direct install is restricted: requesters use approvals; approvers execute.
 			protected.POST("/plugins/packages/install", srv.requirePermission("plugin.approve"), srv.installAdminPluginPackage)

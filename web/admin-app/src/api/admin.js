@@ -18,6 +18,8 @@ export const upgradePlugin = (code, payload) => http.post(`/admin/plugins/${code
 export const dryRunPluginExport = (code, payload) => http.post(`/admin/plugins/${code}/export/dry-run`, payload);
 export const exportPluginPackage = (code, payload) => http.post(`/admin/plugins/${code}/export`, payload);
 export const installPluginManifest = (payload) => http.post('/admin/plugins/install', payload);
+export const previewPluginPackageTemplate = (payload) => http.post('/admin/plugins/packages/templates/preview', payload);
+export const createPluginPackageTemplate = (payload) => http.post('/admin/plugins/packages/templates', payload);
 export const dryRunPluginPackage = (payload) => http.post('/admin/plugins/packages/dry-run', payload);
 export const listPluginPackages = (params) => http.get('/admin/plugins/packages', { params });
 export const getPluginPackageDetail = (params) => http.get('/admin/plugins/packages/detail', { params });

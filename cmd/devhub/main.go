@@ -41,17 +41,18 @@ func runPluginNew(args []string) {
 	}
 
 	result, err := scaffold.Generate(scaffold.Options{
-		Code:          *code,
-		Name:          *name,
-		ContentType:   *contentType,
-		ContentName:   *contentName,
-		Description:   *description,
-		Author:        *author,
-		Output:        *output,
-		WithConfig:    *withConfig,
-		WithHooks:     *withHooks,
-		WithMigration: *withMigration,
-		Force:         *force,
+		Code:                   *code,
+		Name:                   *name,
+		ContentType:            *contentType,
+		ContentName:            *contentName,
+		Description:            *description,
+		Author:                 *author,
+		Output:                 *output,
+		WithConfig:             *withConfig,
+		WithHooks:              *withHooks,
+		WithMigration:          *withMigration,
+		IncludeRegistryExample: true,
+		Force:                  *force,
 	})
 	if err != nil {
 		fmt.Fprintln(os.Stderr, err)
