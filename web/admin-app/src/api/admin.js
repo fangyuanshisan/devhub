@@ -32,6 +32,18 @@ export const submitPluginPackageUploadApproval = (uploadId, payload = {}) => htt
 export const approvePluginPackageUpload = (uploadId, payload = {}) => http.post(`/admin/plugins/packages/uploads/${encodeURIComponent(uploadId)}/approve`, payload);
 export const rejectPluginPackageUpload = (uploadId, payload = {}) => http.post(`/admin/plugins/packages/uploads/${encodeURIComponent(uploadId)}/reject`, payload);
 export const promotePluginPackageUpload = (uploadId, payload = {}) => http.post(`/admin/plugins/packages/uploads/${encodeURIComponent(uploadId)}/promote`, payload);
+export const downloadPluginPackageToStaging = (payload) => http.post('/admin/plugins/packages/download', payload);
+export const listPluginPackageStaging = (params) => http.get('/admin/plugins/packages/staging', { params });
+export const getPluginPackageStaging = (id) => http.get(`/admin/plugins/packages/staging/${id}`);
+export const deletePluginPackageStaging = (id) => http.delete(`/admin/plugins/packages/staging/${id}`);
+export const runPluginPackageCompatCheck = (precheckId) => http.post(`/admin/plugins/packages/prechecks/${precheckId}/compat-check`);
+export const listPluginPackageCompatChecks = (params) => http.get('/admin/plugins/packages/compat-checks', { params });
+export const getPluginPackageCompatCheck = (id) => http.get(`/admin/plugins/packages/compat-checks/${id}`);
+export const deletePluginPackageCompatCheck = (id) => http.delete(`/admin/plugins/packages/compat-checks/${id}`);
+export const runPluginEnablePrecheck = (code) => http.post(`/admin/plugins/${encodeURIComponent(code)}/enable-precheck`);
+export const listPluginEnablePrechecks = (params) => http.get('/admin/plugins/enable-prechecks', { params });
+export const getPluginEnablePrecheck = (id) => http.get(`/admin/plugins/enable-prechecks/${id}`);
+export const deletePluginEnablePrecheck = (id) => http.delete(`/admin/plugins/enable-prechecks/${id}`);
 export const getPluginConfigKeyStatus = () => http.get('/admin/plugins/config-keys/status');
 export const dryRunPluginConfigKeyRotation = (payload) => http.post('/admin/plugins/config-keys/rotation/dry-run', payload);
 export const reencryptPluginConfigKeys = (payload) => http.post('/admin/plugins/config-keys/rotation/re-encrypt', payload);

@@ -2,7 +2,7 @@
 
 [返回文档入口](README.md)
 
-更新时间：2026-05-15（v1.6.0 插件包上传与分发前置能力总验收；历史 v1.5.0 / v1.4.0 能力保持可追溯）
+更新时间：2026-05-15（v1.7.0-P0-01 远程插件包安全下载到 staging；历史 v1.6.0 / v1.5.0 / v1.4.0 能力保持可追溯）
 
 本文档只记录当前仓库真实可用 API。接口路径以 `internal/transport/httpapi/router.go` 为准；未实现能力集中放在“规划 / 未完成”小节，不写入当前真实 API 主体。
 
@@ -94,6 +94,18 @@
 | `plugin_package_upload_promote_target_exists` | 上传包 promote 目标已存在 | `path` | 更换 code 或清理目标目录 |
 | `plugin_package_upload_action_not_allowed` | 当前动作不可用 | `action`,`status` | 查看详情 actions 中的 reason |
 | `plugin_package_upload_status_conflict` | 状态冲突 | `status` | 先完成或取消正在进行的审批 |
+| `plugin_package_download_invalid_request` | 远程插件包下载请求无效 | `plugin_code`,`version` | 补齐合法 plugin_code、version、package_url |
+| `plugin_package_download_url_invalid` | 远程插件包 URL 不合法 | `scheme`,`url` | 仅使用公网 HTTPS 插件包 URL |
+| `plugin_package_download_url_forbidden` | URL 指向本机、内网或禁止地址 | `host` | 使用公网 HTTPS 地址，禁止 localhost/内网/IP 回环 |
+| `plugin_package_download_type_unsupported` | 远程插件包格式不受支持 | `package_url` | 当前仅允许 `.zip`、`.tar.gz`、`.tgz` |
+| `plugin_package_download_redirect_blocked` | 重定向次数过多或跳转到禁止地址 | `final_url` | 确认每次跳转仍为公网 HTTPS |
+| `plugin_package_download_too_large` | 远程插件包超过下载大小限制 | `max_bytes` | 默认最大 20MB，可通过受控配置调整 |
+| `plugin_package_download_checksum_invalid` | 请求中的 sha256 格式不合法 | `sha256` | 提供 64 位十六进制 sha256 |
+| `plugin_package_download_checksum_mismatch` | 下载后 sha256 不一致 | `sha256_expected`,`sha256_actual` | 核对远程索引和包内容，重新发布或重新下载 |
+| `plugin_package_download_failed` | 远程插件包下载失败 | `status_code`,`reason` | 检查网络、TLS 证书、远程包地址和大小限制 |
+| `plugin_package_download_path_invalid` | staging 文件路径非法 | `staging_path` | 检查 plugin_code/version 是否含非法字符 |
+| `plugin_package_staging_not_found` | staging 包记录不存在 | `id` | 刷新 staging 列表后重试 |
+| `plugin_package_staging_delete_failed` | 删除 staging 包失败 | `id` | 检查 storage 目录权限 |
 | `plugin_package_promote_blocked` | 上传包禁止转入本地仓库 | `upload_id`,`status` | 修复 blocked 风险、checksum 或 manifest 错误 |
 | `plugin_package_promote_target_exists` | 本地仓库目标目录已存在 | `path` | 删除/更名已有目录后重试；默认不覆盖 |
 | `plugin_package_promote_failed` | 转入本地仓库失败 | `path` | 检查目录权限和磁盘空间 |
@@ -721,6 +733,46 @@
 - 认证：后台 admin token。
 - 权限：`plugin.write`。
 - 行为：手动清理 `expired/deleted/canceled/failed` 上传包的 upload / staging 文件，并可将超过 `expires_at` 的非终态记录标为 `expired`。不会删除本地插件仓库、不会删除已安装插件。本轮不做定时任务。
+
+`POST /api/v1/admin/plugins/packages/download`
+
+- 认证：后台 admin token。
+- 权限：`plugin.write`。
+- 用途：从远程插件索引或管理员指定的 HTTPS URL 下载插件包到受控 staging。仅下载文件并记录状态，不安装、不启用、不解压执行、不加载插件代码、不执行 SQL。
+- 请求：
+
+```json
+{
+  "plugin_code": "demo_notice",
+  "version": "1.0.0",
+  "package_url": "https://example.com/packages/demo_notice-1.0.0.zip",
+  "sha256": "64位十六进制 sha256，可选但强烈建议"
+}
+```
+
+- 安全校验：仅允许 HTTPS；拒绝 `file/http/ftp/gopher`、localhost、`127.0.0.0/8`、`0.0.0.0`、`::1`、内网和 link-local 地址；DNS 解析和每次重定向后都会重新校验；最多 3 次重定向；默认下载上限 20MB；仅允许 `.zip`、`.tar.gz`、`.tgz`。
+- 写入：先写临时 `.part` 文件，下载和 sha256 校验完成后再 rename 到 `storage/plugins/staging/downloads/`；文件名由 `plugin_code/version/sha256 前缀/时间戳` 生成，不使用远程文件名。
+- sha256：如果请求提供 `sha256`，下载后必须一致，否则状态为 `checksum_failed` 并清理文件；未提供时状态为 `checksum_missing`，文件保留但标记未验证，不能进入自动安装。
+- 返回：`id/plugin_code/version/status/source_url/final_url/file_size/sha256_expected/sha256_actual/content_type/staging_path/downloaded_at/error_code/error_message`。
+
+`GET /api/v1/admin/plugins/packages/staging`
+
+- 认证：后台 admin token。
+- 权限：`plugin.read`。
+- 查询参数：`status`、`plugin_code`、`keyword`、`page`、`page_size`。
+- 返回：远程下载 staging 包列表、分页和状态 summary。
+
+`GET /api/v1/admin/plugins/packages/staging/:id`
+
+- 认证：后台 admin token。
+- 权限：`plugin.read`。
+- 返回：单个远程下载 staging 包记录。不会返回系统绝对路径。
+
+`DELETE /api/v1/admin/plugins/packages/staging/:id`
+
+- 认证：后台 admin token。
+- 权限：`plugin.write`。
+- 行为：删除对应 staging 文件并将记录标记为 `deleted`。不会卸载插件、不会删除本地仓库包、不会影响上传包生命周期记录。
 
 `POST /api/v1/admin/plugins/packages/templates/preview`
 
@@ -2103,4 +2155,178 @@ GET /api/v1/admin/plugins/remote-indexes/:id/plugins/:code
 
 本轮未新增后端 API，主要复核 v1.6 已有接口与文档口径。当前 v1.6 API 范围包括：zip upload、upload list/detail/rescan/promote/cancel/delete/cleanup、trusted publishers、remote indexes、versions / upgrade-diff、operations / recover dry-run / cleanup、config-keys status / rotation dry-run / re-encrypt，以及已有目录包 export dry-run / export。
 
-限制：当前没有 zip export 下载 API，也没有远程 package 下载 / 安装 API；`package_url` 只在远程索引中作为元数据展示，不会被服务端下载。
+限制：当前没有 zip export 下载 API；远程 package 仅支持通过 `POST /api/v1/admin/plugins/packages/download` 下载到 staging 并做 URL / 大小 / sha256 安全校验，不会安装、启用、执行代码、执行 SQL 或动态加载资产。
+
+## v1.7.0-P0-03 插件依赖 / 兼容性检查
+
+本轮新增的是安装前兼容性闸门，输入必须是 `plugin_package_prechecks.status=passed` 的预检记录；不会安装、启用、注册权限 / 菜单 / 路由 / Hook，也不会执行 migration 或插件代码。
+
+### `POST /api/v1/admin/plugins/packages/prechecks/:id/compat-check`
+
+权限：`plugin.write`。
+
+执行依赖 / 兼容性检查并保存结果。`id` 是预检通过记录 ID；`failed`、`rejected`、`unsafe_files_detected`、`manifest_invalid`、`deleted` 等状态会返回 `plugin_package_compat_precheck_not_passed`。
+
+返回示例：
+
+```json
+{
+  "id": 1,
+  "package_download_id": 10,
+  "package_precheck_id": 2,
+  "plugin_code": "demo",
+  "version": "1.0.0",
+  "status": "passed|warning|incompatible|dependency_missing|dependency_version_mismatch|conflict_detected|failed",
+  "can_install": true,
+  "core_version": "v1.7.0",
+  "compatible_core_version": ">=1.7.0 <2.0.0",
+  "dependency_result": {"checks": [], "summary": {"blocking": 0}},
+  "conflict_result": {"plugin_code_conflicts": [], "content_type_conflicts": []},
+  "permission_result": {"conflicts": [], "duplicates": [], "invalid_scopes": []},
+  "route_result": {"conflicts": [], "duplicates": []},
+  "menu_result": {"conflicts": [], "duplicates": []},
+  "hook_result": {"unsupported_hooks": [], "count": 0},
+  "config_schema_result": {"schema_present": true},
+  "migration_result": {"count": 0, "will_execute": false},
+  "warnings": [],
+  "errors": [],
+  "summary": {
+    "core_compatible": true,
+    "dependencies_ok": true,
+    "conflicts_ok": true,
+    "permissions_ok": true,
+    "routes_ok": true,
+    "config_schema_ok": true,
+    "migrations_ok": true,
+    "install_blocked": false,
+    "does_not_install": true,
+    "does_not_execute": true,
+    "does_not_register": true
+  }
+}
+```
+
+检查范围：
+
+- Core：`compatible_core_version` 必填，支持精确 `x.y.z`、`>=` / `>` / `<=` / `<`、空格组合范围、`^x.y.z`、`~x.y.z`，当前 Core 版本来自 `VERSION`。
+- 依赖：`dependencies` 支持字符串数组、对象数组，也兼容 `{ "plugins": [...] }`；required 缺失或版本不满足阻断，可选依赖缺失只 warning。
+- 冲突：检查 `plugin_code`、`content_types`、权限、菜单路径、路由 method+path 与现有 Core / 插件声明冲突。
+- 权限：权限码必须以 `plugin_code.` 开头，禁止 `core.*`、`admin.*`、`system.*` 和其他插件前缀，scope 限定 `global/community/channel/content`。
+- 菜单 / 路由：禁止外链、`javascript:`、`data:`、路径穿越、核心后台入口和敏感 API / 前台页面覆盖。
+- Hook：Hook 名称必须属于当前 HookBus，mode 只能 `blocking/non_blocking`，failure_policy 只能 `block/log/ignore`，blocking Hook 禁止 `ignore`。
+- config_schema：仅检查当前简化 JSON Schema 能力；`default_config` 如存在必须满足 schema。
+- migrations：只允许 `direction=up`，本轮只记录 pending，不执行 migration。
+
+### `GET /api/v1/admin/plugins/packages/compat-checks`
+
+权限：`plugin.read`。查询参数：`status`、`plugin_code`、`package_precheck_id`、`keyword`、`page`、`page_size`。返回 `items`、`pagination`、`summary`。
+
+### `GET /api/v1/admin/plugins/packages/compat-checks/:id`
+
+权限：`plugin.read`。返回单条兼容性检查详情。
+
+### `DELETE /api/v1/admin/plugins/packages/compat-checks/:id`
+
+权限：`plugin.write`。软删除检查结果，状态置为 `deleted`，不删除预检记录或 staging 文件。
+
+新增错误码：
+
+- `plugin_package_precheck_not_found`
+- `plugin_package_compat_precheck_not_passed`
+- `plugin_package_compat_manifest_missing`
+- `plugin_package_compat_source_invalid`
+- `plugin_package_compat_source_missing`
+- `plugin_package_compat_check_not_found`
+- `plugin_package_compat_core_constraint_missing`
+- `plugin_package_compat_dependency_version_mismatch`
+- `plugin_package_compat_plugin_code_conflict`
+- `plugin_package_compat_content_type_conflict`
+- `plugin_package_compat_permission_forbidden`
+- `plugin_package_compat_permission_conflict`
+- `plugin_package_compat_menu_sensitive_path`
+- `plugin_package_compat_route_sensitive_path`
+- `plugin_package_compat_hook_unknown`
+- `plugin_package_compat_config_default_invalid`
+- `plugin_package_compat_migration_direction_unsupported`
+
+## v1.7.0-P0-05：插件启用前安全检查（enable-precheck）
+
+启用前检查用于对「已安装但未启用」插件执行最后一道启用前安全校验：文件完整性复检、manifest 再校验、依赖再检查、配置有效性、迁移状态、内容类型/权限/菜单/路由/Hook 冲突检查，并输出 `can_enable` 结论。
+
+注意：本轮只做检查，不会真正启用插件，不会注册运行时，不会执行插件代码、脚本或 migration。
+
+### `POST /api/v1/admin/plugins/:code/enable-precheck`
+
+权限：`plugin.write`。对指定插件执行启用前检查。
+
+响应示例：
+
+```json
+{
+  "id": 1,
+  "plugin_code": "demo_notice",
+  "version": "1.0.0",
+  "status": "passed",
+  "can_enable": true,
+  "core_version": "v1.7.0",
+  "installed_path": "storage/plugins/packages/demo_notice",
+  "manifest_sha256": "…",
+  "file_integrity_result": {},
+  "manifest_result": {},
+  "dependency_result": {},
+  "config_result": {},
+  "migration_result": {},
+  "permission_result": {},
+  "menu_result": {},
+  "route_result": {},
+  "hook_result": {},
+  "content_type_result": {},
+  "runtime_result": {},
+  "warnings": [],
+  "errors": [],
+  "summary": {
+    "file_integrity_ok": true,
+    "manifest_ok": true,
+    "dependencies_ok": true,
+    "config_ok": true,
+    "migrations_ok": true,
+    "permissions_ok": true,
+    "menus_ok": true,
+    "routes_ok": true,
+    "hooks_ok": true,
+    "content_types_ok": true,
+    "can_enable": true
+  }
+}
+```
+
+输入来源与链路约束：
+
+- 插件必须已安装且未启用（非 `enabled`），不能是 `archived`/`migration_failed`/`dependency_missing` 等阻断状态。
+- 必须存在最近一条 `plugin_package_prechecks(status=passed)` + 对应 `plugin_package_compat_checks(can_install=true)` 作为强制链路；缺失则返回错误。
+- 对 `source_type=local_package` 的插件会基于预检记录 `package_path` 做文件完整性复检：重新扫描、校验 checksums、读取 `manifest.json` 并与安装时 `manifest_checksum` 比对；不匹配则阻断。
+- 该接口不会修改插件状态，不会注册菜单/路由/Hook，不会执行 migration。
+
+### `GET /api/v1/admin/plugins/enable-prechecks`
+
+权限：`plugin.read`。查询参数：`status`、`plugin_code`、`keyword`、`page`、`page_size`。返回 `items`、`pagination`。
+
+### `GET /api/v1/admin/plugins/enable-prechecks/:id`
+
+权限：`plugin.read`。返回单条启用前检查详情。
+
+### `DELETE /api/v1/admin/plugins/enable-prechecks/:id`
+
+权限：`plugin.write`。软删除检查结果，状态置为 `deleted`，不影响插件安装记录与包文件。
+
+新增错误码：
+
+- `plugin_enable_precheck_not_found`
+- `plugin_enable_precheck_invalid_request`
+- `plugin_enable_precheck_invalid_status`
+- `plugin_enable_precheck_precheck_missing`
+- `plugin_enable_precheck_compat_missing`
+- `plugin_enable_precheck_compat_blocked`
+- `plugin_enable_precheck_installed_path_missing`
+- `plugin_enable_precheck_manifest_changed`
+- `plugin_enable_precheck_checksum_failed`

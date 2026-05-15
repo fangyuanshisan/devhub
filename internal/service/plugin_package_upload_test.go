@@ -371,11 +371,11 @@ func cleanupUploadStorage(t *testing.T) string {
 	t.Helper()
 	root := mustProjectRoot(t)
 
-	// Keep test storage under allowlisted ".devhub/plugins" to reuse the same
-	// plugin package path whitelist as production code.
-	uploads := ".devhub/plugins/test-uploads"
-	staging := ".devhub/plugins/test-staging"
-	quarantine := ".devhub/plugins/test-quarantine"
+	// Keep test storage under allowlisted "storage/plugins/packages" to reuse the same
+	// plugin package path whitelist as production code, and avoid root-owned dirs in dev env.
+	uploads := ensureWritableTestStorageDir(t, "storage/plugins/packages/test-uploads")
+	staging := ensureWritableTestStorageDir(t, "storage/plugins/packages/test-staging")
+	quarantine := ensureWritableTestStorageDir(t, "storage/plugins/packages/test-quarantine")
 
 	t.Setenv("DEVHUB_PLUGIN_PACKAGE_UPLOADS_ROOT", uploads)
 	t.Setenv("DEVHUB_PLUGIN_PACKAGE_STAGING_ROOT", staging)

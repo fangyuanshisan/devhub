@@ -732,3 +732,95 @@ exported-plugin/
 ## v1.6.0 收口限制：zip 下载导出
 
 当前已支持将已安装声明型插件导出为 `storage/plugins/exports/` 下的本地插件包目录，并生成 `manifest.json`、`README.md`、脱敏 `config.example.json`、`checksums.json` 和可选 publisher / signature 结构草案。当前不提供 zip 下载包、不提供在线签名打包服务，也不保存或导出私钥；zip export 下载能力登记为 v1.7 后续任务。
+
+## v1.7.0-P0-01：远程插件包安全下载到 staging
+
+本轮新增的是远程插件安装链路的 P0 第一步：把远程插件包安全下载到 staging，仍不安装插件。
+
+目录与记录：
+
+- staging 目录：`storage/plugins/staging/downloads/`。
+- 表：`plugin_package_downloads`，记录 `plugin_code/version/source_url/final_url/status/file_size/sha256_expected/sha256_actual/content_type/staging_path/error_message/downloaded_at`。
+- staging 文件名由 `plugin_code`、`version`、`sha256` 前缀和时间戳生成，不使用远程文件名，避免路径穿越和文件名注入。
+- 下载失败会清理临时 `.part` 文件；成功后保留 staging 文件等待后续检查 / 解压任务处理。
+
+下载安全规则：
+
+- 仅允许 `https://`。
+- 禁止 `file://`、`http://`、`ftp://`、`gopher://` 等协议。
+- 禁止 localhost、`127.0.0.0/8`、`0.0.0.0`、`::1`、`10.0.0.0/8`、`172.16.0.0/12`、`192.168.0.0/16`、`169.254.0.0/16`、`fc00::/7`、`fe80::/10` 等本机 / 内网 / link-local 地址。
+- 最多 3 次重定向；每次重定向都会重新执行 URL、DNS 和 IP 安全校验。
+- 默认最大下载 20MB，可通过 `DEVHUB_PLUGIN_PACKAGE_DOWNLOAD_MAX_BYTES` 调整。
+- 当前允许 `.zip`、`.tar.gz`、`.tgz`；不支持可执行文件、脚本、共享库或未知二进制格式。
+
+sha256 规则：
+
+- 如果远程索引或请求提供 `sha256`，下载后必须匹配，否则状态为 `checksum_failed`，清理文件并禁止后续安装。
+- 如果未提供 `sha256`，状态为 `checksum_missing`；文件保留用于人工排查，但不能进入自动安装链路。
+- sha256 以实际下载字节计算，不信任 `Content-Length`。
+
+边界：
+
+- 不安装、不启用、不解压安装、不运行 package scripts、不执行第三方代码、不执行外部 SQL、不加载 Go plugin、不动态加载前端资产。
+- 本轮不做插件市场、远程更新、依赖安装、完整 sandbox 或签名新能力；如果已有签名机制，后续阶段可在解压 / dry-run 中复用。
+
+## v1.7.0-P0-03：插件依赖 / 兼容性检查
+
+本阶段是远程插件安装链路的安装前闸门。输入必须来自上一阶段预检通过的 `plugin_package_prechecks` 记录，且 `status=passed`；预检失败、manifest 无效、下载记录已失败 / rejected / checksum_failed / deleted 或 staging 文件丢失时，不能执行兼容性检查。
+
+数据模型：
+
+- `plugin_package_prechecks`：保存预检来源、manifest_json、package/staging 路径、checksum_status 和错误信息。本轮只补齐 compat-check 需要的最小持久化模型，不把完整解压预检 UI 写成已完成。
+- `plugin_package_compat_checks`：保存 compat-check 历史记录，包括 Core 兼容、依赖、冲突、权限、菜单、路由、Hook、config_schema、migration、warnings、errors、`can_install` 和 summary。
+
+检查规则：
+
+- Core：`compatible_core_version` 必须存在，当前 Core 来自 `VERSION`。支持 `1.7.0`、`>=1.7.0`、`>=1.7.0 <2.0.0`、`^1.7.0`、`~1.7.0`；不支持复杂预发布标签、`||` 或 npm 全量 semver。
+- 依赖：`dependencies` 支持字符串数组、对象数组和 `{ "plugins": [...] }`。required 依赖缺失或版本不满足会阻断；optional 依赖缺失只 warning；不会自动下载、安装或启用依赖。
+- `plugin_code` / `content_type`：不能抢占内置插件、已安装插件或现有内容类型；同一 manifest 内重复声明会失败。
+- 权限：权限码必须以 `plugin_code.` 开头，禁止声明 `core.*`、`admin.*`、`system.*` 或其他插件前缀；scope 仅允许 `global/community/channel/content`。
+- 菜单 / 路由：必须是站内路径，禁止外链、`javascript:`、`data:` 和路径穿越；禁止覆盖 `/admin-next`、`/login`、`/register`、`/topics`、`/c`、`/api/v1/admin/plugins/*`、`/api/v1/admin/users/*`、`/api/v1/admin/system/*` 等核心入口。
+- Hook：Hook 名称必须属于当前 HookBus；mode 只能 `blocking/non_blocking`；failure_policy 只能 `block/log/ignore`，blocking Hook 禁止 `ignore`。
+- config_schema：只验证 DevHub 当前简化 JSON Schema 能力；`default_config` 如存在必须满足 schema。
+- migrations：只允许 `direction=up`，本轮只记录 pending，不执行 migration，不支持 migration down。
+
+结论规则：
+
+- 有 errors 时 `can_install=false`。
+- 只有 warnings 时 `can_install=true` 且 `status=warning`。
+- Core 不兼容、required 依赖缺失、依赖版本不满足、plugin_code/content_type/permission/route 冲突、未知 Hook、default_config 不符合 schema、migration 不兼容均会阻断。
+- 没有 sha256 或 `checksum_missing` 的包默认不能进入安装链路。
+
+API：
+
+- `POST /api/v1/admin/plugins/packages/prechecks/:id/compat-check`
+- `GET /api/v1/admin/plugins/packages/compat-checks`
+- `GET /api/v1/admin/plugins/packages/compat-checks/:id`
+- `DELETE /api/v1/admin/plugins/packages/compat-checks/:id`
+
+后台“上传包管理”页新增最小兼容性检查入口：管理员输入 precheck ID 后执行检查，列表展示 status、`can_install`、blockers 和 warnings。页面不提供安装 / 启用按钮。
+
+边界：本轮不会安装插件、不会启用插件、不会注册权限 / 菜单 / 路由 / Hook、不会执行 migration、不会运行包内脚本、不会加载 Go plugin、不会安装 npm / composer / go 依赖，也不会修改现有 qa/docs/wiki/projects/jobs/ai_works 业务逻辑。
+
+## v1.7.0-P0-05：插件启用前安全检查（enable-precheck）
+
+启用前安全检查是启用流程的最后一道闸门：对已安装但未启用插件执行文件完整性复检、manifest 再校验、依赖/配置/迁移状态复检与冲突复检，输出 `can_enable` 结论。
+
+输入来源与约束：
+
+- 仅允许对“已安装且未启用”的插件执行；不会修改插件状态。
+- 为避免跳过远程包链路，启用前检查强制要求存在最近的 `plugin_package_prechecks(status=passed)` 且对应 `plugin_package_compat_checks(can_install=true)`。
+- 对 `source_type=local_package` 的插件，会基于预检记录中的 `package_path` 复检文件完整性；其他来源（builtin/manifest）不做包文件复检。
+
+复检范围（只检查，不执行）：
+
+1. 文件完整性：重新执行 package scan、危险文件检测、checksums 校验；读取 `manifest.json` 并与安装时 `manifest_checksum` 比对，不一致将阻断。
+2. manifest 再校验：复用 `manifest validate` 规则，包含 Core 兼容范围、敏感路径保护、Hook 白名单与 config_schema/migrations 合法性。
+3. 依赖再检查：required 依赖缺失/版本不满足阻断；optional 缺失仅 warning；不会自动安装/启用依赖。
+4. 配置有效性：当前 `config_json` 必须满足 `config_schema`，无效则阻断。
+5. 迁移状态：pending/failed 迁移阻断；本轮不执行 migration。
+6. 冲突复检：permissions/menus/routes/hooks/content_types 与当前已启用插件/核心声明冲突将阻断（或按规则 warning）。
+
+边界：
+
+- 本轮只做检查，不启用插件、不注册运行时、不开放前台/后台入口、不允许创建内容、不执行插件代码/脚本、不执行 migration。

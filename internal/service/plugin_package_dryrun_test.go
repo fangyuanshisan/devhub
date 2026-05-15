@@ -81,15 +81,15 @@ func TestDryRunPluginPackage_ManifestMissing(t *testing.T) {
 	svc := New(repo)
 
 	root := mustProjectRoot(t)
-	// Ensure temp dir is under allowlisted .devhub/plugins
-	dir := filepath.Join(root, ".devhub", "plugins", "pkg_no_manifest")
+	baseRel := ensureWritableTestStorageDir(t, "storage/plugins/packages/test-pkg-dryrun")
+	dir := filepath.Join(root, filepath.FromSlash(baseRel), "pkg_no_manifest")
 	_ = os.RemoveAll(dir)
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		t.Fatalf("mkdir: %v", err)
 	}
-	t.Cleanup(func() { _ = os.RemoveAll(filepath.Join(root, ".devhub")) })
+	t.Cleanup(func() { _ = os.RemoveAll(filepath.Join(root, filepath.FromSlash(baseRel))) })
 
-	_, err := svc.DryRunPluginPackage(".devhub/plugins/pkg_no_manifest")
+	_, err := svc.DryRunPluginPackage(filepath.ToSlash(filepath.Join(baseRel, "pkg_no_manifest")))
 	if err == nil {
 		t.Fatalf("expected error")
 	}
@@ -107,12 +107,13 @@ func TestDryRunPluginPackage_DangerousFileBlocked(t *testing.T) {
 	svc := New(repo)
 
 	root := mustProjectRoot(t)
-	pkgDir := filepath.Join(root, ".devhub", "plugins", "pkg_danger")
+	baseRel := ensureWritableTestStorageDir(t, "storage/plugins/packages/test-pkg-dryrun")
+	pkgDir := filepath.Join(root, filepath.FromSlash(baseRel), "pkg_danger")
 	_ = os.RemoveAll(pkgDir)
 	if err := os.MkdirAll(pkgDir, 0o755); err != nil {
 		t.Fatalf("mkdir: %v", err)
 	}
-	t.Cleanup(func() { _ = os.RemoveAll(filepath.Join(root, ".devhub")) })
+	t.Cleanup(func() { _ = os.RemoveAll(filepath.Join(root, filepath.FromSlash(baseRel))) })
 
 	manifest := []byte(`{"code":"pkg_danger","name":"Danger","version":"1.0.0","compatible_core_version":">=1.4.0","is_system":false,"content_types":["danger_item"],"content_type_definitions":[{"type":"danger_item","name":"Danger Item","plugin_code":"pkg_danger","create_permission":"pkg_danger.item.create","edit_permission":"pkg_danger.item.edit","delete_permission":"pkg_danger.item.delete","audit_permission":"pkg_danger.item.audit","default_status":"draft","allow_comment":true,"allow_like":true,"allow_favorite":true,"seo_type":"Article"}],"permissions":[{"code":"pkg_danger.item.create","name":"create","scope":"community"},{"code":"pkg_danger.item.edit","name":"edit","scope":"own"},{"code":"pkg_danger.item.delete","name":"delete","scope":"own"},{"code":"pkg_danger.item.audit","name":"audit","scope":"community"}],"menus":[{"code":"pkg_danger.admin","title":"danger","path":"/admin-next/pkg_danger","location":"admin","area":"admin","permission":"pkg_danger.item.audit"}],"routes":[{"area":"admin","method":"GET","path":"/api/v1/admin/pkg_danger","handler":"reserved","auth":"admin","permission":"pkg_danger.item.audit"}]}`)
 	if err := os.WriteFile(filepath.Join(pkgDir, "manifest.json"), manifest, 0o644); err != nil {
@@ -122,7 +123,7 @@ func TestDryRunPluginPackage_DangerousFileBlocked(t *testing.T) {
 		t.Fatalf("write sh: %v", err)
 	}
 
-	res, err := svc.DryRunPluginPackage(".devhub/plugins/pkg_danger")
+	res, err := svc.DryRunPluginPackage(filepath.ToSlash(filepath.Join(baseRel, "pkg_danger")))
 	if err != nil {
 		t.Fatalf("DryRunPluginPackage failed: %v", err)
 	}

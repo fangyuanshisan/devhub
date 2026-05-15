@@ -90,6 +90,30 @@ func DecodePluginManifestJSON(raw []byte) (domain.PluginManifest, string, error)
 }
 
 func decodeDependencies(raw json.RawMessage) ([]domain.PluginDependency, error) {
+	var objectWire struct {
+		Plugins []struct {
+			Code       string `json:"code"`
+			PluginCode string `json:"plugin_code,omitempty"`
+			Version    string `json:"version,omitempty"`
+			Required   *bool  `json:"required,omitempty"`
+			Reason     string `json:"reason,omitempty"`
+		} `json:"plugins"`
+		Core string `json:"core,omitempty"`
+	}
+	if err := json.Unmarshal(raw, &objectWire); err == nil && objectWire.Plugins != nil {
+		out := make([]domain.PluginDependency, 0, len(objectWire.Plugins))
+		for _, item := range objectWire.Plugins {
+			required := true
+			if item.Required != nil {
+				required = *item.Required
+			}
+			code := strings.TrimSpace(firstNonBlank(item.Code, item.PluginCode))
+			if code != "" {
+				out = append(out, domain.PluginDependency{Code: code, Version: item.Version, Required: required, Reason: item.Reason})
+			}
+		}
+		return out, nil
+	}
 	var names []string
 	if err := json.Unmarshal(raw, &names); err == nil {
 		out := make([]domain.PluginDependency, 0, len(names))

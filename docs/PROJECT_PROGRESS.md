@@ -8,15 +8,15 @@
 
 ## 当前版本结论
 
-当前 `VERSION` 为 `v1.6.0`，主题是“插件包上传与分发前置能力收口版”。本版本在 v1.5 本地插件包治理基础上，完成 zip 上传与解压安全沙箱、上传包生命周期治理、Ed25519 真实签名验签、可信发布者管理、远程插件索引只读镜像、插件包版本仓库、升级差异对比、安装 / 升级操作快照与失败恢复预览、配置密钥轮换，以及插件治理后台按功能分页和 E2E 基建整理。DevHub 当前定位为多子站通用开源社区程序，默认演示为开发者社区。
+当前 `VERSION` 为 `v1.7.0`，主题是“远程插件包治理与安装安全增强版”。本阶段在 v1.6 插件包上传与分发前置能力基础上，开始补齐远程插件包从只读索引到安全 staging 的受控链路；当前已完成远程包安全下载到 staging，不安装、不启用、不解压执行。DevHub 当前定位为多子站通用开源社区程序，默认演示为开发者社区。
 
-v1.6.0 收口确认的安全边界：zip 上传只进入 staging / quarantine，不自动安装；promote 只转入本地插件仓库，不等于安装；远程索引只读展示 `index.json` 元数据，不下载 `package_url`；安装、升级、promote 和审批执行前仍需服务端重新 dry-run / checksum / signature / risk_report；后台不展示私钥、key material、敏感配置明文、`enc:v1` / `enc:v2` 密文或系统绝对路径。
+v1.7.0 当前安全边界：远程下载只写入 `storage/plugins/staging/downloads/`，不自动安装；zip 上传只进入 staging / quarantine，不自动安装；promote 只转入本地插件仓库，不等于安装；远程索引只读展示 `index.json` 元数据，下载必须显式调用 staging API 并通过 URL / SSRF / 大小 / sha256 校验；安装、升级、promote 和审批执行前仍需服务端重新 dry-run / checksum / signature / risk_report；后台不展示私钥、key material、敏感配置明文、`enc:v1` / `enc:v2` 密文或系统绝对路径。
 
-v1.6.0 仍不支持：远程插件市场、远程插件包自动下载、在线自动更新、自动安装依赖、动态加载 Go 代码、JS/WASM/Lua 脚本沙箱、第三方代码执行、外部 raw SQL 执行、动态前端资产加载、完整 PKI / CA 证书链、远程可信源自动同步、多级审批、hard uninstall、migration down 或全量业务数据自动回滚。
+v1.7.0 当前仍不支持：远程插件市场、远程插件包自动安装、在线自动更新、自动安装依赖、动态加载 Go 代码、JS/WASM/Lua 脚本沙箱、第三方代码执行、外部 raw SQL 执行、动态前端资产加载、完整 PKI / CA 证书链、远程可信源自动同步、多级审批、hard uninstall、migration down 或全量业务数据自动回滚。
 
 验收发现的限制 / 技术债：当前已安装插件导出仍是 `storage/plugins/exports/` 目录包导出与可选 `signature.json` 结构草案，不提供 zip 下载包与在线签名打包；`plugin-package-export-zip.spec.js` 当前不存在，zip 导出下载能力应作为 v1.7 后续任务处理，不能写作 v1.6 已完成能力。配置历史密钥批量轮换、自动定时轮换、KMS/Vault、远程索引缓存刷新策略、上传/下载异步任务队列和更完整事务恢复仍为后续增强。
 
-下一阶段建议进入 `v1.7.0-P0-01`：远程插件包下载到 staging 与下载安全校验。v1.7 仍应优先做受控下载、审批、安全校验、缓存刷新、zip export 下载和 fixture 生成器，不应直接引入动态运行时或第三方代码执行。
+下一阶段建议进入 `v1.7.0-P0-02`：插件包解压安全检查与 manifest 预校验。v1.7 仍应优先做受控下载、审批、安全校验、缓存刷新、zip export 下载和 fixture 生成器，不应直接引入动态运行时或第三方代码执行。
 
 Core 保留用户、认证、子站、板块、通用内容、评论、标签、搜索、通知、SEO、权限、审计、插件注册和分发能力。问答、文档、Wiki、项目、招聘、AI 作品已按内置系统插件建模：`qa -> question`、`docs -> document`、`wiki -> wiki_page`、`projects -> project`、`jobs -> job`、`ai_works -> ai_work`。
 
@@ -2862,3 +2862,90 @@ v1.6.0-P1-10：v1.6 插件包上传与分发前置能力总验收。
 下一轮建议：
 
 `v1.7.0-P0-01`：远程插件包下载到 staging 与下载安全校验。
+
+
+## 2026-05-15：v1.7.0-P0-01 远程插件包下载到 staging 与下载安全校验
+
+已完成：
+
+- 新增远程插件包下载到 staging 能力：`POST /api/v1/admin/plugins/packages/download`。
+- 新增 staging 查询与删除 API：`GET /api/v1/admin/plugins/packages/staging`、`GET /api/v1/admin/plugins/packages/staging/:id`、`DELETE /api/v1/admin/plugins/packages/staging/:id`。
+- 新增 `plugin_package_downloads` 持久化记录，MemoryStore / MySQLStore 均支持状态、大小、hash、来源、错误信息和删除状态。
+- staging 目录固定为 `storage/plugins/staging/downloads/`；文件名由 `plugin_code/version/sha256 前缀/时间戳` 生成，不使用远程文件名。
+- 下载前强制校验 HTTPS、包格式、DNS/IP、localhost/内网/link-local、重定向次数与重定向目标；下载过程限制默认 20MB。
+- 下载后计算 sha256；匹配时为 `downloaded`，缺少 sha256 时为 `checksum_missing`，不匹配时为 `checksum_failed` 并清理文件。
+- 后台上传包管理页新增最小“远程插件包下载到 staging”表单和 staging 列表 / 删除入口。
+- 接入审计：download requested / success / failed / rejected、checksum failed、staging deleted。
+
+边界：
+
+- 本轮只下载到 staging，不安装、不启用、不解压执行、不运行包内脚本、不加载 Go plugin、不安装依赖、不执行 SQL、不动态加载前端资产。
+- 没有 sha256 的包只保留为 `checksum_missing`，不能被视为安全包进入自动安装链路。
+
+测试记录：
+
+- `gofmt`：通过。
+- `docker run --rm -v "$PWD":/workspace -w /workspace golang:1.23-bookworm gofmt -w ...`：通过。
+- `docker run --rm -v "$PWD":/workspace -w /workspace golang:1.23-bookworm go test ./...`：通过。
+- `docker run --rm -v "$PWD":/workspace -w /workspace golang:1.23-bookworm go build -buildvcs=false -o .devhub/devhub .`：通过。
+- `git diff --check`：通过。
+- `bash -n dev.sh`：通过。
+- `bash -n scripts/check-frontend.sh`：通过。
+- `docker compose run --rm admin-e2e npm run build`：通过。
+- `docker compose run --rm devhub go test ./...`：未执行成功，当前 `devhub` 运行镜像不包含 `go` 可执行文件；已改用一次性 `golang:1.23-bookworm` Docker 容器执行 Go 检查。
+
+下一轮建议：
+
+`v1.7.0-P0-02`：插件包解压安全检查与 manifest 预校验。
+
+## 2026-05-15：v1.7.0-P0-03 插件依赖 / 兼容性检查
+
+已完成：
+
+- 新增 `plugin_package_prechecks` / `plugin_package_compat_checks` 数据模型，MemoryStore 和 MySQLStore 均支持持久化。
+- 新增 compat-check API：执行、列表、详情、软删除。
+- 兼容性检查输入强制要求 precheck passed；failed / rejected / unsafe / manifest_invalid / deleted 不允许继续。
+- 后端检查 Core 版本约束、dependencies、plugin_code、content_type、permissions、menus、routes、hooks、config_schema、migrations，并返回 `can_install`、blockers、warnings 和 summary。
+- 后台上传包管理页新增最小“插件依赖 / 兼容性检查”入口和结果列表；不会展示安装 / 启用按钮。
+- 审计接入 compat_check requested / success / failed / incompatible / dependency_missing / conflict_detected / deleted。
+
+边界：
+
+- 本轮只做安装前依赖 / 兼容性检查，不安装、不启用、不注册权限 / 菜单 / 路由 / Hook、不执行 migration、不执行插件代码、不自动安装依赖。
+- 完整 P0-02 解压安全检查 UI 仍是前置能力；本轮只补齐 compat-check 所需的预检记录来源模型。
+
+测试记录：
+
+- `docker run --rm -v "$PWD":/workspace -v /tmp/devhub-go-mod-cache:/go/pkg/mod -v /tmp/devhub-go-build-cache:/root/.cache/go-build -w /workspace golang:1.23-bookworm gofmt -w ...`：通过。
+- `docker run --rm -v "$PWD":/workspace -v /tmp/devhub-go-mod-cache:/go/pkg/mod -v /tmp/devhub-go-build-cache:/root/.cache/go-build -w /workspace golang:1.23-bookworm go test ./...`：通过。
+
+下一轮建议：
+
+`v1.7.0-P0-04`：插件安装事务与回滚。
+
+## 2026-05-15：v1.7.0-P0-05 插件启用前安全检查（enable-precheck）
+
+已完成：
+
+- 新增 `plugin_enable_prechecks` 数据模型，持久化启用前检查结果；MemoryStore / MySQLStore 均支持。
+- 新增启用前检查 API：
+  - `POST /api/v1/admin/plugins/:code/enable-precheck`
+  - `GET /api/v1/admin/plugins/enable-prechecks`
+  - `GET /api/v1/admin/plugins/enable-prechecks/:id`
+  - `DELETE /api/v1/admin/plugins/enable-prechecks/:id`
+- 启用前检查输入来源强制链路：必须存在最近一条 `plugin_package_prechecks(status=passed)` 且对应 `plugin_package_compat_checks(can_install=true)`。
+- 复检范围（只检查不执行）：
+  - 文件完整性：对 `source_type=local_package` 基于预检记录 `package_path` 重新扫描、校验 checksums，并读取 `manifest.json` 与安装快照 `manifest_checksum` 比对；危险文件 / checksum 失败 / manifest 变更将阻断。
+  - manifest 再校验：复用 manifest validate 与 Core 兼容性检查。
+  - 依赖/配置/迁移复检：复用依赖与配置校验；迁移 pending/failed 阻断。
+  - 冲突复检：permissions/menus/routes/hooks/content_types 冲突检查与敏感路径保护。
+- 后台插件详情页「Readiness」页签增加最小“启用前检查”按钮与结果展示（只展示结论，不提供启用按钮）。
+- 审计接入：enable_precheck requested/success/failed/blocked/config_invalid/migration_pending/file_integrity_failed/deleted。
+
+边界：
+
+- 本轮只做检查，不启用插件、不注册运行时、不开放前台/后台入口、不允许创建内容、不执行 migration、不执行插件代码。
+
+下一轮建议：
+
+`v1.7.0-P0-06`：插件启用与运行时注册。

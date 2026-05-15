@@ -18,67 +18,77 @@ const TimeLayout = "2006-01-02 15:04:05"
 
 // MemoryStore 是线程安全的内存数据仓储，用于演示环境和本地开发。
 type MemoryStore struct {
-	mu                  sync.RWMutex
-	nextPostID          int64
-	nextCommentID       int64
-	nextNoticeID        int64
-	nextLogID           int64
-	nextPluginConfigVer int64
-	nextReactionID      int64
-	nextFavoriteID      int64
-	nextFollowID        int64
-	nextActivityID      int64
-	nextReportID        int64
-	nextModeratorID     int64
-	nextCommunityID     int64
-	nextCategoryID      int64
-	nextTagID           int64
-	nextTagAliasID      int64
-	nextUserID          int64
-	nextHookExecutionID int64
-	nextApprovalID      int64
-	nextPackageUploadID int64
-	nextTrustedPubID    int64
-	nextRemoteIndexID   int64
-	nextOperationID     int64
-	sites               map[string]domain.Site
-	boards              map[string]domain.Board
-	communities         map[int64]*domain.Community
-	categories          map[int64]*domain.Category
-	plugins             map[string]*domain.Plugin
-	communityPlugins    map[int64]map[string]*domain.CommunityPlugin
-	pluginMigrations    map[string][]domain.PluginMigration // plugin_code -> records
-	hookExecutions      []domain.HookExecution
-	qaQuestions         map[int64]*domain.QAQuestion
-	qaAnswers           map[int64]*domain.QAAnswer
-	docsSpaces          map[int64]*domain.DocsSpace
-	docsDocuments       map[int64]*domain.DocsDocument
-	wikiPages           map[int64]*domain.WikiPage
-	wikiVersions        map[int64]*domain.WikiRevision
-	tags                map[int64]*domain.Tag
-	tagAliases          map[int64]*domain.TagAlias
-	boardOrder          []string
-	siteOrder           []string
-	posts               map[int64]*domain.Post
-	comments            map[int64]*domain.Comment
-	notices             map[int64]*domain.Notification
-	reactions           map[string]*domain.Reaction
-	favorites           map[string]*domain.Favorite
-	follows             map[string]*domain.Follow
-	activities          map[int64]*domain.Activity
-	reports             map[int64]*domain.Report
-	moderators          map[int64]*domain.CommunityModerator
-	commentLocks        map[int64]bool
-	users               map[int64]*domain.AdminUser
-	roles               map[int64]domain.AdminRole
-	settings            domain.AdminSettings
-	logs                []domain.AdminLog
-	pluginConfigVers    []domain.PluginConfigVersion
-	pluginApprovals     []domain.PluginApprovalRequest
-	packageUploads      []domain.PluginPackageUploadRecord
-	pluginOperations    []domain.PluginOperationSnapshot
-	trustedPublishers   []domain.PluginTrustedPublisher
-	remoteIndexes       []domain.PluginRemoteIndexSource
+	mu                    sync.RWMutex
+	nextPostID            int64
+	nextCommentID         int64
+	nextNoticeID          int64
+	nextLogID             int64
+	nextPluginConfigVer   int64
+	nextReactionID        int64
+	nextFavoriteID        int64
+	nextFollowID          int64
+	nextActivityID        int64
+	nextReportID          int64
+	nextModeratorID       int64
+	nextCommunityID       int64
+	nextCategoryID        int64
+	nextTagID             int64
+	nextTagAliasID        int64
+	nextUserID            int64
+	nextHookExecutionID   int64
+	nextApprovalID        int64
+	nextPackageUploadID   int64
+	nextPackageDownloadID int64
+	nextPackagePrecheckID int64
+	nextPackageCompatID   int64
+	nextEnablePrecheckID  int64
+	nextEnableTaskID      int64
+	nextTrustedPubID      int64
+	nextRemoteIndexID     int64
+	nextOperationID       int64
+	sites                 map[string]domain.Site
+	boards                map[string]domain.Board
+	communities           map[int64]*domain.Community
+	categories            map[int64]*domain.Category
+	plugins               map[string]*domain.Plugin
+	communityPlugins      map[int64]map[string]*domain.CommunityPlugin
+	pluginMigrations      map[string][]domain.PluginMigration // plugin_code -> records
+	hookExecutions        []domain.HookExecution
+	qaQuestions           map[int64]*domain.QAQuestion
+	qaAnswers             map[int64]*domain.QAAnswer
+	docsSpaces            map[int64]*domain.DocsSpace
+	docsDocuments         map[int64]*domain.DocsDocument
+	wikiPages             map[int64]*domain.WikiPage
+	wikiVersions          map[int64]*domain.WikiRevision
+	tags                  map[int64]*domain.Tag
+	tagAliases            map[int64]*domain.TagAlias
+	boardOrder            []string
+	siteOrder             []string
+	posts                 map[int64]*domain.Post
+	comments              map[int64]*domain.Comment
+	notices               map[int64]*domain.Notification
+	reactions             map[string]*domain.Reaction
+	favorites             map[string]*domain.Favorite
+	follows               map[string]*domain.Follow
+	activities            map[int64]*domain.Activity
+	reports               map[int64]*domain.Report
+	moderators            map[int64]*domain.CommunityModerator
+	commentLocks          map[int64]bool
+	users                 map[int64]*domain.AdminUser
+	roles                 map[int64]domain.AdminRole
+	settings              domain.AdminSettings
+	logs                  []domain.AdminLog
+	pluginConfigVers      []domain.PluginConfigVersion
+	pluginApprovals       []domain.PluginApprovalRequest
+	packageUploads        []domain.PluginPackageUploadRecord
+	packageDownloads      []domain.PluginPackageDownloadRecord
+	packagePrechecks      []domain.PluginPackagePrecheckRecord
+	packageCompatChecks   []domain.PluginPackageCompatCheckRecord
+	enablePrechecks       []domain.PluginEnablePrecheckRecord
+	enableTasks           []domain.PluginEnableTask
+	pluginOperations      []domain.PluginOperationSnapshot
+	trustedPublishers     []domain.PluginTrustedPublisher
+	remoteIndexes         []domain.PluginRemoteIndexSource
 }
 
 func countPluginMenus(def domain.Plugin, area string) int {
@@ -285,54 +295,57 @@ func (s *MemoryStore) recentHookErrorsCountLocked(pluginCode string, communityID
 // NewMemoryStore 创建内存仓储并写入演示数据。
 func NewMemoryStore() *MemoryStore {
 	s := &MemoryStore{
-		nextPostID:          1,
-		nextCommentID:       1,
-		nextNoticeID:        1,
-		nextLogID:           1,
-		nextPluginConfigVer: 1,
-		nextReactionID:      1,
-		nextFavoriteID:      1,
-		nextFollowID:        1,
-		nextActivityID:      1,
-		nextReportID:        1,
-		nextModeratorID:     1,
-		nextCommunityID:     1,
-		nextCategoryID:      1,
-		nextTagID:           1,
-		nextTagAliasID:      1,
-		nextUserID:          1,
-		nextHookExecutionID: 1,
-		nextApprovalID:      1,
-		sites:               map[string]domain.Site{},
-		boards:              map[string]domain.Board{},
-		communities:         map[int64]*domain.Community{},
-		categories:          map[int64]*domain.Category{},
-		plugins:             map[string]*domain.Plugin{},
-		communityPlugins:    map[int64]map[string]*domain.CommunityPlugin{},
-		pluginMigrations:    map[string][]domain.PluginMigration{},
-		hookExecutions:      []domain.HookExecution{},
-		qaQuestions:         map[int64]*domain.QAQuestion{},
-		qaAnswers:           map[int64]*domain.QAAnswer{},
-		docsSpaces:          map[int64]*domain.DocsSpace{},
-		docsDocuments:       map[int64]*domain.DocsDocument{},
-		wikiPages:           map[int64]*domain.WikiPage{},
-		wikiVersions:        map[int64]*domain.WikiRevision{},
-		tags:                map[int64]*domain.Tag{},
-		tagAliases:          map[int64]*domain.TagAlias{},
-		boardOrder:          []string{"all", "community", "qa", "opensource", "ai", "jobs", "wiki", "docs"},
-		siteOrder:           []string{"php", "go", "java", "ai", "frontend"},
-		posts:               map[int64]*domain.Post{},
-		comments:            map[int64]*domain.Comment{},
-		notices:             map[int64]*domain.Notification{},
-		reactions:           map[string]*domain.Reaction{},
-		favorites:           map[string]*domain.Favorite{},
-		follows:             map[string]*domain.Follow{},
-		activities:          map[int64]*domain.Activity{},
-		reports:             map[int64]*domain.Report{},
-		moderators:          map[int64]*domain.CommunityModerator{},
-		commentLocks:        map[int64]bool{},
-		users:               map[int64]*domain.AdminUser{},
-		roles:               map[int64]domain.AdminRole{},
+		nextPostID:            1,
+		nextCommentID:         1,
+		nextNoticeID:          1,
+		nextLogID:             1,
+		nextPluginConfigVer:   1,
+		nextReactionID:        1,
+		nextFavoriteID:        1,
+		nextFollowID:          1,
+		nextActivityID:        1,
+		nextReportID:          1,
+		nextModeratorID:       1,
+		nextCommunityID:       1,
+		nextCategoryID:        1,
+		nextTagID:             1,
+		nextTagAliasID:        1,
+		nextUserID:            1,
+		nextHookExecutionID:   1,
+		nextApprovalID:        1,
+		nextPackageDownloadID: 1,
+		nextPackagePrecheckID: 1,
+		nextPackageCompatID:   1,
+		sites:                 map[string]domain.Site{},
+		boards:                map[string]domain.Board{},
+		communities:           map[int64]*domain.Community{},
+		categories:            map[int64]*domain.Category{},
+		plugins:               map[string]*domain.Plugin{},
+		communityPlugins:      map[int64]map[string]*domain.CommunityPlugin{},
+		pluginMigrations:      map[string][]domain.PluginMigration{},
+		hookExecutions:        []domain.HookExecution{},
+		qaQuestions:           map[int64]*domain.QAQuestion{},
+		qaAnswers:             map[int64]*domain.QAAnswer{},
+		docsSpaces:            map[int64]*domain.DocsSpace{},
+		docsDocuments:         map[int64]*domain.DocsDocument{},
+		wikiPages:             map[int64]*domain.WikiPage{},
+		wikiVersions:          map[int64]*domain.WikiRevision{},
+		tags:                  map[int64]*domain.Tag{},
+		tagAliases:            map[int64]*domain.TagAlias{},
+		boardOrder:            []string{"all", "community", "qa", "opensource", "ai", "jobs", "wiki", "docs"},
+		siteOrder:             []string{"php", "go", "java", "ai", "frontend"},
+		posts:                 map[int64]*domain.Post{},
+		comments:              map[int64]*domain.Comment{},
+		notices:               map[int64]*domain.Notification{},
+		reactions:             map[string]*domain.Reaction{},
+		favorites:             map[string]*domain.Favorite{},
+		follows:               map[string]*domain.Follow{},
+		activities:            map[int64]*domain.Activity{},
+		reports:               map[int64]*domain.Report{},
+		moderators:            map[int64]*domain.CommunityModerator{},
+		commentLocks:          map[int64]bool{},
+		users:                 map[int64]*domain.AdminUser{},
+		roles:                 map[int64]domain.AdminRole{},
 		settings: domain.AdminSettings{
 			SiteName:          "DevHub",
 			Copyright:         "© 2026 DevHub",
@@ -346,10 +359,15 @@ func NewMemoryStore() *MemoryStore {
 			HotLikeWeight:     8,
 			HotCommentWeight:  15,
 		},
-		pluginConfigVers:  []domain.PluginConfigVersion{},
-		pluginApprovals:   []domain.PluginApprovalRequest{},
-		packageUploads:    []domain.PluginPackageUploadRecord{},
-		trustedPublishers: pluginregistry.DomainPublishersFromConfig(mustLoadTrustedPublishersConfig()),
+		pluginConfigVers:    []domain.PluginConfigVersion{},
+		pluginApprovals:     []domain.PluginApprovalRequest{},
+		packageUploads:      []domain.PluginPackageUploadRecord{},
+		packageDownloads:    []domain.PluginPackageDownloadRecord{},
+		packagePrechecks:    []domain.PluginPackagePrecheckRecord{},
+		packageCompatChecks: []domain.PluginPackageCompatCheckRecord{},
+		enablePrechecks:     []domain.PluginEnablePrecheckRecord{},
+		enableTasks:         []domain.PluginEnableTask{},
+		trustedPublishers:   pluginregistry.DomainPublishersFromConfig(mustLoadTrustedPublishersConfig()),
 	}
 	for i := range s.trustedPublishers {
 		s.nextTrustedPubID++
@@ -6701,6 +6719,490 @@ func (s *MemoryStore) PluginPackageUploads(filter domain.PluginPackageUploadFilt
 		end = total
 	}
 	return append([]domain.PluginPackageUploadRecord(nil), all[start:end]...), total, nil
+}
+
+// ===== Plugin package remote downloads (v1.7.0-P0-01) =====
+
+func (s *MemoryStore) AppendPluginPackageDownload(record domain.PluginPackageDownloadRecord) (domain.PluginPackageDownloadRecord, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	record.ID = s.nextPackageDownloadID
+	s.nextPackageDownloadID++
+	if strings.TrimSpace(record.Status) == "" {
+		record.Status = domain.PluginPackageDownloadStatusPending
+	}
+	now := Now()
+	if strings.TrimSpace(record.CreatedAt) == "" {
+		record.CreatedAt = now
+	}
+	record.UpdatedAt = now
+	s.packageDownloads = append(s.packageDownloads, record)
+	return record, nil
+}
+
+func (s *MemoryStore) SavePluginPackageDownload(record domain.PluginPackageDownloadRecord) (domain.PluginPackageDownloadRecord, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	now := Now()
+	for i := range s.packageDownloads {
+		if s.packageDownloads[i].ID != record.ID {
+			continue
+		}
+		if strings.TrimSpace(record.CreatedAt) == "" {
+			record.CreatedAt = s.packageDownloads[i].CreatedAt
+		}
+		record.UpdatedAt = now
+		s.packageDownloads[i] = record
+		return record, nil
+	}
+	if record.ID == 0 {
+		record.ID = s.nextPackageDownloadID
+		s.nextPackageDownloadID++
+	}
+	if strings.TrimSpace(record.CreatedAt) == "" {
+		record.CreatedAt = now
+	}
+	record.UpdatedAt = now
+	s.packageDownloads = append(s.packageDownloads, record)
+	return record, nil
+}
+
+func (s *MemoryStore) PluginPackageDownloadByID(id int64) (domain.PluginPackageDownloadRecord, bool) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	for _, it := range s.packageDownloads {
+		if it.ID == id {
+			return it, true
+		}
+	}
+	return domain.PluginPackageDownloadRecord{}, false
+}
+
+func (s *MemoryStore) PluginPackageDownloads(filter domain.PluginPackageDownloadFilter) ([]domain.PluginPackageDownloadRecord, int, error) {
+	page, pageSize := normalizeMemoryPage(filter.Page, filter.PageSize)
+	status := strings.TrimSpace(filter.Status)
+	code := strings.TrimSpace(filter.PluginCode)
+	keyword := strings.ToLower(strings.TrimSpace(filter.Keyword))
+
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	all := make([]domain.PluginPackageDownloadRecord, 0, len(s.packageDownloads))
+	for _, it := range s.packageDownloads {
+		if status != "" && status != "all" && it.Status != status {
+			continue
+		}
+		if code != "" && it.PluginCode != code {
+			continue
+		}
+		if keyword != "" {
+			hay := strings.ToLower(strings.Join([]string{it.PluginCode, it.Version, it.SourceURL, it.FinalURL, it.FileName, it.Status}, " "))
+			if !strings.Contains(hay, keyword) {
+				continue
+			}
+		}
+		all = append(all, it)
+	}
+	sort.Slice(all, func(i, j int) bool {
+		return all[i].ID > all[j].ID
+	})
+	total := len(all)
+	start := (page - 1) * pageSize
+	if start > total {
+		start = total
+	}
+	end := start + pageSize
+	if end > total {
+		end = total
+	}
+	return append([]domain.PluginPackageDownloadRecord(nil), all[start:end]...), total, nil
+}
+
+// ===== Plugin package prechecks / compatibility checks (v1.7.0-P0-03) =====
+
+func (s *MemoryStore) AppendPluginPackagePrecheck(record domain.PluginPackagePrecheckRecord) (domain.PluginPackagePrecheckRecord, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	record.ID = s.nextPackagePrecheckID
+	s.nextPackagePrecheckID++
+	if strings.TrimSpace(record.Status) == "" {
+		record.Status = domain.PluginPackagePrecheckStatusPassed
+	}
+	now := Now()
+	if strings.TrimSpace(record.CreatedAt) == "" {
+		record.CreatedAt = now
+	}
+	if strings.TrimSpace(record.StartedAt) == "" {
+		record.StartedAt = record.CreatedAt
+	}
+	if strings.TrimSpace(record.FinishedAt) == "" {
+		record.FinishedAt = record.CreatedAt
+	}
+	record.UpdatedAt = now
+	s.packagePrechecks = append(s.packagePrechecks, record)
+	return record, nil
+}
+
+func (s *MemoryStore) SavePluginPackagePrecheck(record domain.PluginPackagePrecheckRecord) (domain.PluginPackagePrecheckRecord, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	now := Now()
+	for i := range s.packagePrechecks {
+		if s.packagePrechecks[i].ID != record.ID {
+			continue
+		}
+		if strings.TrimSpace(record.CreatedAt) == "" {
+			record.CreatedAt = s.packagePrechecks[i].CreatedAt
+		}
+		record.UpdatedAt = now
+		s.packagePrechecks[i] = record
+		return record, nil
+	}
+	if record.ID == 0 {
+		record.ID = s.nextPackagePrecheckID
+		s.nextPackagePrecheckID++
+	}
+	if strings.TrimSpace(record.CreatedAt) == "" {
+		record.CreatedAt = now
+	}
+	record.UpdatedAt = now
+	s.packagePrechecks = append(s.packagePrechecks, record)
+	return record, nil
+}
+
+func (s *MemoryStore) PluginPackagePrecheckByID(id int64) (domain.PluginPackagePrecheckRecord, bool) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	for _, it := range s.packagePrechecks {
+		if it.ID == id {
+			return it, true
+		}
+	}
+	return domain.PluginPackagePrecheckRecord{}, false
+}
+
+func (s *MemoryStore) PluginPackagePrechecks(filter domain.PluginPackagePrecheckFilter) ([]domain.PluginPackagePrecheckRecord, int, error) {
+	page, pageSize := normalizeMemoryPage(filter.Page, filter.PageSize)
+	status := strings.TrimSpace(filter.Status)
+	code := strings.TrimSpace(filter.PluginCode)
+	keyword := strings.ToLower(strings.TrimSpace(filter.Keyword))
+
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	all := make([]domain.PluginPackagePrecheckRecord, 0, len(s.packagePrechecks))
+	for _, it := range s.packagePrechecks {
+		if status != "" && status != "all" && it.Status != status {
+			continue
+		}
+		if code != "" && it.PluginCode != code {
+			continue
+		}
+		if keyword != "" {
+			hay := strings.ToLower(strings.Join([]string{it.PluginCode, it.Version, it.Status, it.PackagePath, it.StagingPath}, " "))
+			if !strings.Contains(hay, keyword) {
+				continue
+			}
+		}
+		all = append(all, it)
+	}
+	sort.Slice(all, func(i, j int) bool { return all[i].ID > all[j].ID })
+	total := len(all)
+	start := (page - 1) * pageSize
+	if start > total {
+		start = total
+	}
+	end := start + pageSize
+	if end > total {
+		end = total
+	}
+	return append([]domain.PluginPackagePrecheckRecord(nil), all[start:end]...), total, nil
+}
+
+func (s *MemoryStore) AppendPluginPackageCompatCheck(record domain.PluginPackageCompatCheckRecord) (domain.PluginPackageCompatCheckRecord, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	record.ID = s.nextPackageCompatID
+	s.nextPackageCompatID++
+	if strings.TrimSpace(record.Status) == "" {
+		record.Status = domain.PluginPackageCompatCheckStatusPending
+	}
+	now := Now()
+	if strings.TrimSpace(record.CreatedAt) == "" {
+		record.CreatedAt = now
+	}
+	if strings.TrimSpace(record.StartedAt) == "" {
+		record.StartedAt = record.CreatedAt
+	}
+	record.UpdatedAt = now
+	s.packageCompatChecks = append(s.packageCompatChecks, record)
+	return record, nil
+}
+
+func (s *MemoryStore) SavePluginPackageCompatCheck(record domain.PluginPackageCompatCheckRecord) (domain.PluginPackageCompatCheckRecord, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	now := Now()
+	for i := range s.packageCompatChecks {
+		if s.packageCompatChecks[i].ID != record.ID {
+			continue
+		}
+		if strings.TrimSpace(record.CreatedAt) == "" {
+			record.CreatedAt = s.packageCompatChecks[i].CreatedAt
+		}
+		record.UpdatedAt = now
+		s.packageCompatChecks[i] = record
+		return record, nil
+	}
+	if record.ID == 0 {
+		record.ID = s.nextPackageCompatID
+		s.nextPackageCompatID++
+	}
+	if strings.TrimSpace(record.CreatedAt) == "" {
+		record.CreatedAt = now
+	}
+	record.UpdatedAt = now
+	s.packageCompatChecks = append(s.packageCompatChecks, record)
+	return record, nil
+}
+
+func (s *MemoryStore) PluginPackageCompatCheckByID(id int64) (domain.PluginPackageCompatCheckRecord, bool) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	for _, it := range s.packageCompatChecks {
+		if it.ID == id {
+			return it, true
+		}
+	}
+	return domain.PluginPackageCompatCheckRecord{}, false
+}
+
+func (s *MemoryStore) PluginPackageCompatChecks(filter domain.PluginPackageCompatCheckFilter) ([]domain.PluginPackageCompatCheckRecord, int, error) {
+	page, pageSize := normalizeMemoryPage(filter.Page, filter.PageSize)
+	status := strings.TrimSpace(filter.Status)
+	code := strings.TrimSpace(filter.PluginCode)
+	keyword := strings.ToLower(strings.TrimSpace(filter.Keyword))
+
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	all := make([]domain.PluginPackageCompatCheckRecord, 0, len(s.packageCompatChecks))
+	for _, it := range s.packageCompatChecks {
+		if status != "" && status != "all" && it.Status != status {
+			continue
+		}
+		if code != "" && it.PluginCode != code {
+			continue
+		}
+		if filter.PackagePrecheckID > 0 && it.PackagePrecheckID != filter.PackagePrecheckID {
+			continue
+		}
+		if keyword != "" {
+			hay := strings.ToLower(strings.Join([]string{it.PluginCode, it.Version, it.Status, it.CoreVersion, it.CompatibleCoreVersion}, " "))
+			if !strings.Contains(hay, keyword) {
+				continue
+			}
+		}
+		all = append(all, it)
+	}
+	sort.Slice(all, func(i, j int) bool { return all[i].ID > all[j].ID })
+	total := len(all)
+	start := (page - 1) * pageSize
+	if start > total {
+		start = total
+	}
+	end := start + pageSize
+	if end > total {
+		end = total
+	}
+	return append([]domain.PluginPackageCompatCheckRecord(nil), all[start:end]...), total, nil
+}
+
+// ===== Plugin enable prechecks (v1.7.0-P0-05) =====
+
+func (s *MemoryStore) AppendPluginEnablePrecheck(record domain.PluginEnablePrecheckRecord) (domain.PluginEnablePrecheckRecord, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.nextEnablePrecheckID++
+	record.ID = s.nextEnablePrecheckID
+	if strings.TrimSpace(record.Status) == "" {
+		record.Status = domain.PluginEnablePrecheckStatusPending
+	}
+	now := Now()
+	if strings.TrimSpace(record.CreatedAt) == "" {
+		record.CreatedAt = now
+	}
+	if strings.TrimSpace(record.StartedAt) == "" {
+		record.StartedAt = record.CreatedAt
+	}
+	record.UpdatedAt = now
+	s.enablePrechecks = append(s.enablePrechecks, record)
+	return record, nil
+}
+
+func (s *MemoryStore) SavePluginEnablePrecheck(record domain.PluginEnablePrecheckRecord) (domain.PluginEnablePrecheckRecord, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	now := Now()
+	for i := range s.enablePrechecks {
+		if s.enablePrechecks[i].ID != record.ID {
+			continue
+		}
+		if strings.TrimSpace(record.CreatedAt) == "" {
+			record.CreatedAt = s.enablePrechecks[i].CreatedAt
+		}
+		record.UpdatedAt = now
+		s.enablePrechecks[i] = record
+		return record, nil
+	}
+	if record.ID == 0 {
+		s.nextEnablePrecheckID++
+		record.ID = s.nextEnablePrecheckID
+	}
+	if strings.TrimSpace(record.CreatedAt) == "" {
+		record.CreatedAt = now
+	}
+	if strings.TrimSpace(record.StartedAt) == "" {
+		record.StartedAt = record.CreatedAt
+	}
+	record.UpdatedAt = now
+	s.enablePrechecks = append(s.enablePrechecks, record)
+	return record, nil
+}
+
+func (s *MemoryStore) PluginEnablePrecheckByID(id int64) (domain.PluginEnablePrecheckRecord, bool) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	for _, it := range s.enablePrechecks {
+		if it.ID == id {
+			return it, true
+		}
+	}
+	return domain.PluginEnablePrecheckRecord{}, false
+}
+
+func (s *MemoryStore) PluginEnablePrechecks(filter domain.PluginEnablePrecheckFilter) ([]domain.PluginEnablePrecheckRecord, int, error) {
+	page, pageSize := normalizeMemoryPage(filter.Page, filter.PageSize)
+	status := strings.TrimSpace(filter.Status)
+	code := strings.TrimSpace(filter.PluginCode)
+	keyword := strings.ToLower(strings.TrimSpace(filter.Keyword))
+
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	all := make([]domain.PluginEnablePrecheckRecord, 0, len(s.enablePrechecks))
+	for _, it := range s.enablePrechecks {
+		if status != "" && status != "all" && it.Status != status {
+			continue
+		}
+		if code != "" && it.PluginCode != code {
+			continue
+		}
+		if keyword != "" {
+			hay := strings.ToLower(strings.Join([]string{it.PluginCode, it.Version, it.Status, it.CoreVersion}, " "))
+			if !strings.Contains(hay, keyword) {
+				continue
+			}
+		}
+		all = append(all, it)
+	}
+	sort.Slice(all, func(i, j int) bool { return all[i].ID > all[j].ID })
+	total := len(all)
+	start := (page - 1) * pageSize
+	if start > total {
+		start = total
+	}
+	end := start + pageSize
+	if end > total {
+		end = total
+	}
+	return append([]domain.PluginEnablePrecheckRecord(nil), all[start:end]...), total, nil
+}
+
+// ===== Plugin enable tasks (v1.7.0-P0-06) =====
+
+func (s *MemoryStore) AppendPluginEnableTask(record domain.PluginEnableTask) (domain.PluginEnableTask, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.nextEnableTaskID++
+	record.ID = s.nextEnableTaskID
+	now := Now()
+	if strings.TrimSpace(record.Status) == "" {
+		record.Status = domain.PluginEnableTaskStatusPending
+	}
+	if strings.TrimSpace(record.CreatedAt) == "" {
+		record.CreatedAt = now
+	}
+	record.UpdatedAt = now
+	s.enableTasks = append(s.enableTasks, record)
+	return record, nil
+}
+
+func (s *MemoryStore) SavePluginEnableTask(record domain.PluginEnableTask) (domain.PluginEnableTask, error) {
+	if record.ID <= 0 {
+		return s.AppendPluginEnableTask(record)
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	now := Now()
+	record.UpdatedAt = now
+	for i := range s.enableTasks {
+		if s.enableTasks[i].ID == record.ID {
+			s.enableTasks[i] = record
+			return record, nil
+		}
+	}
+	s.enableTasks = append(s.enableTasks, record)
+	return record, nil
+}
+
+func (s *MemoryStore) PluginEnableTaskByID(id int64) (domain.PluginEnableTask, bool) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	for _, it := range s.enableTasks {
+		if it.ID == id {
+			return it, true
+		}
+	}
+	return domain.PluginEnableTask{}, false
+}
+
+func (s *MemoryStore) PluginEnableTasks(filter domain.PluginEnableTaskFilter) ([]domain.PluginEnableTask, int, error) {
+	page, pageSize := normalizeMemoryPage(filter.Page, filter.PageSize)
+	status := strings.TrimSpace(filter.Status)
+	code := strings.TrimSpace(filter.PluginCode)
+	keyword := strings.ToLower(strings.TrimSpace(filter.Keyword))
+
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	all := make([]domain.PluginEnableTask, 0, len(s.enableTasks))
+	for _, it := range s.enableTasks {
+		if status != "" && status != "all" && it.Status != status {
+			continue
+		}
+		if code != "" && it.PluginCode != code {
+			continue
+		}
+		if keyword != "" {
+			hay := strings.ToLower(strings.Join([]string{it.PluginCode, it.Version, it.Status, it.PreviousStatus, it.NewStatus}, " "))
+			if !strings.Contains(hay, keyword) {
+				continue
+			}
+		}
+		all = append(all, it)
+	}
+	sort.Slice(all, func(i, j int) bool { return all[i].ID > all[j].ID })
+	total := len(all)
+	start := (page - 1) * pageSize
+	if start > total {
+		start = total
+	}
+	end := start + pageSize
+	if end > total {
+		end = total
+	}
+	return append([]domain.PluginEnableTask(nil), all[start:end]...), total, nil
 }
 
 // ===== Plugin operations (v1.6.0-P0-06) =====

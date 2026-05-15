@@ -120,6 +120,27 @@
 
 远程插件索引页面归入后台“系统插件 / 远程与开发者”分组。页面仍保持只读定位：只展示远程 index.json 元数据、publisher trust、Core 兼容性和本地安装状态，不提供下载、安装、自动更新、动态加载或远程市场入口。
 
-## v1.6.0 总验收边界
+## v1.7.0-P0-01：远程包下载到 staging
 
-v1.6.0 收口后，远程插件索引仍是只读镜像能力：只拉取 `index.json`，展示远程插件元数据、publisher trust、Core 兼容性和本地安装状态。系统不会下载 `package_url`，不会触发升级 dry-run，不会自动信任远程 publisher，也不会安装远程插件。远程包下载到 staging 与下载安全校验登记为 v1.7 后续任务。
+v1.7.0-P0-01 开始补齐远程安装链路的第一步：服务端可以把远程索引中的 `package_url` 或管理员手工指定的包 URL 安全下载到 `storage/plugins/staging/downloads/`。
+
+边界仍然严格：
+
+- 只下载到 staging，不安装、不启用、不解压执行、不运行包内脚本、不加载 Go plugin、不执行 SQL、不动态加载前端资产。
+- 下载前校验 URL：仅 HTTPS，拒绝 localhost、回环地址、内网地址、link-local 地址、非法协议和重定向到禁止地址。
+- 下载过程限制重定向次数、连接 / 读取超时和默认 20MB 文件大小。
+- 下载后计算 sha256；远程索引提供 `package_sha256` 时必须匹配。没有 sha256 的下载记录标记为 `checksum_missing`，仅保留 staging 文件，不能进入自动安装。
+- 当前只允许 `.zip`、`.tar.gz`、`.tgz`。未知格式和可执行 / 脚本类包不会进入 staging。
+- `package_sha256` 在远程索引中仍只是元数据声明；只有经过 `/api/v1/admin/plugins/packages/download` 下载并比对后，才成为本地记录中的实际校验结果。
+
+API 见 `docs/API.md`：`POST /api/v1/admin/plugins/packages/download`、`GET /api/v1/admin/plugins/packages/staging`、`GET /api/v1/admin/plugins/packages/staging/:id`、`DELETE /api/v1/admin/plugins/packages/staging/:id`。
+
+## v1.7.0-P0-03 与兼容性检查的关系
+
+远程索引版本仍然只是只读元数据，不能直接进入 compat-check。远程包必须先通过安全下载到 staging，再完成解压安全检查与 manifest 预校验，生成 `plugin_package_prechecks.status=passed` 记录后，才能调用 `POST /api/v1/admin/plugins/packages/prechecks/:id/compat-check`。
+
+compat-check 会使用预检 manifest 检查 Core 版本、依赖、plugin_code、content_type、权限、菜单、路由、Hook、config_schema 和 migration 兼容性，并返回 `can_install`。本轮仍不下载依赖插件、不安装远程包、不启用插件、不执行 migration、不执行第三方代码。
+
+## v1.7.0-P0-05 与启用前检查（enable-precheck）的关系
+
+启用前检查的输入来自“已安装但未启用”的插件，并且强制要求存在最近的 `precheck passed + compat-check can_install=true` 链路，避免绕过远程包治理链路直接启用。enable-precheck 只做复检与结论输出，不会真正启用插件或注册运行时能力。

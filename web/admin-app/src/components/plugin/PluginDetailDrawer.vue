@@ -119,8 +119,36 @@
               {{ t('plugin.readiness.overall') }}：{{ readinessStatusLabel(readinessResult?.status) }}
             </el-tag>
             <el-button size="small" :loading="readinessLoading" data-testid="plugin-readiness-refresh" @click="loadReadiness">{{ t('common.refresh') }}</el-button>
+            <el-button
+              v-if="canRunEnablePrecheck"
+              size="small"
+              type="primary"
+              plain
+              :loading="enablePrecheckLoading"
+              data-testid="plugin-enable-precheck-run"
+              @click="runEnablePrecheck"
+            >
+              {{ t('plugin.ops.enablePrecheck') }}
+            </el-button>
           </div>
-          <el-alert type="info" show-icon :closable="false" class="mb" :title="t('plugin.readiness.tip')" />
+          <el-alert type="info" show-icon :closable="false" class="mb" :title="t('plugin.ops.enablePrecheckTip')" />
+          <el-alert
+            v-if="enablePrecheckResult"
+            :title="t('plugin.ops.enablePrecheckResult')"
+            :type="enablePrecheckResult.can_enable ? 'success' : 'error'"
+            show-icon
+            :closable="false"
+            class="mb"
+          >
+            <template #default>
+              <div class="banner-lines">
+                <div><strong>status：</strong>{{ enablePrecheckResult.status }}</div>
+                <div><strong>can_enable：</strong>{{ enablePrecheckResult.can_enable }}</div>
+                <div v-if="(enablePrecheckResult.errors || []).length"><strong>errors：</strong>{{ (enablePrecheckResult.errors || []).join('；') }}</div>
+                <div v-if="(enablePrecheckResult.warnings || []).length"><strong>warnings：</strong>{{ (enablePrecheckResult.warnings || []).join('；') }}</div>
+              </div>
+            </template>
+          </el-alert>
           <el-table v-loading="readinessLoading" :data="readinessResult?.checks || []" border stripe data-testid="plugin-readiness-table">
             <el-table-column prop="title" :label="t('field.name')" min-width="220" />
             <el-table-column :label="t('field.status')" width="120">
@@ -799,7 +827,7 @@ import { computed, reactive, ref, watch } from 'vue';
 import { ElMessage, ElMessageBox } from 'element-plus';
 import PluginConfigEditor from './PluginConfigEditor.vue';
 import PluginConfigVersionsDialog from './PluginConfigVersionsDialog.vue';
-import { dryRunPluginExport, exportPluginPackage, pluginAuditLogs, pluginHookExecutions, pluginHooks, pluginMenusPreview, pluginMigrations, pluginReadiness, retryPluginMigration, runPluginMigrations, updatePluginConfig } from '@/api/admin';
+import { dryRunPluginExport, exportPluginPackage, pluginAuditLogs, pluginHookExecutions, pluginHooks, pluginMenusPreview, pluginMigrations, pluginReadiness, retryPluginMigration, runPluginEnablePrecheck, runPluginMigrations, updatePluginConfig } from '@/api/admin';
 import { t } from '@/i18n';
 import { auditActionLabel, migrationStatusLabel, pluginHealthLabel, pluginStatusLabel } from '@/i18n/formatters';
 import { useRouter } from 'vue-router';
@@ -866,6 +894,8 @@ const readinessLoading = ref(false);
 const readinessResult = ref(null);
 const menuPreviewLoading = ref(false);
 const menuPreviewRows = ref([]);
+const enablePrecheckLoading = ref(false);
+const enablePrecheckResult = ref(null);
 const menuPreviewParams = reactive({
   community_slug: '',
   category_id: '',
@@ -903,6 +933,14 @@ const exportForm = reactive({
 
 const title = computed(() => `${props.plugin?.name || ''} ${t('plugin.detailTitle')}`);
 const exportPreviewFiles = computed(() => (exportPreview.value?.export_preview?.files || []).map((path) => ({ path })));
+const canRunEnablePrecheck = computed(() => {
+  const p = props.plugin;
+  if (!p || !p.code) return false;
+  if (String(p.status || '').trim() === 'enabled') return false;
+  if (String(p.status || '').trim() === 'archived') return false;
+  // Needs plugin.write permission; UI remains best-effort.
+  return auth?.can ? auth.can('plugin.write') : true;
+});
 
 watch(
   () => props.plugin,
@@ -985,6 +1023,20 @@ async function loadReadiness() {
     ElMessage.warning(String(e?.message || e || t('plugin.readiness.unavailable')));
   } finally {
     readinessLoading.value = false;
+  }
+}
+
+async function runEnablePrecheck() {
+  const p = props.plugin;
+  if (!p || !p.code) return;
+  enablePrecheckLoading.value = true;
+  try {
+    enablePrecheckResult.value = await runPluginEnablePrecheck(p.code);
+    ElMessage.success(t('plugin.ops.enablePrecheckDone'));
+  } catch (e) {
+    ElMessage.error(String(e?.message || e || t('common.failed')));
+  } finally {
+    enablePrecheckLoading.value = false;
   }
 }
 

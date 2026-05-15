@@ -19,6 +19,10 @@ func TestCheckVersionConstraint(t *testing.T) {
 		{"1.2.3", "<2.0.0", true},
 		{"1.2.3", ">=1.2.0 <2.0.0", true},
 		{"2.0.0", ">=1.2.0 <2.0.0", false},
+		{"1.8.0", "^1.7.0", true},
+		{"2.0.0", "^1.7.0", false},
+		{"1.7.5", "~1.7.0", true},
+		{"1.8.0", "~1.7.0", false},
 	}
 	for _, tc := range cases {
 		got, err := CheckVersionConstraint(tc.version, tc.constraint)
@@ -29,7 +33,7 @@ func TestCheckVersionConstraint(t *testing.T) {
 			t.Fatalf("CheckVersionConstraint(%q,%q)=%v want %v", tc.version, tc.constraint, got, tc.want)
 		}
 	}
-	if _, err := CheckVersionConstraint("1.2.3", "^1.0.0"); err == nil {
+	if _, err := CheckVersionConstraint("1.2.3", "^bad"); err == nil {
 		t.Fatal("unsupported constraint should error")
 	}
 }

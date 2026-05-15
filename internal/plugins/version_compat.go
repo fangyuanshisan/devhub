@@ -79,6 +79,13 @@ func CheckVersionConstraint(version, constraint string) (bool, error) {
 		if part == "" {
 			continue
 		}
+		if strings.HasPrefix(part, "^") || strings.HasPrefix(part, "~") {
+			ok, err := checkSemanticShortcut(version, part)
+			if err != nil || !ok {
+				return ok, err
+			}
+			continue
+		}
 		op := "="
 		want := part
 		for _, candidate := range []string{">=", "<=", ">", "<"} {
@@ -90,7 +97,7 @@ func CheckVersionConstraint(version, constraint string) (bool, error) {
 		}
 		want = strings.TrimPrefix(want, "v")
 		if !numericVersionPattern.MatchString(want) {
-			return false, fmt.Errorf("约束 %s 仅支持 x.y.z 数字版本和 >= / < / <= / > / 精确版本", part)
+			return false, fmt.Errorf("约束 %s 仅支持 x.y.z 数字版本、>= / < / <= / > / 精确版本、^x.y.z 和 ~x.y.z", part)
 		}
 		cmp := versionCompare(version, want)
 		switch op {
@@ -117,6 +124,49 @@ func CheckVersionConstraint(version, constraint string) (bool, error) {
 		}
 	}
 	return true, nil
+}
+
+func checkSemanticShortcut(version, constraint string) (bool, error) {
+	op := constraint[:1]
+	base := strings.TrimPrefix(strings.TrimPrefix(strings.TrimSpace(constraint), "^"), "~")
+	base = strings.TrimPrefix(base, "v")
+	if !numericVersionPattern.MatchString(base) {
+		return false, fmt.Errorf("约束 %s 仅支持 ^x.y.z 或 ~x.y.z", constraint)
+	}
+	upper := semanticShortcutUpper(base, op)
+	if versionCompare(version, base) < 0 {
+		return false, nil
+	}
+	if versionCompare(version, upper) >= 0 {
+		return false, nil
+	}
+	return true, nil
+}
+
+func semanticShortcutUpper(base, op string) string {
+	parts := parseVersionParts(base)
+	switch op {
+	case "^":
+		if parts[0] > 0 {
+			return fmt.Sprintf("%d.0.0", parts[0]+1)
+		}
+		if parts[1] > 0 {
+			return fmt.Sprintf("0.%d.0", parts[1]+1)
+		}
+		return fmt.Sprintf("0.0.%d", parts[2]+1)
+	case "~":
+		return fmt.Sprintf("%d.%d.0", parts[0], parts[1]+1)
+	default:
+		return base
+	}
+}
+
+func parseVersionParts(raw string) [3]int {
+	parts := strings.Split(strings.TrimPrefix(raw, "v"), ".")
+	for len(parts) < 3 {
+		parts = append(parts, "0")
+	}
+	return [3]int{atoiLoose(parts[0]), atoiLoose(parts[1]), atoiLoose(parts[2])}
 }
 
 func ResolvePluginDependencies(manifest domain.PluginManifest, existing []domain.Plugin) ([]domain.PluginDependencyCheck, domain.PluginDependencySummary) {

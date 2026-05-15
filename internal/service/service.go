@@ -53,6 +53,30 @@ type Repository interface {
 	SavePluginPackageUpload(record domain.PluginPackageUploadRecord) (domain.PluginPackageUploadRecord, error)
 	PluginPackageUploadByUploadID(uploadID string) (domain.PluginPackageUploadRecord, bool)
 	PluginPackageUploads(filter domain.PluginPackageUploadFilter) ([]domain.PluginPackageUploadRecord, int, error)
+	// Plugin package remote downloads (v1.7.0-P0-01).
+	AppendPluginPackageDownload(record domain.PluginPackageDownloadRecord) (domain.PluginPackageDownloadRecord, error)
+	SavePluginPackageDownload(record domain.PluginPackageDownloadRecord) (domain.PluginPackageDownloadRecord, error)
+	PluginPackageDownloadByID(id int64) (domain.PluginPackageDownloadRecord, bool)
+	PluginPackageDownloads(filter domain.PluginPackageDownloadFilter) ([]domain.PluginPackageDownloadRecord, int, error)
+	// Plugin package prechecks / compatibility checks (v1.7.0-P0-03).
+	AppendPluginPackagePrecheck(record domain.PluginPackagePrecheckRecord) (domain.PluginPackagePrecheckRecord, error)
+	SavePluginPackagePrecheck(record domain.PluginPackagePrecheckRecord) (domain.PluginPackagePrecheckRecord, error)
+	PluginPackagePrecheckByID(id int64) (domain.PluginPackagePrecheckRecord, bool)
+	PluginPackagePrechecks(filter domain.PluginPackagePrecheckFilter) ([]domain.PluginPackagePrecheckRecord, int, error)
+	AppendPluginPackageCompatCheck(record domain.PluginPackageCompatCheckRecord) (domain.PluginPackageCompatCheckRecord, error)
+	SavePluginPackageCompatCheck(record domain.PluginPackageCompatCheckRecord) (domain.PluginPackageCompatCheckRecord, error)
+	PluginPackageCompatCheckByID(id int64) (domain.PluginPackageCompatCheckRecord, bool)
+	PluginPackageCompatChecks(filter domain.PluginPackageCompatCheckFilter) ([]domain.PluginPackageCompatCheckRecord, int, error)
+	// Plugin enable prechecks (v1.7.0-P0-05).
+	AppendPluginEnablePrecheck(record domain.PluginEnablePrecheckRecord) (domain.PluginEnablePrecheckRecord, error)
+	SavePluginEnablePrecheck(record domain.PluginEnablePrecheckRecord) (domain.PluginEnablePrecheckRecord, error)
+	PluginEnablePrecheckByID(id int64) (domain.PluginEnablePrecheckRecord, bool)
+	PluginEnablePrechecks(filter domain.PluginEnablePrecheckFilter) ([]domain.PluginEnablePrecheckRecord, int, error)
+	// Plugin enable tasks (v1.7.0-P0-06).
+	AppendPluginEnableTask(record domain.PluginEnableTask) (domain.PluginEnableTask, error)
+	SavePluginEnableTask(record domain.PluginEnableTask) (domain.PluginEnableTask, error)
+	PluginEnableTaskByID(id int64) (domain.PluginEnableTask, bool)
+	PluginEnableTasks(filter domain.PluginEnableTaskFilter) ([]domain.PluginEnableTask, int, error)
 	// Plugin operations (v1.6.0-P0-06).
 	AppendPluginOperationSnapshot(record domain.PluginOperationSnapshot) (domain.PluginOperationSnapshot, error)
 	SavePluginOperationSnapshot(record domain.PluginOperationSnapshot) (domain.PluginOperationSnapshot, error)

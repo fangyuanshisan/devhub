@@ -14,14 +14,15 @@ func TestListPluginPackages_EmptyRepo(t *testing.T) {
 	svc := New(repo)
 
 	root := mustProjectRoot(t)
-	dir := filepath.Join(root, ".devhub", "plugins", "repo_empty")
+	baseRel := ensureWritableTestStorageDir(t, "storage/plugins/packages/test-repo")
+	dir := filepath.Join(root, filepath.FromSlash(baseRel), "repo_empty")
 	_ = os.RemoveAll(dir)
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		t.Fatalf("mkdir: %v", err)
 	}
-	t.Cleanup(func() { _ = os.RemoveAll(filepath.Join(root, ".devhub")) })
+	t.Cleanup(func() { _ = os.RemoveAll(filepath.Join(root, filepath.FromSlash(baseRel))) })
 
-	resp, err := svc.ListPluginPackages(".devhub/plugins/repo_empty", PluginPackageRepositoryFilter{})
+	resp, err := svc.ListPluginPackages(filepath.ToSlash(filepath.Join(baseRel, "repo_empty")), PluginPackageRepositoryFilter{})
 	if err != nil {
 		t.Fatalf("ListPluginPackages: %v", err)
 	}
@@ -37,7 +38,7 @@ func TestListPluginPackages_RepoNotFound(t *testing.T) {
 	repo := store.NewMemoryStore()
 	svc := New(repo)
 
-	_, err := svc.ListPluginPackages(".devhub/plugins/repo_not_exist", PluginPackageRepositoryFilter{})
+	_, err := svc.ListPluginPackages("storage/plugins/packages/repo_not_exist", PluginPackageRepositoryFilter{})
 	if err == nil {
 		t.Fatalf("expected error")
 	}

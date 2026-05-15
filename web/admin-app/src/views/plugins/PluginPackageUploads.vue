@@ -13,6 +13,96 @@
 
     <PluginPackageBoundaryNotice title="上传包只是 staging；不会执行插件代码、不会执行 SQL、不会加载前端资产。" />
 
+    <section class="download-card" data-testid="remote-package-download-card">
+      <div class="download-head">
+        <div>
+          <h3>远程插件包下载到 staging</h3>
+          <p class="muted">仅下载到受控 staging，并校验 URL、SSRF、大小和 sha256；不会安装、启用、解压执行或加载插件代码。</p>
+        </div>
+        <el-button :loading="stagingLoading" data-testid="staging-refresh" @click="fetchStaging">刷新 staging</el-button>
+      </div>
+      <el-form class="download-form" :model="downloadForm" label-width="110px">
+        <el-form-item label="plugin_code">
+          <el-input v-model="downloadForm.plugin_code" data-testid="download-plugin-code" placeholder="demo_notice" />
+        </el-form-item>
+        <el-form-item label="version">
+          <el-input v-model="downloadForm.version" data-testid="download-version" placeholder="1.0.0" />
+        </el-form-item>
+        <el-form-item label="package_url">
+          <el-input v-model="downloadForm.package_url" data-testid="download-package-url" placeholder="https://example.com/demo_notice-1.0.0.zip" />
+        </el-form-item>
+        <el-form-item label="sha256">
+          <el-input v-model="downloadForm.sha256" data-testid="download-sha256" placeholder="建议填写；缺失会标记 checksum_missing" />
+        </el-form-item>
+        <el-form-item>
+          <el-button type="primary" :loading="downloading" data-testid="download-to-staging" @click="submitDownload">下载到 staging</el-button>
+          <span class="muted">仅允许 https 与 .zip / .tar.gz / .tgz，默认最大 20MB。</span>
+        </el-form-item>
+      </el-form>
+      <el-table v-loading="stagingLoading" :data="stagingItems" data-testid="staging-list" border>
+        <el-table-column prop="id" label="ID" width="80" />
+        <el-table-column prop="plugin_code" label="code" min-width="120" />
+        <el-table-column prop="version" label="版本" width="100" />
+        <el-table-column prop="status" label="状态" width="150">
+          <template #default="{ row }"><PluginStatusTag :value="row.status" /></template>
+        </el-table-column>
+        <el-table-column prop="file_size" label="大小" width="100" />
+        <el-table-column prop="sha256_actual" label="sha256" min-width="220" show-overflow-tooltip />
+        <el-table-column prop="staging_path" label="staging" min-width="220" show-overflow-tooltip />
+        <el-table-column prop="error_message" label="错误" min-width="180" show-overflow-tooltip />
+        <el-table-column label="操作" width="100" fixed="right">
+          <template #default="{ row }">
+            <el-button link type="danger" data-testid="staging-delete" @click="deleteStaging(row.id)">删除</el-button>
+          </template>
+        </el-table-column>
+      </el-table>
+    </section>
+
+    <section class="download-card" data-testid="plugin-package-compat-card">
+      <div class="download-head">
+        <div>
+          <h3>插件依赖 / 兼容性检查</h3>
+          <p class="muted">只接受 precheck passed 的记录；检查依赖、Core 版本、权限、菜单、路由、Hook、config_schema 和 migrations，不安装、不启用、不注册任何声明。</p>
+        </div>
+        <el-button :loading="compatLoading" data-testid="compat-refresh" @click="fetchCompatChecks">刷新检查记录</el-button>
+      </div>
+      <el-form class="download-form" :model="compatForm" label-width="110px">
+        <el-form-item label="precheck_id">
+          <el-input v-model="compatForm.precheck_id" data-testid="compat-precheck-id" placeholder="上一轮预检通过记录 ID" />
+        </el-form-item>
+        <el-form-item>
+          <el-button type="primary" :loading="compatRunning" data-testid="run-compat-check" @click="submitCompatCheck">执行兼容性检查</el-button>
+          <span class="muted">can_install 由后端计算；本页不会显示安装按钮。</span>
+        </el-form-item>
+      </el-form>
+      <el-table v-loading="compatLoading" :data="compatItems" data-testid="compat-check-list" border>
+        <el-table-column prop="id" label="ID" width="80" />
+        <el-table-column prop="package_precheck_id" label="precheck" width="100" />
+        <el-table-column prop="plugin_code" label="code" min-width="120" />
+        <el-table-column prop="version" label="版本" width="100" />
+        <el-table-column prop="status" label="状态" width="150">
+          <template #default="{ row }"><PluginStatusTag :value="row.status" /></template>
+        </el-table-column>
+        <el-table-column prop="can_install" label="can_install" width="120">
+          <template #default="{ row }">{{ row.can_install ? 'true' : 'false' }}</template>
+        </el-table-column>
+        <el-table-column prop="core_version" label="Core" width="100" />
+        <el-table-column prop="compatible_core_version" label="兼容范围" min-width="140" />
+        <el-table-column label="blockers / warnings" min-width="260">
+          <template #default="{ row }">
+            <span class="danger">{{ (row.errors || []).slice(0, 1).join('；') }}</span>
+            <span v-if="!(row.errors || []).length" class="muted">{{ (row.warnings || []).slice(0, 1).join('；') || '-' }}</span>
+          </template>
+        </el-table-column>
+        <el-table-column label="操作" width="100" fixed="right">
+          <template #default="{ row }">
+            <el-button link type="danger" data-testid="compat-delete" @click="deleteCompat(row.id)">删除</el-button>
+          </template>
+        </el-table-column>
+      </el-table>
+      <pre v-if="compatResult" class="compat-result" data-testid="compat-check-result">{{ pretty(compatResult) }}</pre>
+    </section>
+
     <section class="toolbar">
       <el-upload
         ref="uploadRef"
@@ -139,22 +229,37 @@ import {
   cancelPluginPackageUpload,
   cleanupPluginPackageUploads,
   deletePluginPackageUpload,
+  deletePluginPackageCompatCheck,
+  deletePluginPackageStaging,
+  downloadPluginPackageToStaging,
   getPluginPackageUpload,
+  listPluginPackageCompatChecks,
   listPluginPackageUploads,
+  listPluginPackageStaging,
   promotePluginPackageUpload,
   rejectPluginPackageUpload,
   rescanPluginPackageUpload,
+  runPluginPackageCompatCheck,
   submitPluginPackageUploadApproval,
   uploadPluginPackageZip,
 } from '@/api/plugins';
 
 const statuses = ['uploaded', 'scanned', 'staged', 'blocked', 'approval_pending', 'approval_rejected', 'approved', 'promoted', 'install_approval_pending', 'installed', 'canceled', 'expired', 'deleted', 'failed'];
 const filters = reactive({ keyword: '', status: 'all', risk_level: 'all', page: 1, page_size: 20 });
+const downloadForm = reactive({ plugin_code: '', version: '', package_url: '', sha256: '' });
+const compatForm = reactive({ precheck_id: '' });
 const items = ref([]);
+const stagingItems = ref([]);
+const compatItems = ref([]);
+const compatResult = ref(null);
 const detail = ref(null);
 const drawer = ref(false);
 const loading = ref(false);
 const uploading = ref(false);
+const downloading = ref(false);
+const stagingLoading = ref(false);
+const compatLoading = ref(false);
+const compatRunning = ref(false);
 const cleanupLoading = ref(false);
 const actionLoading = ref('');
 const selectedFile = ref(null);
@@ -164,7 +269,11 @@ const errorText = ref('');
 const actionMap = computed(() => Object.fromEntries((detail.value?.actions || []).map((item) => [item.action, item])));
 const disabledReasons = computed(() => (detail.value?.actions || []).filter((item) => !item.enabled && item.reason).map((item) => `${item.reason_code}: ${item.reason}`).join('；'));
 
-onMounted(fetchUploads);
+onMounted(async () => {
+  await fetchUploads();
+  await fetchStaging();
+  await fetchCompatChecks();
+});
 
 function actionEnabled(name) {
   return Boolean(actionMap.value[name]?.enabled);
@@ -192,6 +301,92 @@ async function fetchUploads() {
     errorText.value = apiError(error);
   } finally {
     loading.value = false;
+  }
+}
+
+async function fetchStaging() {
+  stagingLoading.value = true;
+  errorText.value = '';
+  try {
+    const res = await listPluginPackageStaging({ page: 1, page_size: 20 });
+    stagingItems.value = res.items || [];
+  } catch (error) {
+    errorText.value = apiError(error);
+  } finally {
+    stagingLoading.value = false;
+  }
+}
+
+async function fetchCompatChecks() {
+  compatLoading.value = true;
+  errorText.value = '';
+  try {
+    const res = await listPluginPackageCompatChecks({ page: 1, page_size: 20 });
+    compatItems.value = res.items || [];
+  } catch (error) {
+    errorText.value = apiError(error);
+  } finally {
+    compatLoading.value = false;
+  }
+}
+
+async function submitCompatCheck() {
+  compatRunning.value = true;
+  errorText.value = '';
+  compatResult.value = null;
+  try {
+    const res = await runPluginPackageCompatCheck(compatForm.precheck_id);
+    compatResult.value = res;
+    ElMessage.success(`兼容性检查完成：${res.status}`);
+    await fetchCompatChecks();
+  } catch (error) {
+    errorText.value = apiError(error);
+  } finally {
+    compatRunning.value = false;
+  }
+}
+
+async function deleteCompat(id) {
+  if (!id) return;
+  compatLoading.value = true;
+  errorText.value = '';
+  try {
+    await deletePluginPackageCompatCheck(id);
+    ElMessage.success('兼容性检查记录已删除');
+    await fetchCompatChecks();
+  } catch (error) {
+    errorText.value = apiError(error);
+  } finally {
+    compatLoading.value = false;
+  }
+}
+
+async function submitDownload() {
+  downloading.value = true;
+  errorText.value = '';
+  try {
+    const res = await downloadPluginPackageToStaging({ ...downloadForm });
+    ElMessage.success(`下载完成：${res.status}`);
+    await fetchStaging();
+  } catch (error) {
+    errorText.value = apiError(error);
+  } finally {
+    downloading.value = false;
+  }
+}
+
+async function deleteStaging(id) {
+  if (!id) return;
+  stagingLoading.value = true;
+  errorText.value = '';
+  try {
+    await deletePluginPackageStaging(id);
+    ElMessage.success('staging 文件已删除');
+    await fetchStaging();
+  } catch (error) {
+    errorText.value = apiError(error);
+  } finally {
+    stagingLoading.value = false;
   }
 }
 
@@ -288,6 +483,25 @@ async function cleanupUploads() {
   gap: 12px;
   flex-wrap: wrap;
 }
+.download-card {
+  padding: 14px;
+  border: 1px solid var(--el-border-color);
+  border-radius: 8px;
+  background: var(--el-bg-color);
+}
+.download-head {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  align-items: flex-start;
+  margin-bottom: 12px;
+}
+.download-head h3 {
+  margin: 0 0 4px;
+}
+.download-form {
+  max-width: 880px;
+}
 .page-head {
   justify-content: space-between;
 }
@@ -307,6 +521,12 @@ async function cleanupUploads() {
 }
 .mb {
   margin-bottom: 12px;
+}
+.danger {
+  color: var(--el-color-danger);
+}
+.compat-result {
+  margin-top: 12px;
 }
 .detail-grid {
   display: grid;

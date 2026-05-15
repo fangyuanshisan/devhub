@@ -688,3 +688,41 @@ v1.3.5 的边界是治理体验收口，不新增危险运行时能力。当前�
 - 远程与开发者：远程插件索引、SDK 文档、Manifest 模板、插件包规范。
 
 UI 只负责展示后端返回的状态、风险和建议，不在前端重新推导安全结论。公共展示组件包括状态 tag、风险 tag、签名 / checksum 摘要、安全边界提示和结构化错误提示；敏感字段、密文、私钥和系统绝对路径仍不得展示给前端。
+
+## v1.7.0-P0-01 远程插件包下载架构
+
+远程插件包下载只负责把远程包安全落到 staging，不进入安装阶段。
+
+- Handler：`POST /api/v1/admin/plugins/packages/download`、`GET /api/v1/admin/plugins/packages/staging`、`GET /api/v1/admin/plugins/packages/staging/:id`、`DELETE /api/v1/admin/plugins/packages/staging/:id`，均要求 admin token，写操作需要 `plugin.write`，读操作需要 `plugin.read`。
+- Service：统一执行 URL 校验、DNS/IP SSRF 防护、重定向复检、大小限制、临时文件写入、sha256 计算与 staging rename。
+- Store：`plugin_package_downloads` 持久化下载记录；MemoryStore / MySQLStore 均支持，失败也保留错误状态和错误信息。
+- Storage：文件保存到 `storage/plugins/staging/downloads/`，不使用远程文件名，不允许写出 staging 目录。
+- Audit：记录 `plugin.package.download.requested/success/failed/rejected`、`plugin.package.checksum.failed`、`plugin.package.staging.deleted`。
+
+安全边界：远程下载不会安装插件、不会启用插件、不会解压执行包内容、不会运行脚本、不会加载 Go plugin、不会执行 SQL、不会动态加载前端资产。
+
+## v1.7.0-P0-03 插件依赖 / 兼容性检查架构
+
+P0-03 在 staging 包完成解压安全检查与 manifest 预校验之后执行。后端新增 `plugin_package_prechecks` 作为预检输入来源，新增 `plugin_package_compat_checks` 保存每次依赖 / 兼容性检查结果；MemoryStore 和 MySQLStore 均持久化记录，不只存在内存。
+
+Service 层负责所有安全结论：读取 precheck passed 记录、解析 manifest、读取当前 `VERSION`、检查 Core 版本约束、依赖存在 / 启用 / 版本、plugin_code / content_type / permission / menu / route 冲突、HookBus 兼容、简化 config_schema、migration 声明和 `can_install`。前端只展示后端返回的 status、blockers、warnings 和 summary，不重新计算风险。
+
+Handler 提供 `POST /api/v1/admin/plugins/packages/prechecks/:id/compat-check`、compat-check 列表 / 详情 / 删除接口，并写入 `plugin.package.compat_check.*` 审计。该链路不会安装、启用、注册权限 / 菜单 / 路由 / Hook、不会执行 migration 或任何插件代码。
+
+## v1.7.0-P0-05 插件启用前安全检查架构（enable-precheck）
+
+P0-05 在“插件已安装但未启用”的状态下执行启用前最后检查，产出 `can_enable` 结论供后续启用流程使用。本轮只检查，不真正启用或注册到运行时。
+
+- Handler：
+  - `POST /api/v1/admin/plugins/:code/enable-precheck`
+  - `GET /api/v1/admin/plugins/enable-prechecks`
+  - `GET /api/v1/admin/plugins/enable-prechecks/:id`
+  - `DELETE /api/v1/admin/plugins/enable-prechecks/:id`
+- Service：对安装记录进行二次复检：
+  - 强制链路：要求存在最近的 `plugin_package_prechecks(status=passed)` + `plugin_package_compat_checks(can_install=true)`。
+  - 文件完整性：对 `source_type=local_package` 复用 package scanner + checksums 校验，并读取 `manifest.json` 与安装时 `manifest_checksum` 比对，发现篡改/危险文件阻断。
+  - manifest/依赖/配置/迁移/冲突复检：复用既有校验逻辑，输出结构化结果与 summary。
+- Store：`plugin_enable_prechecks` 持久化启用前检查结果，MemoryStore / MySQLStore 均支持，失败也保留 errors/warnings 与状态。
+- Audit：记录 `plugin.enable_precheck.requested/success/failed/blocked/config_invalid/migration_pending/file_integrity_failed/deleted`。
+
+安全边界：启用前检查不会改变插件状态，不会注册权限/菜单/路由/Hook，不会执行 migration，不会执行插件代码或脚本。

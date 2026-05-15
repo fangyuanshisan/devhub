@@ -199,16 +199,16 @@ func cleanupHTTPUploadStorage(t *testing.T) {
 	t.Helper()
 	root := httpTestProjectRoot(t)
 
-	// Use allowlisted ".devhub/plugins" so tests don't depend on host FS perms
-	// (storage/ may be owned by root when created by docker).
-	uploads := ".devhub/plugins/http-test-uploads"
-	staging := ".devhub/plugins/http-test-staging"
-	quarantine := ".devhub/plugins/http-test-quarantine"
+	// Use allowlisted "storage/plugins/packages" and ensure it's writable in dev env.
+	uploads := "storage/plugins/packages/http-test-uploads"
+	staging := "storage/plugins/packages/http-test-staging"
+	quarantine := "storage/plugins/packages/http-test-quarantine"
 	t.Setenv("DEVHUB_PLUGIN_PACKAGE_UPLOADS_ROOT", uploads)
 	t.Setenv("DEVHUB_PLUGIN_PACKAGE_STAGING_ROOT", staging)
 	t.Setenv("DEVHUB_PLUGIN_PACKAGE_QUARANTINE_ROOT", quarantine)
 
 	for _, rel := range []string{uploads, staging, quarantine} {
+		_ = os.MkdirAll(filepath.Join(root, filepath.FromSlash(rel)), 0o755)
 		_ = os.RemoveAll(filepath.Join(root, filepath.FromSlash(rel)))
 	}
 	t.Cleanup(func() {

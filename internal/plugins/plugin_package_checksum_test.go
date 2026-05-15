@@ -96,13 +96,7 @@ func TestVerifyPluginPackageChecksums_MismatchBlocked(t *testing.T) {
 }
 
 func TestVerifyPluginPackageChecksums_UnsupportedAlgorithmBlocked(t *testing.T) {
-	root := mustProjectRootForPlugins(t)
-	dir := filepath.Join(root, ".devhub", "plugins", "pkg_checksum_algo")
-	_ = os.RemoveAll(dir)
-	if err := os.MkdirAll(dir, 0o755); err != nil {
-		t.Fatalf("mkdir: %v", err)
-	}
-	t.Cleanup(func() { _ = os.RemoveAll(filepath.Join(root, ".devhub")) })
+	dir := t.TempDir()
 
 	if err := os.WriteFile(filepath.Join(dir, "manifest.json"), []byte(`{"code":"pkg_checksum_algo","name":"x","version":"1.0.0"}`), 0o644); err != nil {
 		t.Fatalf("write manifest: %v", err)
@@ -133,13 +127,7 @@ func TestVerifyPluginPackageChecksums_UnsupportedAlgorithmBlocked(t *testing.T) 
 }
 
 func TestVerifyPluginPackageChecksums_InvalidJSONBlocked(t *testing.T) {
-	root := mustProjectRootForPlugins(t)
-	dir := filepath.Join(root, ".devhub", "plugins", "pkg_checksum_badjson")
-	_ = os.RemoveAll(dir)
-	if err := os.MkdirAll(dir, 0o755); err != nil {
-		t.Fatalf("mkdir: %v", err)
-	}
-	t.Cleanup(func() { _ = os.RemoveAll(filepath.Join(root, ".devhub")) })
+	dir := t.TempDir()
 
 	if err := os.WriteFile(filepath.Join(dir, "manifest.json"), []byte(`{"code":"pkg_checksum_badjson","name":"x","version":"1.0.0"}`), 0o644); err != nil {
 		t.Fatalf("write manifest: %v", err)

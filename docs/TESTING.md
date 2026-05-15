@@ -1321,3 +1321,114 @@ skipped / flaky / TODO 结论：
 - `./scripts/check-frontend.sh --frontend-only`：通过，前台 build 通过，前台 E2E `17 passed`，日志目录 `.devhub/checks/20260515-133815/`。
 - SEO curl `/topics/1/`：通过，命中 title / canonical / Article JSON-LD / article / h1。
 - SEO curl `/c/php/`：通过，命中 title / description / canonical / h1 / topics / tag-cloud。
+
+## v1.7.0-P0-01 远程插件包下载到 staging 轻量验收清单
+
+后端新增覆盖：`internal/service/plugin_package_download_test.go`。
+
+验收项：
+
+1. https 插件包 URL 可以下载到 staging。
+2. http URL 被拒绝。
+3. localhost URL 被拒绝。
+4. 127.0.0.1 URL 被拒绝。
+5. 内网 IP URL 被拒绝。
+6. 重定向到内网地址应被拒绝（服务端 redirect hook 与 DialContext 均复检；专项 E2E 后续补）。
+7. 超过大小限制的下载被中止（服务端限制已实现；专项 fixture 后续补）。
+8. sha256 正确时状态为 `downloaded`。
+9. sha256 错误时状态为 `checksum_failed`。
+10. sha256 错误时不能进入后续安装。
+11. 下载失败会记录 `error_message`。
+12. 下载失败会清理临时文件。
+13. staging 列表可以查询。
+14. staging 包可以删除。
+15. 删除 staging 包会删除文件并标记 `deleted`。
+16. 审计记录包含 download success / failed / rejected / checksum failed / staging deleted。
+17. 没有 sha256 的包被标记为 `checksum_missing`。
+18. 不执行插件包内代码。
+19. 不安装插件。
+20. 不影响当前内置插件启停。
+21. 不影响 `/topics/:id` SEO。
+22. 不影响 `/c/:slug` SEO。
+
+本轮最低检查记录：
+
+- `gofmt`：通过。
+- `docker run --rm -v "$PWD":/workspace -w /workspace golang:1.23-bookworm gofmt -w ...`：通过。
+- `docker run --rm -v "$PWD":/workspace -w /workspace golang:1.23-bookworm go test ./...`：通过。
+- `docker run --rm -v "$PWD":/workspace -w /workspace golang:1.23-bookworm go build -buildvcs=false -o .devhub/devhub .`：通过。
+- `git diff --check`：通过。
+- `bash -n dev.sh`：通过。
+- `bash -n scripts/check-frontend.sh`：通过。
+- `docker compose run --rm admin-e2e npm run build`：通过。
+- `docker compose run --rm devhub go test ./...`：未执行成功，原因是当前 `devhub` 运行镜像不包含 `go` 可执行文件；已改用一次性 `golang:1.23-bookworm` Docker 容器执行 Go 检查。
+
+## v1.7.0-P0-03 插件依赖 / 兼容性检查轻量验收清单
+
+后端新增覆盖：`internal/service/plugin_package_compat_test.go`。
+
+验收项：
+
+1. precheck passed 的包可以执行 compat-check。
+2. precheck failed 的包不能执行 compat-check。
+3. compatible_core_version 兼容时通过。
+4. compatible_core_version 不兼容时 status=incompatible。
+5. required 依赖缺失时失败。
+6. optional 依赖缺失时只产生 warning。
+7. 依赖版本不满足时失败。
+8. plugin_code 与内置插件冲突时失败。
+9. plugin_code 与已安装插件冲突时失败。
+10. content_type 冲突时失败。
+11. permission 声明 core.* 被拒绝。
+12. permission 声明 admin.* 被拒绝。
+13. menu 外链被拒绝。
+14. route 覆盖核心敏感 API 被拒绝。
+15. route 覆盖 /topics/:id 被拒绝。
+16. 未知 Hook 被拒绝。
+17. default_config 不符合 config_schema 时失败。
+18. migration direction=down 不执行，只产生错误。
+19. 有 errors 时 can_install=false。
+20. 只有 warnings 时 can_install=true 且 status=warning。
+21. can_install 由后端返回。
+22. 审计记录包含 compat_check success / failed / incompatible。
+23. 不安装插件。
+24. 不启用插件。
+25. 不注册权限 / 菜单 / 路由 / Hook。
+26. 不执行 migration。
+27. 不影响当前内置插件启停。
+28. 不影响 `/topics/:id` SEO。
+29. 不影响 `/c/:slug` SEO。
+
+本轮最低检查记录：
+
+- `gofmt`：通过。
+- `docker run --rm -v "$PWD":/workspace -v /tmp/devhub-go-mod-cache:/go/pkg/mod -v /tmp/devhub-go-build-cache:/root/.cache/go-build -w /workspace golang:1.23-bookworm gofmt -w ...`：通过。
+
+## v1.7.0-P0-05 插件启用前安全检查（enable-precheck）轻量验收清单
+
+后端新增覆盖：`internal/service/plugin_enable_precheck_test.go`。
+
+验收项：
+
+1. installed 插件可以执行 enable-precheck。
+2. 未安装成功的插件不能执行 enable-precheck。
+3. archived 插件不能执行 enable-precheck。
+4. dependency_missing 插件不能执行 enable-precheck。
+5. 文件被篡改（manifest 与安装快照不一致）时 enable-precheck 失败。
+6. Core 版本不兼容时 can_enable=false。
+7. required 依赖缺失或版本不满足时 can_enable=false。
+8. optional 依赖缺失只产生 warning。
+9. 配置无效时 can_enable=false。
+10. migration pending / failed 时 can_enable=false。
+11. content_type 冲突时 can_enable=false。
+12. permission 越权或冲突时 can_enable=false。
+13. route 覆盖核心敏感路径时 can_enable=false。
+14. 未知 Hook 时 can_enable=false。
+15. 只有 warnings 时 can_enable=true 且 status=warning。
+16. can_enable 由后端返回。
+17. enable-precheck 写入审计（requested/success/failed/blocked/deleted）。
+18. enable-precheck 不启用插件，不注册权限/菜单/路由/Hook，不执行 migration，不执行插件代码。
+19. 不影响当前内置插件启停。
+20. 不影响 /topics/:id SEO。
+21. 不影响 /c/:slug SEO。
+- `docker run --rm -v "$PWD":/workspace -v /tmp/devhub-go-mod-cache:/go/pkg/mod -v /tmp/devhub-go-build-cache:/root/.cache/go-build -w /workspace golang:1.23-bookworm go test ./...`：通过。

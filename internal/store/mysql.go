@@ -2459,6 +2459,702 @@ func (s *MySQLStore) PluginPackageUploads(filter domain.PluginPackageUploadFilte
 	return out, total, nil
 }
 
+// ===== Plugin package remote downloads (v1.7.0-P0-01) =====
+
+func (s *MySQLStore) AppendPluginPackageDownload(record domain.PluginPackageDownloadRecord) (domain.PluginPackageDownloadRecord, error) {
+	if strings.TrimSpace(record.Status) == "" {
+		record.Status = domain.PluginPackageDownloadStatusPending
+	}
+	res, err := s.db.Exec(`INSERT INTO plugin_package_downloads
+		(plugin_code, version, source_url, final_url, status, file_name, staging_path, file_size,
+		sha256_expected, sha256_actual, content_type, error_code, error_message, created_by,
+		created_at, downloaded_at, deleted_at, updated_at)
+		VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,COALESCE(?,NOW()),?,?,NOW())`,
+		record.PluginCode, record.Version, record.SourceURL, record.FinalURL, record.Status, record.FileName, record.StagingPath, record.FileSize,
+		record.SHA256Expected, record.SHA256Actual, record.ContentType, record.ErrorCode, record.ErrorMessage, record.CreatedBy,
+		nullTime(record.CreatedAt), nullTime(record.DownloadedAt), nullTime(record.DeletedAt))
+	if err != nil {
+		return domain.PluginPackageDownloadRecord{}, err
+	}
+	id, _ := res.LastInsertId()
+	record.ID = id
+	out, _ := s.PluginPackageDownloadByID(id)
+	return out, nil
+}
+
+func (s *MySQLStore) SavePluginPackageDownload(record domain.PluginPackageDownloadRecord) (domain.PluginPackageDownloadRecord, error) {
+	if record.ID <= 0 {
+		return s.AppendPluginPackageDownload(record)
+	}
+	_, err := s.db.Exec(`UPDATE plugin_package_downloads SET
+		plugin_code=?, version=?, source_url=?, final_url=?, status=?, file_name=?, staging_path=?, file_size=?,
+		sha256_expected=?, sha256_actual=?, content_type=?, error_code=?, error_message=?, created_by=?,
+		created_at=COALESCE(?, created_at), downloaded_at=?, deleted_at=?, updated_at=NOW()
+		WHERE id=?`,
+		record.PluginCode, record.Version, record.SourceURL, record.FinalURL, record.Status, record.FileName, record.StagingPath, record.FileSize,
+		record.SHA256Expected, record.SHA256Actual, record.ContentType, record.ErrorCode, record.ErrorMessage, record.CreatedBy,
+		nullTime(record.CreatedAt), nullTime(record.DownloadedAt), nullTime(record.DeletedAt), record.ID)
+	if err != nil {
+		return domain.PluginPackageDownloadRecord{}, err
+	}
+	out, _ := s.PluginPackageDownloadByID(record.ID)
+	return out, nil
+}
+
+func (s *MySQLStore) PluginPackageDownloadByID(id int64) (domain.PluginPackageDownloadRecord, bool) {
+	var it domain.PluginPackageDownloadRecord
+	err := s.db.QueryRow(`SELECT id, plugin_code, version, source_url, final_url, status, file_name, staging_path, file_size,
+		sha256_expected, sha256_actual, content_type, error_code, error_message, created_by,
+		DATE_FORMAT(created_at,'%Y-%m-%d %H:%i:%s'), COALESCE(DATE_FORMAT(downloaded_at,'%Y-%m-%d %H:%i:%s'),''), COALESCE(DATE_FORMAT(deleted_at,'%Y-%m-%d %H:%i:%s'),''),
+		DATE_FORMAT(updated_at,'%Y-%m-%d %H:%i:%s')
+		FROM plugin_package_downloads WHERE id=? LIMIT 1`, id).
+		Scan(&it.ID, &it.PluginCode, &it.Version, &it.SourceURL, &it.FinalURL, &it.Status, &it.FileName, &it.StagingPath, &it.FileSize,
+			&it.SHA256Expected, &it.SHA256Actual, &it.ContentType, &it.ErrorCode, &it.ErrorMessage, &it.CreatedBy,
+			&it.CreatedAt, &it.DownloadedAt, &it.DeletedAt, &it.UpdatedAt)
+	if err != nil {
+		return domain.PluginPackageDownloadRecord{}, false
+	}
+	return it, true
+}
+
+func (s *MySQLStore) PluginPackageDownloads(filter domain.PluginPackageDownloadFilter) ([]domain.PluginPackageDownloadRecord, int, error) {
+	if filter.Page <= 0 {
+		filter.Page = 1
+	}
+	if filter.PageSize <= 0 {
+		filter.PageSize = 20
+	}
+	if filter.PageSize > 100 {
+		filter.PageSize = 100
+	}
+	where := []string{"1=1"}
+	args := []any{}
+	if filter.Status != "" && filter.Status != "all" {
+		where = append(where, "status=?")
+		args = append(args, filter.Status)
+	}
+	if filter.PluginCode != "" {
+		where = append(where, "plugin_code=?")
+		args = append(args, filter.PluginCode)
+	}
+	if keyword := strings.TrimSpace(filter.Keyword); keyword != "" {
+		like := "%" + keyword + "%"
+		where = append(where, "(plugin_code LIKE ? OR version LIKE ? OR source_url LIKE ? OR final_url LIKE ? OR file_name LIKE ? OR status LIKE ?)")
+		args = append(args, like, like, like, like, like, like)
+	}
+	whereSQL := strings.Join(where, " AND ")
+	var total int
+	if err := s.db.QueryRow("SELECT COUNT(*) FROM plugin_package_downloads WHERE "+whereSQL, args...).Scan(&total); err != nil {
+		return nil, 0, err
+	}
+	offset := (filter.Page - 1) * filter.PageSize
+	args2 := append(append([]any{}, args...), filter.PageSize, offset)
+	rows, err := s.db.Query(`SELECT id, plugin_code, version, source_url, final_url, status, file_name, staging_path, file_size,
+		sha256_expected, sha256_actual, content_type, error_code, error_message, created_by,
+		DATE_FORMAT(created_at,'%Y-%m-%d %H:%i:%s'), COALESCE(DATE_FORMAT(downloaded_at,'%Y-%m-%d %H:%i:%s'),''), COALESCE(DATE_FORMAT(deleted_at,'%Y-%m-%d %H:%i:%s'),''),
+		DATE_FORMAT(updated_at,'%Y-%m-%d %H:%i:%s')
+		FROM plugin_package_downloads WHERE `+whereSQL+`
+		ORDER BY id DESC LIMIT ? OFFSET ?`, args2...)
+	if err != nil {
+		return nil, 0, err
+	}
+	defer rows.Close()
+	out := []domain.PluginPackageDownloadRecord{}
+	for rows.Next() {
+		var it domain.PluginPackageDownloadRecord
+		if err := rows.Scan(&it.ID, &it.PluginCode, &it.Version, &it.SourceURL, &it.FinalURL, &it.Status, &it.FileName, &it.StagingPath, &it.FileSize,
+			&it.SHA256Expected, &it.SHA256Actual, &it.ContentType, &it.ErrorCode, &it.ErrorMessage, &it.CreatedBy,
+			&it.CreatedAt, &it.DownloadedAt, &it.DeletedAt, &it.UpdatedAt); err != nil {
+			return nil, 0, err
+		}
+		out = append(out, it)
+	}
+	return out, total, nil
+}
+
+// ===== Plugin package prechecks / compatibility checks (v1.7.0-P0-03) =====
+
+func (s *MySQLStore) AppendPluginPackagePrecheck(record domain.PluginPackagePrecheckRecord) (domain.PluginPackagePrecheckRecord, error) {
+	if strings.TrimSpace(record.Status) == "" {
+		record.Status = domain.PluginPackagePrecheckStatusPassed
+	}
+	res, err := s.db.Exec(`INSERT INTO plugin_package_prechecks
+		(package_download_id, plugin_code, version, status, manifest_json, package_path, staging_path, checksum_status,
+		 error_code, error_message, created_by, started_at, finished_at, created_at, updated_at)
+		VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,COALESCE(?,NOW()),NOW())`,
+		record.PackageDownloadID, record.PluginCode, record.Version, record.Status, uploadJSONValue(record.ManifestJSON), record.PackagePath, record.StagingPath, record.ChecksumStatus,
+		record.ErrorCode, record.ErrorMessage, record.CreatedBy, nullTime(record.StartedAt), nullTime(record.FinishedAt), nullTime(record.CreatedAt))
+	if err != nil {
+		return domain.PluginPackagePrecheckRecord{}, err
+	}
+	id, _ := res.LastInsertId()
+	out, _ := s.PluginPackagePrecheckByID(id)
+	return out, nil
+}
+
+func (s *MySQLStore) SavePluginPackagePrecheck(record domain.PluginPackagePrecheckRecord) (domain.PluginPackagePrecheckRecord, error) {
+	if record.ID <= 0 {
+		return s.AppendPluginPackagePrecheck(record)
+	}
+	_, err := s.db.Exec(`UPDATE plugin_package_prechecks SET
+		package_download_id=?, plugin_code=?, version=?, status=?, manifest_json=?, package_path=?, staging_path=?, checksum_status=?,
+		error_code=?, error_message=?, created_by=?, started_at=?, finished_at=?, created_at=COALESCE(?, created_at), updated_at=NOW()
+		WHERE id=?`,
+		record.PackageDownloadID, record.PluginCode, record.Version, record.Status, uploadJSONValue(record.ManifestJSON), record.PackagePath, record.StagingPath, record.ChecksumStatus,
+		record.ErrorCode, record.ErrorMessage, record.CreatedBy, nullTime(record.StartedAt), nullTime(record.FinishedAt), nullTime(record.CreatedAt), record.ID)
+	if err != nil {
+		return domain.PluginPackagePrecheckRecord{}, err
+	}
+	out, _ := s.PluginPackagePrecheckByID(record.ID)
+	return out, nil
+}
+
+func (s *MySQLStore) PluginPackagePrecheckByID(id int64) (domain.PluginPackagePrecheckRecord, bool) {
+	var it domain.PluginPackagePrecheckRecord
+	err := s.db.QueryRow(`SELECT id, package_download_id, plugin_code, version, status, COALESCE(CAST(manifest_json AS CHAR),''),
+		package_path, staging_path, checksum_status, error_code, error_message, created_by,
+		COALESCE(DATE_FORMAT(started_at,'%Y-%m-%d %H:%i:%s'),''), COALESCE(DATE_FORMAT(finished_at,'%Y-%m-%d %H:%i:%s'),''),
+		DATE_FORMAT(created_at,'%Y-%m-%d %H:%i:%s'), DATE_FORMAT(updated_at,'%Y-%m-%d %H:%i:%s')
+		FROM plugin_package_prechecks WHERE id=? LIMIT 1`, id).
+		Scan(&it.ID, &it.PackageDownloadID, &it.PluginCode, &it.Version, &it.Status, &it.ManifestJSON,
+			&it.PackagePath, &it.StagingPath, &it.ChecksumStatus, &it.ErrorCode, &it.ErrorMessage, &it.CreatedBy,
+			&it.StartedAt, &it.FinishedAt, &it.CreatedAt, &it.UpdatedAt)
+	if err != nil {
+		return domain.PluginPackagePrecheckRecord{}, false
+	}
+	return it, true
+}
+
+func (s *MySQLStore) PluginPackagePrechecks(filter domain.PluginPackagePrecheckFilter) ([]domain.PluginPackagePrecheckRecord, int, error) {
+	if filter.Page <= 0 {
+		filter.Page = 1
+	}
+	if filter.PageSize <= 0 {
+		filter.PageSize = 20
+	}
+	if filter.PageSize > 100 {
+		filter.PageSize = 100
+	}
+	where := []string{"1=1"}
+	args := []any{}
+	if filter.Status != "" && filter.Status != "all" {
+		where = append(where, "status=?")
+		args = append(args, filter.Status)
+	}
+	if filter.PluginCode != "" {
+		where = append(where, "plugin_code=?")
+		args = append(args, filter.PluginCode)
+	}
+	if keyword := strings.TrimSpace(filter.Keyword); keyword != "" {
+		like := "%" + keyword + "%"
+		where = append(where, "(plugin_code LIKE ? OR version LIKE ? OR status LIKE ? OR package_path LIKE ? OR staging_path LIKE ?)")
+		args = append(args, like, like, like, like, like)
+	}
+	whereSQL := strings.Join(where, " AND ")
+	var total int
+	if err := s.db.QueryRow("SELECT COUNT(*) FROM plugin_package_prechecks WHERE "+whereSQL, args...).Scan(&total); err != nil {
+		return nil, 0, err
+	}
+	offset := (filter.Page - 1) * filter.PageSize
+	args2 := append(append([]any{}, args...), filter.PageSize, offset)
+	rows, err := s.db.Query(`SELECT id, package_download_id, plugin_code, version, status, COALESCE(CAST(manifest_json AS CHAR),''),
+		package_path, staging_path, checksum_status, error_code, error_message, created_by,
+		COALESCE(DATE_FORMAT(started_at,'%Y-%m-%d %H:%i:%s'),''), COALESCE(DATE_FORMAT(finished_at,'%Y-%m-%d %H:%i:%s'),''),
+		DATE_FORMAT(created_at,'%Y-%m-%d %H:%i:%s'), DATE_FORMAT(updated_at,'%Y-%m-%d %H:%i:%s')
+		FROM plugin_package_prechecks WHERE `+whereSQL+` ORDER BY id DESC LIMIT ? OFFSET ?`, args2...)
+	if err != nil {
+		return nil, 0, err
+	}
+	defer rows.Close()
+	out := []domain.PluginPackagePrecheckRecord{}
+	for rows.Next() {
+		var it domain.PluginPackagePrecheckRecord
+		if err := rows.Scan(&it.ID, &it.PackageDownloadID, &it.PluginCode, &it.Version, &it.Status, &it.ManifestJSON,
+			&it.PackagePath, &it.StagingPath, &it.ChecksumStatus, &it.ErrorCode, &it.ErrorMessage, &it.CreatedBy,
+			&it.StartedAt, &it.FinishedAt, &it.CreatedAt, &it.UpdatedAt); err != nil {
+			return nil, 0, err
+		}
+		out = append(out, it)
+	}
+	return out, total, nil
+}
+
+func (s *MySQLStore) AppendPluginPackageCompatCheck(record domain.PluginPackageCompatCheckRecord) (domain.PluginPackageCompatCheckRecord, error) {
+	if strings.TrimSpace(record.Status) == "" {
+		record.Status = domain.PluginPackageCompatCheckStatusPending
+	}
+	res, err := s.db.Exec(`INSERT INTO plugin_package_compat_checks
+		(package_download_id, package_precheck_id, plugin_code, version, status, can_install, core_version, compatible_core_version,
+		 dependency_result_json, conflict_result_json, permission_result_json, route_result_json, menu_result_json, hook_result_json,
+		 config_schema_result_json, migration_result_json, warnings_json, errors_json, summary_json, created_by, started_at, finished_at, created_at, updated_at)
+		VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,COALESCE(?,NOW()),NOW())`,
+		record.PackageDownloadID, record.PackagePrecheckID, record.PluginCode, record.Version, record.Status, record.CanInstall, record.CoreVersion, record.CompatibleCoreVersion,
+		uploadJSONValue(record.DependencyResultJSON), uploadJSONValue(record.ConflictResultJSON), uploadJSONValue(record.PermissionResultJSON), uploadJSONValue(record.RouteResultJSON), uploadJSONValue(record.MenuResultJSON), uploadJSONValue(record.HookResultJSON),
+		uploadJSONValue(record.ConfigSchemaResultJSON), uploadJSONValue(record.MigrationResultJSON), uploadJSONValue(record.WarningsJSON), uploadJSONValue(record.ErrorsJSON), uploadJSONValue(record.SummaryJSON), record.CreatedBy,
+		nullTime(record.StartedAt), nullTime(record.FinishedAt), nullTime(record.CreatedAt))
+	if err != nil {
+		return domain.PluginPackageCompatCheckRecord{}, err
+	}
+	id, _ := res.LastInsertId()
+	out, _ := s.PluginPackageCompatCheckByID(id)
+	return out, nil
+}
+
+func (s *MySQLStore) SavePluginPackageCompatCheck(record domain.PluginPackageCompatCheckRecord) (domain.PluginPackageCompatCheckRecord, error) {
+	if record.ID <= 0 {
+		return s.AppendPluginPackageCompatCheck(record)
+	}
+	_, err := s.db.Exec(`UPDATE plugin_package_compat_checks SET
+		package_download_id=?, package_precheck_id=?, plugin_code=?, version=?, status=?, can_install=?, core_version=?, compatible_core_version=?,
+		dependency_result_json=?, conflict_result_json=?, permission_result_json=?, route_result_json=?, menu_result_json=?, hook_result_json=?,
+		config_schema_result_json=?, migration_result_json=?, warnings_json=?, errors_json=?, summary_json=?, created_by=?, started_at=?, finished_at=?,
+		created_at=COALESCE(?, created_at), updated_at=NOW()
+		WHERE id=?`,
+		record.PackageDownloadID, record.PackagePrecheckID, record.PluginCode, record.Version, record.Status, record.CanInstall, record.CoreVersion, record.CompatibleCoreVersion,
+		uploadJSONValue(record.DependencyResultJSON), uploadJSONValue(record.ConflictResultJSON), uploadJSONValue(record.PermissionResultJSON), uploadJSONValue(record.RouteResultJSON), uploadJSONValue(record.MenuResultJSON), uploadJSONValue(record.HookResultJSON),
+		uploadJSONValue(record.ConfigSchemaResultJSON), uploadJSONValue(record.MigrationResultJSON), uploadJSONValue(record.WarningsJSON), uploadJSONValue(record.ErrorsJSON), uploadJSONValue(record.SummaryJSON), record.CreatedBy, nullTime(record.StartedAt), nullTime(record.FinishedAt),
+		nullTime(record.CreatedAt), record.ID)
+	if err != nil {
+		return domain.PluginPackageCompatCheckRecord{}, err
+	}
+	out, _ := s.PluginPackageCompatCheckByID(record.ID)
+	return out, nil
+}
+
+func (s *MySQLStore) PluginPackageCompatCheckByID(id int64) (domain.PluginPackageCompatCheckRecord, bool) {
+	var it domain.PluginPackageCompatCheckRecord
+	err := s.db.QueryRow(`SELECT id, package_download_id, package_precheck_id, plugin_code, version, status, can_install, core_version, compatible_core_version,
+		COALESCE(CAST(dependency_result_json AS CHAR),''), COALESCE(CAST(conflict_result_json AS CHAR),''), COALESCE(CAST(permission_result_json AS CHAR),''),
+		COALESCE(CAST(route_result_json AS CHAR),''), COALESCE(CAST(menu_result_json AS CHAR),''), COALESCE(CAST(hook_result_json AS CHAR),''),
+		COALESCE(CAST(config_schema_result_json AS CHAR),''), COALESCE(CAST(migration_result_json AS CHAR),''), COALESCE(CAST(warnings_json AS CHAR),''),
+		COALESCE(CAST(errors_json AS CHAR),''), COALESCE(CAST(summary_json AS CHAR),''), created_by,
+		COALESCE(DATE_FORMAT(started_at,'%Y-%m-%d %H:%i:%s'),''), COALESCE(DATE_FORMAT(finished_at,'%Y-%m-%d %H:%i:%s'),''),
+		DATE_FORMAT(created_at,'%Y-%m-%d %H:%i:%s'), DATE_FORMAT(updated_at,'%Y-%m-%d %H:%i:%s')
+		FROM plugin_package_compat_checks WHERE id=? LIMIT 1`, id).
+		Scan(&it.ID, &it.PackageDownloadID, &it.PackagePrecheckID, &it.PluginCode, &it.Version, &it.Status, &it.CanInstall, &it.CoreVersion, &it.CompatibleCoreVersion,
+			&it.DependencyResultJSON, &it.ConflictResultJSON, &it.PermissionResultJSON, &it.RouteResultJSON, &it.MenuResultJSON, &it.HookResultJSON,
+			&it.ConfigSchemaResultJSON, &it.MigrationResultJSON, &it.WarningsJSON, &it.ErrorsJSON, &it.SummaryJSON, &it.CreatedBy,
+			&it.StartedAt, &it.FinishedAt, &it.CreatedAt, &it.UpdatedAt)
+	if err != nil {
+		return domain.PluginPackageCompatCheckRecord{}, false
+	}
+	return it, true
+}
+
+func (s *MySQLStore) PluginPackageCompatChecks(filter domain.PluginPackageCompatCheckFilter) ([]domain.PluginPackageCompatCheckRecord, int, error) {
+	if filter.Page <= 0 {
+		filter.Page = 1
+	}
+	if filter.PageSize <= 0 {
+		filter.PageSize = 20
+	}
+	if filter.PageSize > 100 {
+		filter.PageSize = 100
+	}
+	where := []string{"1=1"}
+	args := []any{}
+	if filter.Status != "" && filter.Status != "all" {
+		where = append(where, "status=?")
+		args = append(args, filter.Status)
+	}
+	if filter.PluginCode != "" {
+		where = append(where, "plugin_code=?")
+		args = append(args, filter.PluginCode)
+	}
+	if filter.PackagePrecheckID > 0 {
+		where = append(where, "package_precheck_id=?")
+		args = append(args, filter.PackagePrecheckID)
+	}
+	if keyword := strings.TrimSpace(filter.Keyword); keyword != "" {
+		like := "%" + keyword + "%"
+		where = append(where, "(plugin_code LIKE ? OR version LIKE ? OR status LIKE ? OR core_version LIKE ? OR compatible_core_version LIKE ?)")
+		args = append(args, like, like, like, like, like)
+	}
+	whereSQL := strings.Join(where, " AND ")
+	var total int
+	if err := s.db.QueryRow("SELECT COUNT(*) FROM plugin_package_compat_checks WHERE "+whereSQL, args...).Scan(&total); err != nil {
+		return nil, 0, err
+	}
+	offset := (filter.Page - 1) * filter.PageSize
+	args2 := append(append([]any{}, args...), filter.PageSize, offset)
+	rows, err := s.db.Query(`SELECT id, package_download_id, package_precheck_id, plugin_code, version, status, can_install, core_version, compatible_core_version,
+		COALESCE(CAST(dependency_result_json AS CHAR),''), COALESCE(CAST(conflict_result_json AS CHAR),''), COALESCE(CAST(permission_result_json AS CHAR),''),
+		COALESCE(CAST(route_result_json AS CHAR),''), COALESCE(CAST(menu_result_json AS CHAR),''), COALESCE(CAST(hook_result_json AS CHAR),''),
+		COALESCE(CAST(config_schema_result_json AS CHAR),''), COALESCE(CAST(migration_result_json AS CHAR),''), COALESCE(CAST(warnings_json AS CHAR),''),
+		COALESCE(CAST(errors_json AS CHAR),''), COALESCE(CAST(summary_json AS CHAR),''), created_by,
+		COALESCE(DATE_FORMAT(started_at,'%Y-%m-%d %H:%i:%s'),''), COALESCE(DATE_FORMAT(finished_at,'%Y-%m-%d %H:%i:%s'),''),
+		DATE_FORMAT(created_at,'%Y-%m-%d %H:%i:%s'), DATE_FORMAT(updated_at,'%Y-%m-%d %H:%i:%s')
+		FROM plugin_package_compat_checks WHERE `+whereSQL+` ORDER BY id DESC LIMIT ? OFFSET ?`, args2...)
+	if err != nil {
+		return nil, 0, err
+	}
+	defer rows.Close()
+	out := []domain.PluginPackageCompatCheckRecord{}
+	for rows.Next() {
+		var it domain.PluginPackageCompatCheckRecord
+		if err := rows.Scan(&it.ID, &it.PackageDownloadID, &it.PackagePrecheckID, &it.PluginCode, &it.Version, &it.Status, &it.CanInstall, &it.CoreVersion, &it.CompatibleCoreVersion,
+			&it.DependencyResultJSON, &it.ConflictResultJSON, &it.PermissionResultJSON, &it.RouteResultJSON, &it.MenuResultJSON, &it.HookResultJSON,
+			&it.ConfigSchemaResultJSON, &it.MigrationResultJSON, &it.WarningsJSON, &it.ErrorsJSON, &it.SummaryJSON, &it.CreatedBy,
+			&it.StartedAt, &it.FinishedAt, &it.CreatedAt, &it.UpdatedAt); err != nil {
+			return nil, 0, err
+		}
+		out = append(out, it)
+	}
+	return out, total, nil
+}
+
+// ===== Plugin enable prechecks (v1.7.0-P0-05) =====
+
+func (s *MySQLStore) AppendPluginEnablePrecheck(record domain.PluginEnablePrecheckRecord) (domain.PluginEnablePrecheckRecord, error) {
+	if strings.TrimSpace(record.Status) == "" {
+		record.Status = domain.PluginEnablePrecheckStatusPending
+	}
+	res, err := s.db.Exec(`INSERT INTO plugin_enable_prechecks
+		(plugin_code, version, plugin_install_task_id, plugin_installation_id, status, can_enable, core_version, installed_path, manifest_sha256,
+		 file_integrity_result_json, manifest_result_json, dependency_result_json, config_result_json, migration_result_json,
+		 permission_result_json, menu_result_json, route_result_json, hook_result_json, content_type_result_json, runtime_result_json,
+		 warnings_json, errors_json, summary_json, created_by, started_at, finished_at, created_at, updated_at)
+		VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,COALESCE(?,NOW()),NOW())`,
+		record.PluginCode, record.Version, record.PluginInstallTaskID, record.PluginInstallationID, record.Status, boolToTinyInt(record.CanEnable),
+		record.CoreVersion, record.InstalledPath, record.ManifestSHA256,
+		uploadJSONValue(record.FileIntegrityResultJSON), uploadJSONValue(record.ManifestResultJSON), uploadJSONValue(record.DependencyResultJSON),
+		uploadJSONValue(record.ConfigResultJSON), uploadJSONValue(record.MigrationResultJSON),
+		uploadJSONValue(record.PermissionResultJSON), uploadJSONValue(record.MenuResultJSON), uploadJSONValue(record.RouteResultJSON),
+		uploadJSONValue(record.HookResultJSON), uploadJSONValue(record.ContentTypeResultJSON), uploadJSONValue(record.RuntimeResultJSON),
+		uploadJSONValue(record.WarningsJSON), uploadJSONValue(record.ErrorsJSON), uploadJSONValue(record.SummaryJSON),
+		record.CreatedBy, nullTime(record.StartedAt), nullTime(record.FinishedAt), nullTime(record.CreatedAt))
+	if err != nil {
+		return domain.PluginEnablePrecheckRecord{}, err
+	}
+	id, _ := res.LastInsertId()
+	out, _ := s.PluginEnablePrecheckByID(id)
+	return out, nil
+}
+
+func (s *MySQLStore) SavePluginEnablePrecheck(record domain.PluginEnablePrecheckRecord) (domain.PluginEnablePrecheckRecord, error) {
+	if record.ID <= 0 {
+		return s.AppendPluginEnablePrecheck(record)
+	}
+	_, err := s.db.Exec(`UPDATE plugin_enable_prechecks SET
+		plugin_code=?, version=?, plugin_install_task_id=?, plugin_installation_id=?, status=?, can_enable=?, core_version=?, installed_path=?, manifest_sha256=?,
+		file_integrity_result_json=?, manifest_result_json=?, dependency_result_json=?, config_result_json=?, migration_result_json=?,
+		permission_result_json=?, menu_result_json=?, route_result_json=?, hook_result_json=?, content_type_result_json=?, runtime_result_json=?,
+		warnings_json=?, errors_json=?, summary_json=?, created_by=?, started_at=?, finished_at=?, created_at=COALESCE(?, created_at), updated_at=NOW()
+		WHERE id=?`,
+		record.PluginCode, record.Version, record.PluginInstallTaskID, record.PluginInstallationID, record.Status, boolToTinyInt(record.CanEnable),
+		record.CoreVersion, record.InstalledPath, record.ManifestSHA256,
+		uploadJSONValue(record.FileIntegrityResultJSON), uploadJSONValue(record.ManifestResultJSON), uploadJSONValue(record.DependencyResultJSON),
+		uploadJSONValue(record.ConfigResultJSON), uploadJSONValue(record.MigrationResultJSON),
+		uploadJSONValue(record.PermissionResultJSON), uploadJSONValue(record.MenuResultJSON), uploadJSONValue(record.RouteResultJSON),
+		uploadJSONValue(record.HookResultJSON), uploadJSONValue(record.ContentTypeResultJSON), uploadJSONValue(record.RuntimeResultJSON),
+		uploadJSONValue(record.WarningsJSON), uploadJSONValue(record.ErrorsJSON), uploadJSONValue(record.SummaryJSON),
+		record.CreatedBy, nullTime(record.StartedAt), nullTime(record.FinishedAt), nullTime(record.CreatedAt), record.ID)
+	if err != nil {
+		return domain.PluginEnablePrecheckRecord{}, err
+	}
+	out, _ := s.PluginEnablePrecheckByID(record.ID)
+	return out, nil
+}
+
+func (s *MySQLStore) PluginEnablePrecheckByID(id int64) (domain.PluginEnablePrecheckRecord, bool) {
+	var it domain.PluginEnablePrecheckRecord
+	err := s.db.QueryRow(`SELECT id, plugin_code, version, plugin_install_task_id, plugin_installation_id, status, can_enable, core_version, installed_path, manifest_sha256,
+		COALESCE(CAST(file_integrity_result_json AS CHAR),''), COALESCE(CAST(manifest_result_json AS CHAR),''), COALESCE(CAST(dependency_result_json AS CHAR),''),
+		COALESCE(CAST(config_result_json AS CHAR),''), COALESCE(CAST(migration_result_json AS CHAR),''), COALESCE(CAST(permission_result_json AS CHAR),''),
+		COALESCE(CAST(menu_result_json AS CHAR),''), COALESCE(CAST(route_result_json AS CHAR),''), COALESCE(CAST(hook_result_json AS CHAR),''),
+		COALESCE(CAST(content_type_result_json AS CHAR),''), COALESCE(CAST(runtime_result_json AS CHAR),''), COALESCE(CAST(warnings_json AS CHAR),''),
+		COALESCE(CAST(errors_json AS CHAR),''), COALESCE(CAST(summary_json AS CHAR),''), created_by,
+		COALESCE(DATE_FORMAT(started_at,'%Y-%m-%d %H:%i:%s'),''), COALESCE(DATE_FORMAT(finished_at,'%Y-%m-%d %H:%i:%s'),''),
+		DATE_FORMAT(created_at,'%Y-%m-%d %H:%i:%s'), DATE_FORMAT(updated_at,'%Y-%m-%d %H:%i:%s')
+		FROM plugin_enable_prechecks WHERE id=?`, id).
+		Scan(&it.ID, &it.PluginCode, &it.Version, &it.PluginInstallTaskID, &it.PluginInstallationID, &it.Status, &it.CanEnable, &it.CoreVersion, &it.InstalledPath, &it.ManifestSHA256,
+			&it.FileIntegrityResultJSON, &it.ManifestResultJSON, &it.DependencyResultJSON, &it.ConfigResultJSON, &it.MigrationResultJSON,
+			&it.PermissionResultJSON, &it.MenuResultJSON, &it.RouteResultJSON, &it.HookResultJSON, &it.ContentTypeResultJSON, &it.RuntimeResultJSON,
+			&it.WarningsJSON, &it.ErrorsJSON, &it.SummaryJSON, &it.CreatedBy, &it.StartedAt, &it.FinishedAt, &it.CreatedAt, &it.UpdatedAt)
+	if err != nil {
+		return domain.PluginEnablePrecheckRecord{}, false
+	}
+	return it, true
+}
+
+func (s *MySQLStore) PluginEnablePrechecks(filter domain.PluginEnablePrecheckFilter) ([]domain.PluginEnablePrecheckRecord, int, error) {
+	if filter.Page <= 0 {
+		filter.Page = 1
+	}
+	if filter.PageSize <= 0 {
+		filter.PageSize = 20
+	}
+	if filter.PageSize > 100 {
+		filter.PageSize = 100
+	}
+	where := []string{"1=1"}
+	args := []any{}
+	if filter.Status != "" && filter.Status != "all" {
+		where = append(where, "status=?")
+		args = append(args, filter.Status)
+	}
+	if filter.PluginCode != "" {
+		where = append(where, "plugin_code=?")
+		args = append(args, filter.PluginCode)
+	}
+	if keyword := strings.TrimSpace(filter.Keyword); keyword != "" {
+		like := "%" + keyword + "%"
+		where = append(where, "(plugin_code LIKE ? OR version LIKE ? OR status LIKE ? OR core_version LIKE ?)")
+		args = append(args, like, like, like, like)
+	}
+	whereSQL := strings.Join(where, " AND ")
+	var total int
+	if err := s.db.QueryRow("SELECT COUNT(*) FROM plugin_enable_prechecks WHERE "+whereSQL, args...).Scan(&total); err != nil {
+		return nil, 0, err
+	}
+	offset := (filter.Page - 1) * filter.PageSize
+	args2 := append(append([]any{}, args...), filter.PageSize, offset)
+	rows, err := s.db.Query(`SELECT id, plugin_code, version, plugin_install_task_id, plugin_installation_id, status, can_enable, core_version, installed_path, manifest_sha256,
+		COALESCE(CAST(warnings_json AS CHAR),''), COALESCE(CAST(errors_json AS CHAR),''), COALESCE(DATE_FORMAT(started_at,'%Y-%m-%d %H:%i:%s'),''), COALESCE(DATE_FORMAT(finished_at,'%Y-%m-%d %H:%i:%s'),''),
+		DATE_FORMAT(created_at,'%Y-%m-%d %H:%i:%s'), DATE_FORMAT(updated_at,'%Y-%m-%d %H:%i:%s')
+		FROM plugin_enable_prechecks WHERE `+whereSQL+`
+		ORDER BY id DESC LIMIT ? OFFSET ?`, args2...)
+	if err != nil {
+		return nil, 0, err
+	}
+	defer rows.Close()
+	out := []domain.PluginEnablePrecheckRecord{}
+	for rows.Next() {
+		var it domain.PluginEnablePrecheckRecord
+		if err := rows.Scan(&it.ID, &it.PluginCode, &it.Version, &it.PluginInstallTaskID, &it.PluginInstallationID, &it.Status, &it.CanEnable, &it.CoreVersion, &it.InstalledPath, &it.ManifestSHA256,
+			&it.WarningsJSON, &it.ErrorsJSON, &it.StartedAt, &it.FinishedAt, &it.CreatedAt, &it.UpdatedAt); err != nil {
+			return nil, 0, err
+		}
+		out = append(out, it)
+	}
+	return out, total, nil
+}
+
+// ===== Plugin enable tasks (v1.7.0-P0-06) =====
+
+func (s *MySQLStore) AppendPluginEnableTask(record domain.PluginEnableTask) (domain.PluginEnableTask, error) {
+	if strings.TrimSpace(record.Status) == "" {
+		record.Status = domain.PluginEnableTaskStatusPending
+	}
+	res, err := s.db.Exec(`INSERT INTO plugin_enable_tasks
+  (plugin_code,version,plugin_install_task_id,plugin_enable_precheck_id,status,previous_status,new_status,
+   registered_content_types_json,registered_permissions_json,registered_menus_json,registered_routes_json,registered_hooks_json,
+   effective_config_json,errors_json,warnings_json,rollback_log_json,started_at,finished_at,duration_ms,enabled_by)
+  VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+		strings.TrimSpace(record.PluginCode),
+		strings.TrimSpace(record.Version),
+		record.PluginInstallTaskID,
+		record.PluginEnablePrecheckID,
+		strings.TrimSpace(record.Status),
+		strings.TrimSpace(record.PreviousStatus),
+		strings.TrimSpace(record.NewStatus),
+		nullJSONString(record.RegisteredContentTypesJSON),
+		nullJSONString(record.RegisteredPermissionsJSON),
+		nullJSONString(record.RegisteredMenusJSON),
+		nullJSONString(record.RegisteredRoutesJSON),
+		nullJSONString(record.RegisteredHooksJSON),
+		nullJSONString(record.EffectiveConfigJSON),
+		nullJSONString(record.ErrorsJSON),
+		nullJSONString(record.WarningsJSON),
+		nullJSONString(record.RollbackLogJSON),
+		nullTime(record.StartedAt),
+		nullTime(record.FinishedAt),
+		record.DurationMS,
+		record.EnabledBy,
+	)
+	if err != nil {
+		return domain.PluginEnableTask{}, err
+	}
+	id, _ := res.LastInsertId()
+	out, _ := s.PluginEnableTaskByID(id)
+	return out, nil
+}
+
+func (s *MySQLStore) SavePluginEnableTask(record domain.PluginEnableTask) (domain.PluginEnableTask, error) {
+	if record.ID <= 0 {
+		return s.AppendPluginEnableTask(record)
+	}
+	_, err := s.db.Exec(`UPDATE plugin_enable_tasks SET
+  plugin_code=?,version=?,plugin_install_task_id=?,plugin_enable_precheck_id=?,status=?,previous_status=?,new_status=?,
+  registered_content_types_json=?,registered_permissions_json=?,registered_menus_json=?,registered_routes_json=?,registered_hooks_json=?,
+  effective_config_json=?,errors_json=?,warnings_json=?,rollback_log_json=?,started_at=?,finished_at=?,duration_ms=?,enabled_by=?
+  WHERE id=?`,
+		strings.TrimSpace(record.PluginCode),
+		strings.TrimSpace(record.Version),
+		record.PluginInstallTaskID,
+		record.PluginEnablePrecheckID,
+		strings.TrimSpace(record.Status),
+		strings.TrimSpace(record.PreviousStatus),
+		strings.TrimSpace(record.NewStatus),
+		nullJSONString(record.RegisteredContentTypesJSON),
+		nullJSONString(record.RegisteredPermissionsJSON),
+		nullJSONString(record.RegisteredMenusJSON),
+		nullJSONString(record.RegisteredRoutesJSON),
+		nullJSONString(record.RegisteredHooksJSON),
+		nullJSONString(record.EffectiveConfigJSON),
+		nullJSONString(record.ErrorsJSON),
+		nullJSONString(record.WarningsJSON),
+		nullJSONString(record.RollbackLogJSON),
+		nullTime(record.StartedAt),
+		nullTime(record.FinishedAt),
+		record.DurationMS,
+		record.EnabledBy,
+		record.ID,
+	)
+	if err != nil {
+		return domain.PluginEnableTask{}, err
+	}
+	out, _ := s.PluginEnableTaskByID(record.ID)
+	return out, nil
+}
+
+func (s *MySQLStore) PluginEnableTaskByID(id int64) (domain.PluginEnableTask, bool) {
+	var record domain.PluginEnableTask
+	var startedAt, finishedAt sql.NullTime
+	var createdAt, updatedAt time.Time
+	var registeredContentTypes, registeredPermissions, registeredMenus, registeredRoutes, registeredHooks sql.NullString
+	var effectiveConfig, errorsJSON, warningsJSON, rollbackLog sql.NullString
+	err := s.db.QueryRow(`SELECT id,plugin_code,version,plugin_install_task_id,plugin_enable_precheck_id,status,previous_status,new_status,
+  registered_content_types_json,registered_permissions_json,registered_menus_json,registered_routes_json,registered_hooks_json,
+  effective_config_json,errors_json,warnings_json,rollback_log_json,started_at,finished_at,duration_ms,enabled_by,created_at,updated_at
+  FROM plugin_enable_tasks WHERE id=?`, id).Scan(
+		&record.ID,
+		&record.PluginCode,
+		&record.Version,
+		&record.PluginInstallTaskID,
+		&record.PluginEnablePrecheckID,
+		&record.Status,
+		&record.PreviousStatus,
+		&record.NewStatus,
+		&registeredContentTypes,
+		&registeredPermissions,
+		&registeredMenus,
+		&registeredRoutes,
+		&registeredHooks,
+		&effectiveConfig,
+		&errorsJSON,
+		&warningsJSON,
+		&rollbackLog,
+		&startedAt,
+		&finishedAt,
+		&record.DurationMS,
+		&record.EnabledBy,
+		&createdAt,
+		&updatedAt,
+	)
+	if err != nil {
+		return domain.PluginEnableTask{}, false
+	}
+	record.RegisteredContentTypesJSON = registeredContentTypes.String
+	record.RegisteredPermissionsJSON = registeredPermissions.String
+	record.RegisteredMenusJSON = registeredMenus.String
+	record.RegisteredRoutesJSON = registeredRoutes.String
+	record.RegisteredHooksJSON = registeredHooks.String
+	record.EffectiveConfigJSON = effectiveConfig.String
+	record.ErrorsJSON = errorsJSON.String
+	record.WarningsJSON = warningsJSON.String
+	record.RollbackLogJSON = rollbackLog.String
+	if startedAt.Valid {
+		record.StartedAt = startedAt.Time.Format(TimeLayout)
+	}
+	if finishedAt.Valid {
+		record.FinishedAt = finishedAt.Time.Format(TimeLayout)
+	}
+	record.CreatedAt = createdAt.Format(TimeLayout)
+	record.UpdatedAt = updatedAt.Format(TimeLayout)
+	return record, true
+}
+
+func (s *MySQLStore) PluginEnableTasks(filter domain.PluginEnableTaskFilter) ([]domain.PluginEnableTask, int, error) {
+	page, pageSize := normalizePage(filter.Page, filter.PageSize)
+	status := strings.TrimSpace(filter.Status)
+	code := strings.TrimSpace(filter.PluginCode)
+	keyword := strings.TrimSpace(filter.Keyword)
+
+	where := []string{"1=1"}
+	args := []any{}
+	if status != "" && status != "all" {
+		where = append(where, "status=?")
+		args = append(args, status)
+	}
+	if code != "" {
+		where = append(where, "plugin_code=?")
+		args = append(args, code)
+	}
+	if keyword != "" {
+		where = append(where, "(plugin_code LIKE ? OR version LIKE ? OR status LIKE ?)")
+		like := "%" + keyword + "%"
+		args = append(args, like, like, like)
+	}
+	var total int
+	if err := s.db.QueryRow(`SELECT COUNT(1) FROM plugin_enable_tasks WHERE `+strings.Join(where, " AND "), args...).Scan(&total); err != nil {
+		return nil, 0, err
+	}
+	args = append(args, pageSize, (page-1)*pageSize)
+	rows, err := s.db.Query(`SELECT id,plugin_code,version,plugin_install_task_id,plugin_enable_precheck_id,status,previous_status,new_status,
+  registered_content_types_json,registered_permissions_json,registered_menus_json,registered_routes_json,registered_hooks_json,
+  effective_config_json,errors_json,warnings_json,rollback_log_json,started_at,finished_at,duration_ms,enabled_by,created_at,updated_at
+  FROM plugin_enable_tasks WHERE `+strings.Join(where, " AND ")+` ORDER BY id DESC LIMIT ? OFFSET ?`, args...)
+	if err != nil {
+		return nil, 0, err
+	}
+	defer rows.Close()
+	out := []domain.PluginEnableTask{}
+	for rows.Next() {
+		var record domain.PluginEnableTask
+		var startedAt, finishedAt sql.NullTime
+		var createdAt, updatedAt time.Time
+		var registeredContentTypes, registeredPermissions, registeredMenus, registeredRoutes, registeredHooks sql.NullString
+		var effectiveConfig, errorsJSON, warningsJSON, rollbackLog sql.NullString
+		if err := rows.Scan(
+			&record.ID,
+			&record.PluginCode,
+			&record.Version,
+			&record.PluginInstallTaskID,
+			&record.PluginEnablePrecheckID,
+			&record.Status,
+			&record.PreviousStatus,
+			&record.NewStatus,
+			&registeredContentTypes,
+			&registeredPermissions,
+			&registeredMenus,
+			&registeredRoutes,
+			&registeredHooks,
+			&effectiveConfig,
+			&errorsJSON,
+			&warningsJSON,
+			&rollbackLog,
+			&startedAt,
+			&finishedAt,
+			&record.DurationMS,
+			&record.EnabledBy,
+			&createdAt,
+			&updatedAt,
+		); err != nil {
+			return nil, 0, err
+		}
+		record.RegisteredContentTypesJSON = registeredContentTypes.String
+		record.RegisteredPermissionsJSON = registeredPermissions.String
+		record.RegisteredMenusJSON = registeredMenus.String
+		record.RegisteredRoutesJSON = registeredRoutes.String
+		record.RegisteredHooksJSON = registeredHooks.String
+		record.EffectiveConfigJSON = effectiveConfig.String
+		record.ErrorsJSON = errorsJSON.String
+		record.WarningsJSON = warningsJSON.String
+		record.RollbackLogJSON = rollbackLog.String
+		if startedAt.Valid {
+			record.StartedAt = startedAt.Time.Format(TimeLayout)
+		}
+		if finishedAt.Valid {
+			record.FinishedAt = finishedAt.Time.Format(TimeLayout)
+		}
+		record.CreatedAt = createdAt.Format(TimeLayout)
+		record.UpdatedAt = updatedAt.Format(TimeLayout)
+		out = append(out, record)
+	}
+	return out, total, nil
+}
+
 // ===== Plugin operations (v1.6.0-P0-06) =====
 
 func (s *MySQLStore) AppendPluginOperationSnapshot(record domain.PluginOperationSnapshot) (domain.PluginOperationSnapshot, error) {
@@ -6789,6 +7485,10 @@ func boolToInt(b bool) int {
 		return 1
 	}
 	return 0
+}
+
+func boolToTinyInt(b bool) int {
+	return boolToInt(b)
 }
 
 func stringSliceJSON(items []string) string {

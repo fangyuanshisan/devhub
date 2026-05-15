@@ -2,7 +2,7 @@
 
 DevHub 是一个面向多子站场景的通用开源社区程序，采用 Core + Plugins 架构。Core 提供用户、认证、子站、板块、通用内容、评论、标签、搜索、通知、SEO、权限、审计和插件分发能力；问答、文档、Wiki 通过 qa、docs、wiki 内置系统插件扩展。
 
-当前版本：`v1.6.0`，版本主题为“插件包上传与分发前置能力收口版”。
+当前版本：`v1.7.0`，版本主题为“远程插件包治理与安装安全增强版”。
 
 当前只维护两个入口：
 
@@ -27,6 +27,7 @@ DevHub 是一个面向多子站场景的通用开源社区程序，采用 Core +
 - [BACKUP_AND_ROLLBACK.md](docs/BACKUP_AND_ROLLBACK.md)
 - [SEO.md](docs/SEO.md)
 - [PLUGIN_ARCHITECTURE.md](docs/PLUGIN_ARCHITECTURE.md)
+- [docs/releases/v1.7.0.md](docs/releases/v1.7.0.md)
 - [docs/releases/v1.6.0.md](docs/releases/v1.6.0.md)
 - [docs/releases/v1.5.0.md](docs/releases/v1.5.0.md)
 - [docs/releases/v1.4.0.md](docs/releases/v1.4.0.md)

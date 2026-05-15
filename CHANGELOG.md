@@ -1,5 +1,15 @@
 # Changelog
 
+## v1.7.0 (in progress)
+
+v1.7.0 is the remote plugin package governance and installation-safety enhancement track. P0-01 adds safe remote package download into staging only; it does not install, enable, extract for execution, run plugin code, execute SQL, or dynamically load frontend assets.
+
+- Added `POST /api/v1/admin/plugins/packages/download` for HTTPS-only remote package download into `storage/plugins/staging/downloads/`, with SSRF protections, redirect revalidation, size limits, supported extension checks, temporary-file cleanup, sha256 calculation, and checksum mismatch blocking.
+- Added staging list/detail/delete APIs under `/api/v1/admin/plugins/packages/staging` and a lightweight admin UI entry in the plugin upload package management page.
+- Added persistent `plugin_package_downloads` records for status, source/final URL, file size, sha256 expected/actual, content type, staging path, errors, and audit traceability.
+- Added plugin package dependency / compatibility checks over `plugin_package_prechecks.status=passed` records, with persistent `plugin_package_compat_checks`, Core version constraints (`^` / `~` included), dependency validation, plugin/content/permission/menu/route/Hook/config_schema/migration blockers, backend-computed `can_install`, audit logs, and a minimal admin UI. This still does not install, enable, register, migrate, execute, or dynamically load plugin code.
+- Added plugin enable-precheck (`POST /api/v1/admin/plugins/:code/enable-precheck`) with persistent `plugin_enable_prechecks` results and minimal admin UI entry; runs file/manifest/dependency/config/migration/conflict checks only and does not enable/register/execute.
+
 ## v1.6.0 (2026-05-15)
 
 Current `VERSION` is `v1.6.0`. v1.6.0 closes the plugin package upload and distribution-prep track: zip upload sandbox, upload lifecycle, real Ed25519 signature verification, trusted publishers, read-only remote indexes, version repository, upgrade diff, operation recovery previews, config key rotation, and admin plugin UI grouping are in place. See `docs/releases/v1.6.0.md`.
