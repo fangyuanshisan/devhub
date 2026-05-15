@@ -108,7 +108,13 @@ const subMenus = {
       title: '安装与治理',
       items: [
         { key: 'install', label: '安装升级', path: '/plugins/install' },
+        { key: 'packageUploads', label: '上传包管理', path: '/plugins/packages/uploads' },
+        { key: 'remoteIndexes', label: '远程索引', path: '/plugins/remote-indexes' },
+        { key: 'versions', label: '版本仓库', path: '/plugins/versions' },
+        { key: 'trustedPublishers', label: '可信发布者', path: '/plugins/trusted-publishers' },
+        { key: 'configKeys', label: '配置密钥', path: '/plugins/config-keys', permission: 'plugin.manage' },
         { key: 'approvals', label: '审批中心', path: '/plugins/approvals' },
+        { key: 'operations', label: '操作历史', path: '/plugins/operations' },
         { key: 'dependencies', label: '依赖兼容', path: '/plugins/dependencies' },
         { key: 'permissions', label: '权限矩阵', path: '/plugins/permissions' },
         { key: 'audit', label: '审计日志', path: '/plugins/audit' },

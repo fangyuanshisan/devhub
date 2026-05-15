@@ -63,6 +63,40 @@
 | `plugin_package_not_found` | 插件包目录不存在 | `path` | 检查路径或先创建插件包目录 |
 | `plugin_package_template_invalid` | 插件包模板初始化参数无效 | `reason` | 修复 code/content_type/name 等字段后重试 |
 | `plugin_package_template_exists` | 初始化目标目录已存在 | `path` | 换用新 code；当前后台初始化不暴露 force 覆盖 |
+| `plugin_package_upload_invalid_type` | 上传包类型不允许 | `filename` | 仅上传 `.zip`；不支持 tar/gz/rar/7z |
+| `plugin_package_upload_too_large` | 上传 zip 超过大小限制 | `max_bytes` | 将 zip 控制在 20MB 以内 |
+| `plugin_package_zip_invalid` | zip 文件无法解析 | - | 重新打包为合法 zip |
+| `plugin_package_zip_entry_path_invalid` | zip entry 路径不合法 | `entry` | 使用普通包内相对路径 |
+| `plugin_package_zip_slip_detected` | 检测到 zip slip / 路径穿越 | `entry` | 移除 `../`、绝对路径或 Windows 盘符路径 |
+| `plugin_package_zip_bomb_detected` | 检测到 zip bomb 风险 | `entry` | 移除重复 entry 或异常压缩结构 |
+| `plugin_package_zip_too_many_files` | zip 解压文件数量超过限制 | `max_files` | 文件数控制在 300 个以内 |
+| `plugin_package_zip_file_too_large` | zip 内单文件超过限制 | `entry`,`max_bytes` | 单文件控制在 5MB 以内 |
+| `plugin_package_zip_total_size_exceeded` | zip 解压后总大小超过限制 | `max_bytes` | 解压总大小控制在 50MB 以内 |
+| `plugin_package_zip_nested_archive_forbidden` | zip 内嵌压缩包被禁止 | `entry` | 移除内嵌 zip/tar/gz/rar/7z 等压缩包 |
+| `plugin_package_zip_symlink_forbidden` | zip 包含 symlink | `entry` | 移除软链接后重新打包 |
+| `plugin_package_zip_multiple_manifests` | zip 中发现多个 manifest.json | `manifests` | 本轮每次只上传一个插件包 |
+| `plugin_package_zip_manifest_missing` | zip 中找不到可用 manifest.json | `manifest` | 在 zip 根目录或单一顶层目录放置 manifest.json |
+| `plugin_package_upload_extract_failed` | zip 解压失败 | `entry` | 重新打包后上传 |
+| `plugin_package_upload_blocked` | 上传包扫描后被阻断 | `upload_id` | 根据风险报告修复后重新上传 |
+| `plugin_package_upload_not_found` | 上传记录不存在 | `upload_id` | 刷新上传记录或重新上传 |
+| `plugin_package_upload_invalid_status` | 上传包当前状态不允许该动作 | `upload_id`,`status` | 按可执行动作列表处理 |
+| `plugin_package_upload_lifecycle_invalid` | 生命周期流转不合法 | `upload_id`,`status` | 刷新详情后按当前状态重新操作 |
+| `plugin_package_upload_rescan_failed` | 上传包重新扫描失败 | `upload_id` | 检查 staging 文件是否仍存在 |
+| `plugin_package_upload_cancel_failed` | 上传包取消失败 | `upload_id` | 刷新详情后重试 |
+| `plugin_package_upload_delete_failed` | 上传包删除失败 | `upload_id` | 检查文件权限后重试 |
+| `plugin_package_upload_cleanup_failed` | 上传包清理失败 | - | 检查 storage 权限与磁盘状态 |
+| `plugin_package_upload_expired` | 上传包已过期 | `upload_id`,`expires_at` | 重新上传插件包 |
+| `plugin_package_upload_already_deleted` | 上传包已删除 | `upload_id` | 查看审计记录或重新上传 |
+| `plugin_package_upload_approval_required` | 上传包导入需要审批 | `upload_id`,`risk_level` | 先提交导入审批 |
+| `plugin_package_upload_approval_blocked` | 当前上传包不能提交导入审批 | `upload_id`,`status` | 修复阻断项或重新上传 |
+| `plugin_package_upload_promote_requires_approval` | promote 前需要导入审批 | `upload_id` | 审批通过后再 promote |
+| `plugin_package_upload_promote_failed` | 上传包 promote 失败 | `upload_id` | 查看详情中的错误码和建议 |
+| `plugin_package_upload_promote_target_exists` | 上传包 promote 目标已存在 | `path` | 更换 code 或清理目标目录 |
+| `plugin_package_upload_action_not_allowed` | 当前动作不可用 | `action`,`status` | 查看详情 actions 中的 reason |
+| `plugin_package_upload_status_conflict` | 状态冲突 | `status` | 先完成或取消正在进行的审批 |
+| `plugin_package_promote_blocked` | 上传包禁止转入本地仓库 | `upload_id`,`status` | 修复 blocked 风险、checksum 或 manifest 错误 |
+| `plugin_package_promote_target_exists` | 本地仓库目标目录已存在 | `path` | 删除/更名已有目录后重试；默认不覆盖 |
+| `plugin_package_promote_failed` | 转入本地仓库失败 | `path` | 检查目录权限和磁盘空间 |
 | `plugin_package_manifest_missing` | 缺少 manifest.json | `path` | 在插件包根目录补充 manifest.json |
 | `plugin_package_manifest_invalid` | manifest.json 非法 | `path`,`reason` | 修复 manifest 后重试 |
 | `plugin_package_dangerous_file` | 检测到危险文件 | `path` | 移除 `.sh/.sql/.js/.ts` 等危险文件 |
@@ -85,13 +119,20 @@
 | `plugin_package_signature_invalid` | signature.json 非法或签名字段不合法 | `path`,`reason` | 修复 signature.json 后重试 |
 | `plugin_package_signature_unsupported_algorithm` | 不支持的签名算法 | `algorithm` | 当前仅支持 ed25519 |
 | `plugin_package_signature_verification_failed` | 签名验签失败 | `publisher_id`,`public_key_id` | 检查 checksums.json/签名是否匹配，必要时重新生成签名 |
+| `plugin_package_signature_payload_invalid` | signature payload / payload_algorithm 不支持 | `payload`,`payload_algorithm` | 当前仅支持 `payload=checksums.json` 与 `payload_algorithm=sha256` |
 | `plugin_package_signature_signed_file_missing` | signature.json 声明的签名文件不存在 | `path` | 补齐文件或修复 signed_files 列表 |
 | `plugin_package_signature_path_invalid` | signature.json signed_files 路径不合法 | `path` | 使用包内相对路径且禁止 `..` |
 | `plugin_package_signature_manifest_unsigned` | signature.json 未签名 manifest/checksums | `missing` | 在 signed_files 中补齐 manifest.json 与 checksums.json |
+| `plugin_package_signature_publisher_unknown` | 签名发布者未建立本地可信关系 | `publisher_id`,`public_key_id` | 在可信发布者页面维护公钥或仅在测试环境使用 |
+| `plugin_package_signature_publisher_blocked` | 签名发布者被本地策略 blocked | `publisher_id`,`public_key_id` | 更换发布者或恢复可信发布者状态 |
+| `plugin_package_signature_publisher_revoked` | 签名发布者被本地策略 revoked | `publisher_id`,`public_key_id` | 更换发布者签名或移除插件包 |
 | `plugin_package_publisher_invalid` | publisher.json 非法 | `path`,`reason` | 修复 publisher.json 后重试 |
-| `plugin_package_publisher_blocked` | publisher 被本地策略 blocked | `publisher_id`,`public_key_id` | 更换发布者或调整 trusted_publishers 策略 |
-| `plugin_package_publisher_revoked` | publisher 被本地策略 revoked | `publisher_id`,`public_key_id` | 更换发布者或移除插件包 |
 | `plugin_package_trusted_publishers_unavailable` | trusted_publishers 配置不可用（warning） | `path`,`reason` | 检查 `storage/plugins/trusted_publishers.json` 访问权限与 JSON 格式 |
+| `plugin_trusted_publisher_not_found` | 可信发布者不存在 | `id` | 刷新列表后重试 |
+| `plugin_trusted_publisher_duplicate` | publisher_id + public_key_id 重复 | `publisher_id`,`public_key_id` | 使用新的 key id 或编辑已有记录 |
+| `plugin_trusted_publisher_invalid_key` | 可信发布者公钥不合法 | `public_key_algorithm`,`public_key` | 当前仅支持 32 字节 Ed25519 公钥 base64 |
+| `plugin_trusted_publisher_invalid_status` | 可信发布者状态不合法 | `status` | 使用 trusted / blocked / revoked |
+| `plugin_trusted_publisher_permission_denied` | 缺少可信发布者管理权限 | `permission_code` | 需要 `plugin.manage` |
 | `plugin_package_repository_not_found` | 插件包仓库目录不存在 | `root` | 创建仓库目录或检查路径 |
 | `plugin_package_repository_forbidden` | 插件包仓库路径不允许 | `root`,`allowed_roots` | 使用白名单目录下的仓库路径 |
 | `plugin_package_scan_failed` | 插件包仓库扫描失败 | `root`,`reason` | 检查目录权限或文件状态 |
@@ -105,10 +146,23 @@
 | `plugin_config_version_not_found` | 配置版本不存在 | `version_id` | 刷新版本列表后重试 |
 | `plugin_config_version_invalid_scope` | 配置版本 scope 不匹配 | `scope`,`actual_scope` | 从正确 scope 打开版本 |
 | `plugin_config_version_schema_invalid` | 目标版本配置未通过 schema（用于 rollback dry-run 的 `blocked_code`） | `schema_validation.errors` | 修复配置或选择其他版本 |
-| `plugin_config_encryption_key_missing` | 缺少插件配置加密密钥（敏感字段无法保存） | - | 配置 `DEVHUB_PLUGIN_CONFIG_KEY` 后重试 |
-| `plugin_config_encryption_key_invalid` | 插件配置加密密钥不合法 | - | 检查密钥长度/格式（推荐 base64 32 bytes） |
+| `plugin_config_encryption_key_missing` | 缺少插件配置加密密钥（敏感字段无法保存） | - | 配置 `DEVHUB_PLUGIN_CONFIG_KEYS` 或 `DEVHUB_PLUGIN_CONFIG_KEY_ID/DEVHUB_PLUGIN_CONFIG_KEY` 后重试 |
+| `plugin_config_encryption_key_invalid` | 插件配置加密密钥不合法 | - | 检查密钥长度/格式（推荐 base64 32 bytes）与 key_id 配置 |
 | `plugin_config_encrypt_failed` | 敏感字段加密失败 | `plugin_code` | 检查密钥配置后重试 |
 | `plugin_config_decrypt_failed` | 敏感字段解密失败 | `plugin_code` | 检查密钥是否变更；避免轮换导致旧密文不可读 |
+| `plugin_config_key_missing` | 插件配置密钥缺失 | - | 配置 `DEVHUB_PLUGIN_CONFIG_KEYS` 或 split 环境变量后重试 |
+| `plugin_config_key_invalid` | 插件配置密钥配置不合法 | - | 检查 JSON/split 配置格式与 key 长度 |
+| `plugin_config_key_current_missing` | 缺少 current key | - | 确保 current key_id 存在且 keys 中包含该 key_id |
+| `plugin_config_key_not_found` | 指定 key_id 不存在 | `key_id` | 补齐 old keys 或修复密文 key_id |
+| `plugin_config_cipher_invalid` | 密文格式不合法或发现敏感明文 | `field_path` | 修复密文格式或重新写入敏感字段 |
+| `plugin_config_cipher_version_unsupported` | 不支持的密文版本 | `cipher_version` | 升级到支持该版本的 Core 或重新加密 |
+| `plugin_config_cipher_key_missing` | 密文缺少 key_id 或缺少解密 key | `key_id` | 补齐旧 key 后重试 |
+| `plugin_config_cipher_decrypt_failed` | 密文解密失败 | `key_id` | 检查 key 是否正确；避免误删旧 key |
+| `plugin_config_rotation_dry_run_blocked` | 密钥轮换 dry-run 被阻断 | `decrypt_failed`,`missing_key` | 先修复阻断项（补齐 old keys / 修复密文）后重试 |
+| `plugin_config_rotation_reencrypt_failed` | 密钥轮换 re-encrypt 失败 | `plugin_code` | 查看日志并修复后重试 |
+| `plugin_config_rotation_confirm_key_mismatch` | confirm_current_key_id 与当前 key 不匹配 | `current_key_id` | 刷新页面后重新确认 |
+| `plugin_config_rotation_history_unsupported` | 暂不支持配置历史轮换 | - | 本版本默认只轮换当前配置；历史轮换后续补齐 |
+| `plugin_config_rotation_permission_denied` | 缺少密钥轮换权限 | `permission_code` | 需要 `plugin.manage` |
 | `plugin_approval_not_found` | 审批记录不存在 | `id` | 刷新审批列表后重试 |
 | `plugin_approval_invalid_action` | 不支持的审批动作 | `action` | action 仅支持 install / upgrade |
 | `plugin_approval_invalid_status` | 状态不允许该操作 | `status` | 检查状态流转后重试 |
@@ -471,6 +525,54 @@
 - 权限：`plugin.write`。
 - 用途：子站配置回滚预览（dry-run），不写入配置。
 
+### 插件配置密钥轮换（v1.6.0-P1-07）
+
+> 说明：本节仅提供密钥状态查看、轮换预检（dry-run）与受控 re-encrypt。不会返回密钥明文，不会返回密文，也不会返回敏感明文。默认不处理配置历史版本（`include_config_versions=false`）。
+
+`GET /api/v1/admin/plugins/config-keys/status`
+
+- 认证：后台 admin token。
+- 权限：`plugin.manage`。
+- 返回：`current_key_id/loaded_key_ids/legacy_v1_supported/status/warnings`；不返回 key material。
+
+`POST /api/v1/admin/plugins/config-keys/rotation/dry-run`
+
+- 认证：后台 admin token。
+- 权限：`plugin.manage`。
+- 用途：轮换预检，不写入配置、不生成新版本、不改变插件状态。
+- 请求：
+
+```json
+{
+  "scope": "all",
+  "plugin_code": "",
+  "community_id": 0,
+  "include_config_versions": false
+}
+```
+
+- 返回：`status=ok|warning|blocked` + `summary/items`；`decrypt_failed/missing_key` 会导致 `blocked`。
+
+`POST /api/v1/admin/plugins/config-keys/rotation/re-encrypt`
+
+- 认证：后台 admin token。
+- 权限：`plugin.manage`。
+- 用途：将可解密的旧密文重新加密为 `enc:v2` 并使用 current key 写回（只修改敏感字段密文，不返回明文/密文）。
+- 行为：服务端强制先执行 dry-run；dry-run blocked 时拒绝执行；`confirm_current_key_id` 必须匹配当前 key。
+- 请求：
+
+```json
+{
+  "scope": "plugin",
+  "plugin_code": "wechat_connect",
+  "community_id": 0,
+  "include_config_versions": false,
+  "confirm_current_key_id": "key-2026-01"
+}
+```
+
+> 注意：re-encrypt 会改变存储密文，因此会产生新的配置版本记录（source=key_rotation），便于审计追踪。
+
 `POST /api/v1/admin/plugins/manifest/validate`
 
 - 认证：后台 admin token。
@@ -507,6 +609,8 @@
   - `plugins-local/`
   - `storage/plugins/packages/`
   - `storage/plugins/exports/`
+  - `storage/plugins/staging/`
+  - `storage/plugins/quarantine/`
   - `.devhub/plugins/`
 - 返回：包含 `package`、`file_scan`、`checksum`、`signature`、`risk_report`、`manifest_validation`、`install_dry_run`、`status`、`blocked_code`、`blocked_reasons`、`warnings`、`errors`。
 - `status`：`ok|warning|blocked`。
@@ -516,8 +620,107 @@
   - `risk_report.level`：`low|medium|high|blocked`，由后端根据扫描/校验/依赖/兼容结果评估，前端不得伪造。
   - `signature`：签名与可信来源摘要（可选能力，但字段会返回）。
     - `trust_status`：`trusted|unknown|blocked|revoked|unsigned`
-    - `verification_status`：`verified|failed|missing|unsupported|structural_only`
-    - 说明：`publisher.json` 不会被自动信任；可信状态只来自本地 `storage/plugins/trusted_publishers.json`。
+    - `verification_status`：`verified|failed|missing|unsupported|publisher_unknown`
+    - `payload`：当前仅支持 `checksums.json`。
+    - `payload_algorithm`：当前仅支持 `sha256`，真实验签消息为 `sha256(raw bytes of checksums.json)`。
+    - `fingerprint`：可信发布者公钥指纹，格式为 `sha256:<base64url>`。
+    - 说明：`publisher.json` 不会被自动信任；可信状态只来自后台可信发布者记录，`storage/plugins/trusted_publishers.json` 仅作为空存储时的本地 seed / fallback。
+
+`POST /api/v1/admin/plugins/packages/upload`
+
+- 认证：后台 admin token。
+- 权限：`plugin.write`。
+- 请求：`multipart/form-data`，字段 `file` 必须是 `.zip`。
+- 用途：上传 zip 插件包，保存到 `storage/plugins/uploads/`，解压到唯一 `storage/plugins/staging/{upload_id}/` 沙箱，随后复用本地插件包 scanner / checksum / signature / risk_report / dry-run。上传后不会安装插件、不会执行代码、不会执行 SQL、不会动态加载前端资产。
+- 限制：
+  - 上传 zip 最大 20MB。
+  - 解压后总大小最大 50MB。
+  - 解压后文件数最大 300。
+  - 单个解压文件最大 5MB。
+  - 目录深度最大 8。
+  - 禁止 zip 内嵌 zip/tar/gz/rar/7z 等压缩包。
+  - 禁止 `../`、绝对路径、Windows 盘符、空路径、过长文件名、URL 编码绕过、symlink、hardlink 和特殊设备文件。
+  - 当前实现不做压缩比阈值检查；通过总大小、单文件、文件数、目录深度、重复 entry 和嵌套压缩包限制防御 zip bomb。
+- 插件包根目录识别：
+  - zip 根目录直接存在 `manifest.json` 时，以根目录为包目录。
+  - zip 只有单个顶层目录且该目录内存在 `manifest.json` 时，以该顶层目录为包目录。
+  - 找不到 `manifest.json` 或发现多个 `manifest.json` 时 blocked。
+- 返回：`upload_id/filename/status/staging_path/package_path/zip_scan/file_scan/checksum/signature/manifest_validation/install_dry_run/risk_report/can_promote/can_submit_approval/warnings/errors`。路径只返回项目内相对路径。
+- blocked 策略：zip 结构类错误会删除半包并返回结构化错误；解压成功但 package dry-run blocked 的包会移动到 `storage/plugins/quarantine/{upload_id}/` 供查看风险，不可 promote。
+
+`GET /api/v1/admin/plugins/packages/uploads/:upload_id`
+
+- 认证：后台 admin token。
+- 权限：`plugin.read`。
+- 用途：查看上传包详情；blocked/quarantine 包仍可查看详情。
+- 返回：上传基础信息、当前状态、zip scan、package scan、checksum、signature、risk_report、manifest validate、dry-run、导入审批信息、安装审批信息和 `actions` 可执行动作列表。路径只返回项目相对路径，不返回系统绝对路径。
+
+`GET /api/v1/admin/plugins/packages/uploads`
+
+- 认证：后台 admin token。
+- 权限：`plugin.read`。
+- 查询参数：`status`、`risk_level`、`keyword`、`uploaded_by`、`package_code`、`publisher_id`、`trust_status`、`page`、`page_size`。
+- 返回：`items`、`pagination`、`summary`。`items` 含 `upload_id/original_filename/package_code/package_name/package_version/status/risk_level/checksum_status/signature_status/trust_status/uploaded_by/uploaded_at/expires_at/promoted_path/approval_id/install_approval_id/error_code/risk_summary`。
+
+`POST /api/v1/admin/plugins/packages/uploads/:upload_id/rescan`
+
+- 认证：后台 admin token。
+- 权限：`plugin.write`。
+- 行为：仅 `uploaded/scanned/staged/blocked/failed` 可重新扫描；重新执行 package scanner / checksum / signature / manifest validate / install dry-run 并刷新 risk_report 与状态。不会安装插件、不会执行代码/SQL、不会动态加载资产。
+
+`POST /api/v1/admin/plugins/packages/uploads/:upload_id/approval`
+
+- 认证：后台 admin token。
+- 权限：`plugin.write`。
+- 行为：为 `staged` 上传包提交导入 / promote 审批，复用 `plugin_approval_requests`，`action=package_promote`，审批快照包含 `upload_id`、risk_report、signature、checksum、dry-run。
+
+`POST /api/v1/admin/plugins/packages/uploads/:upload_id/approve`
+
+- 认证：后台 admin token。
+- 权限：`plugin.approve`。
+- 行为：审批通过导入申请，状态从 `approval_pending` 变为 `approved`。审批通过不绕过 promote 前重新扫描。
+
+`POST /api/v1/admin/plugins/packages/uploads/:upload_id/reject`
+
+- 认证：后台 admin token。
+- 权限：`plugin.approve`。
+- 行为：拒绝导入申请，状态变为 `approval_rejected`；后续需要重新上传或按策略重新提交审批。
+
+`POST /api/v1/admin/plugins/packages/uploads/:upload_id/promote`
+
+- 认证：后台 admin token。
+- 权限：`plugin.write`。
+- 用途：将已上传且通过校验的 staging 包复制到 `storage/plugins/packages/{manifest.code}/`，进入本地插件仓库；不会安装插件。
+- 请求：
+
+```json
+{ "force": false }
+```
+
+- 行为：
+  - 仅 `staged/approved` 且非 blocked、checksum 非 failed、manifest valid 的 staging 上传包可 promote。
+  - promote 前重新 dry-run；复制后再次 dry-run 复检。
+  - 目标目录已存在默认拒绝，返回 `plugin_package_promote_target_exists`。
+  - blocked、quarantine、dangerous file、checksum mismatch、manifest invalid 均禁止 promote。
+  - promote 写入 `admin_logs`，但不写插件表、不写 migration 表、不执行代码/SQL、不动态加载资产。
+
+`POST /api/v1/admin/plugins/packages/uploads/:upload_id/cancel`
+
+- 认证：后台 admin token。
+- 权限：`plugin.write`。
+- 行为：取消未 promote / 未安装 / 未删除 / 未过期的上传包，状态变为 `canceled`，写入 `admin_logs`。
+
+`DELETE /api/v1/admin/plugins/packages/uploads/:upload_id`
+
+- 认证：后台 admin token。
+- 权限：`plugin.write`。
+- 行为：删除上传包记录对应的 upload / staging 文件并将记录标为 `deleted`；若已 `promoted`，不会删除 `storage/plugins/packages/` 中的本地仓库包；若已安装，不会卸载插件。`approval_pending/install_approval_pending` 不能直接删除。
+
+`POST /api/v1/admin/plugins/packages/uploads/cleanup`
+
+- 认证：后台 admin token。
+- 权限：`plugin.write`。
+- 行为：手动清理 `expired/deleted/canceled/failed` 上传包的 upload / staging 文件，并可将超过 `expires_at` 的非终态记录标为 `expired`。不会删除本地插件仓库、不会删除已安装插件。本轮不做定时任务。
 
 `POST /api/v1/admin/plugins/packages/templates/preview`
 
@@ -611,6 +814,70 @@
 - 查询参数：
   - `path`：必填，例如 `storage/plugins/packages/demo_notice`
 - 返回：与 `POST /api/v1/admin/plugins/packages/dry-run` 相同的结构（包含 `checksum/signature/risk_report/manifest_validation/install_dry_run` 等）。
+
+`GET /api/v1/admin/plugins/trusted-publishers`
+
+- 认证：后台 admin token。
+- 权限：`plugin.read`。
+- 用途：查看本地可信发布者列表；该列表是插件包可信状态的唯一来源。
+- 查询参数：`status`、`keyword`、`page`、`page_size`。
+- 返回：`items/pagination/summary`。`items` 包含 `publisher_id/name/homepage/email/public_key_id/public_key_algorithm/public_key/fingerprint/status/notes/created_by/updated_by/created_at/updated_at/revoked_at/blocked_at`。
+
+`GET /api/v1/admin/plugins/trusted-publishers/:id`
+
+- 认证：后台 admin token。
+- 权限：`plugin.read`。
+- 用途：查看单个可信发布者详情。
+
+`POST /api/v1/admin/plugins/trusted-publishers`
+
+- 认证：后台 admin token。
+- 权限：`plugin.manage`。
+- 用途：新增可信发布者公钥；不会保存私钥，也不会从远程同步。
+- 请求：
+
+```json
+{
+  "publisher_id": "devhub-official",
+  "name": "DevHub Official",
+  "homepage": "https://example.com",
+  "email": "security@example.com",
+  "public_key_id": "devhub-official-2026",
+  "public_key_algorithm": "ed25519",
+  "public_key": "base64-ed25519-public-key",
+  "notes": "本地可信发布者"
+}
+```
+
+`PUT /api/v1/admin/plugins/trusted-publishers/:id`
+
+- 认证：后台 admin token。
+- 权限：`plugin.manage`。
+- 用途：更新可信发布者元信息或公钥；`publisher_id + public_key_id` 必须唯一。
+
+`POST /api/v1/admin/plugins/trusted-publishers/:id/block`
+
+- 认证：后台 admin token。
+- 权限：`plugin.manage`。
+- 用途：将发布者标记为 blocked；后续匹配该公钥的插件包 dry-run / promote / install / approval 执行会 blocked。
+
+`POST /api/v1/admin/plugins/trusted-publishers/:id/revoke`
+
+- 认证：后台 admin token。
+- 权限：`plugin.manage`。
+- 用途：将发布者标记为 revoked；后续匹配该公钥的插件包会 blocked。
+
+`POST /api/v1/admin/plugins/trusted-publishers/:id/restore`
+
+- 认证：后台 admin token。
+- 权限：`plugin.manage`。
+- 用途：恢复为 trusted。
+
+`DELETE /api/v1/admin/plugins/trusted-publishers/:id`
+
+- 认证：后台 admin token。
+- 权限：`plugin.manage`。
+- 用途：删除本地可信发布者记录；删除后对应插件包会变为 unknown publisher，而不会自动信任包内 publisher.json。
 
 `POST /api/v1/admin/plugins/packages/install`
 
@@ -1704,3 +1971,126 @@ DEVHUB_MYSQL_TESTS=1 DB_HOST=127.0.0.1 DB_PORT=3307 DB_USER=devhub DB_PASSWORD=D
 - Wiki 版本历史、版本对比和回滚 API 的完整形态。
 - 取消最佳答案 / 取消已解决状态接口。
 - 标签趋势统计和标签运营分析 API。
+
+## v1.6.0-P0-04 远程插件索引只读镜像 API
+
+远程插件索引只读取 `index.json` 元数据；不会下载 `package_url`、不会安装远程插件、不会执行代码、不会动态加载前端资产，也不会自动信任远程 publisher。
+
+### 索引源
+
+```http
+GET    /api/v1/admin/plugins/remote-indexes
+POST   /api/v1/admin/plugins/remote-indexes
+PUT    /api/v1/admin/plugins/remote-indexes/:id
+POST   /api/v1/admin/plugins/remote-indexes/:id/enable
+POST   /api/v1/admin/plugins/remote-indexes/:id/disable
+DELETE /api/v1/admin/plugins/remote-indexes/:id
+POST   /api/v1/admin/plugins/remote-indexes/:id/fetch
+```
+
+查看需要 `plugin.read`；新增、更新、启用、禁用、删除和拉取需要 `plugin.manage`。`index_url` 仅支持 http / https，生产建议 https；`file://`、localhost、127.0.0.1 和内网地址会被 SSRF 防护拦截。
+
+索引源字段：`id`、`source_id`、`name`、`index_url`、`homepage`、`description`、`status`、`trust_policy`、`last_fetch_status`、`last_fetch_at`、`last_error_code`、`last_error_message`、`last_index_hash`。
+
+### 远程插件列表 / 详情
+
+```http
+GET /api/v1/admin/plugins/remote-indexes/:id/plugins
+GET /api/v1/admin/plugins/remote-indexes/:id/plugins/:code
+```
+
+列表字段包括：`code`、`name`、`latest_version`、`publisher_id`、`public_key_id`、`license`、`min_core_version`、`compatible_core_version`、`package_sha256`、`signature_url`、`installed`、`local_version`、`version_status`、`core_compatibility`、`publisher_trust_status`、`risk_level`、`risk_summary`。
+
+详情会展示所有版本的 `package_url`、`package_sha256`、`manifest_sha256`、`signature_url`、publisher、trust status、Core 兼容性和只读限制提示。`package_sha256` 只是远程元数据声明，本轮不会下载包内容进行校验。
+
+新增错误码：`plugin_remote_index_not_found`、`plugin_remote_index_invalid_url`、`plugin_remote_index_forbidden_url`、`plugin_remote_index_fetch_failed`、`plugin_remote_index_fetch_timeout`、`plugin_remote_index_response_too_large`、`plugin_remote_index_invalid_json`、`plugin_remote_index_schema_invalid`、`plugin_remote_index_disabled`、`plugin_remote_index_plugin_not_found`、`plugin_remote_index_package_url_invalid`、`plugin_remote_index_publisher_unknown`、`plugin_remote_index_publisher_blocked`、`plugin_remote_index_core_incompatible`、`plugin_remote_index_readonly`。
+
+## v1.6.0-P0-05 插件包版本仓库与升级差异 API
+
+版本仓库是只读聚合视图，不会下载远程包、不会自动升级、不会执行第三方代码 / SQL / 前端资产。
+
+### `GET /api/v1/admin/plugins/versions`
+
+权限：`plugin.read`。
+
+查询参数：
+
+- `plugin_code`：可选，按插件 code 过滤。
+- `source`：可选，`installed` / `local_package` / `uploaded_package` / `remote_index` / `exported_package`。
+- `status`：可选，按版本状态过滤。
+- `keyword`：可选，按 code / name / version / path / publisher 搜索。
+- `page` / `page_size`：分页。
+
+返回：
+
+```json
+{
+  "items": [
+    {
+      "plugin_code": "demo_notice",
+      "plugin_name": "Demo Notice",
+      "installed_version": "1.0.0",
+      "latest_local_version": "1.1.0",
+      "latest_remote_version": "1.2.0",
+      "update_available": true,
+      "sources": ["installed", "local_package", "remote_index"],
+      "versions": []
+    }
+  ],
+  "pagination": {"page": 1, "page_size": 20, "total": 1},
+  "summary": {"total": 1, "installed": 1, "local_packages": 1, "uploaded_packages": 0, "remote_index": 1, "update_available": 1, "readonly": 1}
+}
+```
+
+### `GET /api/v1/admin/plugins/:code/versions`
+
+权限：`plugin.read`。返回单个插件的版本列表，包含 installed、本地仓库包、上传包、远程索引版本。远程索引版本带 `readonly=true`，只能展示，不能直接升级。
+
+### `GET /api/v1/admin/plugins/:code/versions/:version`
+
+权限：`plugin.read`。查询参数可带 `source`、`package_path`、`remote_index_id` 精确定位同版本多来源记录。
+
+### `POST /api/v1/admin/plugins/:code/versions/:version/upgrade-diff`
+
+权限：`plugin.write` 或更高。请求体：
+
+```json
+{
+  "source": "local_package",
+  "package_path": "storage/plugins/packages/demo_notice-1.1.0"
+}
+```
+
+返回结构化升级差异：
+
+```json
+{
+  "plugin_code": "demo_notice",
+  "current_version": "1.0.0",
+  "target_version": "1.1.0",
+  "source": "local_package",
+  "status": "ok|warning|blocked",
+  "summary": {"added": 3, "removed": 1, "changed": 5, "high_risk": 2, "blocked": 0},
+  "diff_sections": [
+    {
+      "section": "permissions",
+      "title": "权限变化",
+      "risk_level": "high",
+      "items": [
+        {"section": "permissions", "path": "permissions.demo_notice.manage", "type": "added", "risk_level": "high", "message": "新增高危插件权限"}
+      ]
+    }
+  ],
+  "risk_report": {"level": "high", "score": 70, "summary": "升级差异包含高风险变更"},
+  "compatibility": {"core_version": "v1.6.0", "status": "compatible"},
+  "dependencies": {"total": 0, "blocking": 0}
+}
+```
+
+差异范围包括基础信息、content_types、content_type_definitions、permissions、menus、routes、config_schema、default_config、dependencies、hooks、migrations 与 package metadata。敏感路径（password / secret / token / key / credential / app_secret / aes_key 等）返回 `[REDACTED]`。
+
+高风险规则：删除 content_type / permission、 新增高危权限、新增 required dependency、依赖约束收紧、config_schema 删除字段 / type 变化 / required 新增、Hook 从 non-blocking 改为 blocking、新增 migration、Core 约束提高或收窄、签名从 trusted verified 退化为 unknown / unsigned。
+
+阻断规则：目标版本小于等于当前版本、Core 不兼容、required dependency 缺失、checksum mismatch、签名验签失败、publisher blocked / revoked、manifest invalid、dangerous file、package risk blocked、远程索引版本直接升级。
+
+新增错误码：`plugin_version_not_found`、`plugin_version_source_invalid`、`plugin_version_compare_failed`、`plugin_version_downgrade_forbidden`、`plugin_version_same_version`、`plugin_version_package_missing`、`plugin_version_remote_readonly`、`plugin_upgrade_diff_failed`、`plugin_upgrade_diff_blocked`、`plugin_upgrade_diff_high_risk`、`plugin_upgrade_diff_sensitive_redacted`、`plugin_upgrade_target_core_incompatible`、`plugin_upgrade_target_dependency_missing`、`plugin_upgrade_target_signature_invalid`、`plugin_upgrade_target_publisher_blocked`。

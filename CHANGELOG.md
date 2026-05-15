@@ -1,5 +1,17 @@
 # Changelog
 
+## v1.6.0 (in progress)
+
+- Added admin zip plugin package upload into a controlled sandbox: `.zip` only, 20MB upload limit, 50MB extracted limit, 5MB per-file limit, 300-file limit, depth limit, nested archive blocking, zip slip checks, symlink/special-file blocking, and package-root detection.
+- Added upload detail and promote APIs. Promote copies validated staging packages into `storage/plugins/packages/{code}` but does not install, enable, execute code, run SQL, or dynamically load frontend assets.
+- Added the admin upload panel under `/admin-next/plugins/install`, showing zip scan, package scan, checksum, signature, risk report, manifest validation, dry-run, blocked reasons, suggestions, and promote action.
+- Added backend and Playwright coverage for valid zip upload, invalid type, zip slip, dangerous files, checksum/risk reuse, promote, auth rejection, and audit logging.
+- Added `plugin_package_uploads` lifecycle records for uploaded zip packages, with list/detail/rescan/import-approval/approve/reject/promote/cancel/delete/cleanup APIs.
+- Added `/admin-next/plugins/packages/uploads` upload package management page with lifecycle filters, scan snapshots, action reasons, import approval, promote, cancellation, deletion, and cleanup controls.
+- Kept the v1.6 boundary strict: promote is not install; uploaded packages still do not execute plugin code, run SQL, dynamically load frontend assets, or connect to a remote marketplace.
+- Added Ed25519 real signature verification for plugin packages and an admin trusted publishers management page/API; signed package dry-run, repository scan, upload detail, promote, install, and approval execution now use verified/trusted/unknown/blocked/revoked signature states in `risk_report`.
+- Added plugin config encryption keyring + rotation tooling: `enc:v2:<key_id>:...` ciphertext format, multi-key decryption for legacy `enc:v1`, admin key status endpoint and rotation dry-run/re-encrypt APIs, plus `/admin-next/plugins/config-keys` UI (no key material exposure, no KMS/Vault, no scheduled rotation).
+
 ## v1.5.0 (2026-05-14)
 
 Current `VERSION` is `v1.5.0`. v1.5.0 closes the plugin package governance track: local package dry-run, checksums and risk reports, local repository scanning, local package install, config version history, sensitive config encryption, approval flow, signing/trusted-source draft, installed-plugin export, and the matching docs/E2E surface are now in place. See `docs/releases/v1.5.0.md`.
@@ -424,3 +436,25 @@ DevHub v1.0.0 is the first runnable archive release of the project.
 
 - Version constraints are intentionally lightweight: exact `x.y.z`, comparison operators, and whitespace-combined ranges only.
 - DevHub still does not support automatic dependency installation, plugin marketplace, remote install, dynamic loading, script sandbox, plugin signing, migration down, or hard uninstall.
+
+## v1.6.0-P0-04
+
+### Added
+
+- Added readonly remote plugin index sources, fetch, plugin list/detail APIs, SSRF-safe URL validation, trust/compatibility/risk metadata, and admin UI at `/admin-next/plugins/remote-indexes`.
+- Added `docs/PLUGIN_REMOTE_INDEX.md` and `docs/examples/plugin-remote-index.example.json`.
+
+### Notes
+
+- Remote indexes are metadata-only: DevHub does not download remote packages, install remote plugins, execute code, dynamically load assets, or auto-trust remote publishers in this phase.
+
+## v1.6.0-P0-05
+
+### Added
+
+- Added plugin package version repository APIs and admin page to aggregate installed, local package, uploaded package, and remote index versions.
+- Added structured upgrade diff previews with grouped `diff_sections`, high-risk/blocking rules, sensitive value redaction, and upgrade approval handoff.
+
+### Notes
+
+- Remote index versions remain readonly metadata and cannot be upgraded directly; DevHub still does not auto-upgrade, download remote packages, execute plugin code, execute SQL, or dynamically load assets.

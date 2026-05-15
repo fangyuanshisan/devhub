@@ -37,6 +37,10 @@ type MemoryStore struct {
 	nextUserID          int64
 	nextHookExecutionID int64
 	nextApprovalID      int64
+	nextPackageUploadID int64
+	nextTrustedPubID    int64
+	nextRemoteIndexID   int64
+	nextOperationID     int64
 	sites               map[string]domain.Site
 	boards              map[string]domain.Board
 	communities         map[int64]*domain.Community
@@ -71,6 +75,10 @@ type MemoryStore struct {
 	logs                []domain.AdminLog
 	pluginConfigVers    []domain.PluginConfigVersion
 	pluginApprovals     []domain.PluginApprovalRequest
+	packageUploads      []domain.PluginPackageUploadRecord
+	pluginOperations    []domain.PluginOperationSnapshot
+	trustedPublishers   []domain.PluginTrustedPublisher
+	remoteIndexes       []domain.PluginRemoteIndexSource
 }
 
 func countPluginMenus(def domain.Plugin, area string) int {
@@ -338,11 +346,27 @@ func NewMemoryStore() *MemoryStore {
 			HotLikeWeight:     8,
 			HotCommentWeight:  15,
 		},
-		pluginConfigVers: []domain.PluginConfigVersion{},
-		pluginApprovals:  []domain.PluginApprovalRequest{},
+		pluginConfigVers:  []domain.PluginConfigVersion{},
+		pluginApprovals:   []domain.PluginApprovalRequest{},
+		packageUploads:    []domain.PluginPackageUploadRecord{},
+		trustedPublishers: pluginregistry.DomainPublishersFromConfig(mustLoadTrustedPublishersConfig()),
+	}
+	for i := range s.trustedPublishers {
+		s.nextTrustedPubID++
+		s.trustedPublishers[i].ID = s.nextTrustedPubID
+		s.trustedPublishers[i].CreatedAt = time.Now().Format(TimeLayout)
+		s.trustedPublishers[i].UpdatedAt = s.trustedPublishers[i].CreatedAt
 	}
 	s.seed()
 	return s
+}
+
+func mustLoadTrustedPublishersConfig() pluginregistry.TrustedPublishersConfig {
+	cfg, found, err := pluginregistry.LoadTrustedPublishers()
+	if err != nil || !found {
+		return pluginregistry.TrustedPublishersConfig{}
+	}
+	return cfg
 }
 
 func (s *MemoryStore) PluginMigrations(pluginCode string) ([]domain.PluginMigration, error) {
@@ -6552,4 +6576,533 @@ func (s *MemoryStore) PluginApprovalRequests(filter domain.PluginApprovalFilter)
 		end = total
 	}
 	return append([]domain.PluginApprovalRequest(nil), all[start:end]...), total, nil
+}
+
+// ===== Plugin package uploads (v1.6.0-P0-02) =====
+
+func (s *MemoryStore) AppendPluginPackageUpload(record domain.PluginPackageUploadRecord) (domain.PluginPackageUploadRecord, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	record.ID = s.nextPackageUploadID
+	s.nextPackageUploadID++
+	if strings.TrimSpace(record.Status) == "" {
+		record.Status = domain.PluginPackageUploadStatusUploaded
+	}
+	now := Now()
+	if strings.TrimSpace(record.UploadedAt) == "" {
+		record.UploadedAt = now
+	}
+	if strings.TrimSpace(record.CreatedAt) == "" {
+		record.CreatedAt = now
+	}
+	record.UpdatedAt = now
+	s.packageUploads = append(s.packageUploads, record)
+	return record, nil
+}
+
+func (s *MemoryStore) SavePluginPackageUpload(record domain.PluginPackageUploadRecord) (domain.PluginPackageUploadRecord, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	now := Now()
+	for i := range s.packageUploads {
+		if s.packageUploads[i].ID != record.ID && s.packageUploads[i].UploadID != record.UploadID {
+			continue
+		}
+		if strings.TrimSpace(record.CreatedAt) == "" {
+			record.CreatedAt = s.packageUploads[i].CreatedAt
+		}
+		if strings.TrimSpace(record.UploadedAt) == "" {
+			record.UploadedAt = s.packageUploads[i].UploadedAt
+		}
+		record.UpdatedAt = now
+		s.packageUploads[i] = record
+		return record, nil
+	}
+	if record.ID == 0 {
+		record.ID = s.nextPackageUploadID
+		s.nextPackageUploadID++
+	}
+	if strings.TrimSpace(record.CreatedAt) == "" {
+		record.CreatedAt = now
+	}
+	if strings.TrimSpace(record.UploadedAt) == "" {
+		record.UploadedAt = now
+	}
+	record.UpdatedAt = now
+	s.packageUploads = append(s.packageUploads, record)
+	return record, nil
+}
+
+func (s *MemoryStore) PluginPackageUploadByUploadID(uploadID string) (domain.PluginPackageUploadRecord, bool) {
+	uploadID = strings.TrimSpace(uploadID)
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	for _, it := range s.packageUploads {
+		if it.UploadID == uploadID {
+			return it, true
+		}
+	}
+	return domain.PluginPackageUploadRecord{}, false
+}
+
+func (s *MemoryStore) PluginPackageUploads(filter domain.PluginPackageUploadFilter) ([]domain.PluginPackageUploadRecord, int, error) {
+	page, pageSize := normalizeMemoryPage(filter.Page, filter.PageSize)
+	status := strings.TrimSpace(filter.Status)
+	risk := strings.TrimSpace(filter.RiskLevel)
+	keyword := strings.ToLower(strings.TrimSpace(filter.Keyword))
+	code := strings.TrimSpace(filter.PackageCode)
+	publisher := strings.TrimSpace(filter.PublisherID)
+	trust := strings.TrimSpace(filter.TrustStatus)
+
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	all := make([]domain.PluginPackageUploadRecord, 0, len(s.packageUploads))
+	for _, it := range s.packageUploads {
+		if status != "" && status != "all" && it.Status != status {
+			continue
+		}
+		if risk != "" && risk != "all" && it.RiskLevel != risk {
+			continue
+		}
+		if code != "" && it.PackageCode != code {
+			continue
+		}
+		if publisher != "" && it.PublisherID != publisher {
+			continue
+		}
+		if trust != "" && trust != "all" && it.TrustStatus != trust {
+			continue
+		}
+		if filter.UploadedBy > 0 && it.UploadedBy != filter.UploadedBy {
+			continue
+		}
+		if keyword != "" {
+			hay := strings.ToLower(strings.Join([]string{it.UploadID, it.OriginalFilename, it.PackageCode, it.PackageName, it.PackageVersion, it.UploadedByName}, " "))
+			if !strings.Contains(hay, keyword) {
+				continue
+			}
+		}
+		all = append(all, it)
+	}
+	sort.Slice(all, func(i, j int) bool {
+		if all[i].ID == all[j].ID {
+			return all[i].UploadID > all[j].UploadID
+		}
+		return all[i].ID > all[j].ID
+	})
+	total := len(all)
+	start := (page - 1) * pageSize
+	if start > total {
+		start = total
+	}
+	end := start + pageSize
+	if end > total {
+		end = total
+	}
+	return append([]domain.PluginPackageUploadRecord(nil), all[start:end]...), total, nil
+}
+
+// ===== Plugin operations (v1.6.0-P0-06) =====
+
+func (s *MemoryStore) AppendPluginOperationSnapshot(record domain.PluginOperationSnapshot) (domain.PluginOperationSnapshot, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.nextOperationID++
+	record.ID = s.nextOperationID
+	now := Now()
+	if strings.TrimSpace(record.Status) == "" {
+		record.Status = domain.PluginOperationStatusCreated
+	}
+	if strings.TrimSpace(record.CreatedAt) == "" {
+		record.CreatedAt = now
+	}
+	record.UpdatedAt = now
+	s.pluginOperations = append(s.pluginOperations, record)
+	return record, nil
+}
+
+func (s *MemoryStore) SavePluginOperationSnapshot(record domain.PluginOperationSnapshot) (domain.PluginOperationSnapshot, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	now := Now()
+	for i := range s.pluginOperations {
+		if s.pluginOperations[i].ID != record.ID && s.pluginOperations[i].OperationID != record.OperationID {
+			continue
+		}
+		if strings.TrimSpace(record.CreatedAt) == "" {
+			record.CreatedAt = s.pluginOperations[i].CreatedAt
+		}
+		record.UpdatedAt = now
+		s.pluginOperations[i] = record
+		return record, nil
+	}
+	if record.ID == 0 {
+		s.nextOperationID++
+		record.ID = s.nextOperationID
+	}
+	if strings.TrimSpace(record.CreatedAt) == "" {
+		record.CreatedAt = now
+	}
+	record.UpdatedAt = now
+	s.pluginOperations = append(s.pluginOperations, record)
+	return record, nil
+}
+
+func (s *MemoryStore) PluginOperationSnapshotByOperationID(operationID string) (domain.PluginOperationSnapshot, bool) {
+	operationID = strings.TrimSpace(operationID)
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	for _, it := range s.pluginOperations {
+		if it.OperationID == operationID {
+			return it, true
+		}
+	}
+	return domain.PluginOperationSnapshot{}, false
+}
+
+func (s *MemoryStore) PluginOperationSnapshots(filter domain.PluginOperationFilter) ([]domain.PluginOperationSnapshot, int, error) {
+	page, pageSize := normalizeMemoryPage(filter.Page, filter.PageSize)
+	pluginCode := strings.TrimSpace(filter.PluginCode)
+	typ := strings.TrimSpace(filter.OperationType)
+	status := strings.TrimSpace(filter.Status)
+
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	all := make([]domain.PluginOperationSnapshot, 0, len(s.pluginOperations))
+	for _, it := range s.pluginOperations {
+		if pluginCode != "" && it.PluginCode != pluginCode {
+			continue
+		}
+		if typ != "" && typ != "all" && it.OperationType != typ {
+			continue
+		}
+		if status != "" && status != "all" && it.Status != status {
+			continue
+		}
+		all = append(all, it)
+	}
+	sort.Slice(all, func(i, j int) bool {
+		if all[i].ID == all[j].ID {
+			return all[i].OperationID > all[j].OperationID
+		}
+		return all[i].ID > all[j].ID
+	})
+	total := len(all)
+	start := (page - 1) * pageSize
+	if start > total {
+		start = total
+	}
+	end := start + pageSize
+	if end > total {
+		end = total
+	}
+	return append([]domain.PluginOperationSnapshot(nil), all[start:end]...), total, nil
+}
+
+func (s *MemoryStore) DeletePluginByCode(code string) error {
+	code = strings.TrimSpace(code)
+	if code == "" {
+		return nil
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	delete(s.plugins, code)
+	for cid, m := range s.communityPlugins {
+		if m == nil {
+			continue
+		}
+		delete(m, code)
+		s.communityPlugins[cid] = m
+	}
+	delete(s.pluginMigrations, code)
+	out := s.pluginConfigVers[:0]
+	for _, it := range s.pluginConfigVers {
+		if it.PluginCode == code {
+			continue
+		}
+		out = append(out, it)
+	}
+	s.pluginConfigVers = out
+	return nil
+}
+
+func (s *MemoryStore) DeleteCommunityPluginsByCode(code string) (int, error) {
+	code = strings.TrimSpace(code)
+	if code == "" {
+		return 0, nil
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	n := 0
+	for cid, m := range s.communityPlugins {
+		if m == nil {
+			continue
+		}
+		if _, ok := m[code]; ok {
+			delete(m, code)
+			n++
+		}
+		s.communityPlugins[cid] = m
+	}
+	return n, nil
+}
+
+func (s *MemoryStore) DeletePluginMigrationsByPlugin(code string) (int, error) {
+	code = strings.TrimSpace(code)
+	if code == "" {
+		return 0, nil
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	prev := len(s.pluginMigrations[code])
+	delete(s.pluginMigrations, code)
+	return prev, nil
+}
+
+func (s *MemoryStore) DeletePluginMigrationsByVersion(code, version string) (int, error) {
+	code = strings.TrimSpace(code)
+	version = strings.TrimSpace(version)
+	if code == "" || version == "" {
+		return 0, nil
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	all := s.pluginMigrations[code]
+	if len(all) == 0 {
+		return 0, nil
+	}
+	out := all[:0]
+	removed := 0
+	for _, it := range all {
+		if strings.TrimSpace(it.Version) == version || strings.TrimSpace(it.MigrationVersion) == version {
+			removed++
+			continue
+		}
+		out = append(out, it)
+	}
+	if removed > 0 {
+		s.pluginMigrations[code] = out
+	}
+	return removed, nil
+}
+
+func (s *MemoryStore) DeletePluginConfigVersionsByPlugin(code string) (int, error) {
+	code = strings.TrimSpace(code)
+	if code == "" {
+		return 0, nil
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	removed := 0
+	out := s.pluginConfigVers[:0]
+	for _, it := range s.pluginConfigVers {
+		if it.PluginCode == code {
+			removed++
+			continue
+		}
+		out = append(out, it)
+	}
+	s.pluginConfigVers = out
+	return removed, nil
+}
+
+// ===== Trusted publishers (v1.6.0-P0-03) =====
+
+func (s *MemoryStore) AppendPluginTrustedPublisher(record domain.PluginTrustedPublisher) (domain.PluginTrustedPublisher, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.nextTrustedPubID++
+	record.ID = s.nextTrustedPubID
+	now := time.Now().Format(TimeLayout)
+	if record.CreatedAt == "" {
+		record.CreatedAt = now
+	}
+	record.UpdatedAt = now
+	s.trustedPublishers = append(s.trustedPublishers, record)
+	return record, nil
+}
+
+func (s *MemoryStore) SavePluginTrustedPublisher(record domain.PluginTrustedPublisher) (domain.PluginTrustedPublisher, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	for i := range s.trustedPublishers {
+		if s.trustedPublishers[i].ID == record.ID {
+			if record.CreatedAt == "" {
+				record.CreatedAt = s.trustedPublishers[i].CreatedAt
+			}
+			record.UpdatedAt = time.Now().Format(TimeLayout)
+			s.trustedPublishers[i] = record
+			return record, nil
+		}
+	}
+	return domain.PluginTrustedPublisher{}, errors.New("trusted publisher not found")
+}
+
+func (s *MemoryStore) DeletePluginTrustedPublisher(id int64) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	for i := range s.trustedPublishers {
+		if s.trustedPublishers[i].ID == id {
+			s.trustedPublishers = append(s.trustedPublishers[:i], s.trustedPublishers[i+1:]...)
+			return nil
+		}
+	}
+	return errors.New("trusted publisher not found")
+}
+
+func (s *MemoryStore) PluginTrustedPublisherByID(id int64) (domain.PluginTrustedPublisher, bool) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	for _, it := range s.trustedPublishers {
+		if it.ID == id {
+			return it, true
+		}
+	}
+	return domain.PluginTrustedPublisher{}, false
+}
+
+func (s *MemoryStore) PluginTrustedPublisherByKey(publisherID, publicKeyID string) (domain.PluginTrustedPublisher, bool) {
+	publisherID = strings.TrimSpace(publisherID)
+	publicKeyID = strings.TrimSpace(publicKeyID)
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	for _, it := range s.trustedPublishers {
+		if it.PublisherID == publisherID && it.PublicKeyID == publicKeyID {
+			return it, true
+		}
+	}
+	return domain.PluginTrustedPublisher{}, false
+}
+
+func (s *MemoryStore) PluginTrustedPublishers(filter domain.PluginTrustedPublisherFilter) ([]domain.PluginTrustedPublisher, int, error) {
+	page, pageSize := normalizeMemoryPage(filter.Page, filter.PageSize)
+	status := strings.TrimSpace(filter.Status)
+	keyword := strings.ToLower(strings.TrimSpace(filter.Keyword))
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	all := make([]domain.PluginTrustedPublisher, 0, len(s.trustedPublishers))
+	for _, it := range s.trustedPublishers {
+		if status != "" && status != "all" && it.Status != status {
+			continue
+		}
+		if keyword != "" {
+			hay := strings.ToLower(strings.Join([]string{it.PublisherID, it.Name, it.PublicKeyID, it.Fingerprint, it.Homepage, it.Email, it.Notes}, " "))
+			if !strings.Contains(hay, keyword) {
+				continue
+			}
+		}
+		all = append(all, it)
+	}
+	sort.Slice(all, func(i, j int) bool { return all[i].ID > all[j].ID })
+	total := len(all)
+	start := (page - 1) * pageSize
+	if start > total {
+		start = total
+	}
+	end := start + pageSize
+	if end > total {
+		end = total
+	}
+	return append([]domain.PluginTrustedPublisher(nil), all[start:end]...), total, nil
+}
+
+// ===== Remote plugin indexes (v1.6.0-P0-04) =====
+
+func (s *MemoryStore) AppendPluginRemoteIndex(record domain.PluginRemoteIndexSource) (domain.PluginRemoteIndexSource, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.nextRemoteIndexID++
+	record.ID = s.nextRemoteIndexID
+	now := time.Now().Format(TimeLayout)
+	if record.CreatedAt == "" {
+		record.CreatedAt = now
+	}
+	record.UpdatedAt = now
+	s.remoteIndexes = append(s.remoteIndexes, record)
+	return record, nil
+}
+
+func (s *MemoryStore) SavePluginRemoteIndex(record domain.PluginRemoteIndexSource) (domain.PluginRemoteIndexSource, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	for i := range s.remoteIndexes {
+		if s.remoteIndexes[i].ID == record.ID {
+			if record.CreatedAt == "" {
+				record.CreatedAt = s.remoteIndexes[i].CreatedAt
+			}
+			record.UpdatedAt = time.Now().Format(TimeLayout)
+			s.remoteIndexes[i] = record
+			return record, nil
+		}
+	}
+	return domain.PluginRemoteIndexSource{}, errors.New("remote index not found")
+}
+
+func (s *MemoryStore) DeletePluginRemoteIndex(id int64) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	for i := range s.remoteIndexes {
+		if s.remoteIndexes[i].ID == id {
+			s.remoteIndexes = append(s.remoteIndexes[:i], s.remoteIndexes[i+1:]...)
+			return nil
+		}
+	}
+	return errors.New("remote index not found")
+}
+
+func (s *MemoryStore) PluginRemoteIndexByID(id int64) (domain.PluginRemoteIndexSource, bool) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	for _, it := range s.remoteIndexes {
+		if it.ID == id {
+			return it, true
+		}
+	}
+	return domain.PluginRemoteIndexSource{}, false
+}
+
+func (s *MemoryStore) PluginRemoteIndexBySourceID(sourceID string) (domain.PluginRemoteIndexSource, bool) {
+	sourceID = strings.TrimSpace(sourceID)
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	for _, it := range s.remoteIndexes {
+		if it.SourceID == sourceID {
+			return it, true
+		}
+	}
+	return domain.PluginRemoteIndexSource{}, false
+}
+
+func (s *MemoryStore) PluginRemoteIndexes(filter domain.PluginRemoteIndexFilter) ([]domain.PluginRemoteIndexSource, int, error) {
+	page, pageSize := normalizeMemoryPage(filter.Page, filter.PageSize)
+	status := strings.TrimSpace(filter.Status)
+	keyword := strings.ToLower(strings.TrimSpace(filter.Keyword))
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	all := make([]domain.PluginRemoteIndexSource, 0, len(s.remoteIndexes))
+	for _, it := range s.remoteIndexes {
+		if status != "" && status != "all" && it.Status != status {
+			continue
+		}
+		if keyword != "" {
+			hay := strings.ToLower(strings.Join([]string{it.SourceID, it.Name, it.IndexURL, it.Homepage, it.Description, it.LastErrorCode, it.LastErrorMessage}, " "))
+			if !strings.Contains(hay, keyword) {
+				continue
+			}
+		}
+		all = append(all, it)
+	}
+	sort.Slice(all, func(i, j int) bool { return all[i].ID > all[j].ID })
+	total := len(all)
+	start := (page - 1) * pageSize
+	if start > total {
+		start = total
+	}
+	end := start + pageSize
+	if end > total {
+		end = total
+	}
+	return append([]domain.PluginRemoteIndexSource(nil), all[start:end]...), total, nil
 }

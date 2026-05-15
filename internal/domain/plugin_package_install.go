@@ -5,6 +5,9 @@ type PluginPackageInstallRequest struct {
 	Path              string `json:"path"`
 	ConfirmRiskLevel  string `json:"confirm_risk_level,omitempty"`
 	AllowWithWarnings bool   `json:"allow_with_warnings,omitempty"`
+	// Optional context: used internally for approvals/operations linking.
+	ApprovalID  int64  `json:"approval_id,omitempty"`
+	OperationID string `json:"operation_id,omitempty"`
 }
 
 type PluginPackageInstallResult struct {
@@ -18,6 +21,7 @@ type PluginPackageInstallResult struct {
 
 type PluginPackageInstallResponse struct {
 	Message       string                      `json:"message,omitempty"`
+	OperationID   string                      `json:"operation_id,omitempty"`
 	Plugin        Plugin                      `json:"plugin"`
 	Package       PluginPackageInfo           `json:"package"`
 	Checksum      PluginPackageChecksumResult `json:"checksum,omitempty"`

@@ -566,6 +566,138 @@ func (s *MySQLStore) migrateSiteScopedAudit() error {
 		KEY idx_plugin_approvals_plugin_created (plugin_code, created_at),
 		KEY idx_plugin_approvals_requested (requested_by, requested_at)
 	) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci`)
+	// v1.6.0-P0-02: uploaded zip plugin packages as lifecycle objects.
+	_, _ = s.db.Exec(`CREATE TABLE IF NOT EXISTS plugin_package_uploads (
+		id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+		upload_id VARCHAR(80) NOT NULL,
+		original_filename VARCHAR(255) NOT NULL DEFAULT '',
+		uploaded_by BIGINT UNSIGNED NOT NULL DEFAULT 0,
+		uploaded_by_name VARCHAR(128) NOT NULL DEFAULT '',
+		uploaded_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+		status VARCHAR(32) NOT NULL DEFAULT 'uploaded',
+		package_code VARCHAR(64) NOT NULL DEFAULT '',
+		package_name VARCHAR(128) NOT NULL DEFAULT '',
+		package_version VARCHAR(32) NOT NULL DEFAULT '',
+		upload_path VARCHAR(500) NOT NULL DEFAULT '',
+		staging_path VARCHAR(500) NOT NULL DEFAULT '',
+		package_path VARCHAR(500) NOT NULL DEFAULT '',
+		promoted_path VARCHAR(500) NOT NULL DEFAULT '',
+		compressed_size BIGINT NOT NULL DEFAULT 0,
+		uncompressed_size BIGINT NOT NULL DEFAULT 0,
+		file_count INT NOT NULL DEFAULT 0,
+		checksum_status VARCHAR(32) NOT NULL DEFAULT '',
+		signature_status VARCHAR(32) NOT NULL DEFAULT '',
+		publisher_id VARCHAR(128) NOT NULL DEFAULT '',
+		trust_status VARCHAR(32) NOT NULL DEFAULT '',
+		risk_level VARCHAR(32) NOT NULL DEFAULT '',
+		risk_report_json JSON NULL,
+		zip_scan_json JSON NULL,
+		file_scan_json JSON NULL,
+		manifest_validation_json JSON NULL,
+		install_dry_run_json JSON NULL,
+		approval_id BIGINT UNSIGNED NOT NULL DEFAULT 0,
+		install_approval_id BIGINT UNSIGNED NOT NULL DEFAULT 0,
+		expires_at DATETIME NULL,
+		deleted_at DATETIME NULL,
+		error_code VARCHAR(80) NOT NULL DEFAULT '',
+		error_message VARCHAR(1000) NOT NULL DEFAULT '',
+		metadata_json JSON NULL,
+		created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+		updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+		PRIMARY KEY (id),
+		UNIQUE KEY uk_plugin_package_uploads_upload_id (upload_id),
+		KEY idx_plugin_package_uploads_status_created (status, created_at),
+		KEY idx_plugin_package_uploads_package (package_code, package_version),
+		KEY idx_plugin_package_uploads_uploaded_by (uploaded_by, uploaded_at),
+		KEY idx_plugin_package_uploads_risk (risk_level, status)
+	) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci`)
+	// v1.6.0-P0-06: plugin operation snapshots for install/upgrade protection and recovery.
+	_, _ = s.db.Exec(`CREATE TABLE IF NOT EXISTS plugin_operation_snapshots (
+		id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+		operation_id VARCHAR(80) NOT NULL,
+		operation_type VARCHAR(32) NOT NULL,
+		plugin_code VARCHAR(64) NOT NULL,
+		from_version VARCHAR(32) NOT NULL DEFAULT '',
+		to_version VARCHAR(32) NOT NULL DEFAULT '',
+		package_path VARCHAR(500) NOT NULL DEFAULT '',
+		package_source VARCHAR(32) NOT NULL DEFAULT '',
+		approval_id BIGINT UNSIGNED NOT NULL DEFAULT 0,
+		before_plugin_json JSON NULL,
+		before_manifest_json JSON NULL,
+		before_config_json JSON NULL,
+		before_config_version_id BIGINT UNSIGNED NOT NULL DEFAULT 0,
+		before_migrations_json JSON NULL,
+		before_permissions_json JSON NULL,
+		before_menus_json JSON NULL,
+		before_routes_json JSON NULL,
+		before_dependencies_json JSON NULL,
+		before_status VARCHAR(32) NOT NULL DEFAULT '',
+		after_manifest_json JSON NULL,
+		dry_run_json JSON NULL,
+		risk_report_json JSON NULL,
+		diff_json JSON NULL,
+		checksum_summary_json JSON NULL,
+		signature_summary_json JSON NULL,
+		status VARCHAR(32) NOT NULL DEFAULT 'created',
+		error_code VARCHAR(80) NOT NULL DEFAULT '',
+		error_message VARCHAR(1000) NOT NULL DEFAULT '',
+		created_by BIGINT UNSIGNED NOT NULL DEFAULT 0,
+		metadata_json JSON NULL,
+		created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+		updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+		PRIMARY KEY (id),
+		UNIQUE KEY uk_plugin_operation_snapshots_operation_id (operation_id),
+		KEY idx_plugin_operation_snapshots_plugin (plugin_code, created_at),
+		KEY idx_plugin_operation_snapshots_status (status, created_at),
+		KEY idx_plugin_operation_snapshots_type (operation_type, created_at)
+	) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci`)
+	_, _ = s.db.Exec(`CREATE TABLE IF NOT EXISTS plugin_trusted_publishers (
+		id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+		publisher_id VARCHAR(128) NOT NULL,
+		name VARCHAR(128) NOT NULL DEFAULT '',
+		homepage VARCHAR(255) NOT NULL DEFAULT '',
+		email VARCHAR(255) NOT NULL DEFAULT '',
+		public_key_id VARCHAR(128) NOT NULL,
+		public_key_algorithm VARCHAR(32) NOT NULL DEFAULT 'ed25519',
+		public_key TEXT NOT NULL,
+		fingerprint VARCHAR(128) NOT NULL DEFAULT '',
+		status VARCHAR(32) NOT NULL DEFAULT 'trusted',
+		notes VARCHAR(1000) NOT NULL DEFAULT '',
+		created_by BIGINT UNSIGNED NOT NULL DEFAULT 0,
+		created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+		updated_by BIGINT UNSIGNED NOT NULL DEFAULT 0,
+		updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+		revoked_at DATETIME NULL,
+		blocked_at DATETIME NULL,
+		metadata_json JSON NULL,
+		PRIMARY KEY (id),
+		UNIQUE KEY uk_plugin_trusted_publishers_key (publisher_id, public_key_id),
+		KEY idx_plugin_trusted_publishers_status (status, updated_at)
+	) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci`)
+	_, _ = s.db.Exec(`CREATE TABLE IF NOT EXISTS plugin_remote_indexes (
+		id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+		source_id VARCHAR(128) NOT NULL,
+		name VARCHAR(128) NOT NULL DEFAULT '',
+		index_url VARCHAR(500) NOT NULL,
+		homepage VARCHAR(255) NOT NULL DEFAULT '',
+		description VARCHAR(1000) NOT NULL DEFAULT '',
+		status VARCHAR(32) NOT NULL DEFAULT 'enabled',
+		trust_policy VARCHAR(32) NOT NULL DEFAULT 'readonly',
+		last_fetch_status VARCHAR(32) NOT NULL DEFAULT '',
+		last_fetch_at DATETIME NULL,
+		last_error_code VARCHAR(128) NOT NULL DEFAULT '',
+		last_error_message VARCHAR(1000) NOT NULL DEFAULT '',
+		last_index_hash VARCHAR(128) NOT NULL DEFAULT '',
+		metadata_json JSON NULL,
+		created_by BIGINT UNSIGNED NOT NULL DEFAULT 0,
+		created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+		updated_by BIGINT UNSIGNED NOT NULL DEFAULT 0,
+		updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+		PRIMARY KEY (id),
+		UNIQUE KEY uk_plugin_remote_indexes_source (source_id),
+		KEY idx_plugin_remote_indexes_status (status, updated_at),
+		KEY idx_plugin_remote_indexes_fetch (last_fetch_status, last_fetch_at)
+	) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci`)
 	_, _ = s.db.Exec(`CREATE TABLE IF NOT EXISTS hook_executions (
 		id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
 		hook_name VARCHAR(128) NOT NULL,
@@ -2158,6 +2290,578 @@ func (s *MySQLStore) PluginApprovalRequests(filter domain.PluginApprovalFilter) 
 			&it.ChangedKeysJSON, &it.DiffJSON,
 			&it.ErrorCode, &it.ErrorMessage, &it.MetadataJSON,
 			&it.CreatedAt, &it.UpdatedAt); err != nil {
+			return nil, 0, err
+		}
+		out = append(out, it)
+	}
+	return out, total, nil
+}
+
+// ===== Plugin package uploads (v1.6.0-P0-02) =====
+
+func uploadJSONValue(raw string) any {
+	raw = strings.TrimSpace(raw)
+	if raw == "" || !json.Valid([]byte(raw)) {
+		return nil
+	}
+	return json.RawMessage(raw)
+}
+
+func (s *MySQLStore) AppendPluginPackageUpload(record domain.PluginPackageUploadRecord) (domain.PluginPackageUploadRecord, error) {
+	record.UploadID = strings.TrimSpace(record.UploadID)
+	record.Status = strings.TrimSpace(record.Status)
+	if record.Status == "" {
+		record.Status = domain.PluginPackageUploadStatusUploaded
+	}
+	res, err := s.db.Exec(`INSERT INTO plugin_package_uploads
+		(upload_id, original_filename, uploaded_by, uploaded_by_name, uploaded_at, status,
+		package_code, package_name, package_version, upload_path, staging_path, package_path, promoted_path,
+		compressed_size, uncompressed_size, file_count, checksum_status, signature_status, publisher_id, trust_status, risk_level,
+		risk_report_json, zip_scan_json, file_scan_json, manifest_validation_json, install_dry_run_json,
+		approval_id, install_approval_id, expires_at, deleted_at, error_code, error_message, metadata_json,
+		created_at, updated_at)
+		VALUES (?,?,?,?,COALESCE(?,NOW()),?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,NOW(),NOW())`,
+		record.UploadID, record.OriginalFilename, record.UploadedBy, record.UploadedByName, nullTime(record.UploadedAt), record.Status,
+		record.PackageCode, record.PackageName, record.PackageVersion, record.UploadPath, record.StagingPath, record.PackagePath, record.PromotedPath,
+		record.CompressedSize, record.UncompressedSize, record.FileCount, record.ChecksumStatus, record.SignatureStatus, record.PublisherID, record.TrustStatus, record.RiskLevel,
+		uploadJSONValue(record.RiskReportJSON), uploadJSONValue(record.ZipScanJSON), uploadJSONValue(record.FileScanJSON), uploadJSONValue(record.ManifestValidationJSON), uploadJSONValue(record.InstallDryRunJSON),
+		record.ApprovalID, record.InstallApprovalID, nullTime(record.ExpiresAt), nullTime(record.DeletedAt), record.ErrorCode, record.ErrorMessage, uploadJSONValue(record.MetadataJSON))
+	if err != nil {
+		return domain.PluginPackageUploadRecord{}, err
+	}
+	id, _ := res.LastInsertId()
+	record.ID = id
+	out, _ := s.PluginPackageUploadByUploadID(record.UploadID)
+	return out, nil
+}
+
+func (s *MySQLStore) SavePluginPackageUpload(record domain.PluginPackageUploadRecord) (domain.PluginPackageUploadRecord, error) {
+	if strings.TrimSpace(record.UploadID) == "" {
+		return domain.PluginPackageUploadRecord{}, errors.New("upload_id 不能为空")
+	}
+	_, err := s.db.Exec(`UPDATE plugin_package_uploads SET
+		original_filename=?, uploaded_by=?, uploaded_by_name=?, uploaded_at=COALESCE(?, uploaded_at), status=?,
+		package_code=?, package_name=?, package_version=?, upload_path=?, staging_path=?, package_path=?, promoted_path=?,
+		compressed_size=?, uncompressed_size=?, file_count=?, checksum_status=?, signature_status=?, publisher_id=?, trust_status=?, risk_level=?,
+		risk_report_json=?, zip_scan_json=?, file_scan_json=?, manifest_validation_json=?, install_dry_run_json=?,
+		approval_id=?, install_approval_id=?, expires_at=?, deleted_at=?, error_code=?, error_message=?, metadata_json=?, updated_at=NOW()
+		WHERE upload_id=?`,
+		record.OriginalFilename, record.UploadedBy, record.UploadedByName, nullTime(record.UploadedAt), record.Status,
+		record.PackageCode, record.PackageName, record.PackageVersion, record.UploadPath, record.StagingPath, record.PackagePath, record.PromotedPath,
+		record.CompressedSize, record.UncompressedSize, record.FileCount, record.ChecksumStatus, record.SignatureStatus, record.PublisherID, record.TrustStatus, record.RiskLevel,
+		uploadJSONValue(record.RiskReportJSON), uploadJSONValue(record.ZipScanJSON), uploadJSONValue(record.FileScanJSON), uploadJSONValue(record.ManifestValidationJSON), uploadJSONValue(record.InstallDryRunJSON),
+		record.ApprovalID, record.InstallApprovalID, nullTime(record.ExpiresAt), nullTime(record.DeletedAt), record.ErrorCode, record.ErrorMessage, uploadJSONValue(record.MetadataJSON), record.UploadID)
+	if err != nil {
+		return domain.PluginPackageUploadRecord{}, err
+	}
+	out, _ := s.PluginPackageUploadByUploadID(record.UploadID)
+	return out, nil
+}
+
+func (s *MySQLStore) PluginPackageUploadByUploadID(uploadID string) (domain.PluginPackageUploadRecord, bool) {
+	var it domain.PluginPackageUploadRecord
+	err := s.db.QueryRow(`SELECT id, upload_id, original_filename, uploaded_by, uploaded_by_name, DATE_FORMAT(uploaded_at,'%Y-%m-%d %H:%i:%s'), status,
+		package_code, package_name, package_version, upload_path, staging_path, package_path, promoted_path,
+		compressed_size, uncompressed_size, file_count, checksum_status, signature_status, publisher_id, trust_status, risk_level,
+		COALESCE(CAST(risk_report_json AS CHAR),''), COALESCE(CAST(zip_scan_json AS CHAR),''), COALESCE(CAST(file_scan_json AS CHAR),''),
+		COALESCE(CAST(manifest_validation_json AS CHAR),''), COALESCE(CAST(install_dry_run_json AS CHAR),''),
+		approval_id, install_approval_id, COALESCE(DATE_FORMAT(expires_at,'%Y-%m-%d %H:%i:%s'),''), COALESCE(DATE_FORMAT(deleted_at,'%Y-%m-%d %H:%i:%s'),''),
+		error_code, error_message, COALESCE(CAST(metadata_json AS CHAR),''),
+		DATE_FORMAT(created_at,'%Y-%m-%d %H:%i:%s'), DATE_FORMAT(updated_at,'%Y-%m-%d %H:%i:%s')
+		FROM plugin_package_uploads WHERE upload_id=? LIMIT 1`, strings.TrimSpace(uploadID)).
+		Scan(&it.ID, &it.UploadID, &it.OriginalFilename, &it.UploadedBy, &it.UploadedByName, &it.UploadedAt, &it.Status,
+			&it.PackageCode, &it.PackageName, &it.PackageVersion, &it.UploadPath, &it.StagingPath, &it.PackagePath, &it.PromotedPath,
+			&it.CompressedSize, &it.UncompressedSize, &it.FileCount, &it.ChecksumStatus, &it.SignatureStatus, &it.PublisherID, &it.TrustStatus, &it.RiskLevel,
+			&it.RiskReportJSON, &it.ZipScanJSON, &it.FileScanJSON, &it.ManifestValidationJSON, &it.InstallDryRunJSON,
+			&it.ApprovalID, &it.InstallApprovalID, &it.ExpiresAt, &it.DeletedAt,
+			&it.ErrorCode, &it.ErrorMessage, &it.MetadataJSON, &it.CreatedAt, &it.UpdatedAt)
+	if err != nil {
+		return domain.PluginPackageUploadRecord{}, false
+	}
+	return it, true
+}
+
+func (s *MySQLStore) PluginPackageUploads(filter domain.PluginPackageUploadFilter) ([]domain.PluginPackageUploadRecord, int, error) {
+	if filter.Page <= 0 {
+		filter.Page = 1
+	}
+	if filter.PageSize <= 0 {
+		filter.PageSize = 20
+	}
+	if filter.PageSize > 100 {
+		filter.PageSize = 100
+	}
+	where := []string{"1=1"}
+	args := []any{}
+	if filter.Status != "" && filter.Status != "all" {
+		where = append(where, "status=?")
+		args = append(args, filter.Status)
+	}
+	if filter.RiskLevel != "" && filter.RiskLevel != "all" {
+		where = append(where, "risk_level=?")
+		args = append(args, filter.RiskLevel)
+	}
+	if filter.PackageCode != "" {
+		where = append(where, "package_code=?")
+		args = append(args, filter.PackageCode)
+	}
+	if filter.PublisherID != "" {
+		where = append(where, "publisher_id=?")
+		args = append(args, filter.PublisherID)
+	}
+	if filter.TrustStatus != "" && filter.TrustStatus != "all" {
+		where = append(where, "trust_status=?")
+		args = append(args, filter.TrustStatus)
+	}
+	if filter.UploadedBy > 0 {
+		where = append(where, "uploaded_by=?")
+		args = append(args, filter.UploadedBy)
+	}
+	if keyword := strings.TrimSpace(filter.Keyword); keyword != "" {
+		like := "%" + keyword + "%"
+		where = append(where, "(upload_id LIKE ? OR original_filename LIKE ? OR package_code LIKE ? OR package_name LIKE ? OR uploaded_by_name LIKE ?)")
+		args = append(args, like, like, like, like, like)
+	}
+	whereSQL := strings.Join(where, " AND ")
+	var total int
+	if err := s.db.QueryRow("SELECT COUNT(*) FROM plugin_package_uploads WHERE "+whereSQL, args...).Scan(&total); err != nil {
+		return nil, 0, err
+	}
+	offset := (filter.Page - 1) * filter.PageSize
+	args2 := append(append([]any{}, args...), filter.PageSize, offset)
+	rows, err := s.db.Query(`SELECT id, upload_id, original_filename, uploaded_by, uploaded_by_name, DATE_FORMAT(uploaded_at,'%Y-%m-%d %H:%i:%s'), status,
+		package_code, package_name, package_version, upload_path, staging_path, package_path, promoted_path,
+		compressed_size, uncompressed_size, file_count, checksum_status, signature_status, publisher_id, trust_status, risk_level,
+		COALESCE(CAST(risk_report_json AS CHAR),''), COALESCE(CAST(zip_scan_json AS CHAR),''), COALESCE(CAST(file_scan_json AS CHAR),''),
+		COALESCE(CAST(manifest_validation_json AS CHAR),''), COALESCE(CAST(install_dry_run_json AS CHAR),''),
+		approval_id, install_approval_id, COALESCE(DATE_FORMAT(expires_at,'%Y-%m-%d %H:%i:%s'),''), COALESCE(DATE_FORMAT(deleted_at,'%Y-%m-%d %H:%i:%s'),''),
+		error_code, error_message, COALESCE(CAST(metadata_json AS CHAR),''),
+		DATE_FORMAT(created_at,'%Y-%m-%d %H:%i:%s'), DATE_FORMAT(updated_at,'%Y-%m-%d %H:%i:%s')
+		FROM plugin_package_uploads WHERE `+whereSQL+`
+		ORDER BY id DESC LIMIT ? OFFSET ?`, args2...)
+	if err != nil {
+		return nil, 0, err
+	}
+	defer rows.Close()
+	out := []domain.PluginPackageUploadRecord{}
+	for rows.Next() {
+		var it domain.PluginPackageUploadRecord
+		if err := rows.Scan(&it.ID, &it.UploadID, &it.OriginalFilename, &it.UploadedBy, &it.UploadedByName, &it.UploadedAt, &it.Status,
+			&it.PackageCode, &it.PackageName, &it.PackageVersion, &it.UploadPath, &it.StagingPath, &it.PackagePath, &it.PromotedPath,
+			&it.CompressedSize, &it.UncompressedSize, &it.FileCount, &it.ChecksumStatus, &it.SignatureStatus, &it.PublisherID, &it.TrustStatus, &it.RiskLevel,
+			&it.RiskReportJSON, &it.ZipScanJSON, &it.FileScanJSON, &it.ManifestValidationJSON, &it.InstallDryRunJSON,
+			&it.ApprovalID, &it.InstallApprovalID, &it.ExpiresAt, &it.DeletedAt,
+			&it.ErrorCode, &it.ErrorMessage, &it.MetadataJSON, &it.CreatedAt, &it.UpdatedAt); err != nil {
+			return nil, 0, err
+		}
+		out = append(out, it)
+	}
+	return out, total, nil
+}
+
+// ===== Plugin operations (v1.6.0-P0-06) =====
+
+func (s *MySQLStore) AppendPluginOperationSnapshot(record domain.PluginOperationSnapshot) (domain.PluginOperationSnapshot, error) {
+	record.OperationID = strings.TrimSpace(record.OperationID)
+	record.OperationType = strings.TrimSpace(record.OperationType)
+	record.PluginCode = strings.TrimSpace(record.PluginCode)
+	record.Status = strings.TrimSpace(record.Status)
+	if record.OperationID == "" || record.OperationType == "" || record.PluginCode == "" {
+		return domain.PluginOperationSnapshot{}, errors.New("operation_id/operation_type/plugin_code 不能为空")
+	}
+	if record.Status == "" {
+		record.Status = domain.PluginOperationStatusCreated
+	}
+	res, err := s.db.Exec(`INSERT INTO plugin_operation_snapshots
+		(operation_id, operation_type, plugin_code, from_version, to_version, package_path, package_source, approval_id,
+		before_plugin_json, before_manifest_json, before_config_json, before_config_version_id, before_migrations_json,
+		before_permissions_json, before_menus_json, before_routes_json, before_dependencies_json, before_status,
+		after_manifest_json, dry_run_json, risk_report_json, diff_json, checksum_summary_json, signature_summary_json,
+		status, error_code, error_message, created_by, metadata_json, created_at, updated_at)
+		VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,NOW(),NOW())`,
+		record.OperationID, record.OperationType, record.PluginCode, record.FromVersion, record.ToVersion, record.PackagePath, record.PackageSource, record.ApprovalID,
+		uploadJSONValue(record.BeforePluginJSON), uploadJSONValue(record.BeforeManifestJSON), uploadJSONValue(record.BeforeConfigJSON), record.BeforeConfigVersionID, uploadJSONValue(record.BeforeMigrationsJSON),
+		uploadJSONValue(record.BeforePermissionsJSON), uploadJSONValue(record.BeforeMenusJSON), uploadJSONValue(record.BeforeRoutesJSON), uploadJSONValue(record.BeforeDependenciesJSON), record.BeforeStatus,
+		uploadJSONValue(record.AfterManifestJSON), uploadJSONValue(record.DryRunJSON), uploadJSONValue(record.RiskReportJSON), uploadJSONValue(record.DiffJSON), uploadJSONValue(record.ChecksumSummaryJSON), uploadJSONValue(record.SignatureSummaryJSON),
+		record.Status, record.ErrorCode, record.ErrorMessage, record.CreatedBy, uploadJSONValue(record.MetadataJSON))
+	if err != nil {
+		return domain.PluginOperationSnapshot{}, err
+	}
+	id, _ := res.LastInsertId()
+	record.ID = id
+	out, _ := s.PluginOperationSnapshotByOperationID(record.OperationID)
+	return out, nil
+}
+
+func (s *MySQLStore) SavePluginOperationSnapshot(record domain.PluginOperationSnapshot) (domain.PluginOperationSnapshot, error) {
+	record.OperationID = strings.TrimSpace(record.OperationID)
+	if record.OperationID == "" {
+		return domain.PluginOperationSnapshot{}, errors.New("operation_id 不能为空")
+	}
+	_, err := s.db.Exec(`UPDATE plugin_operation_snapshots SET
+		operation_type=?, plugin_code=?, from_version=?, to_version=?, package_path=?, package_source=?, approval_id=?,
+		before_plugin_json=?, before_manifest_json=?, before_config_json=?, before_config_version_id=?, before_migrations_json=?,
+		before_permissions_json=?, before_menus_json=?, before_routes_json=?, before_dependencies_json=?, before_status=?,
+		after_manifest_json=?, dry_run_json=?, risk_report_json=?, diff_json=?, checksum_summary_json=?, signature_summary_json=?,
+		status=?, error_code=?, error_message=?, created_by=?, metadata_json=?, updated_at=NOW()
+		WHERE operation_id=?`,
+		record.OperationType, record.PluginCode, record.FromVersion, record.ToVersion, record.PackagePath, record.PackageSource, record.ApprovalID,
+		uploadJSONValue(record.BeforePluginJSON), uploadJSONValue(record.BeforeManifestJSON), uploadJSONValue(record.BeforeConfigJSON), record.BeforeConfigVersionID, uploadJSONValue(record.BeforeMigrationsJSON),
+		uploadJSONValue(record.BeforePermissionsJSON), uploadJSONValue(record.BeforeMenusJSON), uploadJSONValue(record.BeforeRoutesJSON), uploadJSONValue(record.BeforeDependenciesJSON), record.BeforeStatus,
+		uploadJSONValue(record.AfterManifestJSON), uploadJSONValue(record.DryRunJSON), uploadJSONValue(record.RiskReportJSON), uploadJSONValue(record.DiffJSON), uploadJSONValue(record.ChecksumSummaryJSON), uploadJSONValue(record.SignatureSummaryJSON),
+		record.Status, record.ErrorCode, record.ErrorMessage, record.CreatedBy, uploadJSONValue(record.MetadataJSON), record.OperationID)
+	if err != nil {
+		return domain.PluginOperationSnapshot{}, err
+	}
+	out, _ := s.PluginOperationSnapshotByOperationID(record.OperationID)
+	return out, nil
+}
+
+func (s *MySQLStore) PluginOperationSnapshotByOperationID(operationID string) (domain.PluginOperationSnapshot, bool) {
+	operationID = strings.TrimSpace(operationID)
+	if operationID == "" {
+		return domain.PluginOperationSnapshot{}, false
+	}
+	var it domain.PluginOperationSnapshot
+	err := s.db.QueryRow(`SELECT id, operation_id, operation_type, plugin_code, from_version, to_version, package_path, package_source, approval_id,
+		COALESCE(CAST(before_plugin_json AS CHAR),''), COALESCE(CAST(before_manifest_json AS CHAR),''), COALESCE(CAST(before_config_json AS CHAR),''),
+		before_config_version_id, COALESCE(CAST(before_migrations_json AS CHAR),''), COALESCE(CAST(before_permissions_json AS CHAR),''), COALESCE(CAST(before_menus_json AS CHAR),''), COALESCE(CAST(before_routes_json AS CHAR),''), COALESCE(CAST(before_dependencies_json AS CHAR),''),
+		before_status,
+		COALESCE(CAST(after_manifest_json AS CHAR),''), COALESCE(CAST(dry_run_json AS CHAR),''), COALESCE(CAST(risk_report_json AS CHAR),''), COALESCE(CAST(diff_json AS CHAR),''),
+		COALESCE(CAST(checksum_summary_json AS CHAR),''), COALESCE(CAST(signature_summary_json AS CHAR),''), status, error_code, error_message, created_by,
+		COALESCE(CAST(metadata_json AS CHAR),''), DATE_FORMAT(created_at,'%Y-%m-%d %H:%i:%s'), DATE_FORMAT(updated_at,'%Y-%m-%d %H:%i:%s')
+		FROM plugin_operation_snapshots WHERE operation_id=? LIMIT 1`, operationID).
+		Scan(&it.ID, &it.OperationID, &it.OperationType, &it.PluginCode, &it.FromVersion, &it.ToVersion, &it.PackagePath, &it.PackageSource, &it.ApprovalID,
+			&it.BeforePluginJSON, &it.BeforeManifestJSON, &it.BeforeConfigJSON, &it.BeforeConfigVersionID, &it.BeforeMigrationsJSON, &it.BeforePermissionsJSON, &it.BeforeMenusJSON, &it.BeforeRoutesJSON, &it.BeforeDependenciesJSON,
+			&it.BeforeStatus,
+			&it.AfterManifestJSON, &it.DryRunJSON, &it.RiskReportJSON, &it.DiffJSON,
+			&it.ChecksumSummaryJSON, &it.SignatureSummaryJSON, &it.Status, &it.ErrorCode, &it.ErrorMessage, &it.CreatedBy,
+			&it.MetadataJSON, &it.CreatedAt, &it.UpdatedAt)
+	if err != nil {
+		return domain.PluginOperationSnapshot{}, false
+	}
+	return it, true
+}
+
+func (s *MySQLStore) PluginOperationSnapshots(filter domain.PluginOperationFilter) ([]domain.PluginOperationSnapshot, int, error) {
+	if filter.Page <= 0 {
+		filter.Page = 1
+	}
+	if filter.PageSize <= 0 {
+		filter.PageSize = 20
+	}
+	if filter.PageSize > 100 {
+		filter.PageSize = 100
+	}
+	where := []string{"1=1"}
+	args := []any{}
+	if code := strings.TrimSpace(filter.PluginCode); code != "" {
+		where = append(where, "plugin_code=?")
+		args = append(args, code)
+	}
+	if typ := strings.TrimSpace(filter.OperationType); typ != "" && typ != "all" {
+		where = append(where, "operation_type=?")
+		args = append(args, typ)
+	}
+	if status := strings.TrimSpace(filter.Status); status != "" && status != "all" {
+		where = append(where, "status=?")
+		args = append(args, status)
+	}
+	whereSQL := strings.Join(where, " AND ")
+	var total int
+	if err := s.db.QueryRow("SELECT COUNT(*) FROM plugin_operation_snapshots WHERE "+whereSQL, args...).Scan(&total); err != nil {
+		return nil, 0, err
+	}
+	offset := (filter.Page - 1) * filter.PageSize
+	args2 := append(append([]any{}, args...), filter.PageSize, offset)
+	rows, err := s.db.Query(`SELECT id, operation_id, operation_type, plugin_code, from_version, to_version, package_path, package_source, approval_id,
+		COALESCE(CAST(before_plugin_json AS CHAR),''), COALESCE(CAST(before_manifest_json AS CHAR),''), COALESCE(CAST(before_config_json AS CHAR),''),
+		before_config_version_id, COALESCE(CAST(before_migrations_json AS CHAR),''), COALESCE(CAST(before_permissions_json AS CHAR),''), COALESCE(CAST(before_menus_json AS CHAR),''), COALESCE(CAST(before_routes_json AS CHAR),''), COALESCE(CAST(before_dependencies_json AS CHAR),''),
+		before_status,
+		COALESCE(CAST(after_manifest_json AS CHAR),''), COALESCE(CAST(dry_run_json AS CHAR),''), COALESCE(CAST(risk_report_json AS CHAR),''), COALESCE(CAST(diff_json AS CHAR),''),
+		COALESCE(CAST(checksum_summary_json AS CHAR),''), COALESCE(CAST(signature_summary_json AS CHAR),''), status, error_code, error_message, created_by,
+		COALESCE(CAST(metadata_json AS CHAR),''), DATE_FORMAT(created_at,'%Y-%m-%d %H:%i:%s'), DATE_FORMAT(updated_at,'%Y-%m-%d %H:%i:%s')
+		FROM plugin_operation_snapshots WHERE `+whereSQL+` ORDER BY id DESC LIMIT ? OFFSET ?`, args2...)
+	if err != nil {
+		return nil, 0, err
+	}
+	defer rows.Close()
+	out := []domain.PluginOperationSnapshot{}
+	for rows.Next() {
+		var it domain.PluginOperationSnapshot
+		if err := rows.Scan(&it.ID, &it.OperationID, &it.OperationType, &it.PluginCode, &it.FromVersion, &it.ToVersion, &it.PackagePath, &it.PackageSource, &it.ApprovalID,
+			&it.BeforePluginJSON, &it.BeforeManifestJSON, &it.BeforeConfigJSON, &it.BeforeConfigVersionID, &it.BeforeMigrationsJSON, &it.BeforePermissionsJSON, &it.BeforeMenusJSON, &it.BeforeRoutesJSON, &it.BeforeDependenciesJSON,
+			&it.BeforeStatus,
+			&it.AfterManifestJSON, &it.DryRunJSON, &it.RiskReportJSON, &it.DiffJSON,
+			&it.ChecksumSummaryJSON, &it.SignatureSummaryJSON, &it.Status, &it.ErrorCode, &it.ErrorMessage, &it.CreatedBy,
+			&it.MetadataJSON, &it.CreatedAt, &it.UpdatedAt); err != nil {
+			return nil, 0, err
+		}
+		out = append(out, it)
+	}
+	return out, total, nil
+}
+
+func (s *MySQLStore) DeletePluginByCode(code string) error {
+	code = strings.TrimSpace(code)
+	if code == "" {
+		return nil
+	}
+	_, err := s.db.Exec(`DELETE FROM plugins WHERE plugin_code=?`, code)
+	return err
+}
+
+func (s *MySQLStore) DeleteCommunityPluginsByCode(code string) (int, error) {
+	code = strings.TrimSpace(code)
+	if code == "" {
+		return 0, nil
+	}
+	res, err := s.db.Exec(`DELETE FROM community_plugins WHERE plugin_code=?`, code)
+	if err != nil {
+		return 0, err
+	}
+	n, _ := res.RowsAffected()
+	return int(n), nil
+}
+
+func (s *MySQLStore) DeletePluginMigrationsByPlugin(code string) (int, error) {
+	code = strings.TrimSpace(code)
+	if code == "" {
+		return 0, nil
+	}
+	res, err := s.db.Exec(`DELETE FROM plugin_migrations WHERE plugin_code=?`, code)
+	if err != nil {
+		return 0, err
+	}
+	n, _ := res.RowsAffected()
+	return int(n), nil
+}
+
+func (s *MySQLStore) DeletePluginMigrationsByVersion(code, version string) (int, error) {
+	code = strings.TrimSpace(code)
+	version = strings.TrimSpace(version)
+	if code == "" || version == "" {
+		return 0, nil
+	}
+	res, err := s.db.Exec(`DELETE FROM plugin_migrations WHERE plugin_code=? AND version=?`, code, version)
+	if err != nil {
+		return 0, err
+	}
+	n, _ := res.RowsAffected()
+	return int(n), nil
+}
+
+func (s *MySQLStore) DeletePluginConfigVersionsByPlugin(code string) (int, error) {
+	code = strings.TrimSpace(code)
+	if code == "" {
+		return 0, nil
+	}
+	res, err := s.db.Exec(`DELETE FROM plugin_config_versions WHERE plugin_code=?`, code)
+	if err != nil {
+		return 0, err
+	}
+	n, _ := res.RowsAffected()
+	return int(n), nil
+}
+
+func (s *MySQLStore) AppendPluginTrustedPublisher(record domain.PluginTrustedPublisher) (domain.PluginTrustedPublisher, error) {
+	res, err := s.db.Exec(`INSERT INTO plugin_trusted_publishers
+		(publisher_id,name,homepage,email,public_key_id,public_key_algorithm,public_key,fingerprint,status,notes,created_by,created_at,updated_by,updated_at,revoked_at,blocked_at,metadata_json)
+		VALUES (?,?,?,?,?,?,?,?,?,?,?,COALESCE(?,NOW()),?,NOW(),?,?,?)`,
+		record.PublisherID, record.Name, record.Homepage, record.Email, record.PublicKeyID, record.PublicKeyAlgorithm, record.PublicKey, record.Fingerprint, record.Status, record.Notes,
+		record.CreatedBy, nullTime(record.CreatedAt), record.UpdatedBy, nullTime(record.RevokedAt), nullTime(record.BlockedAt), uploadJSONValue(record.MetadataJSON))
+	if err != nil {
+		return domain.PluginTrustedPublisher{}, err
+	}
+	id, _ := res.LastInsertId()
+	out, _ := s.PluginTrustedPublisherByID(id)
+	return out, nil
+}
+
+func (s *MySQLStore) SavePluginTrustedPublisher(record domain.PluginTrustedPublisher) (domain.PluginTrustedPublisher, error) {
+	_, err := s.db.Exec(`UPDATE plugin_trusted_publishers SET
+		publisher_id=?, name=?, homepage=?, email=?, public_key_id=?, public_key_algorithm=?, public_key=?, fingerprint=?, status=?, notes=?,
+		updated_by=?, updated_at=NOW(), revoked_at=?, blocked_at=?, metadata_json=?
+		WHERE id=?`,
+		record.PublisherID, record.Name, record.Homepage, record.Email, record.PublicKeyID, record.PublicKeyAlgorithm, record.PublicKey, record.Fingerprint, record.Status, record.Notes,
+		record.UpdatedBy, nullTime(record.RevokedAt), nullTime(record.BlockedAt), uploadJSONValue(record.MetadataJSON), record.ID)
+	if err != nil {
+		return domain.PluginTrustedPublisher{}, err
+	}
+	out, _ := s.PluginTrustedPublisherByID(record.ID)
+	return out, nil
+}
+
+func (s *MySQLStore) DeletePluginTrustedPublisher(id int64) error {
+	_, err := s.db.Exec(`DELETE FROM plugin_trusted_publishers WHERE id=?`, id)
+	return err
+}
+
+func (s *MySQLStore) PluginTrustedPublisherByID(id int64) (domain.PluginTrustedPublisher, bool) {
+	return s.scanTrustedPublisher(`WHERE id=?`, id)
+}
+
+func (s *MySQLStore) PluginTrustedPublisherByKey(publisherID, publicKeyID string) (domain.PluginTrustedPublisher, bool) {
+	return s.scanTrustedPublisher(`WHERE publisher_id=? AND public_key_id=?`, strings.TrimSpace(publisherID), strings.TrimSpace(publicKeyID))
+}
+
+func (s *MySQLStore) scanTrustedPublisher(where string, args ...any) (domain.PluginTrustedPublisher, bool) {
+	var it domain.PluginTrustedPublisher
+	err := s.db.QueryRow(`SELECT id,publisher_id,name,homepage,email,public_key_id,public_key_algorithm,public_key,fingerprint,status,notes,created_by,
+		DATE_FORMAT(created_at,'%Y-%m-%d %H:%i:%s'),updated_by,DATE_FORMAT(updated_at,'%Y-%m-%d %H:%i:%s'),
+		COALESCE(DATE_FORMAT(revoked_at,'%Y-%m-%d %H:%i:%s'),''),COALESCE(DATE_FORMAT(blocked_at,'%Y-%m-%d %H:%i:%s'),''),COALESCE(CAST(metadata_json AS CHAR),'')
+		FROM plugin_trusted_publishers `+where+` LIMIT 1`, args...).Scan(
+		&it.ID, &it.PublisherID, &it.Name, &it.Homepage, &it.Email, &it.PublicKeyID, &it.PublicKeyAlgorithm, &it.PublicKey, &it.Fingerprint, &it.Status, &it.Notes, &it.CreatedBy,
+		&it.CreatedAt, &it.UpdatedBy, &it.UpdatedAt, &it.RevokedAt, &it.BlockedAt, &it.MetadataJSON)
+	if err != nil {
+		return domain.PluginTrustedPublisher{}, false
+	}
+	return it, true
+}
+
+func (s *MySQLStore) PluginTrustedPublishers(filter domain.PluginTrustedPublisherFilter) ([]domain.PluginTrustedPublisher, int, error) {
+	if filter.Page <= 0 {
+		filter.Page = 1
+	}
+	if filter.PageSize <= 0 {
+		filter.PageSize = 20
+	}
+	where := []string{"1=1"}
+	args := []any{}
+	if filter.Status != "" && filter.Status != "all" {
+		where = append(where, "status=?")
+		args = append(args, filter.Status)
+	}
+	if keyword := strings.TrimSpace(filter.Keyword); keyword != "" {
+		like := "%" + keyword + "%"
+		where = append(where, "(publisher_id LIKE ? OR name LIKE ? OR public_key_id LIKE ? OR fingerprint LIKE ? OR notes LIKE ?)")
+		args = append(args, like, like, like, like, like)
+	}
+	whereSQL := strings.Join(where, " AND ")
+	var total int
+	if err := s.db.QueryRow("SELECT COUNT(*) FROM plugin_trusted_publishers WHERE "+whereSQL, args...).Scan(&total); err != nil {
+		return nil, 0, err
+	}
+	offset := (filter.Page - 1) * filter.PageSize
+	args = append(args, filter.PageSize, offset)
+	rows, err := s.db.Query(`SELECT id,publisher_id,name,homepage,email,public_key_id,public_key_algorithm,public_key,fingerprint,status,notes,created_by,
+		DATE_FORMAT(created_at,'%Y-%m-%d %H:%i:%s'),updated_by,DATE_FORMAT(updated_at,'%Y-%m-%d %H:%i:%s'),
+		COALESCE(DATE_FORMAT(revoked_at,'%Y-%m-%d %H:%i:%s'),''),COALESCE(DATE_FORMAT(blocked_at,'%Y-%m-%d %H:%i:%s'),''),COALESCE(CAST(metadata_json AS CHAR),'')
+		FROM plugin_trusted_publishers WHERE `+whereSQL+` ORDER BY id DESC LIMIT ? OFFSET ?`, args...)
+	if err != nil {
+		return nil, 0, err
+	}
+	defer rows.Close()
+	out := []domain.PluginTrustedPublisher{}
+	for rows.Next() {
+		var it domain.PluginTrustedPublisher
+		if err := rows.Scan(&it.ID, &it.PublisherID, &it.Name, &it.Homepage, &it.Email, &it.PublicKeyID, &it.PublicKeyAlgorithm, &it.PublicKey, &it.Fingerprint, &it.Status, &it.Notes, &it.CreatedBy,
+			&it.CreatedAt, &it.UpdatedBy, &it.UpdatedAt, &it.RevokedAt, &it.BlockedAt, &it.MetadataJSON); err != nil {
+			return nil, 0, err
+		}
+		out = append(out, it)
+	}
+	return out, total, nil
+}
+
+// ===== Remote plugin indexes (v1.6.0-P0-04) =====
+
+func (s *MySQLStore) AppendPluginRemoteIndex(record domain.PluginRemoteIndexSource) (domain.PluginRemoteIndexSource, error) {
+	res, err := s.db.Exec(`INSERT INTO plugin_remote_indexes
+		(source_id,name,index_url,homepage,description,status,trust_policy,last_fetch_status,last_fetch_at,last_error_code,last_error_message,last_index_hash,metadata_json,created_by,created_at,updated_by,updated_at)
+		VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,COALESCE(?,NOW()),?,NOW())`,
+		record.SourceID, record.Name, record.IndexURL, record.Homepage, record.Description, record.Status, record.TrustPolicy,
+		record.LastFetchStatus, nullTime(record.LastFetchAt), record.LastErrorCode, record.LastErrorMessage, record.LastIndexHash, uploadJSONValue(record.MetadataJSON),
+		record.CreatedBy, nullTime(record.CreatedAt), record.UpdatedBy)
+	if err != nil {
+		return domain.PluginRemoteIndexSource{}, err
+	}
+	id, _ := res.LastInsertId()
+	out, _ := s.PluginRemoteIndexByID(id)
+	return out, nil
+}
+
+func (s *MySQLStore) SavePluginRemoteIndex(record domain.PluginRemoteIndexSource) (domain.PluginRemoteIndexSource, error) {
+	_, err := s.db.Exec(`UPDATE plugin_remote_indexes SET
+		source_id=?, name=?, index_url=?, homepage=?, description=?, status=?, trust_policy=?, last_fetch_status=?, last_fetch_at=?,
+		last_error_code=?, last_error_message=?, last_index_hash=?, metadata_json=?, updated_by=?, updated_at=NOW()
+		WHERE id=?`,
+		record.SourceID, record.Name, record.IndexURL, record.Homepage, record.Description, record.Status, record.TrustPolicy, record.LastFetchStatus, nullTime(record.LastFetchAt),
+		record.LastErrorCode, record.LastErrorMessage, record.LastIndexHash, uploadJSONValue(record.MetadataJSON), record.UpdatedBy, record.ID)
+	if err != nil {
+		return domain.PluginRemoteIndexSource{}, err
+	}
+	out, _ := s.PluginRemoteIndexByID(record.ID)
+	return out, nil
+}
+
+func (s *MySQLStore) DeletePluginRemoteIndex(id int64) error {
+	_, err := s.db.Exec(`DELETE FROM plugin_remote_indexes WHERE id=?`, id)
+	return err
+}
+
+func (s *MySQLStore) PluginRemoteIndexByID(id int64) (domain.PluginRemoteIndexSource, bool) {
+	return s.scanRemoteIndex(`WHERE id=?`, id)
+}
+
+func (s *MySQLStore) PluginRemoteIndexBySourceID(sourceID string) (domain.PluginRemoteIndexSource, bool) {
+	return s.scanRemoteIndex(`WHERE source_id=?`, strings.TrimSpace(sourceID))
+}
+
+func (s *MySQLStore) scanRemoteIndex(where string, args ...any) (domain.PluginRemoteIndexSource, bool) {
+	var it domain.PluginRemoteIndexSource
+	err := s.db.QueryRow(`SELECT id,source_id,name,index_url,homepage,description,status,trust_policy,last_fetch_status,
+		COALESCE(DATE_FORMAT(last_fetch_at,'%Y-%m-%d %H:%i:%s'),''),last_error_code,last_error_message,last_index_hash,COALESCE(CAST(metadata_json AS CHAR),''),
+		created_by,DATE_FORMAT(created_at,'%Y-%m-%d %H:%i:%s'),updated_by,DATE_FORMAT(updated_at,'%Y-%m-%d %H:%i:%s')
+		FROM plugin_remote_indexes `+where+` LIMIT 1`, args...).Scan(
+		&it.ID, &it.SourceID, &it.Name, &it.IndexURL, &it.Homepage, &it.Description, &it.Status, &it.TrustPolicy, &it.LastFetchStatus,
+		&it.LastFetchAt, &it.LastErrorCode, &it.LastErrorMessage, &it.LastIndexHash, &it.MetadataJSON,
+		&it.CreatedBy, &it.CreatedAt, &it.UpdatedBy, &it.UpdatedAt)
+	if err != nil {
+		return domain.PluginRemoteIndexSource{}, false
+	}
+	return it, true
+}
+
+func (s *MySQLStore) PluginRemoteIndexes(filter domain.PluginRemoteIndexFilter) ([]domain.PluginRemoteIndexSource, int, error) {
+	if filter.Page <= 0 {
+		filter.Page = 1
+	}
+	if filter.PageSize <= 0 {
+		filter.PageSize = 20
+	}
+	where := []string{"1=1"}
+	args := []any{}
+	if filter.Status != "" && filter.Status != "all" {
+		where = append(where, "status=?")
+		args = append(args, filter.Status)
+	}
+	if keyword := strings.TrimSpace(filter.Keyword); keyword != "" {
+		like := "%" + keyword + "%"
+		where = append(where, "(source_id LIKE ? OR name LIKE ? OR index_url LIKE ? OR homepage LIKE ? OR description LIKE ? OR last_error_code LIKE ? OR last_error_message LIKE ?)")
+		args = append(args, like, like, like, like, like, like, like)
+	}
+	whereSQL := strings.Join(where, " AND ")
+	var total int
+	if err := s.db.QueryRow("SELECT COUNT(*) FROM plugin_remote_indexes WHERE "+whereSQL, args...).Scan(&total); err != nil {
+		return nil, 0, err
+	}
+	offset := (filter.Page - 1) * filter.PageSize
+	args = append(args, filter.PageSize, offset)
+	rows, err := s.db.Query(`SELECT id,source_id,name,index_url,homepage,description,status,trust_policy,last_fetch_status,
+		COALESCE(DATE_FORMAT(last_fetch_at,'%Y-%m-%d %H:%i:%s'),''),last_error_code,last_error_message,last_index_hash,COALESCE(CAST(metadata_json AS CHAR),''),
+		created_by,DATE_FORMAT(created_at,'%Y-%m-%d %H:%i:%s'),updated_by,DATE_FORMAT(updated_at,'%Y-%m-%d %H:%i:%s')
+		FROM plugin_remote_indexes WHERE `+whereSQL+` ORDER BY id DESC LIMIT ? OFFSET ?`, args...)
+	if err != nil {
+		return nil, 0, err
+	}
+	defer rows.Close()
+	out := []domain.PluginRemoteIndexSource{}
+	for rows.Next() {
+		var it domain.PluginRemoteIndexSource
+		if err := rows.Scan(&it.ID, &it.SourceID, &it.Name, &it.IndexURL, &it.Homepage, &it.Description, &it.Status, &it.TrustPolicy, &it.LastFetchStatus,
+			&it.LastFetchAt, &it.LastErrorCode, &it.LastErrorMessage, &it.LastIndexHash, &it.MetadataJSON,
+			&it.CreatedBy, &it.CreatedAt, &it.UpdatedBy, &it.UpdatedAt); err != nil {
 			return nil, 0, err
 		}
 		out = append(out, it)

@@ -1,6 +1,7 @@
 package plugins
 
 import (
+	"crypto/sha256"
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
@@ -34,6 +35,48 @@ type TrustedPublisher struct {
 
 type TrustedPublishersConfig struct {
 	Publishers []TrustedPublisher `json:"publishers"`
+}
+
+func TrustedPublishersConfigFromDomain(items []domain.PluginTrustedPublisher) TrustedPublishersConfig {
+	out := TrustedPublishersConfig{Publishers: make([]TrustedPublisher, 0, len(items))}
+	for _, it := range items {
+		out.Publishers = append(out.Publishers, TrustedPublisher{
+			PublisherID:        it.PublisherID,
+			Name:               it.Name,
+			PublicKeyID:        it.PublicKeyID,
+			PublicKeyAlgorithm: it.PublicKeyAlgorithm,
+			PublicKey:          it.PublicKey,
+			Status:             it.Status,
+			Notes:              it.Notes,
+		})
+	}
+	return out
+}
+
+func DomainPublishersFromConfig(cfg TrustedPublishersConfig) []domain.PluginTrustedPublisher {
+	out := make([]domain.PluginTrustedPublisher, 0, len(cfg.Publishers))
+	for _, it := range cfg.Publishers {
+		out = append(out, domain.PluginTrustedPublisher{
+			PublisherID:        strings.TrimSpace(it.PublisherID),
+			Name:               strings.TrimSpace(it.Name),
+			PublicKeyID:        strings.TrimSpace(it.PublicKeyID),
+			PublicKeyAlgorithm: strings.TrimSpace(it.PublicKeyAlgorithm),
+			PublicKey:          strings.TrimSpace(it.PublicKey),
+			Fingerprint:        FingerprintTrustedPublisherPublicKey(it.PublicKey),
+			Status:             strings.TrimSpace(it.Status),
+			Notes:              strings.TrimSpace(it.Notes),
+		})
+	}
+	return out
+}
+
+func FingerprintTrustedPublisherPublicKey(publicKey string) string {
+	raw, err := base64.StdEncoding.DecodeString(strings.TrimSpace(publicKey))
+	if err != nil || len(raw) == 0 {
+		return ""
+	}
+	sum := sha256.Sum256(raw)
+	return "sha256:" + base64.RawURLEncoding.EncodeToString(sum[:])
 }
 
 type TrustedPublisherMatch struct {

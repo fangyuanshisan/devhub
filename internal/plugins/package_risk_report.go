@@ -84,8 +84,8 @@ func BuildPluginPackageRiskReport(
 			add("plugin_package_signature_unsupported_algorithm", "blocked", "signature.json", "签名算法不受支持，阻断导入预览", "请使用 ed25519 重新生成签名。")
 		case "failed":
 			add("plugin_package_signature_verification_failed", "blocked", "signature.json", "签名验签失败，可能文件已被篡改", "请修复文件与签名后重试。")
-		case "structural_only":
-			add("plugin_package_signature_structural_only", "medium", "signature.json", "签名仅通过结构校验，未完成真实验签", "请补齐可信发布者公钥配置后重试。")
+		case "publisher_unknown":
+			add("plugin_package_signature_publisher_unknown", "high", "signature.json", "缺少可信或包内公钥，无法完成真实验签", "请在后台添加 trusted publisher，或补齐 publisher.json 公钥后重试。")
 		}
 	}
 	if !signature.PublisherFound {
@@ -97,9 +97,9 @@ func BuildPluginPackageRiskReport(
 			add("plugin_package_signature_unknown_publisher", "high", "", "插件包签名发布者未在本地可信来源中", "确认 publisher 后加入 trusted_publishers，或仅在测试环境使用。")
 		}
 	case "blocked":
-		add("plugin_package_publisher_blocked", "blocked", "", "插件包发布者被本地策略 blocked", "请移除该插件包或调整 trusted_publishers 配置。")
+		add("plugin_package_signature_publisher_blocked", "blocked", "", "插件包发布者被本地策略 blocked", "请移除该插件包或调整 trusted publishers 配置。")
 	case "revoked":
-		add("plugin_package_publisher_revoked", "blocked", "", "插件包发布者被本地策略 revoked", "请更换可信发布者签名或移除该插件包。")
+		add("plugin_package_signature_publisher_revoked", "blocked", "", "插件包发布者被本地策略 revoked", "请更换可信发布者签名或移除该插件包。")
 	}
 	if len(signature.UnsignedFiles) > 0 && signature.SignatureFound {
 		add("plugin_package_signature_missing", "high", "", fmt.Sprintf("存在 %d 个文件未被签名覆盖", len(signature.UnsignedFiles)), "建议将所有 checksums.json 覆盖文件纳入签名范围。")

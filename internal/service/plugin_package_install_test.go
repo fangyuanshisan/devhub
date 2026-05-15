@@ -11,12 +11,15 @@ func TestInstallPluginPackage_Success_DisabledAndSource(t *testing.T) {
 	repo := store.NewMemoryStore()
 	svc := New(repo)
 
-	resp, err := svc.InstallPluginPackage(domain.PluginPackageInstallRequest{
+	resp, err := svc.InstallPluginPackage(PluginOperationOperator{ID: 1, Name: "tester"}, domain.PluginPackageInstallRequest{
 		Path:             "plugins-local/repository-fixtures/demo_notice_install",
 		ConfirmRiskLevel: "medium",
 	})
 	if err != nil {
 		t.Fatalf("InstallPluginPackage: %v", err)
+	}
+	if resp.OperationID == "" {
+		t.Fatalf("expected operation_id")
 	}
 	if resp.Plugin.Code != "demo_notice_install" {
 		t.Fatalf("unexpected plugin code: %q", resp.Plugin.Code)
@@ -42,14 +45,14 @@ func TestInstallPluginPackage_AlreadyInstalled(t *testing.T) {
 	repo := store.NewMemoryStore()
 	svc := New(repo)
 
-	_, err := svc.InstallPluginPackage(domain.PluginPackageInstallRequest{
+	_, err := svc.InstallPluginPackage(PluginOperationOperator{ID: 1, Name: "tester"}, domain.PluginPackageInstallRequest{
 		Path:             "plugins-local/repository-fixtures/demo_notice_install",
 		ConfirmRiskLevel: "medium",
 	})
 	if err != nil {
 		t.Fatalf("first install: %v", err)
 	}
-	_, err = svc.InstallPluginPackage(domain.PluginPackageInstallRequest{
+	_, err = svc.InstallPluginPackage(PluginOperationOperator{ID: 1, Name: "tester"}, domain.PluginPackageInstallRequest{
 		Path:             "plugins-local/repository-fixtures/demo_notice_install",
 		ConfirmRiskLevel: "medium",
 	})
@@ -69,7 +72,7 @@ func TestInstallPluginPackage_Blocked_DangerousFile(t *testing.T) {
 	repo := store.NewMemoryStore()
 	svc := New(repo)
 
-	_, err := svc.InstallPluginPackage(domain.PluginPackageInstallRequest{Path: "plugins-local/repository-fixtures/dangerous_shell"})
+	_, err := svc.InstallPluginPackage(PluginOperationOperator{ID: 1, Name: "tester"}, domain.PluginPackageInstallRequest{Path: "plugins-local/repository-fixtures/dangerous_shell"})
 	if err == nil {
 		t.Fatalf("expected error")
 	}
@@ -89,7 +92,7 @@ func TestInstallPluginPackage_Blocked_ChecksumMismatch(t *testing.T) {
 	repo := store.NewMemoryStore()
 	svc := New(repo)
 
-	_, err := svc.InstallPluginPackage(domain.PluginPackageInstallRequest{Path: "plugins-local/repository-fixtures/checksum_mismatch"})
+	_, err := svc.InstallPluginPackage(PluginOperationOperator{ID: 1, Name: "tester"}, domain.PluginPackageInstallRequest{Path: "plugins-local/repository-fixtures/checksum_mismatch"})
 	if err == nil {
 		t.Fatalf("expected error")
 	}

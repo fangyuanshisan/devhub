@@ -26,13 +26,15 @@ type publisherWire struct {
 }
 
 type signatureWire struct {
-	Version     string   `json:"version"`
-	Algorithm   string   `json:"algorithm"`
-	SignedAt    string   `json:"signed_at"`
-	PublisherID string   `json:"publisher_id"`
-	PublicKeyID string   `json:"public_key_id"`
-	SignedFiles []string `json:"signed_files"`
-	Signature   string   `json:"signature"`
+	Version          string   `json:"version"`
+	Algorithm        string   `json:"algorithm"`
+	SignedAt         string   `json:"signed_at"`
+	PublisherID      string   `json:"publisher_id"`
+	PublicKeyID      string   `json:"public_key_id"`
+	PayloadAlgorithm string   `json:"payload_algorithm"`
+	Payload          string   `json:"payload"`
+	SignedFiles      []string `json:"signed_files"`
+	Signature        string   `json:"signature"`
 }
 
 // VerifyPluginPackageSignature validates publisher.json + signature.json, matches local trusted publishers,
@@ -46,6 +48,14 @@ type signatureWire struct {
 // - Missing signature.json does NOT block dry-run; it returns trust_status=unsigned + verification_status=missing.
 // - Missing publisher.json does NOT block dry-run; trust can still be determined from trusted_publishers via signature publisher_id/public_key_id.
 func VerifyPluginPackageSignature(packageDir string, scan domain.PluginPackageFileScan, checksum domain.PluginPackageChecksumResult) (domain.PluginPackageSignatureResult, error) {
+	cfg, _, err := LoadTrustedPublishers()
+	if err != nil {
+		cfg = TrustedPublishersConfig{}
+	}
+	return VerifyPluginPackageSignatureWithTrusted(packageDir, scan, checksum, cfg)
+}
+
+func VerifyPluginPackageSignatureWithTrusted(packageDir string, scan domain.PluginPackageFileScan, checksum domain.PluginPackageChecksumResult, trustedCfg TrustedPublishersConfig) (domain.PluginPackageSignatureResult, error) {
 	pubPath := filepath.Join(packageDir, "publisher.json")
 	sigPath := filepath.Join(packageDir, "signature.json")
 
@@ -106,6 +116,16 @@ func VerifyPluginPackageSignature(packageDir string, scan domain.PluginPackageFi
 		algo = "ed25519"
 	}
 	res.Algorithm = algo
+	payload := strings.TrimSpace(wire.Payload)
+	if payload == "" {
+		payload = "checksums.json"
+	}
+	payloadAlgorithm := strings.ToLower(strings.TrimSpace(wire.PayloadAlgorithm))
+	if payloadAlgorithm == "" {
+		payloadAlgorithm = "sha256"
+	}
+	res.Payload = payload
+	res.PayloadAlgorithm = payloadAlgorithm
 	res.PublisherID = strings.TrimSpace(wire.PublisherID)
 	res.PublicKeyID = strings.TrimSpace(wire.PublicKeyID)
 
@@ -116,6 +136,22 @@ func VerifyPluginPackageSignature(packageDir string, scan domain.PluginPackageFi
 			WithStatus(400).
 			WithDetail("algorithm", wire.Algorithm).
 			WithSuggestion("当前仅支持 ed25519。")
+	}
+	if payload != "checksums.json" {
+		res.VerificationStatus = "failed"
+		res.TrustStatus = "unknown"
+		return res, domain.NewPluginError("plugin_package_signature_payload_invalid", "signature.json payload 当前仅支持 checksums.json").
+			WithStatus(400).
+			WithDetail("payload", payload).
+			WithSuggestion("请将 payload 设置为 checksums.json 后重新签名。")
+	}
+	if payloadAlgorithm != "sha256" {
+		res.VerificationStatus = "failed"
+		res.TrustStatus = "unknown"
+		return res, domain.NewPluginError("plugin_package_signature_payload_invalid", "signature.json payload_algorithm 当前仅支持 sha256").
+			WithStatus(400).
+			WithDetail("payload_algorithm", payloadAlgorithm).
+			WithSuggestion("请将 payload_algorithm 设置为 sha256 后重新签名。")
 	}
 
 	// Validate signed_files.
@@ -186,17 +222,12 @@ func VerifyPluginPackageSignature(packageDir string, scan domain.PluginPackageFi
 	}
 
 	// Determine trust status by local trusted publishers config.
-	trustedCfg, _, trustedErr := LoadTrustedPublishers()
-	if trustedErr != nil {
-		// Not blocking; keep trust unknown but surface message.
-		res.Messages = append(res.Messages, "本地 trusted_publishers 不可用，无法判断发布者是否可信")
-	}
 	match := FindTrustedPublisher(trustedCfg, res.PublisherID, res.PublicKeyID)
 	trustStatus := match.NormalizedStatus()
 	if trustStatus == "blocked" {
 		res.TrustStatus = "blocked"
 		res.VerificationStatus = "failed"
-		return res, domain.NewPluginError("plugin_package_publisher_blocked", "发布者已被本地策略 blocked，禁止导入预览").
+		return res, domain.NewPluginError("plugin_package_signature_publisher_blocked", "发布者已被本地策略 blocked，禁止导入预览").
 			WithStatus(400).
 			WithDetail("publisher_id", res.PublisherID).
 			WithDetail("public_key_id", res.PublicKeyID).
@@ -205,7 +236,7 @@ func VerifyPluginPackageSignature(packageDir string, scan domain.PluginPackageFi
 	if trustStatus == "revoked" {
 		res.TrustStatus = "revoked"
 		res.VerificationStatus = "failed"
-		return res, domain.NewPluginError("plugin_package_publisher_revoked", "发布者已被本地策略 revoked，禁止导入预览").
+		return res, domain.NewPluginError("plugin_package_signature_publisher_revoked", "发布者已被本地策略 revoked，禁止导入预览").
 			WithStatus(400).
 			WithDetail("publisher_id", res.PublisherID).
 			WithDetail("public_key_id", res.PublicKeyID).
@@ -238,6 +269,7 @@ func VerifyPluginPackageSignature(packageDir string, scan domain.PluginPackageFi
 	if match.Found && strings.EqualFold(strings.TrimSpace(match.Publisher.PublicKeyAlgorithm), "ed25519") {
 		if b, err := match.PublicKeyBytes(); err == nil && len(b) == ed25519.PublicKeySize {
 			pubKeyBytes = b
+			res.Fingerprint = FingerprintTrustedPublisherPublicKey(match.Publisher.PublicKey)
 		}
 	}
 	if len(pubKeyBytes) == 0 && res.PublisherFound {
@@ -248,18 +280,20 @@ func VerifyPluginPackageSignature(packageDir string, scan domain.PluginPackageFi
 				b, derr := base64.StdEncoding.DecodeString(strings.TrimSpace(p.PublicKey))
 				if derr == nil && len(b) == ed25519.PublicKeySize {
 					pubKeyBytes = b
+					if res.Fingerprint == "" {
+						res.Fingerprint = FingerprintTrustedPublisherPublicKey(p.PublicKey)
+					}
 				}
 			}
 		}
 	}
 
 	if len(pubKeyBytes) != ed25519.PublicKeySize {
-		// We cannot verify without a public key; treat as structural only (not blocked).
-		res.VerificationStatus = "structural_only"
+		res.VerificationStatus = "publisher_unknown"
 		if res.TrustStatus == "trusted" {
 			res.TrustStatus = "unknown"
 		}
-		res.Messages = append(res.Messages, "缺少可用 public_key，未完成真实验签（仅结构校验）")
+		res.Messages = append(res.Messages, "缺少可用 public_key，无法完成 Ed25519 真实验签")
 		return res, nil
 	}
 
@@ -273,6 +307,7 @@ func VerifyPluginPackageSignature(packageDir string, scan domain.PluginPackageFi
 	}
 
 	res.VerificationStatus = "verified"
+	res.Verified = true
 	if res.TrustStatus == "" {
 		res.TrustStatus = "unknown"
 	}

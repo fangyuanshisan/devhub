@@ -13,12 +13,12 @@
 - 内置系统插件：随 DevHub 源码编译发布，通过代码 registry 注册。
 - Manifest + 配置型插件：通过 `manifest.json` 描述内容类型、权限、菜单、路由、配置模型、Hook 声明和 migration 声明；可走后台 validate / dry-run / install / upgrade 流程。
 - 本地插件包 dry-run 导入预览：按 `docs/PLUGIN_PACKAGE.md` 规范扫描目录、校验与预览（不安装、不执行代码/SQL、不动态加载前端资产）。
+- zip 插件包上传安全沙箱：管理员可上传 `.zip` 到 `storage/plugins/uploads/`，系统安全解压到 `staging/{upload_id}` 或 `quarantine/{upload_id}`，复用本地插件包扫描、checksum、签名草案、风险报告和 dry-run；上传后不自动安装。
 - 已安装声明型插件导出：后台插件详情可导出本地插件包目录（manifest、README、脱敏 `config.example.json`、`checksums.json`），用于备份/迁移/二次分发草案；不会导出真实敏感配置、用户数据、运行时代码或外部 SQL。
 
 当前不支持：
 
 - 插件市场。
-- zip 插件包上传。
 - 远程安装或在线更新。
 - Go 动态加载。
 - JS / WASM / Lua 脚本沙箱。
@@ -252,5 +252,12 @@ unknown fields 策略：object 默认拒绝未知字段；只有 `additionalProp
 - `POST /api/v1/admin/plugins/install`：写入 manifest + 配置型插件记录，初始为 installed / disabled，不执行第三方代码；required 依赖或 Core 兼容不满足时拒绝。
 - `POST /api/v1/admin/plugins/:code/upgrade/dry-run`：预览升级差异，不写入数据，不执行代码；返回依赖新增 / 删除 / 版本约束变化和 Core 兼容矩阵。
 - `POST /api/v1/admin/plugins/:code/upgrade`：更新 manifest / version / checksum，保留历史内容、配置、迁移和审计，不执行第三方代码；required 新依赖不满足、Core 不兼容、降级或同版本重复升级会被拒绝。
+- `POST /api/v1/admin/plugins/packages/upload`：上传 zip 只进入安全沙箱和 `plugin_package_uploads` 生命周期记录，不自动安装、不执行代码/SQL、不动态加载资产。
+- `GET /api/v1/admin/plugins/packages/uploads` 与 `/uploads/:upload_id`：查看上传包列表/详情、扫描快照、导入审批状态和可执行动作。
+- `POST /api/v1/admin/plugins/packages/uploads/:upload_id/promote`：仅将 `staged/approved` 上传包复制到本地插件仓库，promote 不等于安装。
 
 这些接口均使用后台 admin token；写入类接口需要插件写权限。
+
+## v1.6.0-P0-04 远程索引说明
+
+远程插件索引只展示插件包元数据；SDK / manifest 编写规则不因本轮改变。若未来希望插件出现在远程索引中，应提供稳定的 `code`、`name`、版本、Core 兼容字段、`publisher_id`、`public_key_id`、`package_sha256` 和可选 `signature_url`。DevHub 本轮不会下载或安装远程索引中的包。

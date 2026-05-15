@@ -29,7 +29,7 @@
 
 - Playwright 不再保留 `test.skip` / `test.only`；收口验收未发现长期跳过项。
 
-## v1.6.0-P0-01 后台初始化插件包（2026-05-14）
+## v1.5.0 收口补充：后台初始化插件包（2026-05-14）
 
 本节记录后台“系统插件 -> 安装升级 -> 初始化插件包”能力的本轮验证结果。
 
@@ -47,6 +47,67 @@
 
 - 后端新增模板 preview/create 服务测试：预览不写文件；正式初始化不生成 `registry.example.go`，生成 `docs/registry-example.md`，并自动 package dry-run。
 - 后台构建和现有后台 E2E 全量通过；本轮未改前台页面、前台 SEO 或前台导航，因此未执行 `--frontend-only` 与 SEO curl。
+
+## v1.6.0-P0-01 插件包 zip 上传安全沙箱（2026-05-14）
+
+本节记录“管理员上传 zip 插件包、受控沙箱解压、复用 scanner/checksum/signature/risk_report/dry-run、promote 到本地仓库”的本轮验证结果。
+
+已执行并通过：
+
+- `gofmt -w internal/domain/plugin_package_upload.go internal/plugins/package_zip.go internal/plugins/package_zip_test.go internal/plugins/package_scanner.go internal/service/plugin_package_upload.go internal/service/plugin_package_upload_test.go internal/transport/httpapi/plugin_package_handler.go internal/transport/httpapi/plugin_package_upload_http_test.go internal/transport/httpapi/router.go`
+- `go test ./...`
+- `go build -o .devhub/devhub .`
+- `git diff --check`
+- `bash -n dev.sh`
+- `bash -n scripts/check-frontend.sh`
+- `docker compose run --rm admin-e2e npm run build`
+- `docker compose run --rm admin-e2e npm run test:e2e -- tests/e2e/plugin-package-upload.spec.js`（通过，`4 passed`）
+- `./scripts/check-frontend.sh --admin-only`（后台 build + 完整后台 Playwright 通过，`53 passed`）
+
+已覆盖：
+
+- 合法 zip 上传成功，根目录 `manifest.json` 与单顶层目录 `manifest.json` 均可识别。
+- 无 manifest、多 manifest、非 zip、上传大小超限、`../`、绝对路径、Windows 盘符、symlink、嵌套压缩包、文件数超限、单文件超限、解压总大小超限均被拒绝。
+- dangerous `.sh` 与 checksum mismatch 上传后进入 blocked/quarantine，不能 promote。
+- 上传后不写插件表、不写 migration 表、不执行代码。
+- promote ok 包进入 `storage/plugins/packages/{code}`，目标存在被拒绝；blocked 包 promote 被拒绝。
+- HTTP 覆盖 user token 被拒绝、上传失败写 `admin_logs`、详情不返回系统绝对路径。
+- 后台 E2E 覆盖上传区域、安全边界提示、zip scan、package scan、risk_report、manifest validate、dry-run、非法类型、zip slip、危险文件、blocked code/suggestion、promote 后仓库列表可见；上传区域不提供直接安装按钮。
+
+本轮只改后端插件包 API 与后台插件安装升级页，不涉及前台内容、导航、搜索或 SEO，因此不执行 `--frontend-only` 与 SEO curl。
+
+## v1.6.0-P0-02 插件包上传生命周期治理（2026-05-14）
+
+本节记录“上传包从 staging 临时文件升级为生命周期对象，并支持列表、审批、promote、取消、删除、cleanup”的本轮验证结果。
+
+已执行并通过：
+
+- `gofmt`
+- `go test ./...`
+- `go build -o .devhub/devhub .`
+- `git diff --check`
+- `bash -n dev.sh`
+- `bash -n scripts/check-frontend.sh`
+- `docker compose run --rm admin-e2e npm run build`
+- `docker compose run --rm admin-e2e npm run test:e2e -- tests/e2e/plugin-package-upload-lifecycle.spec.js`（通过，`1 passed`）
+- `./scripts/check-frontend.sh --admin-only`
+
+已覆盖：
+
+- 上传后创建 `plugin_package_uploads` 记录，合法 zip 进入 `staged`，危险 zip 进入 `blocked`。
+- 上传包详情返回扫描快照、risk_report、manifest validate、dry-run、可执行动作和不可用原因。
+- `staged` 上传包可重新扫描、提交导入审批、审批通过后 promote。
+- `approval_pending` 不能直接 promote；审批通过后状态为 `approved`。
+- promote 前重新 dry-run，成功后状态为 `promoted`，本地插件仓库出现包目录。
+- blocked 包不能 promote。
+- canceled 上传包可删除；promoted 上传包删除不删除 `storage/plugins/packages/` 中的本地仓库包。
+- cleanup 清理 expired/deleted/canceled/failed 的 upload / staging 文件，不删除本地仓库。
+- 后台 E2E 覆盖上传包管理页、上传、列表、详情、rescan、导入审批、审批通过、promote、cancel、delete、blocked 禁止 promote，以及页面不显示上传后直接安装、远程市场入口或动态加载入口。
+
+调试记录：
+
+- 首次单独运行 `plugin-package-upload-lifecycle.spec.js` 时失败于 Docker 内 `devhub` 服务名解析，原因是尚未执行本轮要求的 `go build -o .devhub/devhub .`，compose 中 devhub 服务找不到二进制；构建二进制并重启 devhub 后通过。
+- 本轮只改后端插件包 API 与后台插件上传包管理页，不涉及前台内容、导航、搜索或 SEO，因此不执行 `--frontend-only` 与 SEO curl。
 
 ## v1.4.0-P1-13 收口补充（2026-05-13）
 
@@ -1109,3 +1170,96 @@ done
 - 不支持自动安装依赖、远程下载依赖、插件市场推荐或依赖图大屏。
 - 不支持 npm 风格 `^`、`~`、`||`、预发布标签等复杂版本约束。
 - optional 循环依赖当前按 error 阻断，后续如要放宽需同步后端、UI 和文档。
+
+## 2026-05-14：v1.6.0-P0-03 真实签名验签与可信发布者
+
+新增 / 调整覆盖：
+
+- 后端：`internal/service/plugin_trusted_publishers_test.go` 覆盖可信发布者新增、重复拒绝、非法算法 / 非法公钥拒绝、block / restore，以及 block 后已签名包变为 blocked。
+- 后端：`internal/plugins/plugin_package_signature_test.go` 覆盖 trusted+verified、unknown publisher 技术验签、unsupported algorithm blocked、revoked publisher blocked。
+- 后台 E2E：`web/admin-app/tests/e2e/plugin-trusted-publishers.spec.js` 覆盖可信发布者页面、新增、编辑、block、restore、详情与安全边界文案。
+- 后台 E2E：`web/admin-app/tests/e2e/plugin-package-signature-verify.spec.js` 覆盖本地仓库 signed package verified、unknown publisher、invalid signature blocked 和详情页签名信息。
+
+必测命令：
+
+- `gofmt`
+- `go test ./...`
+- `go build -o .devhub/devhub .`
+- `git diff --check`
+- `bash -n dev.sh`
+- `bash -n scripts/check-frontend.sh`
+- `docker compose run --rm admin-e2e npm run build`
+- `docker compose run --rm admin-e2e npm run test:e2e -- tests/e2e/plugin-trusted-publishers.spec.js`
+- `docker compose run --rm admin-e2e npm run test:e2e -- tests/e2e/plugin-package-signature-verify.spec.js`
+- `./scripts/check-frontend.sh --admin-only`
+
+当前结果：上述必测命令已执行并通过；`./scripts/check-frontend.sh --admin-only` 通过，后台 build 通过，后台 E2E `56 passed`，日志目录 `.devhub/checks/20260514-213651/`。本轮未涉及前台内容、导航、搜索或 SEO，未执行 frontend-only / SEO curl。
+
+## 2026-05-14：v1.6.0-P0-04 远程插件索引只读镜像测试
+
+新增覆盖：
+
+- 后端：`internal/service/plugin_remote_index_test.go` 覆盖索引源创建、URL SSRF 防御、禁用源不可拉取、远程 index.json 拉取、无 package_url 下载、invalid JSON、unknown publisher 风险和响应过大。
+- 后台 E2E：`web/admin-app/tests/e2e/plugin-remote-indexes.spec.js` 覆盖只读页面、索引源新增、拉取、远程插件列表、详情、trusted / unknown / incompatible 展示，以及不显示下载、安装、自动更新或动态加载入口。
+
+必测命令：
+
+- `gofmt`
+- `go test ./...`
+- `go build -o .devhub/devhub .`
+- `git diff --check`
+- `bash -n dev.sh`
+- `bash -n scripts/check-frontend.sh`
+- `docker compose run --rm admin-e2e npm run build`
+- `docker compose run --rm admin-e2e npm run test:e2e -- tests/e2e/plugin-remote-indexes.spec.js`
+- `./scripts/check-frontend.sh --admin-only`
+
+本轮未修改前台内容、搜索或 SEO；不需要 frontend-only / SEO curl。
+
+P0-04 最终结果：上述必测命令已执行并通过；`./scripts/check-frontend.sh --admin-only` 通过，后台完整 E2E `57 passed`，日志目录 `.devhub/checks/20260514-225300/`。
+
+## v1.6.0-P0-05 插件包版本仓库与升级差异对比（2026-05-14）
+
+新增覆盖：
+
+- 后端 `internal/service/plugin_versions_test.go`：版本仓库聚合 installed / uploaded / remote，版本比较 same / downgrade / remote readonly 阻断，manifest diff 高风险与敏感字段脱敏。
+- 后台 E2E `web/admin-app/tests/e2e/plugin-versions-upgrade-diff.spec.js`：版本仓库页面、installed/local/remote 来源展示、remote readonly、升级差异摘要、权限 / 配置 schema / 依赖 diff、高风险高亮、敏感字段脱敏和提交升级审批入口。
+
+本轮执行记录：
+
+- `gofmt`：通过。
+- `go test ./...`：通过。
+- `go build -o .devhub/devhub .`：通过。
+- `git diff --check`：通过。
+- `bash -n dev.sh`：通过。
+- `bash -n scripts/check-frontend.sh`：通过。
+- `docker compose run --rm admin-e2e npm run build`：通过；Vite 仍有既有大 chunk warning。
+- `docker compose run --rm admin-e2e npm run test:e2e -- tests/e2e/plugin-versions-upgrade-diff.spec.js`：通过，`1 passed`。
+- `./scripts/check-frontend.sh --admin-only`：通过，后台 build 通过，后台完整 E2E `58 passed`；日志目录 `.devhub/checks/20260515-005940/`。
+
+未执行：本轮未修改前台内容、搜索或 SEO，未执行 `./scripts/check-frontend.sh --frontend-only` 与 SEO curl。
+
+## v1.6.0-P1-07 插件配置密钥轮换策略（2026-05-15）
+
+新增覆盖：
+
+- 后端：
+  - `internal/plugins/config_keyring_test.go`：密钥环环境变量解析与校验（legacy/split/JSON 形式）。
+  - `internal/service/plugin_config_key_rotation_test.go`：rotation dry-run + re-encrypt（v1 -> v2，current key_id）。
+- 后台 E2E：`web/admin-app/tests/e2e/plugin-config-key-rotation.spec.js` 覆盖密钥状态页面、rotation dry-run 与 re-encrypt（不展示 key material / 不展示密文）。
+
+执行记录：
+
+- `gofmt`：通过。
+- `go test ./...`：通过。
+- `go build -o .devhub/devhub .`：通过。
+- `git diff --check`：通过。
+- `bash -n dev.sh`：通过。
+- `bash -n scripts/check-frontend.sh`：通过。
+- `docker compose run --rm admin-e2e npm run build`：通过。
+- `docker compose run --rm admin-e2e npm run test:e2e -- tests/e2e/plugin-config-key-rotation.spec.js`：通过，`1 passed`。
+- `./scripts/check-frontend.sh --admin-only`：通过（包含该新增 E2E），日志目录以本轮摘要为准。
+
+已知限制：
+
+- `include_config_versions=true` 暂不支持，返回 `plugin_config_rotation_history_unsupported`（历史轮换后续补齐）。

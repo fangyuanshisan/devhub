@@ -45,6 +45,9 @@ func scrubJSONStringForSnapshot(raw string) string {
 	if strings.Contains(raw, "enc:v1:") {
 		return strings.ReplaceAll(raw, "enc:v1:", approvalEncryptedValue+":")
 	}
+	if strings.Contains(raw, "enc:v2:") {
+		return strings.ReplaceAll(raw, "enc:v2:", approvalEncryptedValue+":")
+	}
 	return raw
 }
 
@@ -65,6 +68,9 @@ func scrubManifestJSONForSnapshot(raw string) string {
 	}
 	if strings.Contains(raw, "enc:v1:") {
 		return strings.ReplaceAll(raw, "enc:v1:", approvalEncryptedValue+":")
+	}
+	if strings.Contains(raw, "enc:v2:") {
+		return strings.ReplaceAll(raw, "enc:v2:", approvalEncryptedValue+":")
 	}
 	return raw
 }
@@ -93,6 +99,9 @@ func scrubAnyForSnapshot(v any) any {
 		if strings.Contains(s, "enc:v1:") {
 			return approvalEncryptedValue
 		}
+		if strings.Contains(s, "enc:v2:") {
+			return approvalEncryptedValue
+		}
 		return s
 	default:
 		return v
@@ -115,6 +124,9 @@ func scrubCiphertextOnly(v any) any {
 		return out
 	case string:
 		if strings.Contains(t, "enc:v1:") {
+			return approvalEncryptedValue
+		}
+		if strings.Contains(t, "enc:v2:") {
 			return approvalEncryptedValue
 		}
 		return t

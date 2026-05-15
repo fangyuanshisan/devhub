@@ -134,12 +134,13 @@ storage/plugins/packages/{code}/
 
 - 准备 manifest + 配置型插件声明。
 - 与后台 manifest validate / dry-run / install / upgrade dry-run 流程配合。
+- 打包为 zip 后进入上传安全沙箱与 `plugin_package_uploads` 生命周期治理；上传包需经过扫描、导入审批（如适用）和 promote 后才进入本地插件仓库。
 - 沉淀内容类型、权限、菜单、Hook 和 migration 设计。
 
 模板不支持：
 
 - 动态执行 Go / JS / WASM / Lua 代码。
-- 上传插件包。
+- 上传后自动安装插件。
 - 插件市场。
 - 远程安装或在线更新。
 - 外部 raw SQL。
@@ -148,3 +149,7 @@ storage/plugins/packages/{code}/
 - 前端资产动态加载。
 
 CLI 输出中的 `registry.example.go` 只是内置系统插件接入示例。它不会被系统扫描或动态加载；后台初始化版不会生成该 `.go` 文件，而是生成 `docs/registry-example.md` 说明。
+
+## v1.6.0-P0-04 远程索引说明
+
+插件模板生成能力不因远程索引只读镜像改变。远程索引只引用已生成或已导出的插件包元数据，不会触发模板生成、远程下载、安装或动态加载。

@@ -358,6 +358,9 @@ type PluginUpgradeDryRunResult struct {
 	CompatibilityStatus   string                         `json:"compatibility_status"`
 	ChangedKeys           []string                       `json:"changed_keys,omitempty"`
 	Diff                  map[string]any                 `json:"diff,omitempty"`
+	DiffSections          []PluginManifestDiffSection    `json:"diff_sections,omitempty"`
+	DiffSummary           PluginUpgradeDiffSummary       `json:"diff_summary,omitempty"`
+	RiskReport            PluginPackageRiskReport        `json:"risk_report,omitempty"`
 	DependencyDiff        PluginDependencyDiff           `json:"dependency_diff,omitempty"`
 	Validation            PluginManifestValidationResult `json:"validation"`
 }

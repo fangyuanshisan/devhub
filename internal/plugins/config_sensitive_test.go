@@ -26,6 +26,31 @@ func TestEncryptDecryptStringV1_Roundtrip(t *testing.T) {
 	}
 }
 
+func TestEncryptDecryptStringV2_Roundtrip(t *testing.T) {
+	key := make([]byte, 32)
+	for i := range key {
+		key[i] = byte(i)
+	}
+	enc, err := EncryptStringV2("key-1", key, "hello")
+	if err != nil {
+		t.Fatalf("encrypt: %v", err)
+	}
+	if enc == "hello" || enc[:7] != "enc:v2:" {
+		t.Fatalf("expected enc:v2 prefix, got %q", enc)
+	}
+	kr := &PluginConfigKeyring{CurrentKeyID: "key-1", Keys: map[string][]byte{"key-1": key}, LegacyV1Supported: true}
+	dec, info, err := DecryptStringWithKeyring(kr, enc)
+	if err != nil {
+		t.Fatalf("decrypt: %v", err)
+	}
+	if info.Version != "v2" || info.KeyID != "key-1" {
+		t.Fatalf("unexpected cipher info: %+v", info)
+	}
+	if dec != "hello" {
+		t.Fatalf("expected hello, got %q", dec)
+	}
+}
+
 func TestMergeSensitivePlaceholders_KeepCiphertext(t *testing.T) {
 	schema := map[string]any{
 		"type": "object",

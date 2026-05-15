@@ -1,14 +1,16 @@
 package domain
 
 // PluginApprovalAction indicates the governance action that needs review.
-// action: install | upgrade | enable | rollback
+// action: install | upgrade | enable | rollback | package_promote | package_import
 type PluginApprovalAction = string
 
 const (
-	PluginApprovalActionInstall  PluginApprovalAction = "install"
-	PluginApprovalActionUpgrade  PluginApprovalAction = "upgrade"
-	PluginApprovalActionEnable   PluginApprovalAction = "enable"
-	PluginApprovalActionRollback PluginApprovalAction = "rollback"
+	PluginApprovalActionInstall        PluginApprovalAction = "install"
+	PluginApprovalActionUpgrade        PluginApprovalAction = "upgrade"
+	PluginApprovalActionEnable         PluginApprovalAction = "enable"
+	PluginApprovalActionRollback       PluginApprovalAction = "rollback"
+	PluginApprovalActionPackagePromote PluginApprovalAction = "package_promote"
+	PluginApprovalActionPackageImport  PluginApprovalAction = "package_import"
 )
 
 // PluginApprovalStatus indicates the request status.

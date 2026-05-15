@@ -55,6 +55,8 @@ func pluginPackageAllowedRoots(workdir string) []string {
 		filepath.Join(workdir, "plugins-local"),
 		filepath.Join(workdir, "storage", "plugins", "packages"),
 		filepath.Join(workdir, "storage", "plugins", "exports"),
+		filepath.Join(workdir, "storage", "plugins", "staging"),
+		filepath.Join(workdir, "storage", "plugins", "quarantine"),
 		filepath.Join(workdir, ".devhub", "plugins"),
 	}
 	out := make([]string, 0, len(roots))
@@ -142,7 +144,7 @@ func NormalizePluginPackagePath(input string) (abs string, clean string, err err
 			WithStatus(400).
 			WithDetail("path", input).
 			WithDetail("allowed_roots", roots).
-			WithSuggestion("请把插件包放到 examples/plugins、plugins-local、storage/plugins/packages、storage/plugins/exports、.devhub/plugins 目录下后重试。")
+			WithSuggestion("请把插件包放到 examples/plugins、plugins-local、storage/plugins/packages、storage/plugins/exports、storage/plugins/staging、storage/plugins/quarantine、.devhub/plugins 目录下后重试。")
 	}
 	return abs, clean, nil
 }

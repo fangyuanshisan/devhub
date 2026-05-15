@@ -135,7 +135,7 @@ func (s *Service) DryRunPluginPackage(inputPath string) (domain.PluginPackageDry
 	}
 
 	// signature/publisher verification (optional, but invalid/unsupported/failed blocks dry-run).
-	signatureResult, sigErr := pluginregistry.VerifyPluginPackageSignature(abs, scan, checksumResult)
+	signatureResult, sigErr := pluginregistry.VerifyPluginPackageSignatureWithTrusted(abs, scan, checksumResult, s.trustedPublishersConfig())
 	if sigErr != nil {
 		if apiErr, ok := sigErr.(*domain.APIError); ok && apiErr != nil {
 			status = "blocked"

@@ -56,7 +56,7 @@ func (s *Service) encryptPluginConfigJSON(plugin domain.Plugin, storedJSON strin
 	merged := pluginregistry.MergeSensitivePlaceholders(plugin.ConfigSchema, stored, submitted)
 
 	// Encrypt merged.
-	key, ok, err := pluginregistry.LoadPluginConfigKey()
+	keyring, ok, err := pluginregistry.LoadPluginConfigKeyring()
 	if err != nil {
 		return out, err
 	}
@@ -66,18 +66,23 @@ func (s *Service) encryptPluginConfigJSON(plugin domain.Plugin, storedJSON strin
 		// Allow in memory/E2E environments with an ephemeral key, but never rely on this for production.
 		if strings.TrimSpace(os.Getenv("CMS_STORE")) == "memory" || strings.TrimSpace(os.Getenv("DEVHUB_E2E_TESTING")) == "1" {
 			sum := sha256.Sum256([]byte("devhub-plugin-config-test-key"))
-			key = sum[:]
+			k := sum[:]
+			keyring = &pluginregistry.PluginConfigKeyring{
+				CurrentKeyID:      "test-key",
+				Keys:              map[string][]byte{"test-key": k},
+				LegacyV1Supported: true,
+			}
 			ok = true
 		}
 	}
 	if needEncrypt && !ok {
 		return out, domain.NewPluginError("plugin_config_encryption_key_missing", "缺少插件配置加密密钥，无法保存敏感字段").
 			WithStatus(500).
-			WithSuggestion("请配置环境变量 DEVHUB_PLUGIN_CONFIG_KEY（推荐 base64 32 bytes）后重试。")
+			WithSuggestion("请配置环境变量 DEVHUB_PLUGIN_CONFIG_KEYS（推荐 JSON 格式）或 DEVHUB_PLUGIN_CONFIG_KEY_ID/DEVHUB_PLUGIN_CONFIG_KEY 后重试。")
 	}
 	encrypted := merged
 	if needEncrypt {
-		encrypted, err = encryptSensitiveObject(key, plugin.ConfigSchema, "", merged)
+		encrypted, err = encryptSensitiveObject(keyring, plugin.ConfigSchema, "", merged)
 		if err != nil {
 			return out, domain.NewPluginError("plugin_config_encrypt_failed", "敏感配置加密失败").
 				WithStatus(500).
@@ -123,7 +128,7 @@ func hasSensitivePlaintext(schema any, path string, v any) bool {
 				if strings.TrimSpace(s) == "" {
 					continue
 				}
-				if strings.HasPrefix(strings.TrimSpace(s), pluginregistry.EncryptedPrefixV1) {
+				if strings.HasPrefix(strings.TrimSpace(s), pluginregistry.EncryptedPrefixV1) || strings.HasPrefix(strings.TrimSpace(s), pluginregistry.EncryptedPrefixV2) {
 					continue
 				}
 				// placeholder should have been merged to stored, but double-check.
@@ -140,7 +145,7 @@ func hasSensitivePlaintext(schema any, path string, v any) bool {
 	return false
 }
 
-func encryptSensitiveObject(key []byte, schema any, path string, v any) (any, error) {
+func encryptSensitiveObject(keyring *pluginregistry.PluginConfigKeyring, schema any, path string, v any) (any, error) {
 	obj, ok := v.(map[string]any)
 	if !ok {
 		return v, nil
@@ -172,14 +177,15 @@ func encryptSensitiveObject(key []byte, schema any, path string, v any) (any, er
 				b, _ := json.Marshal(vv)
 				plain = string(b)
 			}
-			enc, err := pluginregistry.EncryptStringV1(key, plain)
+			keyID, key := keyring.CurrentKey()
+			enc, err := pluginregistry.EncryptStringV2(keyID, key, plain)
 			if err != nil {
 				return nil, err
 			}
 			out[k] = enc
 			continue
 		}
-		nv, err := encryptSensitiveObject(key, subSchema, subPath, vv)
+		nv, err := encryptSensitiveObject(keyring, subSchema, subPath, vv)
 		if err != nil {
 			return nil, err
 		}

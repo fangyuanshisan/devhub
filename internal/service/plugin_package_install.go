@@ -16,7 +16,7 @@ import (
 // and it never executes plugin code / SQL / frontend assets.
 //
 // The installed plugin status is always disabled.
-func (s *Service) InstallPluginPackage(req domain.PluginPackageInstallRequest) (domain.PluginPackageInstallResponse, error) {
+func (s *Service) InstallPluginPackage(operator PluginOperationOperator, req domain.PluginPackageInstallRequest) (domain.PluginPackageInstallResponse, error) {
 	path := strings.TrimSpace(req.Path)
 	if path == "" {
 		return domain.PluginPackageInstallResponse{}, domain.NewPluginError("plugin_package_path_invalid", "缺少插件包路径").
@@ -50,9 +50,12 @@ func (s *Service) InstallPluginPackage(req domain.PluginPackageInstallRequest) (
 		case "plugin_package_signature_invalid",
 			"plugin_package_signature_unsupported_algorithm",
 			"plugin_package_signature_verification_failed",
+			"plugin_package_signature_payload_invalid",
 			"plugin_package_signature_manifest_unsigned",
 			"plugin_package_signature_signed_file_missing",
 			"plugin_package_signature_path_invalid",
+			"plugin_package_signature_publisher_blocked",
+			"plugin_package_signature_publisher_revoked",
 			"plugin_package_publisher_invalid",
 			"plugin_package_publisher_blocked",
 			"plugin_package_publisher_revoked":
@@ -148,9 +151,62 @@ func (s *Service) InstallPluginPackage(req domain.PluginPackageInstallRequest) (
 		return domain.PluginPackageInstallResponse{}, fmt.Errorf("读取 manifest.json 失败：%w", rerr)
 	}
 
+	opID := strings.TrimSpace(req.OperationID)
+	if opID == "" {
+		opID = newPluginOperationID()
+	}
+	snapshot := domain.PluginOperationSnapshot{
+		OperationID:       opID,
+		OperationType:     domain.PluginOperationTypeInstall,
+		PluginCode:        code,
+		FromVersion:       "",
+		ToVersion:         strings.TrimSpace(dry.Package.Version),
+		PackagePath:       strings.TrimSpace(dry.Package.Path),
+		PackageSource:     string(domain.PluginVersionSourceLocalPackage),
+		ApprovalID:        req.ApprovalID,
+		BeforeStatus:      "",
+		AfterManifestJSON: scrubManifestJSONForSnapshot(string(manifestRaw)),
+		DryRunJSON: mustJSON(scrubAnyForSnapshot(map[string]any{
+			"package":             dry.Package,
+			"file_scan":           dry.FileScan,
+			"checksum":            dry.Checksum,
+			"signature":           dry.Signature,
+			"manifest_validation": dry.ManifestValidation,
+			"install_dry_run":     dry.InstallDryRun,
+			"risk_report":         dry.RiskReport,
+			"status":              dry.Status,
+			"blocked_code":        dry.BlockedCode,
+			"blocked_reasons":     dry.BlockedReasons,
+			"errors":              dry.Errors,
+			"warnings":            dry.Warnings,
+		})),
+		RiskReportJSON:       mustJSON(scrubAnyForSnapshot(dry.RiskReport)),
+		ChecksumSummaryJSON:  mustJSON(scrubAnyForSnapshot(dry.Checksum)),
+		SignatureSummaryJSON: mustJSON(scrubAnyForSnapshot(dry.Signature)),
+		Status:               domain.PluginOperationStatusCreated,
+		CreatedBy:            operator.ID,
+		MetadataJSON: mustJSON(map[string]any{
+			"operator_name":      strings.TrimSpace(operator.Name),
+			"confirm_risk_level": strings.TrimSpace(req.ConfirmRiskLevel),
+			"approval_id":        req.ApprovalID,
+		}),
+	}
+	if saved, serr := s.repo.AppendPluginOperationSnapshot(snapshot); serr == nil {
+		snapshot = saved
+	}
+
 	packageManifestChecksum := findChecksumSHA256(dry.Checksum.Matched, "manifest.json")
 	plugin, validation, ierr := s.installPluginManifestInternal(manifestRaw, "local_package", packageManifestChecksum)
 	if ierr != nil {
+		snapshot.Status = domain.PluginOperationStatusFailed
+		if apiErr, ok := ierr.(*domain.APIError); ok && apiErr != nil {
+			snapshot.ErrorCode = apiErr.Code
+			snapshot.ErrorMessage = apiErr.Message
+		} else {
+			snapshot.ErrorCode = "plugin_package_install_failed"
+			snapshot.ErrorMessage = ierr.Error()
+		}
+		_, _ = s.repo.SavePluginOperationSnapshot(snapshot)
 		// Ensure a stable error code for UI.
 		if apiErr, ok := ierr.(*domain.APIError); ok && apiErr != nil {
 			return domain.PluginPackageInstallResponse{}, apiErr
@@ -158,16 +214,18 @@ func (s *Service) InstallPluginPackage(req domain.PluginPackageInstallRequest) (
 		return domain.PluginPackageInstallResponse{}, domain.NewPluginError("plugin_package_install_failed", "插件安装失败").
 			WithStatus(500).
 			WithDetail("plugin_code", code).
-			WithSuggestion("请查看后台日志，修复后重试。")
+			WithDetail("operation_id", snapshot.OperationID).
+			WithSuggestion("请到“系统插件 -> 操作历史”查看失败详情，并按恢复预览执行 cleanup。")
 	}
 
 	createdMigrations := len(validation.NormalizedManifest.Migrations)
 	resp := domain.PluginPackageInstallResponse{
-		Message:   "插件已从本地插件包安装完成（默认 disabled）",
-		Plugin:    plugin,
-		Package:   dry.Package,
-		Checksum:  dry.Checksum,
-		RiskLevel: dry.RiskReport.Level,
+		Message:     "插件已从本地插件包安装完成（默认 disabled）",
+		OperationID: snapshot.OperationID,
+		Plugin:      plugin,
+		Package:     dry.Package,
+		Checksum:    dry.Checksum,
+		RiskLevel:   dry.RiskReport.Level,
 		InstallResult: domain.PluginPackageInstallResult{
 			Installed:          true,
 			CreatedConfig:      true,
@@ -178,6 +236,13 @@ func (s *Service) InstallPluginPackage(req domain.PluginPackageInstallRequest) (
 		},
 		Warnings: dry.Warnings,
 	}
+	snapshot.Status = domain.PluginOperationStatusApplied
+	snapshot.FromVersion = ""
+	snapshot.ToVersion = plugin.Version
+	snapshot.BeforeStatus = ""
+	snapshot.ErrorCode = ""
+	snapshot.ErrorMessage = ""
+	_, _ = s.repo.SavePluginOperationSnapshot(snapshot)
 	_ = validation
 	return resp, nil
 }

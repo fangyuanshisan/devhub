@@ -75,7 +75,7 @@ func TestPluginPackageExport_WritesPackageAndSanitizesConfig(t *testing.T) {
 		t.Fatalf("read config.example.json: %v", err)
 	}
 	configText := string(rawConfig)
-	if strings.Contains(configText, "enc:v1:") || strings.Contains(configText, "real-secret") {
+	if strings.Contains(configText, "enc:v1:") || strings.Contains(configText, "enc:v2:") || strings.Contains(configText, "real-secret") {
 		t.Fatalf("config.example.json leaked sensitive value: %s", configText)
 	}
 	if !strings.Contains(configText, "REPLACE_ME") {

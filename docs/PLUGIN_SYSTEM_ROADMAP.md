@@ -8,7 +8,7 @@
 
 ## 当前实现快照与需求分层
 
-`VERSION` 当前为 `v1.5.0`，已进入“插件包治理收口版”。在 `v1.4.0` 插件内容治理增强与 P1 / P2 插件治理增强的基础上，`v1.5.0` 补齐本地插件包规范、dry-run、checksum / 风险报告、仓库扫描、安装闭环、配置版本历史、敏感配置加密、审批流、签名/可信来源草案和已安装插件导出；当前仍不支持远程插件市场、远程安装、在线更新、Go 动态加载、第三方脚本沙箱、硬卸载或执行第三方本地代码。
+`VERSION` 当前为 `v1.5.0`，代码能力已开始进入 `v1.6.0` 插件包上传与分发前置阶段。在 `v1.5.0` 本地插件包规范、dry-run、checksum / 风险报告、仓库扫描、安装闭环、配置版本历史、敏感配置加密、审批流、签名/可信来源草案和已安装插件导出的基础上，`v1.6.0-P0-01` 补齐了管理员 zip 上传安全沙箱、上传包详情与 promote 到本地仓库；`v1.6.0-P0-02` 补齐上传包生命周期对象、导入审批、重新扫描、取消/删除/cleanup 与后台上传包管理页；`v1.6.0-P0-03` 补齐 Ed25519 真实验签与后台可信发布者管理。当前仍不支持远程插件市场、远程安装、在线更新、Go 动态加载、第三方脚本沙箱、硬卸载或执行第三方本地代码。
 
 当前仍不支持远程插件市场、远程安装、在线更新、Go 动态加载、第三方脚本沙箱、硬卸载或执行第三方本地代码。
 
@@ -17,8 +17,8 @@
 - 已完成：生命周期派生字段、归档 / 恢复、归档后新建强拦截、ManifestValidator、manifest dry-run、manifest + 配置型插件安装记录、健康总览 API、批量归档 / 恢复 API、归档态前台入口 / 后台历史治理 / SEO 回归 E2E、升级 dry-run / 版本兼容矩阵 / 最小升级执行闭环、插件 SDK 文档、声明型插件生成模板，以及后台“系统插件”治理中心按功能分页重排（`/admin-next/plugins/*`）。
 - 已完成：安装向导、升级向导、批量归档 / 恢复影响预览、`succeeded` / `failed` 结果明细、审计跳转和状态治理视图已落地为抽屉式后台流程，并已有最小后台 E2E 覆盖。
 - 已完成：本地插件包规范 / dry-run / checksum / 风险报告 / 仓库扫描 / 安装闭环、配置版本历史与回滚 dry-run、敏感配置加密、审批流、签名与可信来源草案、已安装插件导出为本地插件包。
-- 部分完成：Hook 超时 / failure_policy 已有 manifest 字段和运行记录基础，但外部服务 Webhook 尚未接入真实 HTTP 调用；迁移 runner 仍是内置 up/no-op 与记录型迁移，不执行外部 raw SQL；PluginContent 已能按 `plugin_code + content_type` 精确治理历史内容并支持批量审核 / 置顶 / 加精，完整权限矩阵仍待增强；签名当前仍以草案/结构校验为主，未做完整远程可信源同步与完整 PKI 平台。
-- 仍未完成：插件包 zip 上传、外部服务型 Webhook 执行、远程市场、动态加载、脚本沙箱、硬卸载、migration down、独立版本兼容矩阵页面、插件包 zip 导出和更细粒度升级影响对象列表。
+- 部分完成：Hook 超时 / failure_policy 已有 manifest 字段和运行记录基础，但外部服务 Webhook 尚未接入真实 HTTP 调用；迁移 runner 仍是内置 up/no-op 与记录型迁移，不执行外部 raw SQL；PluginContent 已能按 `plugin_code + content_type` 精确治理历史内容并支持批量审核 / 置顶 / 加精，完整权限矩阵仍待增强；签名已支持 Ed25519 真实验签和本地可信发布者管理，但仍不支持远程可信源同步、完整 PKI / CA 证书链或插件市场。
+- 仍未完成：外部服务型 Webhook 执行、远程市场、动态加载、脚本沙箱、硬卸载、migration down、独立版本兼容矩阵页面、插件包 zip 导出和更细粒度升级影响对象列表。
 
 ## 历史收尾：v1.3.5 插件治理体验与安装升级向导
 
@@ -56,7 +56,7 @@ P1 建议优先级：
 
 继续禁止：
 
-- 插件市场、插件包 zip 上传、远程安装、在线更新、Go 动态插件、脚本沙箱、硬卸载、migration down、删除历史内容或删除审计记录。
+- 插件市场、远程安装、在线更新、Go 动态插件、脚本沙箱、硬卸载、migration down、删除历史内容或删除审计记录。
 
 ## 下一阶段：v1.5 插件分发能力（建议范围）
 
@@ -85,8 +85,9 @@ P1 建议优先级：
 - 配置版本历史与回滚 dry-run 预览：保存全局/子站插件配置会写入版本记录，后台提供版本列表/详情（diff 脱敏）与回滚预览（不写入）。
 - 插件安装/升级审批流：`/admin-next/plugins/approvals` + `POST /api/v1/admin/plugins/approvals`（审批通过后执行；执行前重新校验）。
 - 插件治理 service/handler 拆分：插件 manifest/package/config/approval 等 handler 拆文件，生命周期 service 迁出，保持 API 兼容。
-- 插件包签名与可信来源草案：`publisher.json`、`signature.json`、本地 `storage/plugins/trusted_publishers.json`、签名风险联动。
+- 插件包签名与可信来源治理：`publisher.json`、`signature.json`、Ed25519 真实验签、后台可信发布者管理和签名风险联动。
 - 已安装声明型插件导出：`POST /api/v1/admin/plugins/:code/export/dry-run` 与 `POST /api/v1/admin/plugins/:code/export`，输出 `storage/plugins/exports/`，生成 manifest/README/脱敏 config.example/checksums 并自动 package dry-run 自检。
+- zip 上传安全沙箱与生命周期治理：`POST /api/v1/admin/plugins/packages/upload` 上传 `.zip` 到 `storage/plugins/uploads/`，安全解压到 `storage/plugins/staging/{upload_id}/` 或 blocked quarantine，复用 scanner/checksum/signature/risk_report/dry-run；`plugin_package_uploads` 记录生命周期；`GET /uploads` 列表，`GET /uploads/:upload_id` 详情，`POST /rescan` 重扫，`POST /approval` 提交导入审批，`POST /approve|reject` 审批，`POST /promote` 转入 `storage/plugins/packages/{code}/`，`POST /cancel`、`DELETE`、`POST /cleanup` 治理 staging 文件；所有动作均不安装插件。
 
 仍明确不做 / 后置：
 
@@ -1147,7 +1148,7 @@ non-blocking Hook：
 后续考虑：
 
 - manifest 导入。
-- 插件包上传。
+- 上传包生命周期治理。
 - 插件依赖解析。
 - 插件版本升级。
 - 插件软卸载 / 硬卸载。
@@ -1299,3 +1300,28 @@ DevHub 插件系统后续不应继续围绕某个具体插件功能打补丁，�
 已完成：结构化 `dependencies`、轻量版本约束、required / optional 阻断规则、Core 兼容矩阵、循环依赖检查、validate / dry-run / install / upgrade / enable 复用检查、后台安装 / 升级向导展示和插件详情 Dependencies 区域。
 
 后续保留：自动安装依赖、插件市场推荐、远程依赖下载、依赖图大屏、插件签名、动态加载、脚本沙箱、复杂 semver / npm constraint、migration down 和 hard uninstall。
+
+## v1.6.0-P0-04 远程插件索引只读镜像
+
+已落地：
+
+- 静态 `index.json` 规范与示例。
+- 后台远程索引源配置、拉取和只读展示。
+- SSRF 防御、响应大小限制、拉取超时和 JSON schema 校验。
+- 远程插件列表 / 详情，展示 publisher trust、Core 兼容性、本地安装状态和风险提示。
+
+仍后置：
+
+- 远程插件包下载。
+- 远程安装 / 在线更新。
+- 远程可信源自动同步。
+- 插件市场交易 / 评论 / 排行。
+- 动态加载或第三方代码执行。
+
+下一步建议：v1.6.0-P0-05 插件包版本仓库与升级差异对比增强。
+
+## v1.6.0-P0-05 插件包版本仓库与升级差异对比
+
+已新增版本仓库视图与升级 diff 能力：聚合 installed / local_package / uploaded_package / remote_index 版本，支持 `x.y.z` / `vX.Y.Z` 比较，并在升级前展示 manifest、权限、菜单、路由、配置 schema、依赖、Hook、迁移和风险差异。
+
+仍不支持自动升级、远程下载安装、远程市场、动态加载、脚本沙箱、第三方代码执行、外部 SQL 或自动回滚。下一步建议进入 `v1.6.0-P0-06`：插件包安装 / 升级回滚保护与失败恢复。

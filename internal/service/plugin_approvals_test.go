@@ -29,7 +29,8 @@ func TestPluginApprovals_Install_CreateApproveExecute(t *testing.T) {
 	if created.PluginCode != "demo_notice_install" {
 		t.Fatalf("unexpected plugin_code: %q", created.PluginCode)
 	}
-	if strings.Contains(created.DryRunJSON, "enc:v1:") || strings.Contains(created.RiskReportJSON, "enc:v1:") {
+	if strings.Contains(created.DryRunJSON, "enc:v1:") || strings.Contains(created.RiskReportJSON, "enc:v1:") ||
+		strings.Contains(created.DryRunJSON, "enc:v2:") || strings.Contains(created.RiskReportJSON, "enc:v2:") {
 		t.Fatalf("should not persist ciphertext markers")
 	}
 

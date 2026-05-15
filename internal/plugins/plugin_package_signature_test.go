@@ -81,7 +81,7 @@ func TestPluginPackageSignature_PublisherRevokedBlocked(t *testing.T) {
 	if res.Status != "blocked" {
 		t.Fatalf("expected blocked, got %#v", res)
 	}
-	if res.BlockedCode != "plugin_package_publisher_revoked" {
+	if res.BlockedCode != "plugin_package_signature_publisher_revoked" {
 		t.Fatalf("unexpected blocked_code: %#v", res.BlockedCode)
 	}
 }

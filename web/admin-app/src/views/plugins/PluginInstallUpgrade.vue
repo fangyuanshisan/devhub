@@ -116,6 +116,114 @@
       </el-card>
     </el-card>
 
+    <el-card shadow="never" class="mb" data-testid="plugin-package-upload-card">
+      <template #header>
+        <div class="card-head">
+          <strong>上传插件包 zip</strong>
+          <span class="muted">上传后只进入安全沙箱，不会安装插件。</span>
+        </div>
+      </template>
+      <div class="upload-grid">
+        <div>
+          <el-upload
+            :auto-upload="false"
+            :limit="1"
+            accept=".zip"
+            :on-change="onZipUploadChange"
+            :on-remove="onZipUploadRemove"
+            data-testid="plugin-package-upload-input"
+          >
+            <el-button type="primary" plain>选择 zip 文件</el-button>
+          </el-upload>
+          <div class="muted" style="margin-top: 8px" data-testid="plugin-package-upload-limits">
+            上传上限 20MB；解压后总大小 50MB；单文件 5MB；文件数 300；目录深度 8；内嵌压缩包、symlink、hardlink、特殊设备文件、路径穿越会被阻断。
+          </div>
+        </div>
+        <div class="result-box">
+          <h4>安全边界</h4>
+          <ul class="result-list" data-testid="plugin-package-upload-safety">
+            <li>zip 只会进入 storage/plugins/uploads 与 staging/quarantine 沙箱。</li>
+            <li>不会执行插件代码，不会执行 SQL，不会动态加载前端资产。</li>
+            <li>安装仍需 dry-run / 审批 / 安装流程；本区域不显示直接安装按钮。</li>
+            <li>不支持远程市场、远程下载、在线更新或脚本沙箱。</li>
+          </ul>
+        </div>
+      </div>
+      <div class="filter-actions" style="justify-content: flex-end; margin-top: 12px">
+        <el-button type="primary" :loading="zipUploadLoading" data-testid="plugin-package-upload-submit" @click="submitZipUpload">上传并扫描</el-button>
+      </div>
+      <el-alert v-if="zipUploadError" type="error" show-icon :closable="false" class="mb" :title="zipUploadError" data-testid="plugin-package-upload-error" />
+      <el-card v-if="zipUploadResult" shadow="never" class="mb" data-testid="plugin-package-upload-result">
+        <template #header>
+          <div class="card-head">
+            <strong>{{ zipUploadResult.upload_id || '-' }}</strong>
+            <el-tag :type="zipUploadResult.status === 'blocked' ? 'danger' : zipUploadResult.status === 'warning' ? 'warning' : 'success'" effect="plain" data-testid="plugin-package-upload-status">
+              {{ zipUploadResult.status || '-' }}
+            </el-tag>
+          </div>
+        </template>
+        <el-descriptions :column="2" border class="mb" data-testid="plugin-package-upload-info">
+          <el-descriptions-item label="filename">{{ zipUploadResult.filename || '-' }}</el-descriptions-item>
+          <el-descriptions-item label="staging_path">{{ zipUploadResult.staging_path || '-' }}</el-descriptions-item>
+          <el-descriptions-item label="package_path">{{ zipUploadResult.package_path || '-' }}</el-descriptions-item>
+          <el-descriptions-item label="can_promote">{{ zipUploadResult.can_promote ?? false }}</el-descriptions-item>
+        </el-descriptions>
+        <el-descriptions :column="3" border class="mb" data-testid="plugin-package-upload-zip-scan">
+          <el-descriptions-item label="total_entries">{{ zipUploadResult.zip_scan?.total_entries ?? 0 }}</el-descriptions-item>
+          <el-descriptions-item label="compressed_size">{{ zipUploadResult.zip_scan?.compressed_size ?? 0 }}</el-descriptions-item>
+          <el-descriptions-item label="uncompressed_size">{{ zipUploadResult.zip_scan?.uncompressed_size ?? 0 }}</el-descriptions-item>
+        </el-descriptions>
+        <el-descriptions :column="3" border class="mb" data-testid="plugin-package-upload-file-scan">
+          <el-descriptions-item label="total_files">{{ zipUploadResult.file_scan?.total_files ?? 0 }}</el-descriptions-item>
+          <el-descriptions-item label="allowed">{{ (zipUploadResult.file_scan?.allowed_files || []).length }}</el-descriptions-item>
+          <el-descriptions-item label="dangerous">{{ (zipUploadResult.file_scan?.dangerous_files || []).length }}</el-descriptions-item>
+        </el-descriptions>
+        <el-descriptions :column="3" border class="mb" data-testid="plugin-package-upload-checksum">
+          <el-descriptions-item label="checksum">
+            <el-tag :type="checksumStatusType(zipUploadResult.checksum?.status)" effect="plain">{{ zipUploadResult.checksum?.status || '-' }}</el-tag>
+          </el-descriptions-item>
+          <el-descriptions-item label="signature">{{ zipUploadResult.signature?.verification_status || 'missing' }}</el-descriptions-item>
+          <el-descriptions-item label="manifest_valid">{{ zipUploadResult.manifest_validation?.valid ?? false }}</el-descriptions-item>
+        </el-descriptions>
+        <el-alert
+          v-if="zipUploadResult.risk_report"
+          :type="riskLevelType(zipUploadResult.risk_report.level)"
+          show-icon
+          :closable="false"
+          class="mb"
+          data-testid="plugin-package-upload-risk-report"
+          :title="`risk_report: ${zipUploadResult.risk_report.level || '-'} / score=${zipUploadResult.risk_report.score ?? 0}`"
+        >
+          <div class="muted">{{ zipUploadResult.risk_report.summary || '-' }}</div>
+        </el-alert>
+        <div class="result-grid mb">
+          <div class="result-box" data-testid="plugin-package-upload-manifest-validate">
+            <h4>manifest validate</h4>
+            <pre class="json-box compact">{{ formatJSON(zipUploadResult.manifest_validation || {}) }}</pre>
+          </div>
+          <div class="result-box" data-testid="plugin-package-upload-dry-run">
+            <h4>install dry-run</h4>
+            <pre class="json-box compact">{{ formatJSON(zipUploadResult.install_dry_run?.install_preview || zipUploadResult.install_dry_run || {}) }}</pre>
+          </div>
+        </div>
+        <div v-if="(zipUploadResult.errors || []).length || (zipUploadResult.risk_report?.items || []).length" class="mb" data-testid="plugin-package-upload-blocked-reasons">
+          <h4>阻断原因 / 修复建议</h4>
+          <ul class="result-list">
+            <li v-for="(item, idx) in zipUploadResult.errors || []" :key="`upload-err-${idx}`">{{ item }}</li>
+            <li v-for="(item, idx) in zipUploadResult.risk_report?.items || []" :key="`upload-risk-${idx}`">
+              {{ item.code }}：{{ item.message }}；建议：{{ item.suggestion || '-' }}
+            </li>
+          </ul>
+        </div>
+        <div class="filter-actions" style="justify-content: flex-end">
+          <el-button v-if="zipUploadResult.package_path" data-testid="plugin-package-upload-fill-dryrun" @click="useUploadedPackageForDryRun">填入 dry-run 路径</el-button>
+          <el-button v-if="zipUploadResult.can_promote" type="success" plain :loading="zipPromoteLoading" data-testid="plugin-package-upload-promote" @click="promoteUploadedPackage">
+            转入本地仓库
+          </el-button>
+        </div>
+      </el-card>
+    </el-card>
+
     <div class="filter-panel mb">
       <div>
         <strong>升级目标插件</strong>
@@ -384,6 +492,8 @@
           </el-tag>
         </el-descriptions-item>
         <el-descriptions-item label="algorithm">{{ packageResult.signature.algorithm || '-' }}</el-descriptions-item>
+        <el-descriptions-item label="payload">{{ packageResult.signature.payload || '-' }}</el-descriptions-item>
+        <el-descriptions-item label="fingerprint">{{ packageResult.signature.fingerprint || '-' }}</el-descriptions-item>
         <el-descriptions-item label="publisher_id">{{ packageResult.signature.publisher_id || '-' }}</el-descriptions-item>
         <el-descriptions-item label="public_key_id">{{ packageResult.signature.public_key_id || '-' }}</el-descriptions-item>
         <el-descriptions-item label="signed_files_count">{{ packageResult.signature.signed_files_count ?? 0 }}</el-descriptions-item>
@@ -555,6 +665,7 @@
             </el-descriptions-item>
             <el-descriptions-item label="publisher_id">{{ repoDetail.signature.publisher_id || '-' }}</el-descriptions-item>
             <el-descriptions-item label="public_key_id">{{ repoDetail.signature.public_key_id || '-' }}</el-descriptions-item>
+            <el-descriptions-item label="fingerprint">{{ repoDetail.signature.fingerprint || '-' }}</el-descriptions-item>
             <el-descriptions-item label="signed_files_count">{{ repoDetail.signature.signed_files_count ?? 0 }}</el-descriptions-item>
             <el-descriptions-item label="unsigned_files_count">{{ (repoDetail.signature.unsigned_files || []).length }}</el-descriptions-item>
           </el-descriptions>
@@ -618,6 +729,9 @@
                 </el-tag>
                 <el-tag :type="signatureVerifyType(repoInstallDetail.signature?.verification_status)" effect="plain">
                   {{ repoInstallDetail.signature?.verification_status || '-' }}
+                </el-tag>
+                <el-tag v-if="repoInstallDetail.signature?.fingerprint" type="info" effect="plain">
+                  {{ repoInstallDetail.signature.fingerprint }}
                 </el-tag>
               </div>
             </el-descriptions-item>
@@ -854,12 +968,15 @@ import {
   dryRunPluginPackage,
   dryRunPluginUpgrade,
   getPluginPackageDetail,
+  getPluginPackageUpload,
   installPluginManifest,
   installPluginPackage,
   listPluginPackages,
+  promotePluginPackageUpload,
   previewPluginPackageTemplate,
   plugins,
   upgradePlugin,
+  uploadPluginPackageZip,
   validatePluginManifest,
 } from '@/api/admin';
 import { t } from '@/i18n';
@@ -898,6 +1015,11 @@ const packagePath = ref('examples/plugins/demo_notice');
 const packageLoading = ref(false);
 const packageResult = ref(null);
 const packageError = ref('');
+const zipUploadFile = ref(null);
+const zipUploadLoading = ref(false);
+const zipUploadError = ref('');
+const zipUploadResult = ref(null);
+const zipPromoteLoading = ref(false);
 
 const repoRoot = ref('storage/plugins/packages');
 const repoLoading = ref(false);
@@ -950,6 +1072,68 @@ function formatAPIError(e, fallback) {
   if (message) parts.push(message);
   if (suggestion) parts.push(`建议：${suggestion}`);
   return parts.join(' ') || String(e?.message || fallback);
+}
+
+function onZipUploadChange(file) {
+  zipUploadFile.value = file?.raw || null;
+  zipUploadError.value = '';
+}
+
+function onZipUploadRemove() {
+  zipUploadFile.value = null;
+}
+
+async function submitZipUpload() {
+  zipUploadError.value = '';
+  if (!zipUploadFile.value) {
+    zipUploadError.value = '请先选择 .zip 插件包';
+    return;
+  }
+  const name = String(zipUploadFile.value.name || '');
+  if (!name.toLowerCase().endsWith('.zip')) {
+    zipUploadError.value = '[plugin_package_upload_invalid_type] 只允许上传 .zip 插件包 建议：不支持 tar/gz/rar/7z。';
+    return;
+  }
+  zipUploadLoading.value = true;
+  try {
+    const form = new FormData();
+    form.append('file', zipUploadFile.value);
+    zipUploadResult.value = await uploadPluginPackageZip(form);
+    ElMessage.success('上传扫描完成');
+  } catch (e) {
+    zipUploadResult.value = null;
+    zipUploadError.value = formatAPIError(e, '上传失败');
+  } finally {
+    zipUploadLoading.value = false;
+  }
+}
+
+async function useUploadedPackageForDryRun() {
+  const path = String(zipUploadResult.value?.package_path || '').trim();
+  if (!path) return;
+  packagePath.value = path;
+  await runPackageDryRun();
+}
+
+async function promoteUploadedPackage() {
+  const uploadId = String(zipUploadResult.value?.upload_id || '').trim();
+  if (!uploadId) return;
+  zipPromoteLoading.value = true;
+  zipUploadError.value = '';
+  try {
+    const res = await promotePluginPackageUpload(uploadId);
+    ElMessage.success(res?.message || '已转入本地插件仓库');
+    if (res?.package_path) {
+      packagePath.value = res.package_path;
+      repoRoot.value = 'storage/plugins/packages';
+    }
+    zipUploadResult.value = await getPluginPackageUpload(uploadId).catch(() => zipUploadResult.value);
+    await scanRepository(true);
+  } catch (e) {
+    zipUploadError.value = formatAPIError(e, '转入本地仓库失败');
+  } finally {
+    zipPromoteLoading.value = false;
+  }
 }
 
 async function previewPackageTemplate() {
@@ -1254,7 +1438,7 @@ function signatureTrustType(status) {
 function signatureVerifyType(status) {
   const v = String(status || '').toLowerCase();
   if (v === 'verified') return 'success';
-  if (v === 'structural_only') return 'warning';
+  if (v === 'publisher_unknown') return 'warning';
   if (v === 'missing') return 'warning';
   if (v === 'unsupported') return 'danger';
   if (v === 'failed') return 'danger';
@@ -1525,8 +1709,15 @@ function dependencyStatusLabel(status) {
   gap: 10px;
 }
 
+.upload-grid {
+  display: grid;
+  grid-template-columns: minmax(280px, 1fr) minmax(280px, 1fr);
+  gap: 16px;
+}
+
 @media (max-width: 1100px) {
-  .template-grid {
+  .template-grid,
+  .upload-grid {
     grid-template-columns: 1fr;
   }
 

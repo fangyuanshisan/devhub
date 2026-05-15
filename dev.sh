@@ -297,17 +297,31 @@ npm_dependency_hash() {
 }
 
 npm_command_path() {
-  local path_dir candidate
+  local path_dir candidate resolved
   IFS=':' read -r -a path_dirs <<< "$PATH"
   for path_dir in "${path_dirs[@]}"; do
     candidate="$path_dir/npm"
-    if [[ -x "$candidate" && ! "$candidate" =~ ^/mnt/ ]]; then
+    if [[ -x "$candidate" ]]; then
+      resolved="$(readlink -f "$candidate" 2>/dev/null || true)"
+      if [[ -n "$resolved" && ( "$resolved" =~ ^/mnt/ || "$resolved" =~ ^/run/desktop/mnt/host/ ) ]]; then
+        continue
+      fi
+      if [[ "$candidate" =~ ^/mnt/ || "$candidate" =~ ^/run/desktop/mnt/host/ ]]; then
+        continue
+      fi
       printf '%s\n' "$candidate"
       return 0
     fi
   done
   candidate="$(command -v npm 2>/dev/null || true)"
-  if [[ -n "$candidate" && ! "$candidate" =~ ^/mnt/ ]]; then
+  if [[ -n "$candidate" ]]; then
+    resolved="$(readlink -f "$candidate" 2>/dev/null || true)"
+    if [[ -n "$resolved" && ( "$resolved" =~ ^/mnt/ || "$resolved" =~ ^/run/desktop/mnt/host/ ) ]]; then
+      return 1
+    fi
+    if [[ "$candidate" =~ ^/mnt/ || "$candidate" =~ ^/run/desktop/mnt/host/ ]]; then
+      return 1
+    fi
     printf '%s\n' "$candidate"
     return 0
   fi

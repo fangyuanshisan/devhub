@@ -48,6 +48,35 @@ type Repository interface {
 	SavePluginApprovalRequest(record domain.PluginApprovalRequest) (domain.PluginApprovalRequest, error)
 	PluginApprovalRequests(filter domain.PluginApprovalFilter) ([]domain.PluginApprovalRequest, int, error)
 	PluginApprovalRequestByID(id int64) (domain.PluginApprovalRequest, bool)
+	// Plugin package uploads (v1.6.0-P0-02).
+	AppendPluginPackageUpload(record domain.PluginPackageUploadRecord) (domain.PluginPackageUploadRecord, error)
+	SavePluginPackageUpload(record domain.PluginPackageUploadRecord) (domain.PluginPackageUploadRecord, error)
+	PluginPackageUploadByUploadID(uploadID string) (domain.PluginPackageUploadRecord, bool)
+	PluginPackageUploads(filter domain.PluginPackageUploadFilter) ([]domain.PluginPackageUploadRecord, int, error)
+	// Plugin operations (v1.6.0-P0-06).
+	AppendPluginOperationSnapshot(record domain.PluginOperationSnapshot) (domain.PluginOperationSnapshot, error)
+	SavePluginOperationSnapshot(record domain.PluginOperationSnapshot) (domain.PluginOperationSnapshot, error)
+	PluginOperationSnapshotByOperationID(operationID string) (domain.PluginOperationSnapshot, bool)
+	PluginOperationSnapshots(filter domain.PluginOperationFilter) ([]domain.PluginOperationSnapshot, int, error)
+	DeletePluginByCode(code string) error
+	DeleteCommunityPluginsByCode(code string) (int, error)
+	DeletePluginMigrationsByPlugin(code string) (int, error)
+	DeletePluginMigrationsByVersion(code, version string) (int, error)
+	DeletePluginConfigVersionsByPlugin(code string) (int, error)
+	// Trusted publishers (v1.6.0-P0-03).
+	AppendPluginTrustedPublisher(record domain.PluginTrustedPublisher) (domain.PluginTrustedPublisher, error)
+	SavePluginTrustedPublisher(record domain.PluginTrustedPublisher) (domain.PluginTrustedPublisher, error)
+	DeletePluginTrustedPublisher(id int64) error
+	PluginTrustedPublisherByID(id int64) (domain.PluginTrustedPublisher, bool)
+	PluginTrustedPublisherByKey(publisherID, publicKeyID string) (domain.PluginTrustedPublisher, bool)
+	PluginTrustedPublishers(filter domain.PluginTrustedPublisherFilter) ([]domain.PluginTrustedPublisher, int, error)
+	// Remote plugin indexes (v1.6.0-P0-04).
+	AppendPluginRemoteIndex(record domain.PluginRemoteIndexSource) (domain.PluginRemoteIndexSource, error)
+	SavePluginRemoteIndex(record domain.PluginRemoteIndexSource) (domain.PluginRemoteIndexSource, error)
+	DeletePluginRemoteIndex(id int64) error
+	PluginRemoteIndexByID(id int64) (domain.PluginRemoteIndexSource, bool)
+	PluginRemoteIndexBySourceID(sourceID string) (domain.PluginRemoteIndexSource, bool)
+	PluginRemoteIndexes(filter domain.PluginRemoteIndexFilter) ([]domain.PluginRemoteIndexSource, int, error)
 	AppendHookExecution(record domain.HookExecution) (domain.HookExecution, error)
 	HookExecutions(pluginCode string, limit int) ([]domain.HookExecution, error)
 	HookStats(pluginCode string) ([]domain.HookStats, error)
@@ -790,6 +819,20 @@ func (s *Service) PluginUpgradeDryRun(code string, raw []byte) (domain.PluginUpg
 	}
 	currentManifest := current.PluginManifest
 	changedKeys := topLevelDiffKeys(normalizedManifest, currentManifest)
+	diffSections, diffSummary := buildPluginManifestDiff(currentManifest, normalizedManifest)
+	riskLevel := "low"
+	riskScore := 5
+	riskSummary := "升级差异未发现高风险变更"
+	if diffSummary.HighRisk > 0 {
+		riskLevel = "high"
+		riskScore = 70
+		riskSummary = fmt.Sprintf("升级差异包含 %d 个高风险变更", diffSummary.HighRisk)
+	}
+	if !validation.Valid || compatibility == pluginregistry.CompatibilityIncompatible {
+		riskLevel = "blocked"
+		riskScore = 100
+		riskSummary = "升级 dry-run 存在阻断项"
+	}
 	diff := map[string]any{
 		"current": map[string]any{
 			"version":                 current.Version,
@@ -823,12 +866,23 @@ func (s *Service) PluginUpgradeDryRun(code string, raw []byte) (domain.PluginUpg
 		CompatibilityStatus:   compatibility,
 		ChangedKeys:           changedKeys,
 		Diff:                  diff,
+		DiffSections:          diffSections,
+		DiffSummary:           diffSummary,
+		RiskReport:            domain.PluginPackageRiskReport{Level: riskLevel, Score: riskScore, Summary: riskSummary},
 		DependencyDiff:        pluginregistry.DependencyDiff(current.Dependencies, normalizedManifest.Dependencies),
 		Validation:            validation,
 	}, nil
 }
 
 func (s *Service) UpgradePluginManifest(code string, raw []byte) (domain.PluginUpgradeResult, error) {
+	return s.upgradePluginManifestWithOperation(PluginOperationOperator{}, 0, "", code, raw)
+}
+
+func (s *Service) UpgradePluginManifestWithOperation(operator PluginOperationOperator, approvalID int64, operationID string, code string, raw []byte) (domain.PluginUpgradeResult, error) {
+	return s.upgradePluginManifestWithOperation(operator, approvalID, operationID, code, raw)
+}
+
+func (s *Service) upgradePluginManifestWithOperation(operator PluginOperationOperator, approvalID int64, operationID string, code string, raw []byte) (domain.PluginUpgradeResult, error) {
 	current, ok := s.repo.PluginByCode(code)
 	if !ok || current.Code == "" {
 		return domain.PluginUpgradeResult{}, pluginNotFound(code)
@@ -866,6 +920,47 @@ func (s *Service) UpgradePluginManifest(code string, raw []byte) (domain.PluginU
 			return domain.PluginUpgradeResult{}, pluginMigrationFailed(code, item.MigrationName)
 		}
 	}
+
+	opID := strings.TrimSpace(operationID)
+	if opID == "" {
+		opID = newPluginOperationID()
+	}
+	beforeManifestRaw, _ := json.Marshal(current.PluginManifest)
+	beforeMigrationsRaw, _ := json.Marshal(records)
+	snapshot := domain.PluginOperationSnapshot{
+		OperationID:            opID,
+		OperationType:          domain.PluginOperationTypeUpgrade,
+		PluginCode:             code,
+		FromVersion:            current.Version,
+		ToVersion:              preview.NewVersion,
+		PackagePath:            "",
+		PackageSource:          "manifest",
+		ApprovalID:             approvalID,
+		BeforePluginJSON:       buildOperationSnapshotPluginJSON(current),
+		BeforeManifestJSON:     string(beforeManifestRaw),
+		BeforeConfigJSON:       buildOperationSnapshotConfigJSON(current),
+		BeforeMigrationsJSON:   string(beforeMigrationsRaw),
+		BeforePermissionsJSON:  mustJSON(scrubAnyForSnapshot(current.Permissions)),
+		BeforeMenusJSON:        mustJSON(scrubAnyForSnapshot(current.Menus)),
+		BeforeRoutesJSON:       mustJSON(scrubAnyForSnapshot(current.Routes)),
+		BeforeDependenciesJSON: mustJSON(scrubAnyForSnapshot(current.Dependencies)),
+		BeforeStatus:           current.Status,
+		AfterManifestJSON:      scrubManifestJSONForSnapshot(string(raw)),
+		DryRunJSON:             mustJSON(scrubAnyForSnapshot(preview)),
+		RiskReportJSON:         mustJSON(scrubAnyForSnapshot(preview.RiskReport)),
+		DiffJSON:               mustJSON(scrubAnyForSnapshot(map[string]any{"diff_sections": preview.DiffSections, "diff_summary": preview.DiffSummary})),
+		ChecksumSummaryJSON:    "",
+		SignatureSummaryJSON:   "",
+		Status:                 domain.PluginOperationStatusCreated,
+		CreatedBy:              operator.ID,
+		MetadataJSON: mustJSON(map[string]any{
+			"operator_name": strings.TrimSpace(operator.Name),
+			"approval_id":   approvalID,
+		}),
+	}
+	if saved, serr := s.repo.AppendPluginOperationSnapshot(snapshot); serr == nil {
+		snapshot = saved
+	}
 	manifest := preview.Validation.NormalizedManifest
 	manifest.IsSystem = current.IsSystem
 	manifest.Status = current.Status
@@ -895,12 +990,38 @@ func (s *Service) UpgradePluginManifest(code string, raw []byte) (domain.PluginU
 	updated.Status = s.nextPluginStatusAfterUpgrade(current.Status, updated)
 	saved, err := s.repo.SavePlugin(updated)
 	if err != nil {
+		snapshot.Status = domain.PluginOperationStatusFailed
+		if apiErr, ok := err.(*domain.APIError); ok && apiErr != nil {
+			snapshot.ErrorCode = apiErr.Code
+			snapshot.ErrorMessage = apiErr.Message
+		} else {
+			snapshot.ErrorCode = "plugin_operation_apply_failed"
+			snapshot.ErrorMessage = err.Error()
+		}
+		_, _ = s.repo.SavePluginOperationSnapshot(snapshot)
 		return domain.PluginUpgradeResult{}, err
 	}
 	for _, migration := range manifest.Migrations {
 		record := migrationRecordFromDefinition(migration, "pending")
-		_, _ = s.repo.SavePluginMigration(record)
+		if _, merr := s.repo.SavePluginMigration(record); merr != nil {
+			// Best-effort rollback: restore plugin manifest/config/status and clean to_version migration residues.
+			_, _ = s.repo.SavePlugin(current)
+			_, _ = s.repo.DeletePluginMigrationsByVersion(code, updated.Version)
+			snapshot.Status = domain.PluginOperationStatusFailed
+			snapshot.ErrorCode = "plugin_operation_apply_failed"
+			snapshot.ErrorMessage = merr.Error()
+			_, _ = s.repo.SavePluginOperationSnapshot(snapshot)
+			return domain.PluginUpgradeResult{}, domain.NewPluginError("plugin_operation_apply_failed", "升级写入迁移记录失败，已尝试保护原版本").
+				WithStatus(500).
+				WithDetail("plugin_code", code).
+				WithDetail("operation_id", snapshot.OperationID).
+				WithSuggestion("请到“系统插件 -> 操作历史”查看失败详情，并执行 cleanup。")
+		}
 	}
+	snapshot.Status = domain.PluginOperationStatusApplied
+	snapshot.ErrorCode = ""
+	snapshot.ErrorMessage = ""
+	_, _ = s.repo.SavePluginOperationSnapshot(snapshot)
 	return domain.PluginUpgradeResult{
 		Plugin:                    saved,
 		PluginUpgradeDryRunResult: preview,

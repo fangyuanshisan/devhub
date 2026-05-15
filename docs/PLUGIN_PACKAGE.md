@@ -4,13 +4,15 @@
 
 更新时间：2026-05-14
 
-本文件是 **v1.5.0-P0-01 ~ P0-04** 与 **v1.6.0-P0-01** 的阶段性成果：为 DevHub 定义“本地插件包 / 本地插件仓库”规范，并提供 **dry-run 导入预览**、**最小安装闭环** 和 **后台初始化插件包** 能力。
+本文件是 **v1.5.0-P0-01 ~ P0-04** 与 **v1.6.0-P0-01 ~ P0-03** 的阶段性成果：为 DevHub 定义“本地插件包 / 本地插件仓库”规范，并提供 **dry-run 导入预览**、**最小安装闭环**、**后台初始化插件包**、**zip 上传安全沙箱**、**上传包生命周期治理** 与 **Ed25519 真实签名验签 / 可信发布者管理** 能力。
 
 注意：
 
-- P0-01 ~ P0-03：只做 **安全读取 + 校验 + 预览**（dry-run），不安装插件。
+- v1.5.0-P0-01 ~ P0-03：只做 **安全读取 + 校验 + 预览**（dry-run），不安装插件。
 - P0-04：补齐“从本地插件包安装声明型插件”的最小闭环，但仍然 **不执行插件代码、不执行外部 SQL、不动态加载前端资产**。
-- v1.6.0-P0-01：后台“初始化插件包”会在 `storage/plugins/packages/{code}` 下生成声明型模板，并自动执行 package dry-run。
+- v1.6.0-P0-01：后台新增“上传插件包 zip”，只进入 `uploads/staging/quarantine` 安全沙箱，随后复用 package scanner / checksum / signature / risk_report / dry-run；上传后不自动安装。
+- v1.6.0-P0-02：上传包升级为可追踪生命周期对象，支持列表、详情、重新扫描、导入审批、promote、取消、删除和手动 cleanup。
+- v1.6.0-P0-03：签名从草案升级为 Ed25519 真实验签，后台可维护可信发布者公钥；promote / install / approval 执行前会重新验签。
 
 ## 目标与边界
 
@@ -19,16 +21,17 @@
 - 定义本地插件包目录结构与字段口径。
 - 后台支持从允许目录读取插件包，并返回 dry-run 预览信息（文件扫描 / manifest 校验 / 安装预览）。
 - 后台支持初始化声明型插件包模板，并把模板写入受控本地插件仓库目录。
+- 后台支持上传 zip 插件包，并在受控沙箱目录中安全解压、扫描、预览和风险报告。
 
 明确不做：
 
-- 不做 zip 上传。
 - 不做远程市场 / 远程下载 / 在线更新。
 - 不做动态加载 Go 代码，不执行 JS / WASM / Lua，不提供脚本沙箱。
 - 不执行任何第三方本地代码。
 - 不执行外部 raw SQL。
 - 不动态加载前端资产。
-- 不做完整 PKI / 远程可信源 / 可信发布者平台；当前仅保留 `publisher.json` / `signature.json` 草案与本地可信来源结构校验。
+- 不做上传后自动安装。
+- 不做完整 PKI / CA 证书链 / 远程可信源同步；当前可信来源只来自后台本地可信发布者记录。
 
 ## 插件包目录结构
 
@@ -55,13 +58,13 @@ devhub-plugin-demo/
 3. `config.example.json` 是示例配置（建议），不得包含真实 secret。
 4. `migrations/` 当前只允许声明型迁移描述文件；dry-run 不执行任何 SQL。
 5. `assets/` 当前只允许预览素材；dry-run 不会动态加载到前台。
-6. `checksums.json` 当前支持 **sha256 完整性校验**（不做签名校验）。
+6. `checksums.json` 当前支持 **sha256 完整性校验**；如存在 `signature.json`，会对 `checksums.json` 摘要执行 Ed25519 真实验签。
 7. 目录名建议与 `manifest.code` 一致；不一致会 warning。
 8. 未知文件默认 warning；危险文件会 blocked。
 
 > 注：v1.5.0 当前支持本地插件仓库扫描、插件包详情、dry-run、安装确认与审批执行链路；安装仍走 `plugin.approve` 执行权限，不允许携带代码或可执行资产的插件包。
 
-## 后台初始化插件包（v1.6.0-P0-01）
+## 后台初始化插件包（v1.5.0 收口补充）
 
 入口：
 
@@ -110,14 +113,149 @@ storage/plugins/packages/{code}/
 - 后台初始化版把 registry 接入说明放在 `docs/registry-example.md`。
 - dry-run 未 blocked 时，后台允许继续提交“安装审批”；直接安装仍需 `plugin.approve`。
 
-边界：
+边界：不做远程市场 / 远程下载；不执行插件代码；不执行 SQL；不生成前端动态页面；不改变插件运行时边界。
 
-- 不做 zip 上传。
-- 不做远程市场 / 远程下载。
-- 不执行插件代码。
-- 不执行 SQL。
-- 不生成前端动态页面。
-- 不改变插件运行时边界。
+## Zip 上传安全沙箱（v1.6.0-P0-01）
+
+入口：
+
+```text
+系统插件 -> 安装升级 -> 上传插件包 zip
+```
+
+API：
+
+- `POST /api/v1/admin/plugins/packages/upload`
+- `GET /api/v1/admin/plugins/packages/uploads/:upload_id`
+- `POST /api/v1/admin/plugins/packages/uploads/:upload_id/promote`
+
+权限：
+
+- 上传：admin token + `plugin.write`
+- 详情：admin token + `plugin.read`
+- promote：admin token + `plugin.write`
+
+目录：
+
+```text
+storage/plugins/uploads/       # 原始 zip，按 upload_id 命名
+storage/plugins/staging/       # 成功解压后的安全沙箱
+storage/plugins/quarantine/    # 解压成功但 dry-run blocked 的隔离目录
+storage/plugins/packages/      # 本地插件仓库；promote 后才进入
+```
+
+上传流程：
+
+1. 仅接受 `.zip`，拒绝 `.tar`、`.gz`、`.rar`、`.7z` 等格式。
+2. 为每次上传生成 `pkg_upload_*`。
+3. zip 先保存到 `uploads/`，再解压到 `staging/{upload_id}/`。
+4. 解压前逐个检查 entry，任何结构类阻断都会删除 staging 半包。
+5. 解压后识别单个插件包根目录。
+6. 复用 v1.5 的 scanner / checksum / signature / risk_report / dry-run。
+7. `ok|warning` 保持在 staging，可查看详情或 promote；`blocked` 移入 quarantine，仅可查看风险详情，不可 promote。
+8. 上传和 promote 均写入 `admin_logs`。
+
+zip slip 防御：
+
+- 禁止 `../manifest.json`、`dir/../../evil`。
+- 禁止 `/etc/passwd` 等绝对路径。
+- 禁止 `C:\Windows\...` 等 Windows 盘符路径。
+- 禁止空文件名、过长文件名、`\0`。
+- 禁止 URL 编码绕过（如 `%2e`、`%2f`、`%5c`）。
+- 解压前用 `path.Clean` 校验，解压时再次确认输出路径仍位于 `staging/{upload_id}/` 内。
+- 解压后 dry-run 继续按本地插件包路径规则扫描，不返回系统绝对路径给前端。
+
+zip bomb / 文件结构限制：
+
+- 上传 zip 最大：20MB。
+- 解压后总大小最大：50MB。
+- 单个解压文件最大：5MB。
+- 解压文件数最大：300。
+- 最大目录深度：8。
+- 重复 entry / 重复输出路径：blocked。
+- zip 内嵌 zip/tar/gz/tgz/rar/7z/bz2/xz：blocked。
+- symlink：blocked。
+- hardlink / 特殊设备文件：blocked（zip entry 阶段禁止非常规文件；解压后 scanner 继续检测 hardlink）。
+- 当前未做压缩比阈值检查；通过上传大小、解压总大小、单文件大小、文件数、深度、重复 entry 与嵌套压缩包限制进行防御。
+
+插件包根目录识别：
+
+1. zip 根目录直接有 `manifest.json`：以 zip 根目录为插件包目录。
+2. zip 只有一个顶层目录且目录内有 `manifest.json`：以该顶层目录为插件包目录。
+3. 找不到 `manifest.json`：blocked，`plugin_package_zip_manifest_missing`。
+4. 多个 `manifest.json`：blocked，`plugin_package_zip_multiple_manifests`；本轮不支持批量上传。
+5. `manifest.json` 不在根目录或单一顶层目录：blocked。
+
+promote 规则：
+
+- 只允许生命周期状态为 `staged/approved` 且非 blocked 的上传包 promote。
+- promote 前重新 dry-run；复制到 `storage/plugins/packages/{manifest.code}/` 后再次 dry-run。
+- 目标目录已存在默认拒绝，返回 `plugin_package_promote_target_exists`；当前 API 支持 `force` 字段，但后台默认不覆盖。
+- checksum mismatch、dangerous file、manifest invalid、quarantine 包、路径穿越包均不能 promote。
+- promote 只把包转入本地仓库，不安装插件、不提交审批、不启用插件、不执行代码/SQL、不动态加载前端资产。
+
+## 上传包生命周期治理（v1.6.0-P0-02）
+
+上传 zip 不再只是临时文件，而是 `plugin_package_uploads` 记录。MemoryStore 与 MySQLStore 保持同一字段语义：
+
+- 基础字段：`upload_id`、`original_filename`、`uploaded_by`、`uploaded_by_name`、`uploaded_at`、`status`、`expires_at`、`deleted_at`。
+- 包信息：`package_code`、`package_name`、`package_version`、`upload_path`、`staging_path`、`package_path`、`promoted_path`。
+- 扫描摘要：`compressed_size`、`uncompressed_size`、`file_count`、`checksum_status`、`signature_status`、`publisher_id`、`trust_status`、`risk_level`。
+- 快照 JSON：`zip_scan_json`、`file_scan_json`、`risk_report_json`、`manifest_validation_json`、`install_dry_run_json`、`metadata_json`。
+- 审批关联：`approval_id`（导入 / promote 审批）、`install_approval_id`（安装审批预留）。
+- 错误字段：`error_code`、`error_message`。
+
+状态集合：
+
+```text
+uploaded -> scanned -> staged
+uploaded -> scanned -> blocked
+staged -> approval_pending -> approved -> promoted
+staged -> approval_pending -> approval_rejected
+staged -> promoted
+promoted -> install_approval_pending -> installed
+staged/approval_rejected/blocked/failed -> canceled
+staged/blocked/approval_rejected/canceled/failed/expired/promoted -> deleted
+任意非终态超过 expires_at -> expired（本轮由手动 cleanup 触发）
+处理中异常 -> failed
+```
+
+后端强校验规则：
+
+- `blocked/deleted/expired/canceled` 不能 promote，也不能提交安装审批。
+- `staged/approved` 可以 promote；`approval_pending` 必须先完成审批。
+- `promoted` 后才进入本地插件包安装 / 安装审批流程；promote 不安装插件。
+- `installed` 后不能再次按同 code 走安装，应进入升级流程。
+- `deleted` 不支持恢复；需要重新上传。
+- 状态变更写入 `admin_logs`，对外 API 只返回相对路径。
+
+导入审批：
+
+- 上传包导入审批复用 `plugin_approval_requests`，新增 action：`package_promote` / `package_import`。
+- 当前后台支持从上传包详情提交 `package_promote` 审批，并保存 upload_id、risk_report、signature、checksum、dry-run 快照。
+- 审批通过只把上传包置为 `approved`；promote 前仍重新扫描、重新 dry-run，不允许用审批绕过 blocked/checksum/manifest 风险。
+- blocked 包不能提交导入审批；warning/high-risk 包可进入审批或由管理员按策略 promote。
+
+生命周期 API：
+
+- `GET /api/v1/admin/plugins/packages/uploads`：上传包列表，支持 status/risk/keyword/uploader/package/publisher/trust 分页筛选，返回 summary。
+- `GET /api/v1/admin/plugins/packages/uploads/:upload_id`：详情，返回 record、扫描快照、审批信息和 actions。
+- `POST /api/v1/admin/plugins/packages/uploads/:upload_id/rescan`：重新执行扫描与 dry-run，刷新 risk_report 和状态。
+- `POST /api/v1/admin/plugins/packages/uploads/:upload_id/approval`：提交导入审批。
+- `POST /api/v1/admin/plugins/packages/uploads/:upload_id/approve` / `reject`：审批通过 / 拒绝。
+- `POST /api/v1/admin/plugins/packages/uploads/:upload_id/promote`：复制到 `storage/plugins/packages/{code}/`，不安装。
+- `POST /api/v1/admin/plugins/packages/uploads/:upload_id/cancel`：取消上传包。
+- `DELETE /api/v1/admin/plugins/packages/uploads/:upload_id`：删除上传 / staging 文件并保留审计记录；promoted 包不会删除本地仓库包。
+- `POST /api/v1/admin/plugins/packages/uploads/cleanup`：手动清理 `expired/deleted/canceled/failed` 的 upload / staging 文件，不删除本地仓库或已安装插件。
+
+后台入口：
+
+```text
+系统插件 -> 上传包管理
+/admin-next/plugins/packages/uploads
+```
+
+页面能力：上传 zip、筛选列表、详情抽屉、zip scan、package scan、checksum、signature、risk_report、manifest validate、dry-run、可执行动作与不可用原因、rescan、提交导入审批、审批通过 / 拒绝、promote、cancel、delete、cleanup。页面明确展示：上传包只是 staging，promote 不等于安装，不执行插件代码、不执行 SQL、不加载前端资产。
 
 ## 允许文件 / 未知文件 / 危险文件
 
@@ -200,6 +338,9 @@ storage/plugins/packages/{code}/
   - `examples/plugins/`
   - `plugins-local/`
   - `storage/plugins/packages/`
+  - `storage/plugins/exports/`
+  - `storage/plugins/staging/`
+  - `storage/plugins/quarantine/`
   - `.devhub/plugins/`
 - 会对 path 做 clean/normalize，拒绝 `../` 路径穿越。
 
@@ -304,7 +445,7 @@ Dry-run 会返回 `risk_report`：
 限制：
 
 - 后台安装升级页当前提供本地插件仓库扫描、详情、dry-run 和安装审批入口；直接安装需要 `plugin.approve`，普通管理员走审批提交。
-- 不提供 zip 上传按钮。
+- zip 上传区域只提供上传扫描、详情和 promote，不提供上传后直接安装按钮。
 - 不提供远程市场入口。
 
 ## 示例插件包
@@ -322,14 +463,14 @@ Dry-run 会返回 `risk_report`：
 - `docs/usage.md`
 - `migrations/001_init.json`（声明示例，不执行）
 
-## 插件包签名与可信来源（草案，v1.5.0-P2-09）
+## 插件包签名与可信来源（v1.6.0-P0-03）
 
-本章节为后续“插件市场/可信分发”打基础：在不引入远程市场、不自动下载、不做 PKI 证书链/公钥服务器的前提下，定义插件包签名元数据与本地可信来源配置，并将签名状态纳入 dry-run / 风险报告。
+本章节为后续“插件市场/可信分发”打基础：在不引入远程市场、不自动下载、不做 PKI 证书链/公钥服务器的前提下，实现 `signature.json` Ed25519 真实验签，并由后台可信发布者记录决定 `trust_status`。
 
 边界（本轮明确不做）：
 
 - 不从远程拉取 publisher 信息，不自动信任包内 `publisher.json`。
-- 不做证书链验证、不做可信发布者平台、不做密钥轮换。
+- 不做证书链验证、不做密钥轮换、不做私钥管理后台或在线签名服务。
 - 不执行任何第三方代码/SQL，不动态加载前端资产。
 
 ### 目录结构新增文件
@@ -379,6 +520,8 @@ signature.json
   "signed_at": "2026-01-01T00:00:00Z",
   "publisher_id": "devhub-official",
   "public_key_id": "devhub-official-2026",
+  "payload_algorithm": "sha256",
+  "payload": "checksums.json",
   "signed_files": [
     "manifest.json",
     "checksums.json",
@@ -391,7 +534,8 @@ signature.json
 
 规则（简化）：
 
-- 当前仅支持 `ed25519`；不支持算法会 **blocked**。
+- 当前仅支持 `algorithm=ed25519`；不支持算法会 **blocked**。
+- 当前仅支持 `payload=checksums.json` 与 `payload_algorithm=sha256`。
 - `signed_files` 必须是相对路径，禁止 `..`、禁止绝对路径；声明不存在文件会 **blocked**。
 - `signed_files` 必须至少包含 `manifest.json` 与 `checksums.json`；否则 **blocked**。
 - 为避免“签名覆盖未校验文件”，除 `manifest.json` / `checksums.json` 外，`signed_files` 中的文件必须出现在 `checksums.json` 覆盖列表中；否则 **blocked**。
@@ -399,11 +543,12 @@ signature.json
 签名对象（当前实现）：
 
 - `message = sha256(raw_bytes_of_checksums.json)`（注意：是 checksums.json 的原始 bytes，不做 canonical JSON）
-- `signature = ed25519.Sign(public_key, message)`
+- `signature = ed25519.Sign(private_key, message)`
+- 验签使用后台可信发布者公钥；如果 publisher 未建立本地可信关系，可使用包内 `publisher.json` 公钥做技术验签，但 `trust_status` 仍为 `unknown`。
 
-### 本地可信来源 trusted_publishers
+### 本地可信发布者 trusted publishers
 
-可信来源只来自本地配置文件（不会从远程同步）：
+可信来源只来自后台可信发布者记录（不会从远程同步）。历史本地配置文件可作为空存储时的 seed / fallback：
 
 - `storage/plugins/trusted_publishers.json`
 
@@ -427,9 +572,22 @@ signature.json
 
 规则（简化）：
 
-- 只有 `publisher_id + public_key_id` 与本地配置匹配，且本地配置 `status=trusted`，才会标记 `trust_status=trusted`。
-- 若本地配置标记为 `blocked` / `revoked`：dry-run 直接 **blocked**（即使包内自称可信或验签通过）。
-- 若 publisher 不在本地配置中：`trust_status=unknown`（不阻断，但会产生高风险提示）。
+- 后台持久化字段：`publisher_id`、`name`、`homepage`、`email`、`public_key_id`、`public_key_algorithm`、`public_key`、`fingerprint`、`status`、`notes`、`created_by`、`updated_by`、时间戳与 metadata。
+- 只有 `publisher_id + public_key_id` 与后台记录匹配，且 `status=trusted`，才会标记 `trust_status=trusted`。
+- 若后台记录标记为 `blocked` / `revoked`：dry-run / promote / install / approval 执行直接 **blocked**（即使包内自称可信或验签通过）。
+- 若 publisher 不在后台可信发布者中：`trust_status=unknown`（不阻断，但会产生 high 风险提示）。
+- 后台不会保存私钥；`public_key` 可展示并计算 `fingerprint=sha256:<base64url>`。
+
+可信发布者 API：
+
+- `GET /api/v1/admin/plugins/trusted-publishers`：列表，需 `plugin.read`。
+- `GET /api/v1/admin/plugins/trusted-publishers/:id`：详情，需 `plugin.read`。
+- `POST /api/v1/admin/plugins/trusted-publishers`：新增，需 `plugin.manage`。
+- `PUT /api/v1/admin/plugins/trusted-publishers/:id`：更新，需 `plugin.manage`。
+- `POST /api/v1/admin/plugins/trusted-publishers/:id/block`：block，需 `plugin.manage`。
+- `POST /api/v1/admin/plugins/trusted-publishers/:id/revoke`：revoke，需 `plugin.manage`。
+- `POST /api/v1/admin/plugins/trusted-publishers/:id/restore`：恢复 trusted，需 `plugin.manage`。
+- `DELETE /api/v1/admin/plugins/trusted-publishers/:id`：删除本地记录，需 `plugin.manage`。
 
 ### 签名状态与风险报告联动
 
@@ -438,7 +596,15 @@ dry-run / 仓库扫描 / 详情接口会返回 `signature` 字段摘要，并纳
 - `trusted + verified`：不新增风险项（仍以 checksum/危险文件等为准）。
 - `unsigned / signature missing`：warning（风险至少 medium）。
 - `unknown publisher + verified`：风险至少 high（提示仅技术验签通过，未建立可信来源）。
-- `unsupported algorithm / verification failed / publisher blocked|revoked`：blocked。
+- `publisher_unknown`：high（缺少可信或包内公钥，无法完成真实验签）。
+- `unsupported algorithm / verification failed / publisher blocked|revoked / signature invalid`：blocked。
+
+流程联动：
+
+- package dry-run、仓库扫描、zip upload / upload detail 均返回真实签名验签结果。
+- promote 前重新验签；`failed / blocked / revoked` 阻断 promote。
+- install 前重新验签；`failed / blocked / revoked` 阻断安装，`unsigned / unknown` 至少 warning。
+- approval 创建保存签名快照；approval execute 前重新验签，签名状态变化会进入风险与错误提示。
 
 ## 已安装插件导出为本地插件包（v1.5.0-P2-10）
 
@@ -480,7 +646,7 @@ exported-plugin/
 
 不会导出：
 
-- 敏感配置明文或 `enc:v1:` 密文。
+ - 敏感配置明文或 `enc:v1:` / `enc:v2:` 密文。
 - 当前全局配置真实值、子站覆盖配置真实值。
 - 用户数据、帖子、评论、通知、审计原始明细、Hook 执行历史、搜索索引。
 - 插件运行时代码、动态前端资产、外部 SQL、私钥、token、secret、password、credential。
@@ -527,3 +693,31 @@ exported-plugin/
 - dry-run 未 blocked 后才允许正式导出。
 - 导出成功展示输出目录、checksums 状态、package dry-run 自检状态，并提供复制路径。
 - 页面明确不提供 zip 下载、远程发布或插件市场发布入口。
+
+## 远程插件索引只读镜像（v1.6.0-P0-04）
+
+远程插件索引是未来插件市场前的只读元数据镜像能力。系统只拉取一个静态 `index.json`，展示远程插件包 code、name、版本、`package_url`、`package_sha256`、`signature_url`、publisher、license、Core 兼容性和风险提示。
+
+当前边界：不下载远程包、不安装远程插件、不自动更新、不执行远程代码、不执行 SQL、不动态加载前端资产、不自动信任远程 publisher。`package_sha256` 只是远程源声明，不代表 DevHub 已校验远程包内容。
+
+索引规范、API、安全限制、SSRF 防御、风险规则和示例见 [PLUGIN_REMOTE_INDEX.md](PLUGIN_REMOTE_INDEX.md)。示例索引文件为 `docs/examples/plugin-remote-index.example.json`。
+
+## 插件包版本仓库与升级差异对比（v1.6.0-P0-05）
+
+版本仓库是 DevHub 对同一插件多版本来源的统一治理视图，不是远程市场，也不会下载或自动安装插件包。当前聚合来源：
+
+- `installed`：当前已安装插件版本。
+- `local_package`：`storage/plugins/packages/` 本地插件仓库中的插件包版本。
+- `uploaded_package`：zip 上传 staging / promoted 上传包记录。
+- `remote_index`：远程只读索引中的版本元数据，只读展示，不能直接升级。
+- `exported_package`：已导出的本地插件包（如后续存在导出记录，可纳入聚合）。
+
+版本比较规则：支持 `x.y.z` 和可选 `v` 前缀；目标版本必须高于当前版本。相同版本返回 `plugin_version_same_version`，低版本返回 `plugin_version_downgrade_forbidden`。复杂 semver 预发布标签不是本轮目标。
+
+升级差异对比通过 `POST /api/v1/admin/plugins/:code/versions/:version/upgrade-diff` 执行。该接口会读取目标本地包 manifest，并复用 package dry-run、checksum、signature、risk_report、manifest validate 和 Core / dependency 校验；不会写入插件表，不会执行代码、SQL 或前端资产。
+
+`diff_sections` 按功能分组返回：基础信息、内容类型、内容类型定义、权限、菜单、路由、配置 schema、默认配置、依赖、Hook、迁移声明。每个 diff item 都包含 `section`、`path`、`type`、`risk_level`、`before`、`after` 和 `message`，敏感字段统一脱敏为 `[REDACTED]`。
+
+高风险变更包括删除 content_type / permission、 新增高危权限、新增 required dependency、依赖约束收紧、config_schema 删除字段 / type 变化 / required 新增、Hook 改为 blocking、新增 migration。阻断项包括目标版本不升、Core 不兼容、required dependency 缺失、checksum mismatch、签名失败、publisher blocked / revoked、manifest invalid、dangerous file 和 remote_index 直接升级。
+
+后台 `/admin-next/plugins/versions` 展示版本仓库、单插件版本列表和升级差异抽屉；远程索引版本会标记只读，必须先通过受控上传 / promote 进入本地仓库后才能参与真实升级流程。

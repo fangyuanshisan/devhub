@@ -38,7 +38,7 @@ MySQL 专项补充：2026-05-11 已完成 MySQLStore 与老库升级专项验证
 当前定位：
 
 - DevHub 当前是内置系统插件平台，并开始支持安全的 manifest + 配置型插件安装预备形态：插件通过代码 registry 或 manifest 声明接入，由 Core 负责状态、权限、菜单、配置、Hook 元信息、发布校验和后台治理分发。
-- 当前不是第三方插件市场，不支持插件包上传、远程安装、在线更新、Go 动态插件加载或执行第三方本地代码。
+- 当前不是第三方插件市场；已支持管理员 zip 插件包上传到安全沙箱并 promote 到本地插件仓库，但不支持远程安装、在线更新、Go 动态插件加载或执行第三方本地代码。
 - 当前真实表名仍是 `topics` / `categories`；`contents` / `channels` 是架构概念或长期目标命名，不能在本阶段强行改表。
 
 已完成：
@@ -76,9 +76,9 @@ MySQL 专项补充：2026-05-11 已完成 MySQLStore 与老库升级专项验证
 
 预留：
 
-- 插件包分发：本地插件包 **dry-run 导入预览**、“本地插件仓库扫描（discovered packages）”与“已安装声明型插件导出为本地插件包”已落地（含 `checksums.json` sha256 校验、`risk_report` 风险报告，以及签名/可信来源草案：`publisher.json`/`signature.json` + 本地 `trusted_publishers`，见 `docs/PLUGIN_PACKAGE.md`）；zip 导入/远程安装仍处于预留阶段。
+- 插件包分发：本地插件包 **dry-run 导入预览**、“本地插件仓库扫描（discovered packages）”、“已安装声明型插件导出为本地插件包”、“zip 上传安全沙箱 + promote 到本地仓库”与“上传包生命周期治理”已落地（含 `plugin_package_uploads`、导入审批、rescan、cancel/delete/cleanup、`checksums.json` sha256 校验、`risk_report` 风险报告，以及Ed25519 真实签名验签与可信发布者管理：`publisher.json`/`signature.json` + 后台 `plugin_trusted_publishers`，见 `docs/PLUGIN_PACKAGE.md`）；远程安装/市场仍处于预留阶段。
 - 插件健康状态：`healthy`、`warning`、`error`、`disabled`、`migration_pending`、`config_invalid`、`dependency_missing`、`hook_warning`、`hook_error` 已有轻量计算；`hook_error` 当前基于 Hook 失败次数阈值（当前为 `>= 3`）判断。告警、自动恢复、重试队列和 Prometheus/Grafana 式可观测指标仍是后续能力。
-- 插件依赖解析、版本兼容检查深化、插件包签名和市场分发。
+- 插件依赖解析、版本兼容检查深化、远程插件索引、插件包签名生态和市场分发。
 - 外部服务型 Webhook、动态路由加载、动态执行环境、沙箱和第三方 Hook 运行时。
 
 ## 完整插件系统路线
@@ -506,14 +506,14 @@ v1.3.1 采用稳妥策略：后台编辑已存在内容时禁止修改归属和�
 
 ## 当前限制与阶段边界
 
-- 当前已支持 manifest + 配置型插件的校验、dry-run、安装记录、升级预览和最小升级执行闭环；不支持插件包 zip 上传、本地/远程市场安装、在线更新、Go 动态插件加载或执行第三方本地代码。这些能力分别进入 P2 / P3 路线，后续推进时必须满足安全红线、权限隔离、migration 备份回滚和 SEO 不退化。
+- 当前已支持 manifest + 配置型插件的校验、dry-run、安装记录、升级预览和最小升级执行闭环，也支持 zip 上传安全沙箱、上传包生命周期治理与 promote 到本地插件仓库；仍不支持远程市场安装、在线更新、Go 动态插件加载或执行第三方本地代码。这些能力分别进入 P2 / P3 路线，后续推进时必须满足安全红线、权限隔离、migration 备份回滚和 SEO 不退化。
 - 插件路由当前是注册描述 + Core 分发；动态路由加载和动态执行环境进入 P2 / P3 路线评估。
 - Docs / Wiki 的专用编辑体验仍是部分完成。
 - 子站插件配置和排序已有 API 与增强后的后台 UI，但仍需继续做真实浏览器矩阵验收。
 - 插件治理审计已新增 `admin_logs.old_value`、`admin_logs.new_value` 和 `admin_logs.metadata_json` 结构化字段，同时保留 `target` 文本摘要兼容旧展示；非插件历史日志可能仍没有结构化 diff。
 - 新装库已在 `db/mysql/001_schema.sql` 和 `internal/store/schema.go` 包含结构化审计字段；老库升级使用 `db/mysql/migrations/007_admin_logs_structured_plugin_audit.sql`，启动迁移辅助也会尝试补齐这些列。
-- `plugins.config_json` 与 `community_plugins.config_json` 已可写，并已做 JSON 格式校验和简化 `config_schema` 基础校验；基础自动表单、配置 diff UI、effective config 预览与配置版本历史/回滚预览已接入后台插件治理体验；更完整 JSON Schema、字段分组、更复杂嵌套矩阵、真实回滚与敏感字段加密属于后续任务。
-- v1.5.0 起，插件配置支持“敏感字段加密存储”最小闭环：保存配置时会按 `config_schema` 标记与字段名规则识别敏感字段，并对敏感字段值使用 AES-256-GCM 加密后入库（`enc:v1:<nonce_b64>:<cipher_b64>`）；API/审计/版本历史/diff/回滚预览只返回脱敏占位（例如 `[REDACTED]` / `[ENCRYPTED]`），不会返回明文或密文。当前不支持 KMS/Vault、密钥轮换、多版本密钥解密与历史明文批量迁移（需后续专项）。
+- `plugins.config_json` 与 `community_plugins.config_json` 已可写，并已做 JSON 格式校验和简化 `config_schema` 基础校验；基础自动表单、配置 diff UI、effective config 预览与配置版本历史/回滚预览已接入后台插件治理体验；更完整 JSON Schema、字段分组、更复杂嵌套矩阵与真实回滚属于后续任务。
+- v1.5.0 起，插件配置支持“敏感字段加密存储”最小闭环：保存配置时会按 `config_schema` 标记与字段名规则识别敏感字段，并对敏感字段值使用 AES-256-GCM 加密后入库；v1.6.0-P1-07 起新增密钥环（current/old keys）与密钥轮换预检/受控 re-encrypt，新写入密文为 `enc:v2:<key_id>:<nonce_b64>:<cipher_b64>`，同时兼容读取旧 `enc:v1:<nonce_b64>:<cipher_b64>`。API/审计/版本历史/diff/回滚预览只返回脱敏占位（例如 `[REDACTED]` / `[ENCRYPTED]`），不会返回明文或密文。当前不支持 KMS/Vault、自动定时轮换与历史明文批量迁移（需后续专项）。
 - v1.5.0-P2-10 起，已安装声明型插件可导出为本地插件包目录：导出 `manifest.json`、自动 README、脱敏 `config.example.json`、`checksums.json` 与可选 docs/migrations/publisher/signature 草案，输出目录固定在 `storage/plugins/exports/`。导出不会包含真实全局/子站配置、敏感明文或 `enc:v1:` 密文，不包含用户数据、Hook 历史、审计原始明细、搜索索引、运行时代码或外部 SQL；导出后会自动执行 package dry-run 自检。
 - HookBus 当前是内置插件运行时调度器；调用点已覆盖内容创建、更新、删除、评论、搜索、通知和 SEO，并记录执行结果与失败审计。搜索 / 通知 / SEO 仍是预留级事件派发，完整业务处理器、重试策略和健康状态属于 P0/P1。
 - 插件生命周期当前已能派生安装 / 运行 / 健康状态，但仍不是完整外部插件包安装器状态机；代码真实运行门禁仍以 `plugins.status`、`community_plugins.status`、`plugin_migrations.status`、依赖检查和配置校验为准。
@@ -576,7 +576,7 @@ v1.3.5 的边界是治理体验收口，不新增危险运行时能力。当前�
 - 批量归档 / 恢复已展示操作前影响预览和操作后 succeeded / failed 明细，并提供审计跳转。
 - 状态治理视图已聚合迁移待处理、迁移失败、Hook 异常、配置无效、依赖缺失和已归档插件；它是异常处理入口，不是完整监控系统。
 
-以下能力仍不属于当前实现范围：插件市场、插件包 zip 上传、远程安装、在线更新、Go 动态加载、第三方插件沙箱、hard uninstall 和 migration down。
+以下能力仍不属于当前实现范围：插件市场、远程安装、在线更新、Go 动态加载、第三方插件沙箱、hard uninstall 和 migration down。
 
 ## 阶段 B：插件治理体验增强
 
@@ -656,3 +656,22 @@ v1.3.5 的边界是治理体验收口，不新增危险运行时能力。当前�
 - 版本约束只支持数字 `x.y.z`、精确版本、`>=`、`>`、`<=`、`<` 和空格组合范围；不支持 npm 风格 `^`、`~`、`||` 或预发布标签。
 - Core 兼容矩阵由后端统一计算，当前 Core 来自项目 `VERSION`；`min_core_version` 高于当前 Core 或 `compatible_core_version` 不满足时阻断。
 - 后台安装向导、升级向导和插件详情 Dependencies 区域展示依赖总览、逐项状态、阻断原因、Core 兼容状态和升级依赖 diff；不做自动安装依赖、远程下载、市场推荐或依赖图大屏。
+
+## v1.6.0-P0-04：远程插件索引只读镜像
+
+远程插件索引模块是插件市场前置能力，只读读取静态 `index.json` 元数据，不下载、不安装、不执行任何远程包内容。
+
+模块边界：
+
+- `plugin_remote_indexes`：保存索引源配置、最近拉取状态、索引 hash 和缓存元数据。
+- Service：负责 URL 安全校验、SSRF 防御、GET 拉取、JSON schema 校验、trusted publisher 联动、Core 兼容性和已安装状态计算。
+- Handler：提供后台 API，保持 admin token + `plugin.read` / `plugin.manage` 权限边界。
+- Admin UI：`/admin-next/plugins/remote-indexes` 只读展示索引源、远程插件列表和详情。
+
+安全边界：远程索引不会触发 package download、zip 解压、安装、升级、动态加载、脚本沙箱或第三方代码执行。远程 publisher 不会自动进入本地 trusted publishers。
+
+## v1.6.0-P0-05：插件包版本仓库与升级差异对比
+
+插件包版本仓库是聚合层，不新增运行时能力。它从已安装插件、本地插件仓库、上传包记录和远程只读索引中聚合同一 `plugin_code` 的多个版本，标记 installed/local/uploaded/remote 来源、风险、签名、publisher trust 和 Core 兼容性。
+
+升级差异对比仍复用声明型 manifest 和 package dry-run，不执行第三方代码、外部 SQL 或动态前端资产。`diff_sections` 按 manifest 能力边界分组，供后台和审批详情展示；远程索引版本保持只读，不能直接升级。

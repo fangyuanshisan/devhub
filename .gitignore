@@ -50,6 +50,13 @@ web/frontend-app/test-results/
 .vite/
 .astro/
 
+# Runtime storage (generated at runtime / E2E)
+storage/plugins/uploads/
+storage/plugins/staging/
+storage/plugins/quarantine/
+storage/plugins/packages/e2e_*/
+storage/plugins/exports/*
+
 # Download / Windows metadata
 *.Zone.Identifier
 Devhub Codex Executable Spec.pdf:Zone.Identifier

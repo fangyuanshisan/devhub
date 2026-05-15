@@ -16,6 +16,7 @@ import (
 
 const (
 	EncryptedPrefixV1      = "enc:v1:"
+	EncryptedPrefixV2      = "enc:v2:"
 	SensitivePlaceholderV1 = "[ENCRYPTED]"
 )
 
@@ -69,7 +70,8 @@ func IsEncryptedValue(v any) bool {
 	if !ok {
 		return false
 	}
-	return strings.HasPrefix(strings.TrimSpace(s), EncryptedPrefixV1)
+	s = strings.TrimSpace(s)
+	return strings.HasPrefix(s, EncryptedPrefixV1) || strings.HasPrefix(s, EncryptedPrefixV2)
 }
 
 func IsSensitivePlaceholder(v any) bool {
@@ -130,6 +132,35 @@ func EncryptStringV1(key []byte, plaintext string) (string, error) {
 	return EncryptedPrefixV1 + base64.StdEncoding.EncodeToString(nonce) + ":" + base64.StdEncoding.EncodeToString(ciphertext), nil
 }
 
+func EncryptStringV2(keyID string, key []byte, plaintext string) (string, error) {
+	keyID = strings.TrimSpace(keyID)
+	if keyID == "" {
+		return "", errors.New("key_id 不能为空")
+	}
+	if len(key) != 32 {
+		return "", errors.New("加密密钥长度必须为 32 bytes")
+	}
+	plain := strings.TrimSpace(plaintext)
+	if strings.HasPrefix(plain, EncryptedPrefixV2) || strings.HasPrefix(plain, EncryptedPrefixV1) {
+		// do not double-encrypt ciphertext; caller decides whether to re-encrypt.
+		return plain, nil
+	}
+	block, err := aes.NewCipher(key)
+	if err != nil {
+		return "", err
+	}
+	gcm, err := cipher.NewGCM(block)
+	if err != nil {
+		return "", err
+	}
+	nonce := make([]byte, gcm.NonceSize())
+	if _, err := io.ReadFull(rand.Reader, nonce); err != nil {
+		return "", err
+	}
+	ciphertext := gcm.Seal(nil, nonce, []byte(plaintext), nil)
+	return EncryptedPrefixV2 + keyID + ":" + base64.StdEncoding.EncodeToString(nonce) + ":" + base64.StdEncoding.EncodeToString(ciphertext), nil
+}
+
 func DecryptStringV1(key []byte, enc string) (string, error) {
 	if len(key) != 32 {
 		return "", errors.New("解密密钥长度必须为 32 bytes")
@@ -147,6 +178,114 @@ func DecryptStringV1(key []byte, enc string) (string, error) {
 		return "", errors.New("nonce 解码失败")
 	}
 	ciphertext, err := base64.StdEncoding.DecodeString(parts[1])
+	if err != nil {
+		return "", errors.New("ciphertext 解码失败")
+	}
+	block, err := aes.NewCipher(key)
+	if err != nil {
+		return "", err
+	}
+	gcm, err := cipher.NewGCM(block)
+	if err != nil {
+		return "", err
+	}
+	if len(nonce) != gcm.NonceSize() {
+		return "", errors.New("nonce 长度不合法")
+	}
+	plain, err := gcm.Open(nil, nonce, ciphertext, nil)
+	if err != nil {
+		return "", errors.New("解密失败")
+	}
+	return string(plain), nil
+}
+
+type CipherInfo struct {
+	Version string // v1|v2|plain
+	KeyID   string // v2 only
+}
+
+func DetectCiphertextVersion(v string) CipherInfo {
+	v = strings.TrimSpace(v)
+	if strings.HasPrefix(v, EncryptedPrefixV2) {
+		parts := strings.Split(strings.TrimPrefix(v, EncryptedPrefixV2), ":")
+		if len(parts) >= 3 {
+			return CipherInfo{Version: "v2", KeyID: strings.TrimSpace(parts[0])}
+		}
+		return CipherInfo{Version: "v2", KeyID: ""}
+	}
+	if strings.HasPrefix(v, EncryptedPrefixV1) {
+		return CipherInfo{Version: "v1", KeyID: ""}
+	}
+	return CipherInfo{Version: "plain", KeyID: ""}
+}
+
+func DecryptStringWithKeyring(kr *PluginConfigKeyring, enc string) (string, CipherInfo, error) {
+	info := DetectCiphertextVersion(enc)
+	switch info.Version {
+	case "plain":
+		return enc, info, nil
+	case "v2":
+		keyID := info.KeyID
+		if keyID == "" {
+			return "", info, errors.New("密文 key_id 缺失")
+		}
+		key, ok := kr.ResolveKey(keyID)
+		if !ok {
+			return "", info, errors.New("缺少对应解密密钥")
+		}
+		plain, err := decryptStringV2WithKey(key, keyID, enc)
+		if err != nil {
+			return "", info, err
+		}
+		return plain, info, nil
+	case "v1":
+		if kr == nil || len(kr.Keys) == 0 {
+			return "", info, errors.New("缺少解密密钥")
+		}
+		// v1 has no key_id, try current first, then others.
+		if curID, curKey := kr.CurrentKey(); curID != "" && len(curKey) == 32 {
+			if plain, err := DecryptStringV1(curKey, enc); err == nil {
+				return plain, info, nil
+			}
+		}
+		for _, id := range kr.AllKeyIDs() {
+			if id == kr.CurrentKeyID {
+				continue
+			}
+			k, _ := kr.ResolveKey(id)
+			if len(k) != 32 {
+				continue
+			}
+			if plain, err := DecryptStringV1(k, enc); err == nil {
+				return plain, info, nil
+			}
+		}
+		return "", info, errors.New("解密失败")
+	default:
+		return "", info, errors.New("不支持的密文版本")
+	}
+}
+
+func decryptStringV2WithKey(key []byte, keyID string, enc string) (string, error) {
+	if len(key) != 32 {
+		return "", errors.New("解密密钥长度必须为 32 bytes")
+	}
+	enc = strings.TrimSpace(enc)
+	if !strings.HasPrefix(enc, EncryptedPrefixV2) {
+		return enc, nil
+	}
+	parts := strings.Split(strings.TrimPrefix(enc, EncryptedPrefixV2), ":")
+	if len(parts) != 3 {
+		return "", errors.New("密文格式不合法")
+	}
+	if strings.TrimSpace(parts[0]) != strings.TrimSpace(keyID) {
+		return "", errors.New("密文 key_id 不匹配")
+	}
+	nonce, err := base64.StdEncoding.DecodeString(parts[1])
+	if err != nil {
+		return "", errors.New("nonce 解码失败")
+	}
+	ciphertext, err := base64.StdEncoding.DecodeString(parts[2])
 	if err != nil {
 		return "", errors.New("ciphertext 解码失败")
 	}

@@ -362,7 +362,18 @@ func (s *Service) ExecutePluginApproval(operator PluginApprovalOperator, id int6
 				WithDetail("blocked_reasons", dry.BlockedReasons).
 				WithSuggestion("请先修复阻断项后重新提交审批。")
 		}
-		installRes, ierr := s.InstallPluginPackage(domain.PluginPackageInstallRequest{Path: it.PackagePath, ConfirmRiskLevel: strings.ToLower(strings.TrimSpace(dry.RiskReport.Level))})
+		opID := newPluginOperationID()
+		it.MetadataJSON = mustJSON(scrubAnyForSnapshot(map[string]any{
+			"operation_id": opID,
+			"approval_id":  it.ID,
+		}))
+		_, _ = s.repo.SavePluginApprovalRequest(it)
+		installRes, ierr := s.InstallPluginPackage(PluginOperationOperator{ID: operator.ID, Name: operator.Name}, domain.PluginPackageInstallRequest{
+			Path:             it.PackagePath,
+			ConfirmRiskLevel: strings.ToLower(strings.TrimSpace(dry.RiskReport.Level)),
+			ApprovalID:       it.ID,
+			OperationID:      opID,
+		})
 		if ierr != nil {
 			it.Status = domain.PluginApprovalStatusFailed
 			if apiErr, ok := ierr.(*domain.APIError); ok && apiErr != nil {
@@ -410,7 +421,13 @@ func (s *Service) ExecutePluginApproval(operator PluginApprovalOperator, id int6
 				WithDetail("compatibility_status", preview.CompatibilityStatus).
 				WithSuggestion("请修复阻断项后重新提交审批。")
 		}
-		upRes, uerr := s.UpgradePluginManifest(it.PluginCode, raw)
+		opID := newPluginOperationID()
+		it.MetadataJSON = mustJSON(scrubAnyForSnapshot(map[string]any{
+			"operation_id": opID,
+			"approval_id":  it.ID,
+		}))
+		_, _ = s.repo.SavePluginApprovalRequest(it)
+		upRes, uerr := s.UpgradePluginManifestWithOperation(PluginOperationOperator{ID: operator.ID, Name: operator.Name}, it.ID, opID, it.PluginCode, raw)
 		if uerr != nil {
 			it.Status = domain.PluginApprovalStatusFailed
 			if apiErr, ok := uerr.(*domain.APIError); ok && apiErr != nil {
