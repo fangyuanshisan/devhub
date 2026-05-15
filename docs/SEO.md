@@ -117,3 +117,14 @@ curl -s http://127.0.0.1:8090/robots.txt
 ## v1.6.0-P0-04 远程插件索引 SEO 影响确认
 
 本轮只新增后台远程插件索引只读镜像能力，不修改前台内容页、分类页、搜索页、路由渲染或动态 SEO 逻辑。`/topics/:id/`、`/c/:slug/`、canonical、Article JSON-LD 与历史插件内容访问边界保持 v1.5/v1.6 既有口径。
+
+## v1.6.0 插件包上传与分发前置能力收口 SEO 验收
+
+v1.6.0 主要改动集中在后台插件包治理和插件分发前置能力，不应改变前台 SEO 基础边界。总验收仍需确认：
+
+- `/topics/1/` 保持动态 HTML，包含 title、canonical、Article JSON-LD、article / h1。
+- `/c/php/` 保持分类页 SEO，包含 title、description、canonical、h1、内容列表或标签聚合信息。
+- 插件 disabled / archived / config_invalid / migration_failed / dependency_missing 不应破坏历史内容详情访问。
+- hidden / deleted / pending / rejected 内容仍不能公开访问。
+
+本轮实际 curl 结果记录在 `docs/TESTING.md` 与 `docs/releases/v1.6.0.md` 的 v1.6.0-P1-10 总验收章节。

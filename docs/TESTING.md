@@ -115,7 +115,7 @@
 
 已执行并通过：
 
-- `docker compose run --rm admin-e2e npm run test:e2e -- tests/e2e/plugin-pages-navigation.spec.js`：通过，`2 passed`。
+- 历史导航专项已通过；当前由 `docker compose run --rm admin-e2e npm run test:e2e -- tests/e2e/plugin-governance-pages.spec.js` 承接并扩展覆盖。
 - `docker compose run --rm admin-e2e npm run test:e2e -- tests/e2e/plugin-dependencies.spec.js`：通过，`2 passed`。
 - `docker compose run --rm admin-e2e npm run test:e2e -- tests/e2e/plugin-governance.spec.js`：通过，`13 passed`。
 - `./scripts/check-frontend.sh --admin-only`：通过，后台 build 通过，后台 Playwright `35 passed`。
@@ -1263,3 +1263,61 @@ P0-04 最终结果：上述必测命令已执行并通过；`./scripts/check-fro
 已知限制：
 
 - `include_config_versions=true` 暂不支持，返回 `plugin_config_rotation_history_unsupported`（历史轮换后续补齐）。
+
+## v1.6.0-P1-09 插件治理 UI 分页与 E2E 基建（2026-05-15）
+
+新增 / 调整覆盖：
+
+- 后台 E2E：`web/admin-app/tests/e2e/plugin-governance-pages.spec.js` 覆盖 `/admin-next/plugins`、六个插件治理分组、旧路由兼容、本地仓库 / zip 上传包 / 可信发布者 / 远程索引 / 版本仓库 / 操作历史 / 密钥轮换 / 导出入口，以及统一安全边界文案。
+- E2E helper：`web/admin-app/tests/e2e/helpers/pluginHelpers.js` 提供打开插件页、断言安全边界、断言错误码、打开包治理 / 安全 / 远程 / 操作页等基础能力。
+- 旧导航专项由 `plugin-governance-pages.spec.js` 承接；本轮未新增 `test.only`、`page.pause` 或长期 skipped 用例。
+- 配置密钥轮换 E2E 增强了密钥缺失 / blocked UI 的稳定断言，避免环境未配置 key 时只出现短暂 toast。
+
+Fixture 结论：
+
+- 本轮不搬迁既有后端与后台 E2E 插件包 fixture，继续沿用现有 `internal/testdata/plugin-packages/` 与 `web/admin-app/tests/fixtures/` 口径。
+- 危险包、zip slip、checksum mismatch、签名失败等 fixture 仍只用于测试目录，不进入正式 examples；后续建议补统一生成脚本以减少重复 fixture。
+
+执行记录：
+
+- `gofmt`：通过。
+- `go test ./...`：通过。
+- `go build -o .devhub/devhub .`：通过。
+- `git diff --check`：通过。
+- `bash -n dev.sh`：通过。
+- `bash -n scripts/check-frontend.sh`：通过。
+- `docker compose run --rm admin-e2e npm run build`：通过。
+- `docker compose run --rm admin-e2e npm run test:e2e -- tests/e2e/plugin-governance-pages.spec.js`：通过，`4 passed`。
+- `docker compose run --rm admin-e2e npm run test:e2e -- tests/e2e/plugin-config-key-rotation.spec.js tests/e2e/plugin-governance-pages.spec.js`：通过，`5 passed`。
+- `./scripts/check-frontend.sh --admin-only`：通过，后台 build 通过，后台完整 E2E `62 passed`，日志目录 `.devhub/checks/20260515-130417/`。
+
+未执行：本轮未修改前台内容、前台导航、搜索或 SEO 共享逻辑，未执行 `./scripts/check-frontend.sh --frontend-only` 与 `/topics/1/`、`/c/php/` SEO curl。
+
+## v1.6.0-P1-10 插件包上传与分发前置能力总验收（2026-05-15）
+
+E2E 覆盖复查：
+
+- v1.4 插件治理：`plugin-governance.spec.js`、`plugin-content.spec.js`、`plugin-hooks.spec.js`、`plugin-dependencies.spec.js`、`plugin-readiness-errors.spec.js`、`plugin-navigation-admin.spec.js` 均存在。
+- v1.5 插件包治理：`plugin-package-dryrun.spec.js`、`plugin-package-security.spec.js`、`plugin-package-repository.spec.js`、`plugin-package-install.spec.js`、`plugin-config-versions.spec.js`、`plugin-config-encryption.spec.js`、`plugin-approvals.spec.js`、`plugin-package-signature.spec.js`、`plugin-package-export.spec.js` 均存在。
+- v1.6 插件上传与分发前置：`plugin-package-upload.spec.js`、`plugin-package-upload-lifecycle.spec.js`、`plugin-trusted-publishers.spec.js`、`plugin-package-signature-verify.spec.js`、`plugin-remote-indexes.spec.js`、`plugin-versions-upgrade-diff.spec.js`、`plugin-operation-recovery.spec.js`、`plugin-config-key-rotation.spec.js`、`plugin-governance-pages.spec.js` 均存在。
+- `plugin-package-export-zip.spec.js` 当前不存在；当前实现只有本地目录包导出和 `plugin-package-export.spec.js` 覆盖，不提供 zip 下载导出，已登记为 v1.7 技术债。
+
+skipped / flaky / TODO 结论：
+
+- 本轮检查未发现 `test.only` 或 `page.pause`。
+- `plugin-readiness-errors.spec.js` 文档保留的环境探测 skip 只用于旧后端二进制未包含 readiness 路由时避免误判；完整后台 E2E 在当前构建下通过时不视为长期 skipped。
+- 未新增 flaky 标记；若后续 Docker 网络或旧二进制导致 readiness 探测 skip，应优先重建 `.devhub/devhub` 并重启 compose。
+
+最终执行记录：
+
+- `gofmt -w $(git ls-files '*.go')`：通过。
+- `go test ./...`：通过。
+- `go build -o .devhub/devhub .`：通过。
+- `git diff --check`：通过。
+- `bash -n dev.sh`：通过。
+- `bash -n scripts/check-frontend.sh`：通过。
+- `docker compose run --rm admin-e2e npm run build`：通过。
+- `./scripts/check-frontend.sh --admin-only`：通过，后台 build 通过，后台完整 E2E `62 passed`，日志目录 `.devhub/checks/20260515-133558/`。
+- `./scripts/check-frontend.sh --frontend-only`：通过，前台 build 通过，前台 E2E `17 passed`，日志目录 `.devhub/checks/20260515-133815/`。
+- SEO curl `/topics/1/`：通过，命中 title / canonical / Article JSON-LD / article / h1。
+- SEO curl `/c/php/`：通过，命中 title / description / canonical / h1 / topics / tag-cloud。

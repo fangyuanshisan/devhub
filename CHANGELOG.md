@@ -1,6 +1,9 @@
 # Changelog
 
-## v1.6.0 (in progress)
+## v1.6.0 (2026-05-15)
+
+Current `VERSION` is `v1.6.0`. v1.6.0 closes the plugin package upload and distribution-prep track: zip upload sandbox, upload lifecycle, real Ed25519 signature verification, trusted publishers, read-only remote indexes, version repository, upgrade diff, operation recovery previews, config key rotation, and admin plugin UI grouping are in place. See `docs/releases/v1.6.0.md`.
+
 
 - Added admin zip plugin package upload into a controlled sandbox: `.zip` only, 20MB upload limit, 50MB extracted limit, 5MB per-file limit, 300-file limit, depth limit, nested archive blocking, zip slip checks, symlink/special-file blocking, and package-root detection.
 - Added upload detail and promote APIs. Promote copies validated staging packages into `storage/plugins/packages/{code}` but does not install, enable, execute code, run SQL, or dynamically load frontend assets.
@@ -11,6 +14,9 @@
 - Kept the v1.6 boundary strict: promote is not install; uploaded packages still do not execute plugin code, run SQL, dynamically load frontend assets, or connect to a remote marketplace.
 - Added Ed25519 real signature verification for plugin packages and an admin trusted publishers management page/API; signed package dry-run, repository scan, upload detail, promote, install, and approval execution now use verified/trusted/unknown/blocked/revoked signature states in `risk_report`.
 - Added plugin config encryption keyring + rotation tooling: `enc:v2:<key_id>:...` ciphertext format, multi-key decryption for legacy `enc:v1`, admin key status endpoint and rotation dry-run/re-encrypt APIs, plus `/admin-next/plugins/config-keys` UI (no key material exposure, no KMS/Vault, no scheduled rotation).
+- Added read-only remote plugin indexes, plugin package version repository, structured upgrade diffs, and operation recovery previews; these remain metadata / governance flows only and do not download, install, execute code, run SQL, or dynamically load assets.
+- Closed v1.6.0 acceptance with Go tests/build, admin build + full admin E2E (`62 passed`), frontend build + frontend E2E (`17 passed`), SEO curl checks for `/topics/1/` and `/c/php/`, and documented that zip export download/signing packaging is still a v1.7 follow-up.
+- Refined the admin plugin governance UI information architecture into six function groups, added compatibility redirects for older plugin routes, extracted lightweight shared plugin display components, added grouped plugin API exports, and replaced the old navigation E2E with `plugin-governance-pages.spec.js`.
 
 ## v1.5.0 (2026-05-14)
 

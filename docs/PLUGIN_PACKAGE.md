@@ -4,7 +4,7 @@
 
 更新时间：2026-05-14
 
-本文件是 **v1.5.0-P0-01 ~ P0-04** 与 **v1.6.0-P0-01 ~ P0-03** 的阶段性成果：为 DevHub 定义“本地插件包 / 本地插件仓库”规范，并提供 **dry-run 导入预览**、**最小安装闭环**、**后台初始化插件包**、**zip 上传安全沙箱**、**上传包生命周期治理** 与 **Ed25519 真实签名验签 / 可信发布者管理** 能力。
+本文件是 **v1.5.0-P0-01 ~ P0-04** 与 **v1.6.0-P0-01 ~ P1-10** 的阶段性成果：为 DevHub 定义“本地插件包 / 本地插件仓库”规范，并提供 **dry-run 导入预览**、**最小安装闭环**、**后台初始化插件包**、**zip 上传安全沙箱**、**上传包生命周期治理**、**Ed25519 真实签名验签 / 可信发布者管理**、**远程索引只读镜像**、**版本仓库 / 升级差异** 与 **操作恢复 / 密钥轮换边界** 能力。
 
 注意：
 
@@ -721,3 +721,14 @@ exported-plugin/
 高风险变更包括删除 content_type / permission、 新增高危权限、新增 required dependency、依赖约束收紧、config_schema 删除字段 / type 变化 / required 新增、Hook 改为 blocking、新增 migration。阻断项包括目标版本不升、Core 不兼容、required dependency 缺失、checksum mismatch、签名失败、publisher blocked / revoked、manifest invalid、dangerous file 和 remote_index 直接升级。
 
 后台 `/admin-next/plugins/versions` 展示版本仓库、单插件版本列表和升级差异抽屉；远程索引版本会标记只读，必须先通过受控上传 / promote 进入本地仓库后才能参与真实升级流程。
+
+## 后台插件包治理分组（v1.6.0-P1-09）
+
+后台“系统插件”已把插件包相关能力集中到“插件包治理”分组：本地插件仓库、zip 上传包、插件包安装、插件包导出、版本仓库和升级差异。安全相关能力集中到“安全与可信”：风险报告、签名验签、可信发布者、敏感配置加密和密钥轮换。
+
+页面文案继续强调：zip 上传只是进入 staging，promote 只是转入本地插件仓库，安装仍需服务端重新 dry-run / checksum / signature / risk_report / 权限和审批校验；系统不会执行第三方代码、外部 SQL 或动态前端资产。
+
+
+## v1.6.0 收口限制：zip 下载导出
+
+当前已支持将已安装声明型插件导出为 `storage/plugins/exports/` 下的本地插件包目录，并生成 `manifest.json`、`README.md`、脱敏 `config.example.json`、`checksums.json` 和可选 publisher / signature 结构草案。当前不提供 zip 下载包、不提供在线签名打包服务，也不保存或导出私钥；zip export 下载能力登记为 v1.7 后续任务。

@@ -10,7 +10,7 @@
     </el-table-column>
     <el-table-column prop="status" label="状态" width="120">
       <template #default="{ row }">
-        <el-tag :type="statusTagType(row.status)" effect="plain">{{ row.status }}</el-tag>
+        <PluginStatusTag :value="row.status" />
       </template>
     </el-table-column>
     <el-table-column prop="reason" label="说明" min-width="260">
@@ -28,6 +28,8 @@
 </template>
 
 <script setup>
+import PluginStatusTag from './components/PluginStatusTag.vue';
+
 defineProps({
   rows: { type: Array, default: () => [] },
   emptyText: { type: String, default: '暂无数据' },
@@ -35,15 +37,4 @@ defineProps({
   tab: { type: String, default: '' },
 });
 defineEmits(['open']);
-
-function statusTagType(status) {
-  if (status === 'enabled') return 'success';
-  if (status === 'disabled') return 'warning';
-  if (status === 'archived') return 'info';
-  if (status === 'config_invalid') return 'danger';
-  if (status === 'dependency_missing') return 'warning';
-  if (status === 'migration_failed') return 'danger';
-  return 'info';
-}
 </script>
-

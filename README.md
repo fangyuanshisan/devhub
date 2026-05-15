@@ -2,7 +2,7 @@
 
 DevHub 是一个面向多子站场景的通用开源社区程序，采用 Core + Plugins 架构。Core 提供用户、认证、子站、板块、通用内容、评论、标签、搜索、通知、SEO、权限、审计和插件分发能力；问答、文档、Wiki 通过 qa、docs、wiki 内置系统插件扩展。
 
-当前版本：`v1.5.0`，版本主题为“插件包治理收口版”。
+当前版本：`v1.6.0`，版本主题为“插件包上传与分发前置能力收口版”。
 
 当前只维护两个入口：
 
@@ -27,6 +27,8 @@ DevHub 是一个面向多子站场景的通用开源社区程序，采用 Core +
 - [BACKUP_AND_ROLLBACK.md](docs/BACKUP_AND_ROLLBACK.md)
 - [SEO.md](docs/SEO.md)
 - [PLUGIN_ARCHITECTURE.md](docs/PLUGIN_ARCHITECTURE.md)
+- [docs/releases/v1.6.0.md](docs/releases/v1.6.0.md)
+- [docs/releases/v1.5.0.md](docs/releases/v1.5.0.md)
 - [docs/releases/v1.4.0.md](docs/releases/v1.4.0.md)
 - [docs/releases/v1.3.5.md](docs/releases/v1.3.5.md)
 - [CHANGELOG.md](CHANGELOG.md)
@@ -42,20 +44,20 @@ DevHub 是一个面向多子站场景的通用开源社区程序，采用 Core +
 - 治理与后台：支持举报、版主子站范围治理、内容治理、评论治理、子站管理、板块管理、系统插件管理和审计日志。
 - 存储模式：MemoryStore 与 MySQLStore。
 
-## v1.5.0 定位
+## v1.6.0 定位
 
-DevHub v1.5.0 是“插件包治理收口版”。本版本在既有插件治理中心、安装 / 升级向导、配置版本历史、敏感配置加密、审批流和签名/可信来源草案基础上，重点补齐本地插件包规范、dry-run、checksum 风险报告、本地插件仓库扫描、本地插件包安装闭环、已安装插件导出为本地插件包，以及相关的安全边界与审计闭环。
+DevHub v1.6.0 是“插件包上传与分发前置能力收口版”。本版本在 v1.5 本地插件包治理基础上，补齐 zip 上传安全沙箱、上传包生命周期、Ed25519 真实签名验签、可信发布者管理、远程插件索引只读镜像、版本仓库、升级差异、操作快照 / 失败恢复预览、配置密钥轮换，以及后台插件治理 UI 分组和测试基建整理。
 
-完整插件系统是当前最高优先级长期主线。Core 只保留通用社区底座，业务能力逐步通过插件声明、状态、权限、菜单、配置、Hook、migration、API、SEO、通知、搜索和测试矩阵扩展；远程市场、在线更新、动态加载和第三方代码执行仍不属于当前实现。
+完整插件系统是当前最高优先级长期主线。Core 只保留通用社区底座，业务能力逐步通过插件声明、状态、权限、菜单、配置、Hook、migration、API、SEO、通知、搜索和测试矩阵扩展；远程市场、自动远程下载、在线更新、动态加载、脚本沙箱、第三方代码执行、外部 raw SQL、migration down 和 hard uninstall 仍不属于当前实现。
 
-本版本范围和当前限制以 [v1.5.0 Release Notes](docs/releases/v1.5.0.md) 为准，长期滚动状态见 [项目进度](docs/PROJECT_PROGRESS.md)。
+本版本范围和当前限制以 [v1.6.0 Release Notes](docs/releases/v1.6.0.md) 为准，长期滚动状态见 [项目进度](docs/PROJECT_PROGRESS.md)。
 
 历史版本说明见 `docs/README.md` 的“历史版本归档”。
 
 ## Roadmap
 
-- v1.5.0 / 当前：插件包治理收口，已覆盖本地插件包规范、dry-run、checksum / 风险报告、本地仓库扫描、本地插件包安装闭环、配置版本历史、敏感配置加密、审批流、签名/可信来源草案、已安装插件导出为本地插件包，以及相关文档和 E2E 验收。
-- v1.6.x / P0-P1：插件包 zip 上传与解压安全沙箱、签名真实验签、trusted publishers 管理、插件包版本仓库、插件配置密钥轮换与导入审批增强。
+- v1.6.0 / 当前：插件包上传与分发前置能力收口，已覆盖 zip 上传安全沙箱、上传包生命周期、真实签名验签、可信发布者、远程索引只读镜像、版本仓库、升级差异、失败恢复预览、配置密钥轮换和插件治理 UI 分组。
+- v1.7.x / P0-P1：远程插件包下载到 staging、下载审批与安全校验、远程索引缓存刷新、trusted publishers 只读同步草案、zip export 下载能力与插件包安全 fixture 生成器。
 - v2.x / P3：远程插件市场、在线更新、动态加载能力评估、脚本沙箱和插件权限隔离。
 - 业务插件专项：Docs/Wiki 专用体验、开源项目、招聘、AI 作品专属业务闭环在插件平台底座稳定后推进。
 

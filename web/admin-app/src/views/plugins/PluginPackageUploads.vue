@@ -11,13 +11,7 @@
       </div>
     </header>
 
-    <el-alert
-      class="mb"
-      type="info"
-      show-icon
-      :closable="false"
-      title="上传包只是 staging；不会执行插件代码、不会执行 SQL、不会加载前端资产。安装仍需 dry-run / 审批 / 安装流程。"
-    />
+    <PluginPackageBoundaryNotice title="上传包只是 staging；不会执行插件代码、不会执行 SQL、不会加载前端资产。" />
 
     <section class="toolbar">
       <el-upload
@@ -35,7 +29,7 @@
       <span class="muted">限制：zip 20MB、解压 50MB、单文件 5MB、最多 300 文件；嵌套压缩包、路径穿越和 symlink 会被阻断。</span>
     </section>
 
-    <el-alert v-if="errorText" class="mb" type="error" show-icon :closable="false" :title="errorText" data-testid="upload-error" />
+    <PluginErrorAlert v-if="errorText" class="mb" :message="errorText" data-testid="upload-error" />
 
     <section class="filters">
       <el-input v-model="filters.keyword" data-testid="upload-filter-keyword" placeholder="搜索 upload_id / 文件名 / code" clearable @keyup.enter="fetchUploads" />
@@ -59,9 +53,11 @@
       <el-table-column prop="package_code" label="code" min-width="120" />
       <el-table-column prop="package_version" label="版本" width="100" />
       <el-table-column prop="status" label="状态" width="160">
-        <template #default="{ row }"><el-tag :type="statusType(row.status)">{{ row.status }}</el-tag></template>
+        <template #default="{ row }"><PluginStatusTag :value="row.status" /></template>
       </el-table-column>
-      <el-table-column prop="risk_level" label="风险" width="110" />
+      <el-table-column prop="risk_level" label="风险" width="110">
+        <template #default="{ row }"><PluginRiskTag :level="row.risk_level" /></template>
+      </el-table-column>
       <el-table-column prop="checksum_status" label="checksum" width="120" />
       <el-table-column prop="signature_status" label="signature" width="130" />
       <el-table-column prop="trust_status" label="trust" width="110" />
@@ -134,6 +130,10 @@
 <script setup>
 import { computed, onMounted, reactive, ref } from 'vue';
 import { ElMessage } from 'element-plus';
+import PluginErrorAlert from './components/PluginErrorAlert.vue';
+import PluginPackageBoundaryNotice from './components/PluginPackageBoundaryNotice.vue';
+import PluginRiskTag from './components/PluginRiskTag.vue';
+import PluginStatusTag from './components/PluginStatusTag.vue';
 import {
   approvePluginPackageUpload,
   cancelPluginPackageUpload,
@@ -146,7 +146,7 @@ import {
   rescanPluginPackageUpload,
   submitPluginPackageUploadApproval,
   uploadPluginPackageZip,
-} from '@/api/admin';
+} from '@/api/plugins';
 
 const statuses = ['uploaded', 'scanned', 'staged', 'blocked', 'approval_pending', 'approval_rejected', 'approved', 'promoted', 'install_approval_pending', 'installed', 'canceled', 'expired', 'deleted', 'failed'];
 const filters = reactive({ keyword: '', status: 'all', risk_level: 'all', page: 1, page_size: 20 });
@@ -165,13 +165,6 @@ const actionMap = computed(() => Object.fromEntries((detail.value?.actions || []
 const disabledReasons = computed(() => (detail.value?.actions || []).filter((item) => !item.enabled && item.reason).map((item) => `${item.reason_code}: ${item.reason}`).join('；'));
 
 onMounted(fetchUploads);
-
-function statusType(status) {
-  if (status === 'staged' || status === 'approved' || status === 'promoted') return 'success';
-  if (status === 'blocked' || status === 'failed' || status === 'deleted') return 'danger';
-  if (status === 'approval_pending') return 'warning';
-  return 'info';
-}
 
 function actionEnabled(name) {
   return Boolean(actionMap.value[name]?.enabled);

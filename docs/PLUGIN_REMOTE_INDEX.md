@@ -115,3 +115,11 @@
 远程索引中的版本会出现在插件版本仓库中，来源标记为 `remote_index`。这些记录只包含远程元数据：`package_url`、`package_sha256`、publisher、Core 兼容性和风险提示。DevHub 不下载 `package_url`，不执行远程包 dry-run，不把远程版本当成本地可升级包。
 
 如需对远程版本执行升级差异对比，必须先通过后续受控下载 / 当前 zip 上传沙箱 / promote 流程把插件包纳入 `storage/plugins/packages/`。直接对 `remote_index` 调用 upgrade-diff 会返回 `plugin_version_remote_readonly`。
+
+## 后台入口分组（v1.6.0-P1-09）
+
+远程插件索引页面归入后台“系统插件 / 远程与开发者”分组。页面仍保持只读定位：只展示远程 index.json 元数据、publisher trust、Core 兼容性和本地安装状态，不提供下载、安装、自动更新、动态加载或远程市场入口。
+
+## v1.6.0 总验收边界
+
+v1.6.0 收口后，远程插件索引仍是只读镜像能力：只拉取 `index.json`，展示远程插件元数据、publisher trust、Core 兼容性和本地安装状态。系统不会下载 `package_url`，不会触发升级 dry-run，不会自动信任远程 publisher，也不会安装远程插件。远程包下载到 staging 与下载安全校验登记为 v1.7 后续任务。

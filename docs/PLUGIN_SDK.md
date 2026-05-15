@@ -261,3 +261,7 @@ unknown fields 策略：object 默认拒绝未知字段；只有 `additionalProp
 ## v1.6.0-P0-04 远程索引说明
 
 远程插件索引只展示插件包元数据；SDK / manifest 编写规则不因本轮改变。若未来希望插件出现在远程索引中，应提供稳定的 `code`、`name`、版本、Core 兼容字段、`publisher_id`、`public_key_id`、`package_sha256` 和可选 `signature_url`。DevHub 本轮不会下载或安装远程索引中的包。
+
+## v1.6.0 收口说明
+
+v1.6.0 未改变插件 SDK 的声明型安全边界。插件包上传、远程索引、版本仓库、签名验签、密钥轮换和操作恢复均围绕 manifest / 配置 / 包元数据治理展开；SDK 仍不支持动态加载 Go 代码、JS/WASM/Lua 脚本沙箱、第三方代码执行、外部 raw SQL 自动执行或 migration down。

@@ -16,7 +16,7 @@
       <template #header>
         <div class="card-header">
           <span>密钥状态</span>
-          <el-tag :type="statusTagType(status?.status)" data-testid="plugin-config-keys-status-tag">{{ status?.status || '-' }}</el-tag>
+          <PluginStatusTag :value="status?.status" testid="plugin-config-keys-status-tag" />
         </div>
       </template>
       <el-descriptions :column="2" border>
@@ -44,7 +44,10 @@
         </div>
       </template>
 
-      <el-alert type="info" show-icon title="dry-run 不会修改任何配置；re-encrypt 会把可解密的旧密文转换为 enc:v2 并使用 current key。" />
+      <PluginPackageBoundaryNotice
+        title="dry-run 不会修改任何配置；re-encrypt 会把可解密的旧密文转换为 enc:v2 并使用 current key。"
+        description="不执行第三方代码，不执行外部 SQL，不动态加载前端资产；页面不会展示密钥明文、密文或真实 secret，本轮不支持 KMS/Vault/自动定时轮换。"
+      />
 
       <div class="form-row">
         <el-select v-model="form.scope" placeholder="scope" style="width: 160px">
@@ -61,7 +64,7 @@
 
       <div v-if="dryRunResult" class="result">
         <div class="result-header">
-          <el-tag :type="statusTagType(dryRunResult.status)" data-testid="plugin-config-keys-rotation-status">{{ dryRunResult.status }}</el-tag>
+          <PluginStatusTag :value="dryRunResult.status" testid="plugin-config-keys-rotation-status" />
           <span class="ml8">current_key_id: {{ dryRunResult.current_key_id }}</span>
         </div>
 
@@ -124,7 +127,9 @@
 <script setup>
 import { computed, onMounted, ref } from 'vue';
 import { ElMessage, ElMessageBox } from 'element-plus';
-import { dryRunPluginConfigKeyRotation, getPluginConfigKeyStatus, reencryptPluginConfigKeys } from '@/api/admin';
+import PluginPackageBoundaryNotice from './components/PluginPackageBoundaryNotice.vue';
+import PluginStatusTag from './components/PluginStatusTag.vue';
+import { dryRunPluginConfigKeyRotation, getPluginConfigKeyStatus, reencryptPluginConfigKeys } from '@/api/plugins';
 import { useAuthStore } from '@/stores/auth';
 
 const auth = useAuthStore();
@@ -145,20 +150,21 @@ const reencryptLoading = ref(false);
 const dryRunResult = ref(null);
 const showItems = ref(false);
 
-const statusTagType = (s) => {
-  if (s === 'ok') return 'success';
-  if (s === 'warning') return 'warning';
-  if (s === 'blocked') return 'danger';
-  return 'info';
-};
-
 const loadStatus = async () => {
   loading.value = true;
   try {
-    const { data } = await getPluginConfigKeyStatus();
-    status.value = data;
+    status.value = await getPluginConfigKeyStatus();
   } catch (e) {
-    ElMessage.error(String(e?.response?.data?.message || e?.message || '加载失败'));
+    const error = apiError(e);
+    status.value = {
+      current_key_id: '',
+      loaded_key_ids: [],
+      legacy_v1_supported: false,
+      key_count: 0,
+      status: 'blocked',
+      warnings: [error],
+    };
+    ElMessage.error(error);
   } finally {
     loading.value = false;
   }
@@ -174,14 +180,37 @@ const dryRun = async () => {
       community_id: Number(form.value.community_id || 0) || 0,
       include_config_versions: false,
     };
-    const { data } = await dryRunPluginConfigKeyRotation(payload);
-    dryRunResult.value = data;
+    dryRunResult.value = await dryRunPluginConfigKeyRotation(payload);
   } catch (e) {
-    ElMessage.error(String(e?.response?.data?.message || e?.message || 'dry-run 失败'));
+    const error = apiError(e);
+    dryRunResult.value = {
+      status: 'blocked',
+      current_key_id: status.value?.current_key_id || '',
+      summary: {
+        total_sensitive_values: 0,
+        already_current: 0,
+        needs_reencrypt: 0,
+        legacy_v1: 0,
+        decrypt_failed: 0,
+        missing_key: 1,
+      },
+      items: [],
+      warnings: [],
+      errors: [{ message: error, suggestion: '请配置 DEVHUB_PLUGIN_CONFIG_KEYS 或 DEVHUB_PLUGIN_CONFIG_KEY_ID/DEVHUB_PLUGIN_CONFIG_KEY 后重试。' }],
+    };
+    ElMessage.error(error);
   } finally {
     dryRunLoading.value = false;
   }
 };
+
+function apiError(error) {
+  const data = error?.response?.data?.error || error?.response?.data || {};
+  const code = data.code ? `[${data.code}] ` : '';
+  const message = data.message || error?.message || '请求失败';
+  const suggestion = data.suggestion ? ` 建议：${data.suggestion}` : '';
+  return `${code}${message}${suggestion}`;
+}
 
 const doReencrypt = async () => {
   if (!canManage.value) {
@@ -207,7 +236,7 @@ const doReencrypt = async () => {
       include_config_versions: false,
       confirm_current_key_id: currentKeyID,
     };
-    const { data } = await reencryptPluginConfigKeys(payload);
+    const data = await reencryptPluginConfigKeys(payload);
     ElMessage.success(`re-encrypt 完成：updated_count=${data.updated_count || 0}`);
     await loadStatus();
     await dryRun();
@@ -258,4 +287,3 @@ onMounted(loadStatus);
   margin-left: 12px;
 }
 </style>
-

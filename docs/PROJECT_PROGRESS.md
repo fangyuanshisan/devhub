@@ -2,24 +2,21 @@
 
 [返回文档入口](README.md)
 
-更新时间：2026-05-14
+更新时间：2026-05-15
 
 本文档只记录当前仓库真实状态、当前风险和下一步任务。历史版本能力已并入当前分支，详情见对应 Release Notes；旧版本已解决问题不再占用当前主体。
 
 ## 当前版本结论
 
-当前 `VERSION` 为 `v1.5.0`，主题是“插件包治理收口版”。本版本已完成本地插件包规范、dry-run、checksum / 风险报告、本地插件仓库扫描、本地插件包安装闭环、配置版本历史、敏感配置加密、审批流、签名/可信来源草案、已安装插件导出为本地插件包，以及与之对应的后台信息架构、前台入口治理和 E2E 验收。DevHub 当前定位为多子站通用开源社区程序，默认演示为开发者社区。
+当前 `VERSION` 为 `v1.6.0`，主题是“插件包上传与分发前置能力收口版”。本版本在 v1.5 本地插件包治理基础上，完成 zip 上传与解压安全沙箱、上传包生命周期治理、Ed25519 真实签名验签、可信发布者管理、远程插件索引只读镜像、插件包版本仓库、升级差异对比、安装 / 升级操作快照与失败恢复预览、配置密钥轮换，以及插件治理后台按功能分页和 E2E 基建整理。DevHub 当前定位为多子站通用开源社区程序，默认演示为开发者社区。
 
-进入 `v1.6.0`：当前主题是“插件包上传与分发前置能力”。v1.6.0-P0-01 已新增后台 zip 插件包上传安全沙箱：`系统插件 -> 安装升级 -> 上传插件包 zip` 可上传 `.zip`，服务端保存到 `storage/plugins/uploads/`，安全解压到 `storage/plugins/staging/{upload_id}/`，解压成功但 dry-run blocked 的包进入 `storage/plugins/quarantine/{upload_id}/`，随后复用 v1.5 本地插件包 scanner / checksum / signature / risk_report / dry-run。v1.6.0-P0-02 已把上传包升级为 `plugin_package_uploads` 生命周期对象，新增 `/admin-next/plugins/packages/uploads` 上传包管理页，支持列表、详情、重新扫描、导入审批、审批通过/拒绝、promote、取消、删除与手动 cleanup；promote 只复制到 `storage/plugins/packages/{manifest.code}/`，不安装插件、不提交安装、不启用插件。当前仍不做远程市场、远程下载、在线更新、动态加载、脚本沙箱、第三方代码执行、外部 SQL 执行或动态前端资产加载。
-v1.5.0 收口后曾新增“后台初始化插件包”入口：`系统插件 -> 安装升级` 可填写 `code/name/content_type/content_name/description/author/with_config/with_hooks/with_migration`，后端固定在 `storage/plugins/packages/{code}` 下生成声明型插件模板并自动 package dry-run；CLI 与 HTTP 复用同一套模板生成逻辑，后台版不生成 `registry.example.go`，改写入 `docs/registry-example.md` 以避免 `.go` dangerous file 阻断。
-v1.5.0-P0-03 已新增“本地插件仓库目录扫描”：支持扫描仓库目录下多个插件包并展示 discovered packages 列表/详情/dry-run（不执行、不动态加载）；默认仓库目录建议为 `storage/plugins/packages/`，测试 fixtures 位于 `plugins-local/repository-fixtures/`；详见 `docs/PLUGIN_PACKAGE.md` 与 `docs/releases/v1.5.0.md`。
-v1.5.0-P0-04 已新增“本地插件包安装闭环”：允许从本地插件仓库选择校验通过的插件包执行安装（安装前强制复跑 dry-run；安装后默认 `disabled`，`source_type=local_package`），仍不执行第三方代码/SQL、不动态加载前端资产；详见 `docs/PLUGIN_PACKAGE.md` 与 `docs/releases/v1.5.0.md`。
-v1.5.0-P1-05 已新增“插件配置版本历史与回滚预览”：保存全局/子站配置会记录版本、diff、changed_keys 和审计跳转；回滚仅提供 dry-run 预览，不写入配置；详见 `docs/releases/v1.5.0.md` 与 `docs/API.md`。
-v1.5.0-P1-06 已新增“插件敏感配置加密存储”：敏感字段按规则加密入库，API / diff / 历史 / 审计继续脱敏；当前不做 KMS/Vault/轮换/历史明文批量迁移；详见 `docs/releases/v1.5.0.md` 与 `docs/API.md`。
-v1.5.0-P1-07 已新增“插件安装/升级审批流”：提供审批申请、审批中心与执行闭环；执行时会重新 dry-run 校验，审批不等于绕过后端强校验；详见 `docs/releases/v1.5.0.md` 与 `docs/API.md`。
-v1.5.0-P1-08 已完成“插件治理 service/handler 拆分”：在不改变 API/错误码/权限语义的前提下拆分插件治理后端代码结构（`httpapi` 插件相关 handler 拆文件、`service` 生命周期方法迁出），并调整 E2E compose 默认通过内部 `devhub` 服务运行，提升 Playwright 可执行性；详见 `docs/releases/v1.5.0.md` 与 `docs/TESTING.md`。
-v1.5.0-P2-09 已落地“插件包签名与可信来源草案”：支持读取 `publisher.json` / `signature.json` 结构、本地 `trusted_publishers` 配置与签名风险提示；当前仅支持草案 / structural-only 口径，不做远程可信源同步或完整 PKI 平台；详见 `docs/PLUGIN_PACKAGE.md` 与 `docs/releases/v1.5.0.md`。
-v1.5.0-P2-10 已新增“已安装插件导出为本地插件包”：支持导出声明型插件的 `manifest.json`、`README.md`、脱敏 `config.example.json`、`checksums.json` 与可选 docs/migrations/publisher/signature 草案；导出目录限制在 `storage/plugins/exports/`，导出后会自动 package dry-run 自检，仍不导出敏感配置、用户数据、运行时代码、外部 SQL，不生成 zip 或远程发布；详见 `docs/PLUGIN_PACKAGE.md` 与 `docs/releases/v1.5.0.md`。
+v1.6.0 收口确认的安全边界：zip 上传只进入 staging / quarantine，不自动安装；promote 只转入本地插件仓库，不等于安装；远程索引只读展示 `index.json` 元数据，不下载 `package_url`；安装、升级、promote 和审批执行前仍需服务端重新 dry-run / checksum / signature / risk_report；后台不展示私钥、key material、敏感配置明文、`enc:v1` / `enc:v2` 密文或系统绝对路径。
+
+v1.6.0 仍不支持：远程插件市场、远程插件包自动下载、在线自动更新、自动安装依赖、动态加载 Go 代码、JS/WASM/Lua 脚本沙箱、第三方代码执行、外部 raw SQL 执行、动态前端资产加载、完整 PKI / CA 证书链、远程可信源自动同步、多级审批、hard uninstall、migration down 或全量业务数据自动回滚。
+
+验收发现的限制 / 技术债：当前已安装插件导出仍是 `storage/plugins/exports/` 目录包导出与可选 `signature.json` 结构草案，不提供 zip 下载包与在线签名打包；`plugin-package-export-zip.spec.js` 当前不存在，zip 导出下载能力应作为 v1.7 后续任务处理，不能写作 v1.6 已完成能力。配置历史密钥批量轮换、自动定时轮换、KMS/Vault、远程索引缓存刷新策略、上传/下载异步任务队列和更完整事务恢复仍为后续增强。
+
+下一阶段建议进入 `v1.7.0-P0-01`：远程插件包下载到 staging 与下载安全校验。v1.7 仍应优先做受控下载、审批、安全校验、缓存刷新、zip export 下载和 fixture 生成器，不应直接引入动态运行时或第三方代码执行。
 
 Core 保留用户、认证、子站、板块、通用内容、评论、标签、搜索、通知、SEO、权限、审计、插件注册和分发能力。问答、文档、Wiki、项目、招聘、AI 作品已按内置系统插件建模：`qa -> question`、`docs -> document`、`wiki -> wiki_page`、`projects -> project`、`jobs -> job`、`ai_works -> ai_work`。
 
@@ -2797,3 +2794,71 @@ v1.6.0-P0-06：插件包安装 / 升级回滚保护与失败恢复。
 下一轮建议：
 
 v1.6.0-P1-08：插件包导出 zip 与签名打包增强。
+
+## 2026-05-15：v1.6.0-P1-09 插件治理 UI 按功能分页二次优化与测试基建整理
+
+已完成：
+
+- 后台“系统插件”二级导航按六类重新收束：插件运营、插件包治理、安全与可信、流程与恢复、运行治理、远程与开发者。
+- 保留旧路由兼容：`/admin-next/plugins` 继续进入概览，`/plugins/governance`、`/plugins/manifest`、`/plugins/diagnostics` 继续 redirect 到真实页面；新增 `/plugins/packages/*`、`/plugins/upgrade-diff`、`/plugins/security` 兼容入口。
+- 新增轻量展示组件：`PluginStatusTag`、`PluginRiskTag`、`PluginPackageBoundaryNotice`、`PluginErrorAlert`；上传包页和密钥轮换页已接入统一安全边界提示和状态展示。
+- 新增 `web/admin-app/src/api/plugins.js` 作为插件治理 API 分组出口；本轮不改变后端 API 语义、权限口径或风险判断规则。
+- 新增 E2E helper `web/admin-app/tests/e2e/helpers/pluginHelpers.js`，并将原插件页面导航用例收束为 `plugin-governance-pages.spec.js`。
+- 修复密钥轮换页在缺少密钥环境下只弹 toast、不渲染 blocked dry-run 结果的问题；页面现在展示结构化 blocked 状态，不返回 key material、密文或敏感明文。
+
+测试与验收：
+
+- `gofmt`：通过。
+- `go test ./...`：通过。
+- `go build -o .devhub/devhub .`：通过。
+- `git diff --check`：通过。
+- `bash -n dev.sh`：通过。
+- `bash -n scripts/check-frontend.sh`：通过。
+- `docker compose run --rm admin-e2e npm run build`：通过。
+- `docker compose run --rm admin-e2e npm run test:e2e -- tests/e2e/plugin-governance-pages.spec.js`：通过，`4 passed`。
+- `./scripts/check-frontend.sh --admin-only`：通过，后台 build 通过，后台完整 E2E `62 passed`；日志目录 `.devhub/checks/20260515-130417/`。
+
+未执行：
+
+- 本轮只改后台 UI 与后台 E2E 基建，未修改前台内容、导航、搜索或 SEO；未执行 `./scripts/check-frontend.sh --frontend-only` 与 SEO curl。
+- 额外专项 E2E（上传、可信发布者、远程索引）未单独重复执行；已由 `--admin-only` 完整后台 E2E 覆盖。`plugin-package-export-zip.spec.js` 当前不存在，zip 下载导出能力登记为后续技术债。
+
+边界：
+
+- 本轮不新增插件底层能力，不新增远程市场、远程下载安装、自动升级、动态加载、脚本沙箱、第三方代码执行、外部 SQL 或动态前端资产。
+- 前端继续只展示后端返回的风险 / blocked 结论，不在 UI 伪造安全判断。
+
+下一轮建议：
+
+v1.6.0-P1-10：v1.6 插件包上传与分发前置能力总验收。
+
+
+## 2026-05-15：v1.6.0-P1-10 插件包上传与分发前置能力总验收
+
+已完成：
+
+- 统一 `VERSION`、README、CHANGELOG、docs/README、PROJECT_PROGRESS、PLUGIN_SYSTEM_ROADMAP 与 v1.6.0 Release Notes 的当前版本口径。
+- 复查 v1.6 插件包上传、上传包生命周期、真实签名验签、可信发布者、远程索引只读镜像、版本仓库、升级差异、操作恢复、配置密钥轮换和插件治理 UI 分组。
+- 明确当前目录包导出已存在，但 zip 下载导出 / 在线签名打包未实现，登记为 v1.7 技术债。
+- 补充 v1.7 规划：远程插件包下载到 staging、下载安全校验、远程索引缓存刷新、trusted publishers 只读同步草案、zip export 下载、任务队列和 fixture 生成器。
+
+测试结果：
+
+- `gofmt -w $(git ls-files '*.go')`：通过。
+- `go test ./...`：通过。
+- `go build -o .devhub/devhub .`：通过。
+- `git diff --check`：通过。
+- `bash -n dev.sh`：通过。
+- `bash -n scripts/check-frontend.sh`：通过。
+- `docker compose run --rm admin-e2e npm run build`：通过。
+- `./scripts/check-frontend.sh --admin-only`：通过，后台完整 E2E `62 passed`，日志目录 `.devhub/checks/20260515-133558/`。
+- `./scripts/check-frontend.sh --frontend-only`：通过，前台 E2E `17 passed`，日志目录 `.devhub/checks/20260515-133815/`。
+- SEO curl `/topics/1/` 与 `/c/php/`：通过。
+
+未执行：
+
+- 未单独执行 `--admin-only --e2e-only` / `--frontend-only --e2e-only`；完整 admin-only / frontend-only 已包含 E2E。
+
+下一轮建议：
+
+`v1.7.0-P0-01`：远程插件包下载到 staging 与下载安全校验。

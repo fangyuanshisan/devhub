@@ -2,7 +2,7 @@
 
 [返回文档入口](README.md)
 
-更新时间：2026-05-14（v1.5.0 插件包治理收口验收；历史 v1.4.0 能力保持可追溯）
+更新时间：2026-05-15（v1.6.0 插件包上传与分发前置能力总验收；历史 v1.5.0 / v1.4.0 能力保持可追溯）
 
 本文档只记录当前仓库真实可用 API。接口路径以 `internal/transport/httpapi/router.go` 为准；未实现能力集中放在“规划 / 未完成”小节，不写入当前真实 API 主体。
 
@@ -2094,3 +2094,13 @@ GET /api/v1/admin/plugins/remote-indexes/:id/plugins/:code
 阻断规则：目标版本小于等于当前版本、Core 不兼容、required dependency 缺失、checksum mismatch、签名验签失败、publisher blocked / revoked、manifest invalid、dangerous file、package risk blocked、远程索引版本直接升级。
 
 新增错误码：`plugin_version_not_found`、`plugin_version_source_invalid`、`plugin_version_compare_failed`、`plugin_version_downgrade_forbidden`、`plugin_version_same_version`、`plugin_version_package_missing`、`plugin_version_remote_readonly`、`plugin_upgrade_diff_failed`、`plugin_upgrade_diff_blocked`、`plugin_upgrade_diff_high_risk`、`plugin_upgrade_diff_sensitive_redacted`、`plugin_upgrade_target_core_incompatible`、`plugin_upgrade_target_dependency_missing`、`plugin_upgrade_target_signature_invalid`、`plugin_upgrade_target_publisher_blocked`。
+
+## v1.6.0-P1-09 插件治理 UI 整理说明
+
+本轮仅整理后台插件治理信息架构、前端 API facade 与 E2E 基建，不新增后端 API，不改变既有请求参数、响应结构、错误码或权限语义。`web/admin-app/src/api/plugins.js` 只是后台前端对既有 admin API 的分组导出层；后端插件包、审批、操作历史、可信发布者、远程索引、版本仓库、密钥轮换等接口仍以本文件前述章节为准。
+
+## v1.6.0-P1-10 API 一致性收口
+
+本轮未新增后端 API，主要复核 v1.6 已有接口与文档口径。当前 v1.6 API 范围包括：zip upload、upload list/detail/rescan/promote/cancel/delete/cleanup、trusted publishers、remote indexes、versions / upgrade-diff、operations / recover dry-run / cleanup、config-keys status / rotation dry-run / re-encrypt，以及已有目录包 export dry-run / export。
+
+限制：当前没有 zip export 下载 API，也没有远程 package 下载 / 安装 API；`package_url` 只在远程索引中作为元数据展示，不会被服务端下载。
