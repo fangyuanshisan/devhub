@@ -3,6 +3,7 @@ package service
 import (
 	"encoding/base64"
 	"strings"
+	"time"
 
 	"devhub-gin-backend/internal/domain"
 	pluginregistry "devhub-gin-backend/internal/plugins"
@@ -160,6 +161,7 @@ func normalizeTrustedPublisher(req domain.PluginTrustedPublisher) (domain.Plugin
 	req.PublicKeyAlgorithm = strings.ToLower(strings.TrimSpace(req.PublicKeyAlgorithm))
 	req.PublicKey = strings.TrimSpace(req.PublicKey)
 	req.Status = strings.ToLower(strings.TrimSpace(req.Status))
+	req.ExpiresAt = strings.TrimSpace(req.ExpiresAt)
 	if req.Status == "" {
 		req.Status = "trusted"
 	}
@@ -175,6 +177,14 @@ func normalizeTrustedPublisher(req domain.PluginTrustedPublisher) (domain.Plugin
 	}
 	if req.Status != "trusted" && req.Status != "blocked" && req.Status != "revoked" {
 		return domain.PluginTrustedPublisher{}, domain.NewPluginError("plugin_trusted_publisher_invalid_status", "可信发布者状态不合法").WithStatus(400).WithDetail("status", req.Status)
+	}
+	if req.ExpiresAt != "" {
+		if _, err := time.ParseInLocation("2006-01-02 15:04:05", req.ExpiresAt, time.Local); err != nil {
+			return domain.PluginTrustedPublisher{}, domain.NewPluginError("plugin_trusted_publisher_invalid_key", "expires_at 格式不合法").
+				WithStatus(400).
+				WithDetail("expires_at", req.ExpiresAt).
+				WithSuggestion("请使用格式：YYYY-MM-DD HH:mm:ss。")
+		}
 	}
 	req.Fingerprint = pluginregistry.FingerprintTrustedPublisherPublicKey(req.PublicKey)
 	return req, nil

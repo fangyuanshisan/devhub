@@ -58,6 +58,12 @@ type Repository interface {
 	SavePluginPackageDownload(record domain.PluginPackageDownloadRecord) (domain.PluginPackageDownloadRecord, error)
 	PluginPackageDownloadByID(id int64) (domain.PluginPackageDownloadRecord, bool)
 	PluginPackageDownloads(filter domain.PluginPackageDownloadFilter) ([]domain.PluginPackageDownloadRecord, int, error)
+	// Plugin package detached signature verification (v1.7.1).
+	AppendPluginPackageSignature(record domain.PluginPackageSignatureRecord) (domain.PluginPackageSignatureRecord, error)
+	SavePluginPackageSignature(record domain.PluginPackageSignatureRecord) (domain.PluginPackageSignatureRecord, error)
+	PluginPackageSignatureByID(id int64) (domain.PluginPackageSignatureRecord, bool)
+	PluginPackageSignatures(filter domain.PluginPackageSignatureFilter) ([]domain.PluginPackageSignatureRecord, int, error)
+	LatestPluginPackageSignatureByPrecheckID(precheckID int64) (domain.PluginPackageSignatureRecord, bool)
 	// Plugin package prechecks / compatibility checks (v1.7.0-P0-03).
 	AppendPluginPackagePrecheck(record domain.PluginPackagePrecheckRecord) (domain.PluginPackagePrecheckRecord, error)
 	SavePluginPackagePrecheck(record domain.PluginPackagePrecheckRecord) (domain.PluginPackagePrecheckRecord, error)

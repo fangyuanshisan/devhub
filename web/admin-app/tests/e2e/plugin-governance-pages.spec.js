@@ -14,7 +14,7 @@ test.describe('plugin governance pages', () => {
 
     const subNav = page.getByTestId('admin-sub-nav');
     await expect(subNav).toBeVisible();
-    for (const group of ['ops', 'govern', 'security', 'flow', 'runtime', 'dev']) {
+    for (const group of ['overview', 'manage', 'packages', 'security', 'config', 'runtime', 'logs', 'market']) {
       await expect(subNav.getByTestId(`admin-sub-nav-group-${group}`)).toBeVisible();
     }
 
@@ -28,13 +28,19 @@ test.describe('plugin governance pages', () => {
 
   test('opens implemented plugin function pages from every group', async ({ page }) => {
     await openPluginPage(page, 'list', /\/plugins\/list/, 'admin-plugins-page');
+    await expect(page.getByTestId('admin-primary-nav-plugins')).toHaveClass(/active/);
+    await expect(page.getByTestId('admin-sub-nav-group-manage')).toHaveClass(/active/);
+    await expect(page.getByTestId('admin-sub-nav-list')).toHaveClass(/active/);
+    await expect(page.getByTestId('admin-breadcrumb')).toContainText('插件');
+    await expect(page.getByTestId('admin-breadcrumb')).toContainText('插件管理');
+    await expect(page.getByTestId('admin-breadcrumb')).toContainText('插件列表');
+
     await openPluginPage(page, 'content', /\/plugins\/content/, 'plugin-content-hub-page');
+    await openPluginPage(page, 'permissions', /\/plugins\/permissions/, 'plugin-permissions-page');
     await openPluginPage(page, 'install', /\/plugins\/install/, 'plugin-install-page');
     await openPluginPage(page, 'packageUploads', /\/plugins\/packages\/uploads/, 'plugin-package-upload-lifecycle-page');
-    await openPluginPage(page, 'packageInstall', /\/plugins\/install/, 'plugin-install-page');
-    await openPluginPage(page, 'packageExport', /\/plugins\/install/, 'plugin-install-page');
+    await openPluginPage(page, 'remotePackages', /\/plugins\/packages\/remote/, 'plugin-remote-packages-page');
     await openPluginPage(page, 'versions', /\/plugins\/versions/, 'plugin-versions-page');
-    await openPluginPage(page, 'upgradeDiff', /\/plugins\/versions/, 'plugin-versions-page');
     await openPluginPage(page, 'trustedPublishers', /\/plugins\/trusted-publishers/, 'plugin-trusted-publishers-page');
     await openPluginPage(page, 'configKeys', /\/plugins\/config-keys/, 'plugin-config-keys-page');
     await openPluginPage(page, 'approvals', /\/plugins\/approvals/, 'plugin-approvals-page');
@@ -42,8 +48,11 @@ test.describe('plugin governance pages', () => {
     await openPluginPage(page, 'dependencies', /\/plugins\/dependencies/, 'plugin-dependencies-page');
     await openPluginPage(page, 'hooks', /\/plugins\/hooks/, 'plugin-hooks-page');
     await openPluginPage(page, 'navigation', /\/plugins\/navigation/, 'plugin-navigation-page');
+    await openPluginPage(page, 'searchIndex', /\/plugins\/search-index/, 'plugin-search-index-page');
+    await openPluginPage(page, 'events', /\/plugins\/events/, 'plugin-events-page');
     await openPluginPage(page, 'remoteIndexes', /\/plugins\/remote-indexes/, 'plugin-remote-indexes-page');
     await openPluginPage(page, 'developer', /\/plugins\/developer/, 'plugin-developer-page');
+    await openPluginPage(page, 'audit', /\/plugins\/audit/, 'plugin-audit-page');
   });
 
   test('shows shared safety boundary and no unavailable marketplace/runtime entries', async ({ page }) => {

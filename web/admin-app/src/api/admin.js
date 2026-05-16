@@ -47,6 +47,10 @@ export const runPluginPackageCompatCheck = (precheckId) => http.post(`/admin/plu
 export const listPluginPackageCompatChecks = (params) => http.get('/admin/plugins/packages/compat-checks', { params });
 export const getPluginPackageCompatCheck = (id) => http.get(`/admin/plugins/packages/compat-checks/${id}`);
 export const deletePluginPackageCompatCheck = (id) => http.delete(`/admin/plugins/packages/compat-checks/${id}`);
+export const verifyPluginPackageSignature = (precheckId) => http.post(`/admin/plugins/packages/prechecks/${precheckId}/verify-signature`);
+export const listPluginPackageSignatures = (params) => http.get('/admin/plugins/packages/signatures', { params });
+export const getPluginPackageSignature = (id) => http.get(`/admin/plugins/packages/signatures/${id}`);
+export const deletePluginPackageSignature = (id) => http.delete(`/admin/plugins/packages/signatures/${id}`);
 export const runPluginEnablePrecheck = (code) => http.post(`/admin/plugins/${encodeURIComponent(code)}/enable-precheck`);
 export const listPluginEnablePrechecks = (params) => http.get('/admin/plugins/enable-prechecks', { params });
 export const getPluginEnablePrecheck = (id) => http.get(`/admin/plugins/enable-prechecks/${id}`);

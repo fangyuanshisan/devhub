@@ -88,6 +88,10 @@ body,
   font-weight: 600;
 }
 
+.sub-group-title.active {
+  color: #0d6bff;
+}
+
 .sub-item {
   display: block;
   width: 100%;
@@ -118,6 +122,12 @@ body,
   padding: 0 18px;
   border-bottom: 1px solid #edf0f5;
   background: #fff;
+}
+
+.breadcrumb {
+  display: flex;
+  align-items: center;
+  gap: 6px;
 }
 
 .header-left,

@@ -12,10 +12,11 @@ const (
 )
 
 type PluginPackageDownloadRequest struct {
-	PluginCode string `json:"plugin_code"`
-	Version    string `json:"version"`
-	PackageURL string `json:"package_url"`
-	SHA256     string `json:"sha256"`
+	PluginCode   string `json:"plugin_code"`
+	Version      string `json:"version"`
+	PackageURL   string `json:"package_url"`
+	SHA256       string `json:"sha256"`
+	SignatureURL string `json:"signature_url,omitempty"`
 }
 
 type PluginPackageDownloadRecord struct {
@@ -27,6 +28,7 @@ type PluginPackageDownloadRecord struct {
 	Status         string `json:"status"`
 	FileName       string `json:"file_name"`
 	StagingPath    string `json:"staging_path"`
+	SignatureURL   string `json:"signature_url,omitempty"`
 	FileSize       int64  `json:"file_size"`
 	SHA256Expected string `json:"sha256_expected"`
 	SHA256Actual   string `json:"sha256_actual"`

@@ -99,6 +99,25 @@ func (s *Service) PluginUpgradeImpact(operator PluginUpgradeOperator, code strin
 				WithDetail("sha256_expected", download.SHA256Expected).
 				WithDetail("sha256_actual", download.SHA256Actual)
 		}
+
+		// v1.7.1: require verified detached signature for remote/staging driven upgrade by default.
+		if requireVerifiedSignatureForInstall() {
+			sig, ok := s.repo.LatestPluginPackageSignatureByPrecheckID(precheck.ID)
+			if !ok || sig.ID <= 0 {
+				return domain.PluginUpgradeImpactResponse{}, domain.NewPluginError("plugin_upgrade_target_signature_missing", "目标包缺少验签记录或未签名，默认不允许进入升级流程").
+					WithStatus(400).
+					WithDetail("package_precheck_id", precheck.ID).
+					WithSuggestion("请先为目标包提供 devhub-signature.json 并执行验签后再升级。")
+			}
+			if strings.ToLower(strings.TrimSpace(sig.Status)) != domain.PluginPackageSignatureStatusVerified {
+				return domain.PluginUpgradeImpactResponse{}, domain.NewPluginError("plugin_upgrade_target_signature_invalid", "目标包签名未通过验签，禁止升级").
+					WithStatus(400).
+					WithDetail("signature_id", sig.ID).
+					WithDetail("signature_status", sig.Status).
+					WithDetail("publisher_id", sig.PublisherID).
+					WithDetail("key_id", sig.KeyID)
+			}
+		}
 	}
 
 	if pluginregistry.CompareVersionStrings(strings.TrimSpace(compat.Version), strings.TrimSpace(plugin.Version)) <= 0 {
@@ -196,6 +215,19 @@ func (s *Service) UpgradePluginFromCompatCheckAs(operator PluginUpgradeOperator,
 	plugin, _ := s.repo.PluginByCode(code)
 	compat, _ := s.repo.PluginPackageCompatCheckByID(req.TargetCompatCheckID)
 	precheck, _ := s.repo.PluginPackagePrecheckByID(compat.PackagePrecheckID)
+
+	// v1.7.1: remote/staging driven upgrades require verified signature by default.
+	if precheck.PackageDownloadID > 0 && requireVerifiedSignatureForInstall() {
+		sig, ok := s.repo.LatestPluginPackageSignatureByPrecheckID(precheck.ID)
+		if !ok || sig.ID <= 0 || strings.ToLower(strings.TrimSpace(sig.Status)) != domain.PluginPackageSignatureStatusVerified {
+			return domain.PluginUpgradeTaskResponse{}, domain.NewPluginError("plugin_upgrade_target_signature_invalid", "目标包签名未通过验签，禁止升级").
+				WithStatus(400).
+				WithDetail("package_precheck_id", precheck.ID).
+				WithDetail("signature_id", sig.ID).
+				WithDetail("signature_status", sig.Status).
+				WithSuggestion("请先为目标包提供 devhub-signature.json 并执行验签后重试。")
+		}
+	}
 
 	startedAt := Now()
 	task := domain.PluginUpgradeTask{

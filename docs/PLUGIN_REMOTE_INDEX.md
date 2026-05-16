@@ -30,7 +30,7 @@
           "package_url": "https://example.com/packages/demo_notice-1.0.0.zip",
           "package_sha256": "...",
           "manifest_sha256": "...",
-          "signature_url": "https://example.com/packages/demo_notice-1.0.0.signature.json",
+          "signature_url": "https://example.com/packages/demo_notice-1.0.0.devhub-signature.json",
           "publisher_id": "devhub-official",
           "public_key_id": "devhub-official-2026",
           "license": "MIT",
@@ -54,7 +54,7 @@
 - 禁止 `file://`、空 host、本机地址、`localhost`、`127.0.0.1`、内网 IP 和 link-local 地址；测试环境可设置 `DEVHUB_ALLOW_LOCAL_REMOTE_INDEX=1`。
 - GET 请求有超时和响应大小限制，当前响应上限为 2MB。
 - 只接受 JSON；非 JSON Content-Type 只给 warning，但 JSON 内容必须可解析。
-- 拉取只请求 `index_url`，不会请求 `package_url`、`signature_url` 或任何远程资产。
+- 拉取只请求 `index_url`，不会请求 `package_url`、`signature_url` 或任何远程资产（远程包下载与 detached signature 下载需要显式调用 staging 下载/验签 API）。
 - 拉取失败只影响该索引源状态，不影响本地插件功能。
 
 ## API
@@ -97,7 +97,7 @@
 - Core 不兼容：blocked。
 - `package_sha256` 缺失：blocked。
 - `package_url` 非法协议：blocked；HTTP URL 给 warning。
-- `signature_url` 缺失：warning；HTTP URL 给 warning。
+- `signature_url` 缺失：warning；HTTP URL 给 warning。`signature_url` 只是 detached signature 元数据地址，本文件拉取阶段不会请求它。
 - JSON schema invalid、响应过大、拉取超时、SSRF 风险 URL：blocked / error。
 
 `package_sha256` 只是远程元数据声明，本轮不会下载包内容，因此也不会把它当成已校验结果。

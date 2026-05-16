@@ -13,24 +13,32 @@
       </div>
     </div>
 
+    <el-tabs :model-value="statusTab" class="page-tabs" data-testid="plugin-status-tabs" @tab-change="applyStatusTab">
+      <el-tab-pane name="all" label="全部插件" />
+      <el-tab-pane name="enabled" label="已启用" />
+      <el-tab-pane name="disabled" label="已禁用" />
+      <el-tab-pane name="archived" label="回收站" />
+      <el-tab-pane name="abnormal" label="异常插件" />
+    </el-tabs>
+
     <div class="stats-grid" data-testid="plugin-stats">
-      <button class="stat-card stat-button" type="button" @click="filters.status = 'all'">
+      <button class="stat-card stat-button" type="button" @click="applyStatusTab('all')">
         <div class="stat-k">{{ t('plugin.stats.total') }}</div>
         <div class="stat-v">{{ stats.total }}</div>
       </button>
-      <button class="stat-card stat-button" type="button" @click="filters.status = 'enabled'">
+      <button class="stat-card stat-button" type="button" @click="applyStatusTab('enabled')">
         <div class="stat-k">{{ t('plugin.stats.enabled') }}</div>
         <div class="stat-v">{{ stats.enabled }}</div>
       </button>
-      <button class="stat-card stat-button" type="button" @click="filters.status = 'disabled'">
+      <button class="stat-card stat-button" type="button" @click="applyStatusTab('disabled')">
         <div class="stat-k">{{ t('plugin.stats.disabled') }}</div>
         <div class="stat-v">{{ stats.disabled }}</div>
       </button>
-      <button class="stat-card stat-button" type="button" @click="filters.status = 'archived'">
+      <button class="stat-card stat-button" type="button" @click="applyStatusTab('archived')">
         <div class="stat-k">{{ t('plugin.stats.archived') }}</div>
         <div class="stat-v">{{ stats.archived }}</div>
       </button>
-      <button class="stat-card stat-card-danger stat-button" type="button" @click="filters.health = 'error'">
+      <button class="stat-card stat-card-danger stat-button" type="button" @click="applyStatusTab('abnormal')">
         <div class="stat-k">{{ t('plugin.stats.abnormal') }}</div>
         <div class="stat-v">{{ stats.abnormal }}</div>
       </button>
@@ -42,7 +50,7 @@
           <strong>{{ t('plugin.healthOverview') }}</strong>
         </template>
         <div class="health-grid" data-testid="plugin-health-summary">
-          <button v-for="card in healthCards" :key="card.key" class="stat-card stat-button health-card" type="button" @click="filters.health = card.key">
+          <button v-for="card in healthCards" :key="card.key" class="stat-card stat-button health-card" type="button" @click="applyHealth(card.key)">
             <div class="stat-k">{{ card.label }}</div>
             <div class="stat-v">{{ card.value }}</div>
             <div class="stat-sub">{{ card.tip }}</div>
@@ -51,40 +59,38 @@
       </el-collapse-item>
     </el-collapse>
 
-    <div class="filter-panel" data-testid="plugin-filter-panel">
-      <div>
-        <strong>{{ t('plugin.filters.title') }}</strong>
-        <span>{{ t('plugin.filters.tip') }}</span>
-      </div>
-      <div class="filter-actions">
-        <el-input v-model="filters.q" data-testid="plugin-search" :placeholder="t('plugin.filters.searchPlaceholder')" clearable />
-        <el-select v-model="filters.status" :placeholder="t('plugin.filters.status')" clearable>
-          <el-option :label="t('common.all')" value="all" />
-          <el-option :label="pluginStatusLabel('enabled')" value="enabled" />
-          <el-option :label="pluginStatusLabel('disabled')" value="disabled" />
-          <el-option :label="pluginStatusLabel('archived')" value="archived" />
-        </el-select>
-        <el-select v-model="filters.health" :placeholder="t('plugin.filters.health')" clearable>
-          <el-option :label="t('common.all')" value="all" />
-          <el-option v-for="card in healthCards" :key="card.key" :label="card.label" :value="card.key" />
-        </el-select>
-        <el-select v-model="filters.contentType" :placeholder="t('plugin.contentType')" clearable filterable>
-          <el-option v-for="ct in allContentTypes" :key="ct" :label="ct" :value="ct" />
-        </el-select>
-        <el-select v-model="filters.system" :placeholder="t('plugin.system')" clearable>
-          <el-option :label="t('common.all')" value="all" />
-          <el-option :label="t('plugin.filters.onlySystem')" value="yes" />
-          <el-option :label="t('plugin.filters.nonSystem')" value="no" />
-        </el-select>
-        <el-select v-model="filters.hasSchema" :placeholder="t('plugin.config.schema')" clearable>
-          <el-option :label="t('common.all')" value="all" />
-          <el-option :label="t('plugin.filters.hasSchema')" value="yes" />
-          <el-option :label="t('plugin.filters.noSchema')" value="no" />
-        </el-select>
-        <el-button data-testid="plugin-filter-reset" @click="resetFilters">{{ t('common.reset') }}</el-button>
-        <el-button type="primary" data-testid="plugin-filter-refresh" @click="load">{{ t('common.refresh') }}</el-button>
-      </div>
-    </div>
+    <PluginErrorAlert v-if="error" class="mb" :message="error" data-testid="plugin-list-error" />
+
+    <PluginFilterBar :title="t('plugin.filters.title')" :tip="t('plugin.filters.tip')" testid="plugin-filter-panel">
+      <el-input v-model="filters.q" data-testid="plugin-search" :placeholder="t('plugin.filters.searchPlaceholder')" clearable />
+      <el-select v-model="filters.status" :placeholder="t('plugin.filters.status')" clearable>
+        <el-option :label="t('common.all')" value="all" />
+        <el-option :label="pluginStatusLabel('enabled')" value="enabled" />
+        <el-option :label="pluginStatusLabel('disabled')" value="disabled" />
+        <el-option :label="pluginStatusLabel('archived')" value="archived" />
+      </el-select>
+      <el-select v-model="filters.health" :placeholder="t('plugin.filters.health')" clearable>
+        <el-option :label="t('common.all')" value="all" />
+        <el-option v-for="card in healthCards" :key="card.key" :label="card.label" :value="card.key" />
+      </el-select>
+      <el-select v-model="filters.contentType" :placeholder="t('plugin.contentType')" clearable filterable>
+        <el-option v-for="ct in allContentTypes" :key="ct" :label="ct" :value="ct" />
+      </el-select>
+      <el-select v-model="filters.system" :placeholder="t('plugin.system')" clearable>
+        <el-option :label="t('common.all')" value="all" />
+        <el-option :label="t('plugin.filters.onlySystem')" value="yes" />
+        <el-option :label="t('plugin.filters.nonSystem')" value="no" />
+      </el-select>
+      <el-select v-model="filters.hasSchema" :placeholder="t('plugin.config.schema')" clearable>
+        <el-option :label="t('common.all')" value="all" />
+        <el-option :label="t('plugin.filters.hasSchema')" value="yes" />
+        <el-option :label="t('plugin.filters.noSchema')" value="no" />
+      </el-select>
+      <el-button data-testid="plugin-filter-reset" @click="resetFilters">{{ t('common.reset') }}</el-button>
+      <el-button type="primary" data-testid="plugin-filter-refresh" @click="load">{{ t('common.refresh') }}</el-button>
+    </PluginFilterBar>
+
+    <PluginEmptyState v-if="!loading && !error && !filteredItems.length" testid="plugin-empty-state" description="暂无符合条件的插件" />
 
     <div class="batch-panel" data-testid="plugin-batch-panel">
       <span class="muted">{{ t('common.selected') }} {{ selectedRows.length }} {{ t('common.selectedItems') }}</span>
@@ -225,13 +231,17 @@
 
 <script setup>
 import { computed, onMounted, reactive, ref, watch } from 'vue';
-import { ElMessage, ElMessageBox } from 'element-plus';
+import { ElMessage } from 'element-plus';
 import { useRoute, useRouter } from 'vue-router';
 import { archivePlugin, bulkArchivePlugins, bulkRestorePlugins, disablePlugin, enablePlugin, pluginImpact, plugins, restorePlugin } from '@/api/admin';
 import PluginDetailDrawer from '@/components/plugin/PluginDetailDrawer.vue';
 import { t } from '@/i18n';
 import { pluginHealthLabel, pluginStatusLabel } from '@/i18n/formatters';
 import { usePluginData } from './usePluginData';
+import PluginEmptyState from './components/PluginEmptyState.vue';
+import PluginErrorAlert from './components/PluginErrorAlert.vue';
+import PluginFilterBar from './components/PluginFilterBar.vue';
+import { confirmDanger, confirmInfo } from './components/useDangerConfirm';
 
 const router = useRouter();
 const route = useRoute();
@@ -304,6 +314,11 @@ const healthCards = computed(() => {
   ];
 });
 
+const statusTab = computed(() => {
+  if (filters.health === 'error') return 'abnormal';
+  return filters.status || 'all';
+});
+
 const filteredItems = computed(() => {
   const q = String(filters.q || '').trim().toLowerCase();
   return (items.value || []).filter((p) => {
@@ -333,6 +348,34 @@ const filteredItems = computed(() => {
     return true;
   });
 });
+
+function applyStatusTab(value) {
+  if (!value) return;
+  if (value === 'abnormal') {
+    filters.status = 'all';
+    filters.health = 'error';
+  } else {
+    filters.status = value;
+    if (filters.health === 'error') filters.health = 'all';
+  }
+  const next = { ...route.query };
+  if (filters.status && filters.status !== 'all') next.status = filters.status;
+  else delete next.status;
+  if (filters.health && filters.health !== 'all') next.health = filters.health;
+  else delete next.health;
+  router.replace({ query: next });
+}
+
+function applyHealth(value) {
+  if (!value) return;
+  filters.health = value;
+  const next = { ...route.query };
+  if (filters.status && filters.status !== 'all') next.status = filters.status;
+  else delete next.status;
+  if (filters.health && filters.health !== 'all') next.health = filters.health;
+  else delete next.health;
+  router.replace({ query: next });
+}
 
 function hasConfigSchema(row) {
   return row && row.config_schema && Object.keys(row.config_schema || {}).length > 0;
@@ -401,14 +444,13 @@ async function impactLines(row) {
 async function setStatus(row, status) {
   if (status === 'disabled') {
     const lines = await impactLines(row);
-    await ElMessageBox.confirm(
+    await confirmDanger(
       `${t('plugin.disableConfirmPrefix')}\n\n${lines.join('\n')}`,
       t('plugin.disableConfirmTitle'),
       { type: 'warning', confirmButtonText: t('plugin.confirmDisable'), cancelButtonText: t('common.cancel') },
     );
   } else {
-    await ElMessageBox.confirm(t('plugin.enableConfirmText'), t('plugin.enableConfirmTitle'), {
-      type: 'info',
+    await confirmInfo(t('plugin.enableConfirmText'), t('plugin.enableConfirmTitle'), {
       confirmButtonText: t('plugin.confirmEnable'),
       cancelButtonText: t('common.cancel'),
     });
@@ -421,7 +463,7 @@ async function setStatus(row, status) {
 
 async function archive(row) {
   const lines = await impactLines(row);
-  await ElMessageBox.confirm(
+  await confirmDanger(
     `${t('plugin.archiveConfirmPrefix')}\n\n${lines.join('\n')}`,
     t('plugin.archiveConfirmTitle'),
     { type: 'warning', confirmButtonText: t('plugin.confirmArchive'), cancelButtonText: t('common.cancel') },
@@ -432,8 +474,7 @@ async function archive(row) {
 }
 
 async function restore(row) {
-  await ElMessageBox.confirm(t('plugin.restoreConfirmText'), t('plugin.restoreConfirmTitle'), {
-    type: 'info',
+  await confirmInfo(t('plugin.restoreConfirmText'), t('plugin.restoreConfirmTitle'), {
     confirmButtonText: t('plugin.confirmRestore'),
     cancelButtonText: t('common.cancel'),
   });

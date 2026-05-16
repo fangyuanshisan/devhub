@@ -503,6 +503,7 @@ CREATE TABLE IF NOT EXISTS plugin_package_downloads (
   version VARCHAR(64) NOT NULL DEFAULT '',
   source_url VARCHAR(1000) NOT NULL DEFAULT '',
   final_url VARCHAR(1000) NOT NULL DEFAULT '',
+  signature_url VARCHAR(1000) NOT NULL DEFAULT '',
   status VARCHAR(32) NOT NULL DEFAULT 'pending',
   file_name VARCHAR(255) NOT NULL DEFAULT '',
   staging_path VARCHAR(500) NOT NULL DEFAULT '',
@@ -577,6 +578,36 @@ CREATE TABLE IF NOT EXISTS plugin_package_compat_checks (
   KEY idx_plugin_package_compat_status_created (status, created_at),
   KEY idx_plugin_package_compat_precheck (package_precheck_id),
   KEY idx_plugin_package_compat_plugin_version (plugin_code, version)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE IF NOT EXISTS plugin_package_signatures (
+  id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+  package_download_id BIGINT UNSIGNED NOT NULL DEFAULT 0,
+  package_precheck_id BIGINT UNSIGNED NOT NULL DEFAULT 0,
+  package_compat_check_id BIGINT UNSIGNED NOT NULL DEFAULT 0,
+  plugin_code VARCHAR(64) NOT NULL DEFAULT '',
+  version VARCHAR(64) NOT NULL DEFAULT '',
+  publisher_id VARCHAR(128) NOT NULL DEFAULT '',
+  key_id VARCHAR(128) NOT NULL DEFAULT '',
+  algorithm VARCHAR(32) NOT NULL DEFAULT '',
+  status VARCHAR(64) NOT NULL DEFAULT 'pending',
+  signature_url VARCHAR(1000) NOT NULL DEFAULT '',
+  signature_file_path VARCHAR(500) NOT NULL DEFAULT '',
+  package_sha256 VARCHAR(128) NOT NULL DEFAULT '',
+  manifest_sha256 VARCHAR(128) NOT NULL DEFAULT '',
+  signature_payload_json JSON NULL,
+  signature_base64 VARCHAR(512) NOT NULL DEFAULT '',
+  verified_at DATETIME NULL,
+  error_message VARCHAR(1000) NOT NULL DEFAULT '',
+  warnings_json JSON NULL,
+  created_by BIGINT UNSIGNED NOT NULL DEFAULT 0,
+  created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  PRIMARY KEY (id),
+  KEY idx_plugin_package_signatures_status_created (status, created_at),
+  KEY idx_plugin_package_signatures_plugin_version (plugin_code, version),
+  KEY idx_plugin_package_signatures_precheck (package_precheck_id),
+  KEY idx_plugin_package_signatures_download (package_download_id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 CREATE TABLE IF NOT EXISTS plugin_enable_prechecks (
@@ -740,6 +771,7 @@ CREATE TABLE IF NOT EXISTS plugin_trusted_publishers (
   updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
   revoked_at DATETIME NULL,
   blocked_at DATETIME NULL,
+  expires_at DATETIME NULL,
   metadata_json JSON NULL,
   PRIMARY KEY (id),
   UNIQUE KEY uk_plugin_trusted_publishers_key (publisher_id, public_key_id),

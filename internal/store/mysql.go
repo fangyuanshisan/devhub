@@ -351,6 +351,10 @@ func NewMySQLStore(cfg MySQLConfig) (*MySQLStore, error) {
 		_ = db.Close()
 		return nil, err
 	}
+	if err := s.migratePluginPackageDetachedSignatureV171(); err != nil {
+		_ = db.Close()
+		return nil, err
+	}
 	if err := s.seedIfEmpty(); err != nil {
 		_ = db.Close()
 		return nil, err
@@ -791,6 +795,13 @@ func (s *MySQLStore) migrateSiteScopedAudit() error {
 		KEY idx_tag_aliases_tag_id (tag_id),
 		CONSTRAINT fk_tag_aliases_tag FOREIGN KEY (tag_id) REFERENCES tags(id) ON DELETE CASCADE
 	) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci`)
+	return nil
+}
+
+func (s *MySQLStore) migratePluginPackageDetachedSignatureV171() error {
+	// v1.7.1: detached signature verification needs signature_url and key expiry support.
+	_, _ = s.db.Exec(`ALTER TABLE plugin_package_downloads ADD COLUMN signature_url VARCHAR(1000) NOT NULL DEFAULT '' AFTER sha256_expected`)
+	_, _ = s.db.Exec(`ALTER TABLE plugin_trusted_publishers ADD COLUMN expires_at DATETIME NULL AFTER blocked_at`)
 	return nil
 }
 
@@ -2474,11 +2485,11 @@ func (s *MySQLStore) AppendPluginPackageDownload(record domain.PluginPackageDown
 		record.Status = domain.PluginPackageDownloadStatusPending
 	}
 	res, err := s.db.Exec(`INSERT INTO plugin_package_downloads
-		(plugin_code, version, source_url, final_url, status, file_name, staging_path, file_size,
+		(plugin_code, version, source_url, final_url, signature_url, status, file_name, staging_path, file_size,
 		sha256_expected, sha256_actual, content_type, error_code, error_message, created_by,
 		created_at, downloaded_at, deleted_at, updated_at)
-		VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,COALESCE(?,NOW()),?,?,NOW())`,
-		record.PluginCode, record.Version, record.SourceURL, record.FinalURL, record.Status, record.FileName, record.StagingPath, record.FileSize,
+		VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,COALESCE(?,NOW()),?,?,NOW())`,
+		record.PluginCode, record.Version, record.SourceURL, record.FinalURL, record.SignatureURL, record.Status, record.FileName, record.StagingPath, record.FileSize,
 		record.SHA256Expected, record.SHA256Actual, record.ContentType, record.ErrorCode, record.ErrorMessage, record.CreatedBy,
 		nullTime(record.CreatedAt), nullTime(record.DownloadedAt), nullTime(record.DeletedAt))
 	if err != nil {
@@ -2495,11 +2506,11 @@ func (s *MySQLStore) SavePluginPackageDownload(record domain.PluginPackageDownlo
 		return s.AppendPluginPackageDownload(record)
 	}
 	_, err := s.db.Exec(`UPDATE plugin_package_downloads SET
-		plugin_code=?, version=?, source_url=?, final_url=?, status=?, file_name=?, staging_path=?, file_size=?,
+		plugin_code=?, version=?, source_url=?, final_url=?, signature_url=?, status=?, file_name=?, staging_path=?, file_size=?,
 		sha256_expected=?, sha256_actual=?, content_type=?, error_code=?, error_message=?, created_by=?,
 		created_at=COALESCE(?, created_at), downloaded_at=?, deleted_at=?, updated_at=NOW()
 		WHERE id=?`,
-		record.PluginCode, record.Version, record.SourceURL, record.FinalURL, record.Status, record.FileName, record.StagingPath, record.FileSize,
+		record.PluginCode, record.Version, record.SourceURL, record.FinalURL, record.SignatureURL, record.Status, record.FileName, record.StagingPath, record.FileSize,
 		record.SHA256Expected, record.SHA256Actual, record.ContentType, record.ErrorCode, record.ErrorMessage, record.CreatedBy,
 		nullTime(record.CreatedAt), nullTime(record.DownloadedAt), nullTime(record.DeletedAt), record.ID)
 	if err != nil {
@@ -2511,12 +2522,12 @@ func (s *MySQLStore) SavePluginPackageDownload(record domain.PluginPackageDownlo
 
 func (s *MySQLStore) PluginPackageDownloadByID(id int64) (domain.PluginPackageDownloadRecord, bool) {
 	var it domain.PluginPackageDownloadRecord
-	err := s.db.QueryRow(`SELECT id, plugin_code, version, source_url, final_url, status, file_name, staging_path, file_size,
+	err := s.db.QueryRow(`SELECT id, plugin_code, version, source_url, final_url, signature_url, status, file_name, staging_path, file_size,
 		sha256_expected, sha256_actual, content_type, error_code, error_message, created_by,
 		DATE_FORMAT(created_at,'%Y-%m-%d %H:%i:%s'), COALESCE(DATE_FORMAT(downloaded_at,'%Y-%m-%d %H:%i:%s'),''), COALESCE(DATE_FORMAT(deleted_at,'%Y-%m-%d %H:%i:%s'),''),
 		DATE_FORMAT(updated_at,'%Y-%m-%d %H:%i:%s')
 		FROM plugin_package_downloads WHERE id=? LIMIT 1`, id).
-		Scan(&it.ID, &it.PluginCode, &it.Version, &it.SourceURL, &it.FinalURL, &it.Status, &it.FileName, &it.StagingPath, &it.FileSize,
+		Scan(&it.ID, &it.PluginCode, &it.Version, &it.SourceURL, &it.FinalURL, &it.SignatureURL, &it.Status, &it.FileName, &it.StagingPath, &it.FileSize,
 			&it.SHA256Expected, &it.SHA256Actual, &it.ContentType, &it.ErrorCode, &it.ErrorMessage, &it.CreatedBy,
 			&it.CreatedAt, &it.DownloadedAt, &it.DeletedAt, &it.UpdatedAt)
 	if err != nil {
@@ -2557,7 +2568,7 @@ func (s *MySQLStore) PluginPackageDownloads(filter domain.PluginPackageDownloadF
 	}
 	offset := (filter.Page - 1) * filter.PageSize
 	args2 := append(append([]any{}, args...), filter.PageSize, offset)
-	rows, err := s.db.Query(`SELECT id, plugin_code, version, source_url, final_url, status, file_name, staging_path, file_size,
+	rows, err := s.db.Query(`SELECT id, plugin_code, version, source_url, final_url, signature_url, status, file_name, staging_path, file_size,
 		sha256_expected, sha256_actual, content_type, error_code, error_message, created_by,
 		DATE_FORMAT(created_at,'%Y-%m-%d %H:%i:%s'), COALESCE(DATE_FORMAT(downloaded_at,'%Y-%m-%d %H:%i:%s'),''), COALESCE(DATE_FORMAT(deleted_at,'%Y-%m-%d %H:%i:%s'),''),
 		DATE_FORMAT(updated_at,'%Y-%m-%d %H:%i:%s')
@@ -2570,7 +2581,7 @@ func (s *MySQLStore) PluginPackageDownloads(filter domain.PluginPackageDownloadF
 	out := []domain.PluginPackageDownloadRecord{}
 	for rows.Next() {
 		var it domain.PluginPackageDownloadRecord
-		if err := rows.Scan(&it.ID, &it.PluginCode, &it.Version, &it.SourceURL, &it.FinalURL, &it.Status, &it.FileName, &it.StagingPath, &it.FileSize,
+		if err := rows.Scan(&it.ID, &it.PluginCode, &it.Version, &it.SourceURL, &it.FinalURL, &it.SignatureURL, &it.Status, &it.FileName, &it.StagingPath, &it.FileSize,
 			&it.SHA256Expected, &it.SHA256Actual, &it.ContentType, &it.ErrorCode, &it.ErrorMessage, &it.CreatedBy,
 			&it.CreatedAt, &it.DownloadedAt, &it.DeletedAt, &it.UpdatedAt); err != nil {
 			return nil, 0, err
@@ -2804,6 +2815,147 @@ func (s *MySQLStore) PluginPackageCompatChecks(filter domain.PluginPackageCompat
 			&it.DependencyResultJSON, &it.ConflictResultJSON, &it.PermissionResultJSON, &it.RouteResultJSON, &it.MenuResultJSON, &it.HookResultJSON,
 			&it.ConfigSchemaResultJSON, &it.MigrationResultJSON, &it.WarningsJSON, &it.ErrorsJSON, &it.SummaryJSON, &it.CreatedBy,
 			&it.StartedAt, &it.FinishedAt, &it.CreatedAt, &it.UpdatedAt); err != nil {
+			return nil, 0, err
+		}
+		out = append(out, it)
+	}
+	return out, total, nil
+}
+
+// ===== Plugin package signatures (detached verification, v1.7.1) =====
+
+func (s *MySQLStore) AppendPluginPackageSignature(record domain.PluginPackageSignatureRecord) (domain.PluginPackageSignatureRecord, error) {
+	if strings.TrimSpace(record.Status) == "" {
+		record.Status = domain.PluginPackageSignatureStatusPending
+	}
+	res, err := s.db.Exec(`INSERT INTO plugin_package_signatures
+		(package_download_id, package_precheck_id, package_compat_check_id, plugin_code, version, publisher_id, key_id, algorithm,
+		 status, signature_url, signature_file_path, package_sha256, manifest_sha256, signature_payload_json, signature_base64,
+		 verified_at, error_message, warnings_json, created_by, created_at, updated_at)
+		VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,COALESCE(?,NOW()),NOW())`,
+		record.PackageDownloadID, record.PackagePrecheckID, record.PackageCompatID, record.PluginCode, record.Version, record.PublisherID, record.KeyID, record.Algorithm,
+		record.Status, record.SignatureURL, record.SignatureFilePath, record.PackageSHA256, record.ManifestSHA256,
+		uploadJSONValue(record.SignaturePayloadJSON), record.SignatureBase64, nullTime(record.VerifiedAt), record.ErrorMessage,
+		uploadJSONValue(record.WarningsJSON), record.CreatedBy, nullTime(record.CreatedAt))
+	if err != nil {
+		return domain.PluginPackageSignatureRecord{}, err
+	}
+	id, _ := res.LastInsertId()
+	record.ID = id
+	out, _ := s.PluginPackageSignatureByID(id)
+	return out, nil
+}
+
+func (s *MySQLStore) SavePluginPackageSignature(record domain.PluginPackageSignatureRecord) (domain.PluginPackageSignatureRecord, error) {
+	if record.ID <= 0 {
+		return s.AppendPluginPackageSignature(record)
+	}
+	_, err := s.db.Exec(`UPDATE plugin_package_signatures SET
+		package_download_id=?, package_precheck_id=?, package_compat_check_id=?, plugin_code=?, version=?, publisher_id=?, key_id=?, algorithm=?,
+		status=?, signature_url=?, signature_file_path=?, package_sha256=?, manifest_sha256=?, signature_payload_json=?, signature_base64=?,
+		verified_at=?, error_message=?, warnings_json=?, created_by=?, updated_at=NOW()
+		WHERE id=?`,
+		record.PackageDownloadID, record.PackagePrecheckID, record.PackageCompatID, record.PluginCode, record.Version, record.PublisherID, record.KeyID, record.Algorithm,
+		record.Status, record.SignatureURL, record.SignatureFilePath, record.PackageSHA256, record.ManifestSHA256,
+		uploadJSONValue(record.SignaturePayloadJSON), record.SignatureBase64, nullTime(record.VerifiedAt), record.ErrorMessage,
+		uploadJSONValue(record.WarningsJSON), record.CreatedBy, record.ID)
+	if err != nil {
+		return domain.PluginPackageSignatureRecord{}, err
+	}
+	out, _ := s.PluginPackageSignatureByID(record.ID)
+	return out, nil
+}
+
+func (s *MySQLStore) PluginPackageSignatureByID(id int64) (domain.PluginPackageSignatureRecord, bool) {
+	var it domain.PluginPackageSignatureRecord
+	err := s.db.QueryRow(`SELECT id, package_download_id, package_precheck_id, package_compat_check_id, plugin_code, version, publisher_id, key_id, algorithm,
+		status, signature_url, signature_file_path, package_sha256, manifest_sha256, COALESCE(CAST(signature_payload_json AS CHAR),''), signature_base64,
+		COALESCE(DATE_FORMAT(verified_at,'%Y-%m-%d %H:%i:%s'),''), error_message, COALESCE(CAST(warnings_json AS CHAR),''), created_by,
+		DATE_FORMAT(created_at,'%Y-%m-%d %H:%i:%s'), DATE_FORMAT(updated_at,'%Y-%m-%d %H:%i:%s')
+		FROM plugin_package_signatures WHERE id=? LIMIT 1`, id).
+		Scan(&it.ID, &it.PackageDownloadID, &it.PackagePrecheckID, &it.PackageCompatID, &it.PluginCode, &it.Version, &it.PublisherID, &it.KeyID, &it.Algorithm,
+			&it.Status, &it.SignatureURL, &it.SignatureFilePath, &it.PackageSHA256, &it.ManifestSHA256, &it.SignaturePayloadJSON, &it.SignatureBase64,
+			&it.VerifiedAt, &it.ErrorMessage, &it.WarningsJSON, &it.CreatedBy, &it.CreatedAt, &it.UpdatedAt)
+	if err != nil {
+		return domain.PluginPackageSignatureRecord{}, false
+	}
+	return it, true
+}
+
+func (s *MySQLStore) LatestPluginPackageSignatureByPrecheckID(precheckID int64) (domain.PluginPackageSignatureRecord, bool) {
+	var it domain.PluginPackageSignatureRecord
+	err := s.db.QueryRow(`SELECT id, package_download_id, package_precheck_id, package_compat_check_id, plugin_code, version, publisher_id, key_id, algorithm,
+		status, signature_url, signature_file_path, package_sha256, manifest_sha256, COALESCE(CAST(signature_payload_json AS CHAR),''), signature_base64,
+		COALESCE(DATE_FORMAT(verified_at,'%Y-%m-%d %H:%i:%s'),''), error_message, COALESCE(CAST(warnings_json AS CHAR),''), created_by,
+		DATE_FORMAT(created_at,'%Y-%m-%d %H:%i:%s'), DATE_FORMAT(updated_at,'%Y-%m-%d %H:%i:%s')
+		FROM plugin_package_signatures WHERE package_precheck_id=? ORDER BY id DESC LIMIT 1`, precheckID).
+		Scan(&it.ID, &it.PackageDownloadID, &it.PackagePrecheckID, &it.PackageCompatID, &it.PluginCode, &it.Version, &it.PublisherID, &it.KeyID, &it.Algorithm,
+			&it.Status, &it.SignatureURL, &it.SignatureFilePath, &it.PackageSHA256, &it.ManifestSHA256, &it.SignaturePayloadJSON, &it.SignatureBase64,
+			&it.VerifiedAt, &it.ErrorMessage, &it.WarningsJSON, &it.CreatedBy, &it.CreatedAt, &it.UpdatedAt)
+	if err != nil {
+		return domain.PluginPackageSignatureRecord{}, false
+	}
+	if it.ID <= 0 {
+		return domain.PluginPackageSignatureRecord{}, false
+	}
+	return it, true
+}
+
+func (s *MySQLStore) PluginPackageSignatures(filter domain.PluginPackageSignatureFilter) ([]domain.PluginPackageSignatureRecord, int, error) {
+	if filter.Page <= 0 {
+		filter.Page = 1
+	}
+	if filter.PageSize <= 0 {
+		filter.PageSize = 20
+	}
+	if filter.PageSize > 100 {
+		filter.PageSize = 100
+	}
+	where := []string{"1=1"}
+	args := []any{}
+	if filter.Status != "" && filter.Status != "all" {
+		where = append(where, "status=?")
+		args = append(args, filter.Status)
+	}
+	if filter.PluginCode != "" {
+		where = append(where, "plugin_code=?")
+		args = append(args, filter.PluginCode)
+	}
+	if filter.PackageDownloadID > 0 {
+		where = append(where, "package_download_id=?")
+		args = append(args, filter.PackageDownloadID)
+	}
+	if filter.PackagePrecheckID > 0 {
+		where = append(where, "package_precheck_id=?")
+		args = append(args, filter.PackagePrecheckID)
+	}
+	if filter.Keyword != "" {
+		like := "%" + strings.TrimSpace(filter.Keyword) + "%"
+		where = append(where, "(plugin_code LIKE ? OR version LIKE ? OR publisher_id LIKE ? OR key_id LIKE ? OR status LIKE ? OR signature_url LIKE ?)")
+		args = append(args, like, like, like, like, like, like)
+	}
+	whereSQL := strings.Join(where, " AND ")
+	var total int
+	if err := s.db.QueryRow("SELECT COUNT(*) FROM plugin_package_signatures WHERE "+whereSQL, args...).Scan(&total); err != nil {
+		return nil, 0, err
+	}
+	offset := (filter.Page - 1) * filter.PageSize
+	args2 := append(append([]any{}, args...), filter.PageSize, offset)
+	rows, err := s.db.Query(`SELECT id, package_download_id, package_precheck_id, package_compat_check_id, plugin_code, version, publisher_id, key_id, algorithm,
+		status, signature_url, signature_file_path, package_sha256, manifest_sha256, COALESCE(CAST(signature_payload_json AS CHAR),''), signature_base64,
+		COALESCE(DATE_FORMAT(verified_at,'%Y-%m-%d %H:%i:%s'),''), error_message, COALESCE(CAST(warnings_json AS CHAR),''), created_by,
+		DATE_FORMAT(created_at,'%Y-%m-%d %H:%i:%s'), DATE_FORMAT(updated_at,'%Y-%m-%d %H:%i:%s')
+		FROM plugin_package_signatures WHERE `+whereSQL+` ORDER BY id DESC LIMIT ? OFFSET ?`, args2...)
+	if err != nil {
+		return nil, 0, err
+	}
+	defer rows.Close()
+	out := []domain.PluginPackageSignatureRecord{}
+	for rows.Next() {
+		var it domain.PluginPackageSignatureRecord
+		if err := rows.Scan(&it.ID, &it.PackageDownloadID, &it.PackagePrecheckID, &it.PackageCompatID, &it.PluginCode, &it.Version, &it.PublisherID, &it.KeyID, &it.Algorithm,
+			&it.Status, &it.SignatureURL, &it.SignatureFilePath, &it.PackageSHA256, &it.ManifestSHA256, &it.SignaturePayloadJSON, &it.SignatureBase64,
+			&it.VerifiedAt, &it.ErrorMessage, &it.WarningsJSON, &it.CreatedBy, &it.CreatedAt, &it.UpdatedAt); err != nil {
 			return nil, 0, err
 		}
 		out = append(out, it)
@@ -3917,10 +4069,10 @@ func (s *MySQLStore) DeletePluginConfigVersionsByPlugin(code string) (int, error
 
 func (s *MySQLStore) AppendPluginTrustedPublisher(record domain.PluginTrustedPublisher) (domain.PluginTrustedPublisher, error) {
 	res, err := s.db.Exec(`INSERT INTO plugin_trusted_publishers
-		(publisher_id,name,homepage,email,public_key_id,public_key_algorithm,public_key,fingerprint,status,notes,created_by,created_at,updated_by,updated_at,revoked_at,blocked_at,metadata_json)
-		VALUES (?,?,?,?,?,?,?,?,?,?,?,COALESCE(?,NOW()),?,NOW(),?,?,?)`,
+		(publisher_id,name,homepage,email,public_key_id,public_key_algorithm,public_key,fingerprint,status,notes,created_by,created_at,updated_by,updated_at,revoked_at,blocked_at,expires_at,metadata_json)
+		VALUES (?,?,?,?,?,?,?,?,?,?,?,COALESCE(?,NOW()),?,NOW(),?,?,?,?)`,
 		record.PublisherID, record.Name, record.Homepage, record.Email, record.PublicKeyID, record.PublicKeyAlgorithm, record.PublicKey, record.Fingerprint, record.Status, record.Notes,
-		record.CreatedBy, nullTime(record.CreatedAt), record.UpdatedBy, nullTime(record.RevokedAt), nullTime(record.BlockedAt), uploadJSONValue(record.MetadataJSON))
+		record.CreatedBy, nullTime(record.CreatedAt), record.UpdatedBy, nullTime(record.RevokedAt), nullTime(record.BlockedAt), nullTime(record.ExpiresAt), uploadJSONValue(record.MetadataJSON))
 	if err != nil {
 		return domain.PluginTrustedPublisher{}, err
 	}
@@ -3932,10 +4084,10 @@ func (s *MySQLStore) AppendPluginTrustedPublisher(record domain.PluginTrustedPub
 func (s *MySQLStore) SavePluginTrustedPublisher(record domain.PluginTrustedPublisher) (domain.PluginTrustedPublisher, error) {
 	_, err := s.db.Exec(`UPDATE plugin_trusted_publishers SET
 		publisher_id=?, name=?, homepage=?, email=?, public_key_id=?, public_key_algorithm=?, public_key=?, fingerprint=?, status=?, notes=?,
-		updated_by=?, updated_at=NOW(), revoked_at=?, blocked_at=?, metadata_json=?
+		updated_by=?, updated_at=NOW(), revoked_at=?, blocked_at=?, expires_at=?, metadata_json=?
 		WHERE id=?`,
 		record.PublisherID, record.Name, record.Homepage, record.Email, record.PublicKeyID, record.PublicKeyAlgorithm, record.PublicKey, record.Fingerprint, record.Status, record.Notes,
-		record.UpdatedBy, nullTime(record.RevokedAt), nullTime(record.BlockedAt), uploadJSONValue(record.MetadataJSON), record.ID)
+		record.UpdatedBy, nullTime(record.RevokedAt), nullTime(record.BlockedAt), nullTime(record.ExpiresAt), uploadJSONValue(record.MetadataJSON), record.ID)
 	if err != nil {
 		return domain.PluginTrustedPublisher{}, err
 	}
@@ -3960,10 +4112,10 @@ func (s *MySQLStore) scanTrustedPublisher(where string, args ...any) (domain.Plu
 	var it domain.PluginTrustedPublisher
 	err := s.db.QueryRow(`SELECT id,publisher_id,name,homepage,email,public_key_id,public_key_algorithm,public_key,fingerprint,status,notes,created_by,
 		DATE_FORMAT(created_at,'%Y-%m-%d %H:%i:%s'),updated_by,DATE_FORMAT(updated_at,'%Y-%m-%d %H:%i:%s'),
-		COALESCE(DATE_FORMAT(revoked_at,'%Y-%m-%d %H:%i:%s'),''),COALESCE(DATE_FORMAT(blocked_at,'%Y-%m-%d %H:%i:%s'),''),COALESCE(CAST(metadata_json AS CHAR),'')
+		COALESCE(DATE_FORMAT(revoked_at,'%Y-%m-%d %H:%i:%s'),''),COALESCE(DATE_FORMAT(blocked_at,'%Y-%m-%d %H:%i:%s'),''),COALESCE(DATE_FORMAT(expires_at,'%Y-%m-%d %H:%i:%s'),''),COALESCE(CAST(metadata_json AS CHAR),'')
 		FROM plugin_trusted_publishers `+where+` LIMIT 1`, args...).Scan(
 		&it.ID, &it.PublisherID, &it.Name, &it.Homepage, &it.Email, &it.PublicKeyID, &it.PublicKeyAlgorithm, &it.PublicKey, &it.Fingerprint, &it.Status, &it.Notes, &it.CreatedBy,
-		&it.CreatedAt, &it.UpdatedBy, &it.UpdatedAt, &it.RevokedAt, &it.BlockedAt, &it.MetadataJSON)
+		&it.CreatedAt, &it.UpdatedBy, &it.UpdatedAt, &it.RevokedAt, &it.BlockedAt, &it.ExpiresAt, &it.MetadataJSON)
 	if err != nil {
 		return domain.PluginTrustedPublisher{}, false
 	}
@@ -3997,7 +4149,7 @@ func (s *MySQLStore) PluginTrustedPublishers(filter domain.PluginTrustedPublishe
 	args = append(args, filter.PageSize, offset)
 	rows, err := s.db.Query(`SELECT id,publisher_id,name,homepage,email,public_key_id,public_key_algorithm,public_key,fingerprint,status,notes,created_by,
 		DATE_FORMAT(created_at,'%Y-%m-%d %H:%i:%s'),updated_by,DATE_FORMAT(updated_at,'%Y-%m-%d %H:%i:%s'),
-		COALESCE(DATE_FORMAT(revoked_at,'%Y-%m-%d %H:%i:%s'),''),COALESCE(DATE_FORMAT(blocked_at,'%Y-%m-%d %H:%i:%s'),''),COALESCE(CAST(metadata_json AS CHAR),'')
+		COALESCE(DATE_FORMAT(revoked_at,'%Y-%m-%d %H:%i:%s'),''),COALESCE(DATE_FORMAT(blocked_at,'%Y-%m-%d %H:%i:%s'),''),COALESCE(DATE_FORMAT(expires_at,'%Y-%m-%d %H:%i:%s'),''),COALESCE(CAST(metadata_json AS CHAR),'')
 		FROM plugin_trusted_publishers WHERE `+whereSQL+` ORDER BY id DESC LIMIT ? OFFSET ?`, args...)
 	if err != nil {
 		return nil, 0, err
@@ -4007,7 +4159,7 @@ func (s *MySQLStore) PluginTrustedPublishers(filter domain.PluginTrustedPublishe
 	for rows.Next() {
 		var it domain.PluginTrustedPublisher
 		if err := rows.Scan(&it.ID, &it.PublisherID, &it.Name, &it.Homepage, &it.Email, &it.PublicKeyID, &it.PublicKeyAlgorithm, &it.PublicKey, &it.Fingerprint, &it.Status, &it.Notes, &it.CreatedBy,
-			&it.CreatedAt, &it.UpdatedBy, &it.UpdatedAt, &it.RevokedAt, &it.BlockedAt, &it.MetadataJSON); err != nil {
+			&it.CreatedAt, &it.UpdatedBy, &it.UpdatedAt, &it.RevokedAt, &it.BlockedAt, &it.ExpiresAt, &it.MetadataJSON); err != nil {
 			return nil, 0, err
 		}
 		out = append(out, it)

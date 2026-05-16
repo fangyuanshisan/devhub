@@ -18,81 +18,83 @@ const TimeLayout = "2006-01-02 15:04:05"
 
 // MemoryStore 是线程安全的内存数据仓储，用于演示环境和本地开发。
 type MemoryStore struct {
-	mu                    sync.RWMutex
-	nextPostID            int64
-	nextCommentID         int64
-	nextNoticeID          int64
-	nextLogID             int64
-	nextPluginConfigVer   int64
-	nextReactionID        int64
-	nextFavoriteID        int64
-	nextFollowID          int64
-	nextActivityID        int64
-	nextReportID          int64
-	nextModeratorID       int64
-	nextCommunityID       int64
-	nextCategoryID        int64
-	nextTagID             int64
-	nextTagAliasID        int64
-	nextUserID            int64
-	nextHookExecutionID   int64
-	nextApprovalID        int64
-	nextPackageUploadID   int64
-	nextPackageDownloadID int64
-	nextPackagePrecheckID int64
-	nextPackageCompatID   int64
-	nextEnablePrecheckID  int64
-	nextEnableTaskID      int64
-	nextUninstallTaskID   int64
-	nextUpgradeTaskID     int64
-	nextTrustedPubID      int64
-	nextRemoteIndexID     int64
-	nextOperationID       int64
-	sites                 map[string]domain.Site
-	boards                map[string]domain.Board
-	communities           map[int64]*domain.Community
-	categories            map[int64]*domain.Category
-	plugins               map[string]*domain.Plugin
-	communityPlugins      map[int64]map[string]*domain.CommunityPlugin
-	pluginMigrations      map[string][]domain.PluginMigration // plugin_code -> records
-	hookExecutions        []domain.HookExecution
-	qaQuestions           map[int64]*domain.QAQuestion
-	qaAnswers             map[int64]*domain.QAAnswer
-	docsSpaces            map[int64]*domain.DocsSpace
-	docsDocuments         map[int64]*domain.DocsDocument
-	wikiPages             map[int64]*domain.WikiPage
-	wikiVersions          map[int64]*domain.WikiRevision
-	tags                  map[int64]*domain.Tag
-	tagAliases            map[int64]*domain.TagAlias
-	boardOrder            []string
-	siteOrder             []string
-	posts                 map[int64]*domain.Post
-	comments              map[int64]*domain.Comment
-	notices               map[int64]*domain.Notification
-	reactions             map[string]*domain.Reaction
-	favorites             map[string]*domain.Favorite
-	follows               map[string]*domain.Follow
-	activities            map[int64]*domain.Activity
-	reports               map[int64]*domain.Report
-	moderators            map[int64]*domain.CommunityModerator
-	commentLocks          map[int64]bool
-	users                 map[int64]*domain.AdminUser
-	roles                 map[int64]domain.AdminRole
-	settings              domain.AdminSettings
-	logs                  []domain.AdminLog
-	pluginConfigVers      []domain.PluginConfigVersion
-	pluginApprovals       []domain.PluginApprovalRequest
-	packageUploads        []domain.PluginPackageUploadRecord
-	packageDownloads      []domain.PluginPackageDownloadRecord
-	packagePrechecks      []domain.PluginPackagePrecheckRecord
-	packageCompatChecks   []domain.PluginPackageCompatCheckRecord
-	enablePrechecks       []domain.PluginEnablePrecheckRecord
-	enableTasks           []domain.PluginEnableTask
-	uninstallTasks        []domain.PluginUninstallTask
-	upgradeTasks          []domain.PluginUpgradeTask
-	pluginOperations      []domain.PluginOperationSnapshot
-	trustedPublishers     []domain.PluginTrustedPublisher
-	remoteIndexes         []domain.PluginRemoteIndexSource
+	mu                     sync.RWMutex
+	nextPostID             int64
+	nextCommentID          int64
+	nextNoticeID           int64
+	nextLogID              int64
+	nextPluginConfigVer    int64
+	nextReactionID         int64
+	nextFavoriteID         int64
+	nextFollowID           int64
+	nextActivityID         int64
+	nextReportID           int64
+	nextModeratorID        int64
+	nextCommunityID        int64
+	nextCategoryID         int64
+	nextTagID              int64
+	nextTagAliasID         int64
+	nextUserID             int64
+	nextHookExecutionID    int64
+	nextApprovalID         int64
+	nextPackageUploadID    int64
+	nextPackageDownloadID  int64
+	nextPackagePrecheckID  int64
+	nextPackageCompatID    int64
+	nextPackageSignatureID int64
+	nextEnablePrecheckID   int64
+	nextEnableTaskID       int64
+	nextUninstallTaskID    int64
+	nextUpgradeTaskID      int64
+	nextTrustedPubID       int64
+	nextRemoteIndexID      int64
+	nextOperationID        int64
+	sites                  map[string]domain.Site
+	boards                 map[string]domain.Board
+	communities            map[int64]*domain.Community
+	categories             map[int64]*domain.Category
+	plugins                map[string]*domain.Plugin
+	communityPlugins       map[int64]map[string]*domain.CommunityPlugin
+	pluginMigrations       map[string][]domain.PluginMigration // plugin_code -> records
+	hookExecutions         []domain.HookExecution
+	qaQuestions            map[int64]*domain.QAQuestion
+	qaAnswers              map[int64]*domain.QAAnswer
+	docsSpaces             map[int64]*domain.DocsSpace
+	docsDocuments          map[int64]*domain.DocsDocument
+	wikiPages              map[int64]*domain.WikiPage
+	wikiVersions           map[int64]*domain.WikiRevision
+	tags                   map[int64]*domain.Tag
+	tagAliases             map[int64]*domain.TagAlias
+	boardOrder             []string
+	siteOrder              []string
+	posts                  map[int64]*domain.Post
+	comments               map[int64]*domain.Comment
+	notices                map[int64]*domain.Notification
+	reactions              map[string]*domain.Reaction
+	favorites              map[string]*domain.Favorite
+	follows                map[string]*domain.Follow
+	activities             map[int64]*domain.Activity
+	reports                map[int64]*domain.Report
+	moderators             map[int64]*domain.CommunityModerator
+	commentLocks           map[int64]bool
+	users                  map[int64]*domain.AdminUser
+	roles                  map[int64]domain.AdminRole
+	settings               domain.AdminSettings
+	logs                   []domain.AdminLog
+	pluginConfigVers       []domain.PluginConfigVersion
+	pluginApprovals        []domain.PluginApprovalRequest
+	packageUploads         []domain.PluginPackageUploadRecord
+	packageDownloads       []domain.PluginPackageDownloadRecord
+	packagePrechecks       []domain.PluginPackagePrecheckRecord
+	packageCompatChecks    []domain.PluginPackageCompatCheckRecord
+	packageSignatures      []domain.PluginPackageSignatureRecord
+	enablePrechecks        []domain.PluginEnablePrecheckRecord
+	enableTasks            []domain.PluginEnableTask
+	uninstallTasks         []domain.PluginUninstallTask
+	upgradeTasks           []domain.PluginUpgradeTask
+	pluginOperations       []domain.PluginOperationSnapshot
+	trustedPublishers      []domain.PluginTrustedPublisher
+	remoteIndexes          []domain.PluginRemoteIndexSource
 }
 
 func countPluginMenus(def domain.Plugin, area string) int {
@@ -299,57 +301,58 @@ func (s *MemoryStore) recentHookErrorsCountLocked(pluginCode string, communityID
 // NewMemoryStore 创建内存仓储并写入演示数据。
 func NewMemoryStore() *MemoryStore {
 	s := &MemoryStore{
-		nextPostID:            1,
-		nextCommentID:         1,
-		nextNoticeID:          1,
-		nextLogID:             1,
-		nextPluginConfigVer:   1,
-		nextReactionID:        1,
-		nextFavoriteID:        1,
-		nextFollowID:          1,
-		nextActivityID:        1,
-		nextReportID:          1,
-		nextModeratorID:       1,
-		nextCommunityID:       1,
-		nextCategoryID:        1,
-		nextTagID:             1,
-		nextTagAliasID:        1,
-		nextUserID:            1,
-		nextHookExecutionID:   1,
-		nextApprovalID:        1,
-		nextPackageDownloadID: 1,
-		nextPackagePrecheckID: 1,
-		nextPackageCompatID:   1,
-		sites:                 map[string]domain.Site{},
-		boards:                map[string]domain.Board{},
-		communities:           map[int64]*domain.Community{},
-		categories:            map[int64]*domain.Category{},
-		plugins:               map[string]*domain.Plugin{},
-		communityPlugins:      map[int64]map[string]*domain.CommunityPlugin{},
-		pluginMigrations:      map[string][]domain.PluginMigration{},
-		hookExecutions:        []domain.HookExecution{},
-		qaQuestions:           map[int64]*domain.QAQuestion{},
-		qaAnswers:             map[int64]*domain.QAAnswer{},
-		docsSpaces:            map[int64]*domain.DocsSpace{},
-		docsDocuments:         map[int64]*domain.DocsDocument{},
-		wikiPages:             map[int64]*domain.WikiPage{},
-		wikiVersions:          map[int64]*domain.WikiRevision{},
-		tags:                  map[int64]*domain.Tag{},
-		tagAliases:            map[int64]*domain.TagAlias{},
-		boardOrder:            []string{"all", "community", "qa", "opensource", "ai", "jobs", "wiki", "docs"},
-		siteOrder:             []string{"php", "go", "java", "ai", "frontend"},
-		posts:                 map[int64]*domain.Post{},
-		comments:              map[int64]*domain.Comment{},
-		notices:               map[int64]*domain.Notification{},
-		reactions:             map[string]*domain.Reaction{},
-		favorites:             map[string]*domain.Favorite{},
-		follows:               map[string]*domain.Follow{},
-		activities:            map[int64]*domain.Activity{},
-		reports:               map[int64]*domain.Report{},
-		moderators:            map[int64]*domain.CommunityModerator{},
-		commentLocks:          map[int64]bool{},
-		users:                 map[int64]*domain.AdminUser{},
-		roles:                 map[int64]domain.AdminRole{},
+		nextPostID:             1,
+		nextCommentID:          1,
+		nextNoticeID:           1,
+		nextLogID:              1,
+		nextPluginConfigVer:    1,
+		nextReactionID:         1,
+		nextFavoriteID:         1,
+		nextFollowID:           1,
+		nextActivityID:         1,
+		nextReportID:           1,
+		nextModeratorID:        1,
+		nextCommunityID:        1,
+		nextCategoryID:         1,
+		nextTagID:              1,
+		nextTagAliasID:         1,
+		nextUserID:             1,
+		nextHookExecutionID:    1,
+		nextApprovalID:         1,
+		nextPackageDownloadID:  1,
+		nextPackagePrecheckID:  1,
+		nextPackageCompatID:    1,
+		nextPackageSignatureID: 1,
+		sites:                  map[string]domain.Site{},
+		boards:                 map[string]domain.Board{},
+		communities:            map[int64]*domain.Community{},
+		categories:             map[int64]*domain.Category{},
+		plugins:                map[string]*domain.Plugin{},
+		communityPlugins:       map[int64]map[string]*domain.CommunityPlugin{},
+		pluginMigrations:       map[string][]domain.PluginMigration{},
+		hookExecutions:         []domain.HookExecution{},
+		qaQuestions:            map[int64]*domain.QAQuestion{},
+		qaAnswers:              map[int64]*domain.QAAnswer{},
+		docsSpaces:             map[int64]*domain.DocsSpace{},
+		docsDocuments:          map[int64]*domain.DocsDocument{},
+		wikiPages:              map[int64]*domain.WikiPage{},
+		wikiVersions:           map[int64]*domain.WikiRevision{},
+		tags:                   map[int64]*domain.Tag{},
+		tagAliases:             map[int64]*domain.TagAlias{},
+		boardOrder:             []string{"all", "community", "qa", "opensource", "ai", "jobs", "wiki", "docs"},
+		siteOrder:              []string{"php", "go", "java", "ai", "frontend"},
+		posts:                  map[int64]*domain.Post{},
+		comments:               map[int64]*domain.Comment{},
+		notices:                map[int64]*domain.Notification{},
+		reactions:              map[string]*domain.Reaction{},
+		favorites:              map[string]*domain.Favorite{},
+		follows:                map[string]*domain.Follow{},
+		activities:             map[int64]*domain.Activity{},
+		reports:                map[int64]*domain.Report{},
+		moderators:             map[int64]*domain.CommunityModerator{},
+		commentLocks:           map[int64]bool{},
+		users:                  map[int64]*domain.AdminUser{},
+		roles:                  map[int64]domain.AdminRole{},
 		settings: domain.AdminSettings{
 			SiteName:          "DevHub",
 			Copyright:         "© 2026 DevHub",
@@ -7022,6 +7025,125 @@ func (s *MemoryStore) PluginPackageCompatChecks(filter domain.PluginPackageCompa
 		end = total
 	}
 	return append([]domain.PluginPackageCompatCheckRecord(nil), all[start:end]...), total, nil
+}
+
+// ===== Plugin package signatures (detached verification, v1.7.1) =====
+
+func (s *MemoryStore) AppendPluginPackageSignature(record domain.PluginPackageSignatureRecord) (domain.PluginPackageSignatureRecord, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	record.ID = s.nextPackageSignatureID
+	s.nextPackageSignatureID++
+	if strings.TrimSpace(record.Status) == "" {
+		record.Status = domain.PluginPackageSignatureStatusPending
+	}
+	now := Now()
+	if strings.TrimSpace(record.CreatedAt) == "" {
+		record.CreatedAt = now
+	}
+	record.UpdatedAt = now
+	s.packageSignatures = append(s.packageSignatures, record)
+	return record, nil
+}
+
+func (s *MemoryStore) SavePluginPackageSignature(record domain.PluginPackageSignatureRecord) (domain.PluginPackageSignatureRecord, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	now := Now()
+	for i := range s.packageSignatures {
+		if s.packageSignatures[i].ID != record.ID {
+			continue
+		}
+		if strings.TrimSpace(record.CreatedAt) == "" {
+			record.CreatedAt = s.packageSignatures[i].CreatedAt
+		}
+		record.UpdatedAt = now
+		s.packageSignatures[i] = record
+		return record, nil
+	}
+	if record.ID == 0 {
+		record.ID = s.nextPackageSignatureID
+		s.nextPackageSignatureID++
+	}
+	if strings.TrimSpace(record.CreatedAt) == "" {
+		record.CreatedAt = now
+	}
+	record.UpdatedAt = now
+	s.packageSignatures = append(s.packageSignatures, record)
+	return record, nil
+}
+
+func (s *MemoryStore) PluginPackageSignatureByID(id int64) (domain.PluginPackageSignatureRecord, bool) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	for _, it := range s.packageSignatures {
+		if it.ID == id {
+			return it, true
+		}
+	}
+	return domain.PluginPackageSignatureRecord{}, false
+}
+
+func (s *MemoryStore) PluginPackageSignatures(filter domain.PluginPackageSignatureFilter) ([]domain.PluginPackageSignatureRecord, int, error) {
+	page, pageSize := normalizeMemoryPage(filter.Page, filter.PageSize)
+	status := strings.TrimSpace(filter.Status)
+	code := strings.TrimSpace(filter.PluginCode)
+	keyword := strings.ToLower(strings.TrimSpace(filter.Keyword))
+
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	all := make([]domain.PluginPackageSignatureRecord, 0, len(s.packageSignatures))
+	for _, it := range s.packageSignatures {
+		if status != "" && status != "all" && it.Status != status {
+			continue
+		}
+		if code != "" && it.PluginCode != code {
+			continue
+		}
+		if filter.PackageDownloadID > 0 && it.PackageDownloadID != filter.PackageDownloadID {
+			continue
+		}
+		if filter.PackagePrecheckID > 0 && it.PackagePrecheckID != filter.PackagePrecheckID {
+			continue
+		}
+		if keyword != "" {
+			hay := strings.ToLower(strings.Join([]string{it.PluginCode, it.Version, it.Status, it.PublisherID, it.KeyID, it.SignatureURL}, " "))
+			if !strings.Contains(hay, keyword) {
+				continue
+			}
+		}
+		all = append(all, it)
+	}
+	sort.Slice(all, func(i, j int) bool { return all[i].ID > all[j].ID })
+	total := len(all)
+	start := (page - 1) * pageSize
+	if start > total {
+		start = total
+	}
+	end := start + pageSize
+	if end > total {
+		end = total
+	}
+	return append([]domain.PluginPackageSignatureRecord(nil), all[start:end]...), total, nil
+}
+
+func (s *MemoryStore) LatestPluginPackageSignatureByPrecheckID(precheckID int64) (domain.PluginPackageSignatureRecord, bool) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	var picked domain.PluginPackageSignatureRecord
+	for _, it := range s.packageSignatures {
+		if it.PackagePrecheckID != precheckID {
+			continue
+		}
+		if picked.ID == 0 || it.ID > picked.ID {
+			picked = it
+		}
+	}
+	if picked.ID == 0 {
+		return domain.PluginPackageSignatureRecord{}, false
+	}
+	return picked, true
 }
 
 // ===== Plugin enable prechecks (v1.7.0-P0-05) =====

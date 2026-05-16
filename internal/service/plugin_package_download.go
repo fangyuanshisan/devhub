@@ -55,11 +55,13 @@ func (s *Service) DownloadPluginPackageToStagingAs(operator PluginPackageDownloa
 	req.Version = strings.TrimSpace(req.Version)
 	req.PackageURL = strings.TrimSpace(req.PackageURL)
 	req.SHA256 = strings.ToLower(strings.TrimSpace(req.SHA256))
+	req.SignatureURL = strings.TrimSpace(req.SignatureURL)
 	now := Now()
 	record := domain.PluginPackageDownloadRecord{
 		PluginCode:     req.PluginCode,
 		Version:        req.Version,
 		SourceURL:      req.PackageURL,
+		SignatureURL:   req.SignatureURL,
 		Status:         domain.PluginPackageDownloadStatusPending,
 		SHA256Expected: req.SHA256,
 		CreatedBy:      operator.ID,

@@ -22,10 +22,11 @@ func (s *Server) downloadAdminPluginPackageToStaging(c *gin.Context) {
 	}
 	actor := auditActor(c)
 	s.auditStructured(c, "system", "plugin.package.download.requested", "plugin-package-downloads", nil, gin.H{"status": "requested"}, gin.H{
-		"plugin_code": req.PluginCode,
-		"version":     req.Version,
-		"source_url":  req.PackageURL,
-		"actor":       actor,
+		"plugin_code":   req.PluginCode,
+		"version":       req.Version,
+		"source_url":    req.PackageURL,
+		"signature_url": strings.TrimSpace(req.SignatureURL),
+		"actor":         actor,
 	})
 	adminCtx, hasAdmin := currentAdminContext(c)
 	operator := service.PluginPackageDownloadOperator{}
@@ -46,6 +47,7 @@ func (s *Server) downloadAdminPluginPackageToStaging(c *gin.Context) {
 			"plugin_code":     req.PluginCode,
 			"version":         req.Version,
 			"source_url":      req.PackageURL,
+			"signature_url":   strings.TrimSpace(req.SignatureURL),
 			"final_url":       record.FinalURL,
 			"file_size":       record.FileSize,
 			"sha256_expected": req.SHA256,
@@ -63,6 +65,7 @@ func (s *Server) downloadAdminPluginPackageToStaging(c *gin.Context) {
 		"version":         record.Version,
 		"source_url":      record.SourceURL,
 		"final_url":       record.FinalURL,
+		"signature_url":   strings.TrimSpace(record.SignatureURL),
 		"file_size":       record.FileSize,
 		"sha256_expected": record.SHA256Expected,
 		"sha256_actual":   record.SHA256Actual,

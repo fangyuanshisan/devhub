@@ -8,12 +8,12 @@
 
 ## 当前实现快照与需求分层
 
-`VERSION` 当前为 `v1.7.0`，代码能力已进入远程插件包治理与安装安全增强阶段；当前新增远程插件包安全下载到 staging，但仍不安装、不启用、不解压执行、不执行第三方代码或外部 SQL。
+`VERSION` 当前为 `v1.7.1`，代码能力已进入远程插件包治理与安装安全增强阶段；在 `v1.7.0` 下载→预检→compat-check→安装→enable-precheck→enable→软卸载→升级的基础上，`v1.7.1` 进一步补齐 detached signature（`devhub-signature.json`）的 Ed25519 验签并强联动到 compat-check / install / upgrade。远程包仍不执行第三方代码或外部 SQL。
 
 当前实现快照：
 
 - 已完成：v1.5 本地插件包规范、dry-run、checksum / risk_report、本地仓库扫描、本地包安装、配置版本历史、敏感配置加密、审批流、签名草案、已安装声明型插件目录导出。
-- 已完成：v1.6 zip 上传安全沙箱、上传包生命周期列表 / 详情 / rescan / approval / promote / cancel / delete / cleanup、真实签名验签、可信发布者 CRUD / block / revoke / restore、远程索引只读镜像、版本仓库、升级差异、操作历史 / recover dry-run / cleanup、配置密钥轮换 dry-run / re-encrypt、后台插件治理六组导航与 E2E helper。
+- 已完成：v1.6 zip 上传安全沙箱、上传包生命周期列表 / 详情 / rescan / approval / promote / cancel / delete / cleanup、真实签名验签、可信发布者 CRUD / block / revoke / restore、远程索引只读镜像、版本仓库、升级差异、操作历史 / recover dry-run / cleanup、配置密钥轮换 dry-run / re-encrypt、后台插件治理按功能域分层导航与 E2E helper（导航入口见 `web/admin-app/src/router/adminNav.js`）。
 - 已完成：v1.7-P0-01 远程插件包下载到 `storage/plugins/staging/downloads/`，包含 HTTPS-only、SSRF 防护、重定向复检、大小限制、sha256 校验、失败清理和审计记录。
 - 已完成：v1.7-P0-05 插件启用前安全检查（enable-precheck）：基于已安装插件二次复检文件/manifest/依赖/配置/迁移/冲突，产出 `can_enable` 结论并持久化记录；本轮只检查不真正启用或注册运行时。
 - 部分完成：操作快照和恢复以 dry-run / cleanup / 人工恢复建议为主，不提供全量业务数据自动回滚；配置历史默认不做批量 re-encrypt；插件包导出当前是目录包导出，不提供 zip 下载与正式签名打包。

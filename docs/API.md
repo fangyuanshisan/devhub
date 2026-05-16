@@ -138,6 +138,16 @@
 | `plugin_package_signature_publisher_unknown` | 签名发布者未建立本地可信关系 | `publisher_id`,`public_key_id` | 在可信发布者页面维护公钥或仅在测试环境使用 |
 | `plugin_package_signature_publisher_blocked` | 签名发布者被本地策略 blocked | `publisher_id`,`public_key_id` | 更换发布者或恢复可信发布者状态 |
 | `plugin_package_signature_publisher_revoked` | 签名发布者被本地策略 revoked | `publisher_id`,`public_key_id` | 更换发布者签名或移除插件包 |
+| `plugin_package_signature_invalid_request` | detached signature 验签请求不合法 | `precheck_id` | 仅对 precheck passed 记录执行验签 |
+| `plugin_package_signature_url_invalid` | signature_url 不合法或不允许 | `scheme`,`url` | 仅允许公网 HTTPS `.json` 签名文件 URL |
+| `plugin_package_signature_redirect_blocked` | signature_url 重定向次数过多或跳转到禁止地址 | `final_url` | 确认每次跳转仍为公网 HTTPS |
+| `plugin_package_signature_response_too_large` | signature_url 签名文件过大 | `max_bytes` | 默认限制 64KB，可通过受控配置调整 |
+| `plugin_package_signature_precheck_not_passed` | 只有 precheck passed 的包才能验签 | `precheck_id`,`precheck_status` | 先修复预检错误并重新预检 |
+| `plugin_package_signature_source_missing` | 预检记录缺少下载来源，无法验签 | `precheck_id` | 请从 staging 下载链路创建预检记录 |
+| `plugin_package_signature_source_invalid` | staging 包未通过 sha256 校验，禁止验签 | `download_id`,`download_status` | 请提供 sha256 并确保下载校验通过 |
+| `plugin_package_signature_key_expired` | 可信发布者公钥已过期（detached） | `publisher_id`,`key_id`,`expires_at` | 更新/更换公钥后重新验签 |
+| `plugin_package_signature_missing` | 缺少验签记录或未提供 detached signature | `precheck_id` | 先提供 `devhub-signature.json` 并执行验签 |
+| `plugin_package_signature_not_verified` | detached signature 未通过验签，禁止进入安装/升级链路 | `signature_id`,`signature_status` | 修复签名/可信发布者状态后重试 |
 | `plugin_package_publisher_invalid` | publisher.json 非法 | `path`,`reason` | 修复 publisher.json 后重试 |
 | `plugin_package_trusted_publishers_unavailable` | trusted_publishers 配置不可用（warning） | `path`,`reason` | 检查 `storage/plugins/trusted_publishers.json` 访问权限与 JSON 格式 |
 | `plugin_trusted_publisher_not_found` | 可信发布者不存在 | `id` | 刷新列表后重试 |
@@ -801,13 +811,15 @@
   "plugin_code": "demo_notice",
   "version": "1.0.0",
   "package_url": "https://example.com/packages/demo_notice-1.0.0.zip",
-  "sha256": "64位十六进制 sha256，可选但强烈建议"
+  "sha256": "64位十六进制 sha256，可选但强烈建议",
+  "signature_url": "可选：detached signature URL（devhub-signature.json），仅允许 https + .json"
 }
 ```
 
 - 安全校验：仅允许 HTTPS；拒绝 `file/http/ftp/gopher`、localhost、`127.0.0.0/8`、`0.0.0.0`、`::1`、内网和 link-local 地址；DNS 解析和每次重定向后都会重新校验；最多 3 次重定向；默认下载上限 20MB；仅允许 `.zip`、`.tar.gz`、`.tgz`。
 - 写入：先写临时 `.part` 文件，下载和 sha256 校验完成后再 rename 到 `storage/plugins/staging/downloads/`；文件名由 `plugin_code/version/sha256 前缀/时间戳` 生成，不使用远程文件名。
 - sha256：如果请求提供 `sha256`，下载后必须一致，否则状态为 `checksum_failed` 并清理文件；未提供时状态为 `checksum_missing`，文件保留但标记未验证，不能进入自动安装。
+- signature_url：仅记录并用于后续验签；signature_url 下载会复用 staging 下载的 HTTPS/SSRF/重定向校验，并限制最大 64KB。签名缺失不会阻断下载，但会在 compat-check/install/upgrade 默认策略下阻断进入链路（需先验签 verified 或显式放开 unsigned）。
 - 返回：`id/plugin_code/version/status/source_url/final_url/file_size/sha256_expected/sha256_actual/content_type/staging_path/downloaded_at/error_code/error_message`。
 
 `GET /api/v1/admin/plugins/packages/staging`
@@ -2309,6 +2321,56 @@ GET /api/v1/admin/plugins/remote-indexes/:id/plugins/:code
 - `plugin_package_compat_hook_unknown`
 - `plugin_package_compat_config_default_invalid`
 - `plugin_package_compat_migration_direction_unsupported`
+
+## v1.7.1：插件包签名验签（detached）
+
+本轮引入 detached signature（`devhub-signature.json`）并执行 Ed25519 真实验签，用于判断“来源可信/内容未被篡改”。验签结果会强联动到 compat-check/install/upgrade：默认要求 `verified` 才允许进入安装/升级链路（可通过 `DEVHUB_PLUGIN_REQUIRE_SIGNED_PACKAGES=0` 仅在 dev 场景放开）。
+
+### `POST /api/v1/admin/plugins/packages/prechecks/:id/verify-signature`
+
+权限：`plugin.write`。
+
+对 `precheck(status=passed)` 的解压目录执行验签并保存验签记录。签名文件来源：
+
+- staging download 记录中的 `signature_url`（如提供，则会按 HTTPS/SSRF/重定向/大小限制下载，默认 64KB）。
+- 解压目录中的 `devhub-signature.json`（如存在）。
+
+若两种来源同时存在且内容不一致：验签失败（阻断）。
+
+返回示例：
+
+```json
+{
+  "id": 1,
+  "package_download_id": 10,
+  "package_precheck_id": 2,
+  "plugin_code": "demo",
+  "version": "1.0.0",
+  "status": "verified|unsigned|untrusted_publisher|key_revoked|key_expired|hash_mismatch|payload_mismatch|algorithm_unsupported|failed",
+  "publisher_id": "devhub-official",
+  "key_id": "devhub-official-2026-01",
+  "signature_url": "https://example.com/demo.devhub-signature.json",
+  "signature_file_path": "storage/plugins/staging/signatures/...",
+  "package_sha256": "...",
+  "manifest_sha256": "...",
+  "verified_at": "2026-05-16 12:00:00",
+  "error_message": ""
+}
+```
+
+### `GET /api/v1/admin/plugins/packages/signatures`
+
+权限：`plugin.read`。查询参数：`status`、`plugin_code`、`package_download_id`、`package_precheck_id`、`keyword`、`page`、`page_size`。
+
+返回：`items/pagination/summary`。
+
+### `GET /api/v1/admin/plugins/packages/signatures/:id`
+
+权限：`plugin.read`。返回单条验签记录详情。
+
+### `DELETE /api/v1/admin/plugins/packages/signatures/:id`
+
+权限：`plugin.write`。软删除验签记录（状态置为 `deleted`）。不会删除 staging 包或预检目录。
 
 ## v1.7.0-P0-05：插件启用前安全检查（enable-precheck）
 

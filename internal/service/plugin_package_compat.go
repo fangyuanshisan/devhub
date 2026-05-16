@@ -250,6 +250,22 @@ func (s *Service) evaluatePluginPackageCompatibility(manifest domain.PluginManif
 	if strings.EqualFold(strings.TrimSpace(precheck.ChecksumStatus), domain.PluginPackageDownloadStatusChecksumMissing) || strings.EqualFold(strings.TrimSpace(precheck.ChecksumStatus), "checksum_missing") {
 		addError("plugin_package_compat_checksum_missing", "checksum", "sha256", "没有 sha256 的 staging 包不能进入安装链路", nil)
 	}
+
+	// v1.7.1: signature gating for staging/precheck driven install/upgrade.
+	// Default policy: require verified detached signature; allow opt-out via DEVHUB_PLUGIN_REQUIRE_SIGNED_PACKAGES=0 (dev only).
+	if precheck.PackageDownloadID > 0 && requireVerifiedSignatureForInstall() {
+		sig, ok := s.repo.LatestPluginPackageSignatureByPrecheckID(precheck.ID)
+		if !ok || sig.ID <= 0 {
+			addError("plugin_package_signature_missing", "signature", "devhub-signature.json", "缺少验签记录或未提供签名，默认禁止进入安装/升级链路", nil)
+		} else if strings.ToLower(strings.TrimSpace(sig.Status)) != domain.PluginPackageSignatureStatusVerified {
+			addError("plugin_package_signature_not_verified", "signature", "devhub-signature.json", "插件包签名未通过验签，禁止进入安装/升级链路", map[string]any{
+				"signature_status": sig.Status,
+				"signature_id":     sig.ID,
+				"publisher_id":     sig.PublisherID,
+				"key_id":           sig.KeyID,
+			})
+		}
+	}
 	for _, msg := range validation.Errors {
 		addError("plugin_package_compat_manifest_invalid", "manifest", "", msg, nil)
 	}

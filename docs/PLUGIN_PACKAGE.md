@@ -473,6 +473,27 @@ Dry-run 会返回 `risk_report`：
 - 不做证书链验证、不做密钥轮换、不做私钥管理后台或在线签名服务。
 - 不执行任何第三方代码/SQL，不动态加载前端资产。
 
+## 插件包 detached signature（v1.7.1）
+
+v1.7.0 引入“远程包下载到 staging + 预检 + compat-check + 安装/启用治理”，但仍无法解决“来源可信/链路未被篡改”。v1.7.1 增加 detached signature（与插件包分离的签名元数据文件）：
+
+- 文件名：`devhub-signature.json`
+- 来源：可来自下载请求中的 `signature_url`，或包内同名文件；若两者同时存在且内容不一致，则验签失败（阻断）。
+- 算法：Ed25519（base64 public key + base64 signature）。
+- payload：对 `signature_payload` 的 canonical JSON bytes 进行签名与验签（payload 必须是稳定结构体，禁止 map）。
+
+最小 payload 绑定字段：
+
+- `plugin_code` / `version` / `compatible_core_version`（如存在）必须与 `manifest.json` 一致。
+- `package_sha256` 必须等于 staging download 的 `sha256_actual`。
+- `manifest_sha256` 必须等于预检目录中 `manifest.json` 的实际 sha256。
+- `publisher_id + key_id` 必须匹配本地可信发布者记录（`plugin_trusted_publishers`），且状态为 `trusted`、未过期（`expires_at`）。
+
+默认策略：
+
+- unsigned 包允许停留在 staging / precheck，但 **默认禁止** 进入 install / upgrade 链路（compat-check 会阻断 `can_install`）。
+- 仅在 dev 场景可通过 `DEVHUB_PLUGIN_REQUIRE_SIGNED_PACKAGES=0` 放开 unsigned（仍会产生审计与风险提示；生产不建议开启）。
+
 ### 目录结构新增文件
 
 插件包可选包含：

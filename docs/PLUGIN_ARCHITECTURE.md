@@ -81,11 +81,30 @@ MySQL 专项补充：2026-05-11 已完成 MySQLStore 与老库升级专项验证
 - 插件依赖解析、版本兼容检查深化、远程插件索引、插件包签名生态和市场分发。
 - 外部服务型 Webhook、动态路由加载、动态执行环境、沙箱和第三方 Hook 运行时。
 
+## 后台插件治理信息架构（按功能域）
+
+后台（`/admin-next`）的“插件”模块不按页面数量堆叠菜单，而是按“功能域分组 → 具体页面入口”组织。状态筛选类入口（例如“已启用/已禁用/异常”）放在页内 Tab，并同步到 URL query（例如 `?status=enabled`），不进入左侧导航。
+
+当前插件模块导航层级：
+
+- 一级：插件
+- 二级（功能域）与三级（页面）：
+  - 插件概览：概览
+  - 插件管理：插件列表、内容治理、权限矩阵
+  - 插件包治理：本地插件仓库、zip 上传包、远程插件包、版本仓库
+  - 插件安全：依赖 / 兼容性、可信发布者、密钥轮换
+  - 插件配置：配置中心
+  - 运行时治理：Hook 排障、前台入口、搜索索引、事件通知
+  - 插件日志：安装 / 升级审批、操作历史、审计
+  - 插件市场 / 开发者：远程索引、开发者工具
+
+导航配置入口：`web/admin-app/src/router/adminNav.js`；路由 meta 通过 `moduleKey/navGroupKey/navPageKey` 驱动选中态与面包屑。
+
 ## 完整插件系统路线
 
 本节是当前架构文档中的阶段摘要；更完整的目标流程、治理能力、后台能力、运行时能力、审计能力和 E2E 要求见 [完整插件系统长期完善路线图](PLUGIN_SYSTEM_ROADMAP.md)。
 
-当前 `VERSION` 为 `v1.6.0`，主题是“插件包上传与分发前置能力收口版”。历史阶段 `v1.4.0` / `v1.5.0` 已完成插件内容治理、本地插件包治理、配置版本、敏感配置加密、审批流和本地目录包导出；在此基础上，`v1.6.0` 补齐 zip 上传安全沙箱、上传包生命周期、Ed25519 真实验签、可信发布者、远程索引只读镜像、版本仓库、升级差异、操作恢复预览、配置密钥轮换和后台插件治理 UI 分组。远程插件市场、远程包自动下载、在线更新、动态加载、脚本沙箱、第三方代码执行、外部 raw SQL、hard uninstall 和 migration down 仍不属于当前实现。
+当前 `VERSION` 为 `v1.7.1`，主题是“插件包签名验签与可信发布者增强版”。在 `v1.7.0` 远程插件包治理 P0 链路（下载到 staging → 预检 → compat-check → 安装 → enable-precheck → enable → 软卸载 → 升级）基础上，`v1.7.1` 补齐 detached signature（`devhub-signature.json`）的 Ed25519 真实验签，并将验签结果强联动到 compat-check / install / upgrade（默认阻断 unsigned）。
 
 下一阶段进入 `v1.7.x / P0` 插件分发前置增强：优先评估远程插件包下载到 staging、下载安全校验、远程索引缓存刷新、trusted publishers 只读同步草案、zip export 下载和安全 fixture 生成器；仍不引入动态执行环境。
 
@@ -269,8 +288,9 @@ scope 语义当前约定为：
 
 当前实现中：
 
-- 后台左侧导航只保留“系统插件”入口
-- 插件业务菜单通过系统插件列表或版主插件菜单返回
+- 后台采用“一级模块 / 二级功能域 / 三级功能页”的多层导航；“插件”是一级模块之一。
+- 插件治理页在“插件”模块下按功能域分页（运营 / 插件包治理 / 安全与可信 / 流程与恢复 / 运行治理 / 远程与开发者），避免把所有页面平铺在二级菜单。
+- 内置业务插件（qa/docs/wiki/projects/jobs/ai_works）的业务治理页不散落到左侧主导航，仍通过系统插件列表或版主插件菜单进入。
 
 ## HookBus 与 Hook
 
@@ -482,8 +502,9 @@ v1.3.1 采用稳妥策略：后台编辑已存在内容时禁止修改归属和�
 
 菜单策略：
 
-- 后台左侧导航只保留“系统插件”入口。
-- 插件业务管理页通过系统插件列表进入，避免 qa / docs / wiki 直接散落到左侧导航。
+- 后台采用“一级模块 / 二级功能域 / 三级功能页”的多层导航；“插件”是一级模块之一。
+- 插件治理页在“插件”模块下按功能域分页（运营 / 插件包治理 / 安全与可信 / 流程与恢复 / 运行治理 / 远程与开发者），避免把页面平铺到二级菜单。
+- 插件业务管理页通过系统插件列表进入，避免 qa / docs / wiki 等内置业务页直接散落到左侧主导航。
 - 版主插件菜单必须同时满足全局 enabled、子站 enabled、当前用户是该子站版主、当前用户具备菜单权限。
 
 后台插件管理体验：
@@ -680,14 +701,16 @@ v1.3.5 的边界是治理体验收口，不新增危险运行时能力。当前�
 
 ## v1.6.0-P1-09 插件治理后台信息架构
 
-后台“系统插件”在不改变后端 API 和安全边界的前提下，按功能分为六个治理分组：
+后台“系统插件”在不改变后端 API 和安全边界的前提下，按“功能域”分层组织（一级模块 / 二级功能域 / 三级功能页），插件模块下当前收敛为：
 
-- 插件运营：概览、插件列表、内容治理、配置中心。
-- 插件包治理：本地插件仓库、zip 上传包、安装入口、导出入口、版本仓库、升级差异。
-- 安全与可信：checksum / 风险报告、签名验签、可信发布者、敏感配置加密、密钥轮换。
-- 流程与恢复：安装 / 升级审批、操作历史、失败恢复、回滚预览。
-- 运行治理：依赖兼容、Hook 排障、前台入口、搜索索引、事件通知。
-- 远程与开发者：远程插件索引、SDK 文档、Manifest 模板、插件包规范。
+- 插件概览：概览。
+- 插件管理：插件列表、内容治理、权限矩阵。
+- 插件包治理：本地插件仓库、zip 上传包、远程插件包、版本仓库。
+- 插件安全：依赖/兼容性、可信发布者、密钥轮换。
+- 插件配置：配置中心。
+- 运行时治理：Hook 排障、前台入口、搜索索引、事件通知。
+- 插件日志：安装/升级审批、操作历史、审计。
+- 插件市场 / 开发者：远程索引、开发者工具（仅文档与命令入口；不提供市场交易与自动更新）。
 
 UI 只负责展示后端返回的状态、风险和建议，不在前端重新推导安全结论。公共展示组件包括状态 tag、风险 tag、签名 / checksum 摘要、安全边界提示和结构化错误提示；敏感字段、密文、私钥和系统绝对路径仍不得展示给前端。
 
@@ -702,6 +725,25 @@ UI 只负责展示后端返回的状态、风险和建议，不在前端重新�
 - Audit：记录 `plugin.package.download.requested/success/failed/rejected`、`plugin.package.checksum.failed`、`plugin.package.staging.deleted`。
 
 安全边界：远程下载不会安装插件、不会启用插件、不会解压执行包内容、不会运行脚本、不会加载 Go plugin、不会执行 SQL、不会动态加载前端资产。
+
+## v1.7.1 插件包签名验签架构（detached signature）
+
+v1.7.1 在 v1.7.0 staging 下载与预检链路基础上补齐“来源可信/内容未被篡改”的最小闭环：引入 detached signature 元数据文件 `devhub-signature.json` 并执行 Ed25519 真实验签。
+
+- 输入：`plugin_package_prechecks.status=passed` 且关联的 `plugin_package_downloads.status=downloaded`（sha256 校验通过）。
+- 签名来源：
+  - 下载记录中的 `signature_url`（下载时只记录；验签时按同一套 HTTPS/SSRF/重定向/大小限制下载，默认 64KB）。
+  - 预检目录中的 `devhub-signature.json`（如存在）。
+  - 两者同时存在且不一致：验签失败（阻断）。
+- Store：`plugin_package_signatures` 持久化每次验签结果（verified/unsigned/untrusted/key_revoked/key_expired/hash_mismatch/payload_mismatch/algorithm_unsupported/failed）。
+- Handler：
+  - `POST /api/v1/admin/plugins/packages/prechecks/:id/verify-signature`
+  - `GET /api/v1/admin/plugins/packages/signatures`
+  - `GET /api/v1/admin/plugins/packages/signatures/:id`
+  - `DELETE /api/v1/admin/plugins/packages/signatures/:id`
+- 联动：compat-check/install/upgrade 默认要求 signature=verified（可通过 `DEVHUB_PLUGIN_REQUIRE_SIGNED_PACKAGES=0` 仅在 dev 放开 unsigned）。
+
+安全边界：验签只读取/下载签名文件并做摘要与一致性校验；不会安装、不会启用、不会执行插件包内代码、不会运行 scripts、不会加载 Go plugin。
 
 ## v1.7.0-P0-03 插件依赖 / 兼容性检查架构
 

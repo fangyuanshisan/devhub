@@ -2,15 +2,17 @@
 
 [返回文档入口](README.md)
 
-更新时间：2026-05-15
+更新时间：2026-05-16
 
 本文档只记录当前仓库真实状态、当前风险和下一步任务。历史版本能力已并入当前分支，详情见对应 Release Notes；旧版本已解决问题不再占用当前主体。
 
 ## 当前版本结论
 
-当前 `VERSION` 为 `v1.7.0`，主题是“远程插件包治理与安装安全增强版”。本阶段在 v1.6 插件包上传与分发前置能力基础上，开始补齐远程插件包从只读索引到安全 staging 的受控链路；当前已完成远程包安全下载到 staging，不安装、不启用、不解压执行。DevHub 当前定位为多子站通用开源社区程序，默认演示为开发者社区。
+当前 `VERSION` 为 `v1.7.1`，主题是“插件包签名验签与可信发布者增强版”。本阶段在 v1.7.0 远程插件包治理 P0 链路（下载 → 预检 → compat-check → 安装 → enable-precheck → enable → 软卸载 → 升级）基础上，补齐“来源可信/内容未被篡改”的最小闭环：引入 detached signature（`devhub-signature.json`）并执行 Ed25519 真实验签，并将验签结果强联动到 compat-check / install / upgrade（默认阻断 unsigned）。
 
-v1.7.0 当前安全边界：远程下载只写入 `storage/plugins/staging/downloads/`，不自动安装；zip 上传只进入 staging / quarantine，不自动安装；promote 只转入本地插件仓库，不等于安装；远程索引只读展示 `index.json` 元数据，下载必须显式调用 staging API 并通过 URL / SSRF / 大小 / sha256 校验；安装、升级、promote 和审批执行前仍需服务端重新 dry-run / checksum / signature / risk_report；后台不展示私钥、key material、敏感配置明文、`enc:v1` / `enc:v2` 密文或系统绝对路径。
+后台插件治理入口已按“功能域分层导航”收敛：一级模块（插件）→ 二级功能域分组（概览/管理/包治理/安全/配置/运行时/日志等）→ 三级具体页面；状态筛选改为页内 Tab 并同步 URL query，不再把状态入口堆叠到左侧菜单。
+
+v1.7.1 当前安全边界：远程下载只写入 `storage/plugins/staging/downloads/`，不自动安装；zip 上传只进入 staging / quarantine，不自动安装；promote 只转入本地插件仓库，不等于安装；远程索引只读展示 `index.json` 元数据；下载必须显式调用 staging API 并通过 URL / SSRF / 大小 / sha256 校验；detached signature 文件（`signature_url` 或包内 `devhub-signature.json`）下载同样遵守 HTTPS/SSRF/重定向/大小限制（默认 64KB）；compat-check / install / upgrade 默认要求验签 `verified`；后台不展示私钥、key material、敏感配置明文、`enc:v1` / `enc:v2` 密文或系统绝对路径。
 
 v1.7.0 进展补充：已新增远程/包插件升级闭环（v1.7.0-P0-08），升级输入强约束为 `precheck(status=passed)` + `compat-check(can_install=true)` 且 staging download 必须 `downloaded` 并通过 sha256；升级后默认不自动启用、不执行 migration，需要重新 enable-precheck + enable。
 
@@ -18,7 +20,7 @@ v1.7.0 当前仍不支持：远程插件市场、远程插件包自动安装、�
 
 验收发现的限制 / 技术债：当前已安装插件导出仍是 `storage/plugins/exports/` 目录包导出与可选 `signature.json` 结构草案，不提供 zip 下载包与在线签名打包；`plugin-package-export-zip.spec.js` 当前不存在，zip 导出下载能力应作为 v1.7 后续任务处理，不能写作 v1.6 已完成能力。配置历史密钥批量轮换、自动定时轮换、KMS/Vault、远程索引缓存刷新策略、上传/下载异步任务队列和更完整事务恢复仍为后续增强。
 
-下一阶段建议进入 `v1.7.0-P0-02`：插件包解压安全检查与 manifest 预校验。v1.7 仍应优先做受控下载、审批、安全校验、缓存刷新、zip export 下载和 fixture 生成器，不应直接引入动态运行时或第三方代码执行。
+下一阶段建议进入 `v1.7.2`：可信发布者管理增强（例如 allowed/blocked plugin_codes、批量导入/导出、引用统计、publisher 变更联动再验签），以及远程索引文件自身签名草案（`index.json` 签名 + 缓存刷新策略）。v1.7.x 仍不应直接引入动态运行时或第三方代码执行。
 
 Core 保留用户、认证、子站、板块、通用内容、评论、标签、搜索、通知、SEO、权限、审计、插件注册和分发能力。问答、文档、Wiki、项目、招聘、AI 作品已按内置系统插件建模：`qa -> question`、`docs -> document`、`wiki -> wiki_page`、`projects -> project`、`jobs -> job`、`ai_works -> ai_work`。
 
@@ -56,7 +58,7 @@ Core 保留用户、认证、子站、板块、通用内容、评论、标签、
 - `v1.3.2`：HookBus 已作为插件平台能力收口到 `internal/plugins`，内置插件可注册最小 Hook handlers；同时 `config_schema` 已在全局/子站插件配置保存时做基础校验（简化 JSON Schema）。
 - `v1.3.2`：新增 `plugin_migrations` 表，用于记录插件迁移执行状态（平台治理能力的一部分）。
 - 前台入口：子站插件公开接口会隐藏 `config_json` / `resolved_config` 等后台配置；子站板块导航会按子站插件状态过滤。
-- 后台入口：`/admin-next/plugins` 作为系统插件管理入口；插件业务页通过系统插件列表进入，默认不散落在后台左侧导航。
+- 后台入口：后台导航采用“一级模块 / 二级功能域 / 三级功能页”分层；“插件”是一级模块之一，`/admin-next/plugins` 仍作为系统插件治理入口，内置业务插件（qa/docs/wiki/...）业务页仍通过系统插件列表进入，避免散落到左侧主导航。
 - 后台插件管理体验：
   - 后台全局插件管理已支持说明卡片、插件状态 badge、内容类型 tag、权限 / 菜单 / schema 摘要、详情抽屉、tabs 分区展示、配置 schema / resolved config JSON 展示与复制、全局配置编辑、Ajv 客户端校验、启用 / 禁用确认和 impact 计数提示。
   - `/admin-next/plugins` 已完成 `v1.3.5` 第一轮治理中心重排：页面头部主操作、列表 / 状态治理双视图、核心统计卡、健康摘要、筛选面板、批量操作面板、精简插件表格和“详情 / 配置 / 更多”操作分组。

@@ -1,5 +1,16 @@
 # Changelog
 
+## v1.7.1 (2026-05-16)
+
+v1.7.1 is the signed plugin package verification and trusted publisher enhancement track. It adds detached signature verification (`devhub-signature.json`) over remote/staging packages and gates staging→compat-check→install/upgrade by verified signatures by default.
+
+- Added detached signature model `devhub-signature.json` (canonical JSON payload) and Ed25519 verification; signature payload binds `plugin_code`, `version`, `package_sha256`, `manifest_sha256`, and publisher key identifiers.
+- Extended remote package download request/record with optional `signature_url` (HTTPS + `.json` only, SSRF-protected, 64KB max) for detached signature retrieval during verification.
+- Added persistent `plugin_package_signatures` records plus admin APIs: `POST /api/v1/admin/plugins/packages/prechecks/:id/verify-signature` and `/api/v1/admin/plugins/packages/signatures` list/detail/delete.
+- Enforced signature gating in compat-check/install/upgrade by default (`DEVHUB_PLUGIN_REQUIRE_SIGNED_PACKAGES`), blocking unsigned/unverified/untrusted/revoked/expired signatures from entering install/upgrade flows.
+- Enhanced trusted publishers with optional `expires_at` (expired keys are blocked during verification).
+- Added minimal admin UI entry for signature verification and signature record list in the package governance page.
+
 ## v1.7.0 (2026-05-16)
 
 v1.7.0 is the remote plugin package governance and installation-safety enhancement track. P0-01 adds safe remote package download into staging only; it does not install, enable, extract for execution, run plugin code, execute SQL, or dynamically load frontend assets.

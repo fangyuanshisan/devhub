@@ -2,22 +2,28 @@
   <el-container class="admin-layout">
     <aside class="primary-nav">
       <div class="mini-logo">DH</div>
-      <button v-for="item in visibleMenus" :key="item.path" :class="['primary-item', { active: activeGroup.path === item.path }]" @click="router.push(item.path)">
-        <el-icon><component :is="icons[item.meta.icon]" /></el-icon>
-        <span>{{ item.meta.short || item.meta.title.slice(0, 2) }}</span>
+      <button
+        v-for="mod in visibleModules"
+        :key="mod.key"
+        :class="['primary-item', { active: activeModuleKey === mod.key }]"
+        :data-testid="`admin-primary-nav-${mod.key}`"
+        @click="router.push(mod.entry)"
+      >
+        <el-icon><component :is="icons[mod.icon]" /></el-icon>
+        <span>{{ mod.short || mod.title.slice(0, 2) }}</span>
       </button>
     </aside>
 
     <aside v-if="showSubNav" class="sub-nav" data-testid="admin-sub-nav">
       <div class="edition">DevHub 标准版</div>
-      <div class="sub-title">{{ activeGroup.meta?.title || '控制台' }}</div>
-      <template v-for="group in activeChildGroups" :key="group.key">
-        <div class="sub-group-title" :data-testid="`admin-sub-nav-group-${group.key}`">{{ group.title }}</div>
+      <div class="sub-title">{{ activeModule?.title || '控制台' }}</div>
+      <template v-for="group in activeGroups" :key="group.key">
+        <div class="sub-group-title" :class="{ active: group.key === activeNavGroupKey }" :data-testid="`admin-sub-nav-group-${group.key}`">{{ group.title }}</div>
         <button
           v-for="child in group.items"
           :key="child.key"
-          :class="['sub-item', { active: child.key === activeSub }]"
-          @click="handleSubClick(child)"
+          :class="['sub-item', { active: child.key === activeNavPageKey }]"
+          @click="router.push(child.path)"
           :data-testid="`admin-sub-nav-${child.key}`"
         >
           {{ child.label }}
@@ -29,11 +35,12 @@
       <el-header class="header">
         <div class="header-left">
           <el-icon class="fold-icon"><Fold /></el-icon>
-          <span class="route-title">{{ activeGroup.meta?.title }}</span>
-          <template v-if="showSubNav && activeSubLabel">
-            <span class="slash">/</span>
-            <span>{{ activeSubLabel }}</span>
-          </template>
+          <el-breadcrumb separator="/" class="breadcrumb" data-testid="admin-breadcrumb">
+            <el-breadcrumb-item v-if="activeModule" data-testid="breadcrumb-module">{{ activeModule.title }}</el-breadcrumb-item>
+            <el-breadcrumb-item v-if="activeNavGroup" data-testid="breadcrumb-group">{{ activeNavGroup.title }}</el-breadcrumb-item>
+            <el-breadcrumb-item v-if="activeNavPage" data-testid="breadcrumb-page">{{ activeNavPage.label }}</el-breadcrumb-item>
+            <el-breadcrumb-item v-if="showLeafBreadcrumb" data-testid="breadcrumb-leaf">{{ currentPageTitle }}</el-breadcrumb-item>
+          </el-breadcrumb>
         </div>
         <div class="header-actions">
           <el-icon><Refresh /></el-icon>
@@ -74,138 +81,71 @@
 </template>
 
 <script setup>
-import { computed, onMounted, ref, watch } from 'vue';
+import { computed, ref, watch } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import { ElMessage } from 'element-plus';
 import { ArrowDown, Bell, Briefcase, ChatDotRound, Connection, DataBoard, Document, Fold, FolderOpened, FullScreen, Grid, MagicStick, Notebook, PriceTag, Promotion, QuestionFilled, Refresh, Search, SetUp, Setting, Tickets, TrendCharts, User, UserFilled, Warning } from '@element-plus/icons-vue';
-import { plugins as fetchPlugins } from '@/api/admin';
-import { menuRoutes } from '@/router';
+import { adminModuleGroups, adminModules } from '@/router/adminNav';
 import { useAuthStore } from '@/stores/auth';
 import { useTabsStore } from '@/stores/tabs';
 
 const icons = { Briefcase, ChatDotRound, Connection, DataBoard, Document, FolderOpened, MagicStick, Notebook, PriceTag, Promotion, QuestionFilled, SetUp, Setting, Tickets, TrendCharts, User, UserFilled, Warning };
-const subMenus = {
-  dashboard: [{ key: 'overview', label: '运营概览' }, { key: 'todo', label: '待办事项' }],
-  content: [{ key: 'posts', label: '内容管理' }, { key: 'docs', label: '文档管理' }, { key: 'tags', label: '标签管理' }],
-  comments: [{ key: 'all', label: '评论列表' }, { key: 'audit', label: '审核队列' }],
-  reports: [{ key: 'pending', label: '待处理' }, { key: 'handled', label: '处理记录' }],
-  moderators: [{ key: 'list', label: '版主列表' }, { key: 'scope', label: '子站授权' }],
-  auditLogs: [{ key: 'list', label: '审计列表' }, { key: 'filter', label: '治理筛选' }],
-  tags: [{ key: 'list', label: '标签列表' }, { key: 'seo', label: 'SEO 配置' }, { key: 'topics', label: '关联内容' }],
-  plugins: [
-    {
-      key: 'ops',
-      title: '插件运营',
-      items: [
-        { key: 'overview', label: '概览', path: '/plugins/overview' },
-        { key: 'list', label: '插件列表', path: '/plugins/list' },
-        { key: 'content', label: '内容治理', path: '/plugins/content' },
-        { key: 'config', label: '配置中心', path: '/plugins/config' },
-      ],
-    },
-    {
-      key: 'govern',
-      title: '插件包治理',
-      items: [
-        { key: 'install', label: '本地插件仓库', path: '/plugins/install' },
-        { key: 'packageUploads', label: '上传包管理', path: '/plugins/packages/uploads' },
-        { key: 'packageInstall', label: '插件包安装', path: '/plugins/packages/install' },
-        { key: 'packageExport', label: '插件包导出', path: '/plugins/packages/export' },
-        { key: 'versions', label: '版本仓库', path: '/plugins/versions' },
-        { key: 'upgradeDiff', label: '升级差异', path: '/plugins/upgrade-diff' },
-      ],
-    },
-    {
-      key: 'security',
-      title: '安全与可信',
-      items: [
-        { key: 'security', label: '风险报告', path: '/plugins/security' },
-        { key: 'trustedPublishers', label: '可信发布者', path: '/plugins/trusted-publishers' },
-        { key: 'configKeys', label: '配置密钥', path: '/plugins/config-keys', permission: 'plugin.manage' },
-      ],
-    },
-    {
-      key: 'flow',
-      title: '流程与恢复',
-      items: [
-        { key: 'approvals', label: '审批中心', path: '/plugins/approvals' },
-        { key: 'operations', label: '操作历史', path: '/plugins/operations' },
-      ],
-    },
-    {
-      key: 'runtime',
-      title: '运行治理',
-      items: [
-        { key: 'dependencies', label: '依赖兼容', path: '/plugins/dependencies' },
-        { key: 'hooks', label: 'Hook 排障', path: '/plugins/hooks' },
-        { key: 'navigation', label: '前台入口', path: '/plugins/navigation' },
-        { key: 'permissions', label: '权限矩阵', path: '/plugins/permissions' },
-        { key: 'events', label: '事件通知', path: '/plugins/events' },
-        { key: 'searchIndex', label: '搜索索引', path: '/plugins/search-index' },
-        { key: 'audit', label: '审计日志', path: '/plugins/audit' },
-      ],
-    },
-    {
-      key: 'dev',
-      title: '远程与开发者',
-      items: [
-        { key: 'remoteIndexes', label: '远程索引', path: '/plugins/remote-indexes' },
-        { key: 'developer', label: '开发者工具', path: '/plugins/developer' },
-      ],
-    },
-  ],
-  qaPlugin: [{ key: 'questions', label: '问题列表' }, { key: 'answers', label: '回答治理' }],
-  docsPlugin: [{ key: 'documents', label: '文档列表' }, { key: 'spaces', label: '空间结构' }],
-  wikiPlugin: [{ key: 'pages', label: '页面列表' }, { key: 'versions', label: '版本历史' }],
-  projectsPlugin: [{ key: 'projects', label: '项目列表' }, { key: 'review', label: '项目治理' }],
-  jobsPlugin: [{ key: 'jobs', label: '招聘列表' }, { key: 'review', label: '招聘治理' }],
-  aiWorksPlugin: [{ key: 'works', label: '作品列表' }, { key: 'review', label: '作品治理' }],
-  communities: [{ key: 'site', label: '子站配置' }, { key: 'board', label: '板块管理' }],
-  sites: [{ key: 'site', label: '子站配置' }, { key: 'board', label: '板块管理' }],
-  users: [{ key: 'list', label: '用户管理' }, { key: 'roles', label: '角色权限' }],
-  operation: [{ key: 'notice', label: '通知推送' }, { key: 'recommend', label: '推荐位' }],
-  statistics: [{ key: 'site', label: '子站统计' }, { key: 'board', label: '板块统计' }],
-  system: [{ key: 'setting', label: '基础设置' }, { key: 'log', label: '操作日志' }],
-};
 
 const auth = useAuthStore();
 const tabs = useTabsStore();
 const route = useRoute();
 const router = useRouter();
 const quickSearch = ref('');
-const activeSub = ref('overview');
-const pluginStatus = ref({});
 
-const visibleMenus = computed(() => menuRoutes.filter((item) => {
-  if (item.meta.hiddenInMenu) return false;
-  if (item.meta.pluginCode && pluginStatus.value[item.meta.pluginCode] && pluginStatus.value[item.meta.pluginCode] !== 'enabled') return false;
-  return !item.meta.permission || auth.can(item.meta.permission);
-}));
-const activeGroup = computed(() => {
-  if (route.meta?.subNavGroup) return menuRoutes.find((item) => item.name === 'plugins') || menuRoutes.find((item) => item.path === '/plugins') || visibleMenus.value[0] || menuRoutes[0];
-  return menuRoutes.find((item) => item.path === route.path) || visibleMenus.value[0] || menuRoutes[0];
+function inferModuleKeyByPath(path) {
+  if (path.startsWith('/plugins')) return 'plugins';
+  if (path.startsWith('/users')) return 'users';
+  if (path.startsWith('/communities') || path.startsWith('/moderators') || path.startsWith('/sites')) return 'communities';
+  if (path.startsWith('/system') || path.startsWith('/operation') || path.startsWith('/statistics')) return 'system';
+  if (path.startsWith('/audit-logs')) return 'maintenance';
+  if (path.startsWith('/content') || path.startsWith('/comments') || path.startsWith('/reports') || path.startsWith('/tags')) return 'content';
+  if (path.startsWith('/dashboard')) return 'home';
+  return 'home';
+}
+
+const activeModuleKey = computed(() => route.meta?.moduleKey || inferModuleKeyByPath(route.path));
+const visibleModules = computed(() => adminModules.filter((mod) => !mod.permission || auth.can(mod.permission)));
+const activeModule = computed(() => adminModules.find((m) => m.key === activeModuleKey.value) || visibleModules.value[0] || adminModules[0]);
+const activeGroups = computed(() => {
+  const raw = adminModuleGroups[activeModuleKey.value] || [];
+  return raw
+    .map((group) => ({
+      key: group.key,
+      title: group.title,
+      items: (group.items || []).filter((item) => !item.permission || auth.can(item.permission)),
+    }))
+    .filter((group) => group.items.length);
 });
-const activeChildren = computed(() => {
-  if (route.meta?.subNavGroup) return subMenus[route.meta.subNavGroup] || [];
-  return subMenus[activeGroup.value.name] || [];
+const showSubNav = computed(() => activeGroups.value.length > 0);
+
+const activeNavPageKey = computed(() => {
+  if (route.meta?.navPageKey) return route.meta.navPageKey;
+  const matched = activeGroups.value.flatMap((g) => g.items).find((item) => item.path === route.path);
+  return matched?.key || '';
 });
-const activeChildGroups = computed(() => {
-  const raw = activeChildren.value || [];
-  if (raw.length && raw[0] && raw[0].items) {
-    return raw
-      .map((group) => ({
-        key: group.key,
-        title: group.title,
-        items: (group.items || []).filter((item) => !item.permission || auth.can(item.permission)),
-      }))
-      .filter((group) => group.items.length);
-  }
-  return [{ key: 'default', title: '', items: raw.filter((item) => !item.permission || auth.can(item.permission)) }];
+const activeNavGroupKey = computed(() => {
+  if (route.meta?.navGroupKey) return route.meta.navGroupKey;
+  const group = activeGroups.value.find((g) => g.items.some((item) => item.key === activeNavPageKey.value));
+  return group?.key || activeGroups.value[0]?.key || '';
 });
-const showSubNav = computed(() => activeChildGroups.value.some((g) => g.items.length));
-const flatActiveChildren = computed(() => activeChildGroups.value.flatMap((g) => g.items));
-const activeSubLabel = computed(() => flatActiveChildren.value.find((item) => item.key === activeSub.value)?.label || flatActiveChildren.value[0]?.label || '');
-const keepAliveNames = computed(() => menuRoutes.filter((item) => item.meta.keepAlive).map((item) => item.name));
+const activeNavGroup = computed(() => activeGroups.value.find((g) => g.key === activeNavGroupKey.value) || null);
+const activeNavPage = computed(() => activeNavGroup.value?.items?.find((item) => item.key === activeNavPageKey.value) || null);
+
+const currentPageTitle = computed(() => {
+  const title = route.meta?.breadcrumbTitle || route.meta?.title || activeNavPage.value?.label || '控制台';
+  return title;
+});
+const showLeafBreadcrumb = computed(() => {
+  if (!currentPageTitle.value) return false;
+  if (!activeNavPage.value?.label) return true;
+  return currentPageTitle.value !== activeNavPage.value.label;
+});
+const keepAliveNames = computed(() => router.getRoutes().filter((r) => r.meta?.keepAlive && r.name).map((r) => r.name));
 const scopeLabel = computed(() => {
   const site = new URLSearchParams(window.location.search).get('site') || 'portal';
   return site === 'portal' ? '全局后台' : `${site} 子站`;
@@ -213,26 +153,14 @@ const scopeLabel = computed(() => {
 
 watch(route, (value) => {
   tabs.add(value);
-  const nextChildren = value.meta?.subNavGroup ? (subMenus[value.meta.subNavGroup] || []) : (subMenus[value.name] || []);
-  if (value.meta?.subNavKey) {
-    activeSub.value = value.meta.subNavKey;
-    return;
-  }
-  activeSub.value = nextChildren[0]?.items ? nextChildren[0]?.items?.[0]?.key || '' : (nextChildren[0]?.key || '');
 }, { immediate: true });
 watch(quickSearch, (value) => {
-  const matched = menuRoutes.find((item) => !item.meta.hiddenInMenu && item.meta.title.includes(value));
-  if (value && matched) ElMessage.info(`可进入：${matched.meta.title}`);
-});
-
-onMounted(async () => {
-  if (!auth.authed || !auth.can('plugin.read')) return;
-  try {
-    const data = await fetchPlugins();
-    pluginStatus.value = Object.fromEntries((data.items || []).map((item) => [item.code || item.plugin_code, item.status]));
-  } catch (error) {
-    pluginStatus.value = {};
-  }
+  if (!value) return;
+  const keyword = value.trim();
+  if (!keyword) return;
+  const pages = Object.values(adminModuleGroups).flatMap((groups) => groups.flatMap((g) => g.items || []));
+  const matched = pages.find((p) => (p.label || '').includes(keyword));
+  if (matched) ElMessage.info(`可进入：${matched.label}`);
 });
 
 function removeTab(path) {
@@ -247,10 +175,5 @@ function openTab(tab) {
 async function logout() {
   await auth.logout();
   router.push('/login');
-}
-
-function handleSubClick(child) {
-  activeSub.value = child.key;
-  if (child.path) router.push(child.path);
 }
 </script>

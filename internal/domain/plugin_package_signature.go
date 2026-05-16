@@ -68,6 +68,7 @@ type PluginTrustedPublisher struct {
 	UpdatedAt          string `json:"updated_at,omitempty"`
 	RevokedAt          string `json:"revoked_at,omitempty"`
 	BlockedAt          string `json:"blocked_at,omitempty"`
+	ExpiresAt          string `json:"expires_at,omitempty"`
 	MetadataJSON       string `json:"metadata_json,omitempty"`
 }
 

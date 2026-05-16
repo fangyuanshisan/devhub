@@ -1370,7 +1370,7 @@ P0-04 最终结果：上述必测命令已执行并通过；`./scripts/check-fro
 
 新增 / 调整覆盖：
 
-- 后台 E2E：`web/admin-app/tests/e2e/plugin-governance-pages.spec.js` 覆盖 `/admin-next/plugins`、六个插件治理分组、旧路由兼容、本地仓库 / zip 上传包 / 可信发布者 / 远程索引 / 版本仓库 / 操作历史 / 密钥轮换 / 导出入口，以及统一安全边界文案。
+- 后台 E2E：`web/admin-app/tests/e2e/plugin-governance-pages.spec.js` 覆盖 `/admin-next/plugins`、插件治理按“功能域分层导航（模块/功能域/页面）”、旧路由兼容、本地仓库 / zip 上传包 / 可信发布者 / 远程索引 / 版本仓库 / 操作历史 / 密钥轮换等入口，以及统一安全边界文案。
 - E2E helper：`web/admin-app/tests/e2e/helpers/pluginHelpers.js` 提供打开插件页、断言安全边界、断言错误码、打开包治理 / 安全 / 远程 / 操作页等基础能力。
 - 旧导航专项由 `plugin-governance-pages.spec.js` 承接；本轮未新增 `test.only`、`page.pause` 或长期 skipped 用例。
 - 配置密钥轮换 E2E 增强了密钥缺失 / blocked UI 的稳定断言，避免环境未配置 key 时只出现短暂 toast。
@@ -1394,6 +1394,33 @@ Fixture 结论：
 - `./scripts/check-frontend.sh --admin-only`：通过，后台 build 通过，后台完整 E2E `62 passed`，日志目录 `.devhub/checks/20260515-130417/`。
 
 未执行：本轮未修改前台内容、前台导航、搜索或 SEO 共享逻辑，未执行 `./scripts/check-frontend.sh --frontend-only` 与 `/topics/1/`、`/c/php/` SEO curl。
+
+## 2026-05-16 插件模块导航层级重构（按功能域）
+
+验收重点：
+
+- `/admin-next` 后台导航采用三级结构：一级模块（最左侧）/ 二级功能域（第二列分组）/ 三级具体页面（按钮）。
+- 页内状态筛选使用 Tab，并同步 URL query（例如插件列表 `?status=enabled&health=error`），不改变左侧菜单选中态。
+- 面包屑展示模块/功能域/页面；当页面无更深层级时不重复显示末级标题。
+- 旧路由兼容：`/admin-next/plugins`、`/admin-next/plugins/governance`、`/admin-next/plugins/manifest`、`/admin-next/plugins/diagnostics` 不 404。
+
+推荐最小回归：
+
+- 后台 E2E：`docker compose run --rm admin-e2e npm run test:e2e -- tests/e2e/plugin-governance-pages.spec.js`
+
+本轮实际执行：
+
+- `go test ./...`：通过。
+- `go build -o .devhub/devhub .`：通过。
+- `git diff --check`：通过。
+- `bash -n dev.sh`：通过。
+- `bash -n scripts/check-frontend.sh`：通过。
+- `docker compose run --rm admin-e2e npm run build`：通过。
+- `docker compose run --rm admin-e2e npm run test:e2e -- tests/e2e/plugin-governance-pages.spec.js`：通过，`4 passed`。
+
+未执行：
+
+- 前台 `web/frontend-app` build 与前台 E2E：本轮未修改前台页面、SEO 或共享导航逻辑，未做前台构建回归（如需全量回归请按 `docs/TESTING.md` 的完整矩阵执行）。
 
 ## v1.6.0-P1-10 插件包上传与分发前置能力总验收（2026-05-15）
 
@@ -1551,3 +1578,28 @@ skipped / flaky / TODO 结论：
 20. 不影响 /topics/:id SEO。
 21. 不影响 /c/:slug SEO。
 - `docker run --rm -v "$PWD":/workspace -v /tmp/devhub-go-mod-cache:/go/pkg/mod -v /tmp/devhub-go-build-cache:/root/.cache/go-build -w /workspace golang:1.23-bookworm go test ./...`：通过。
+
+## v1.7.1 插件包签名验签（detached signature）轻量验收清单
+
+1. 可以新增 / 更新 trusted publisher（仅公钥，不保存私钥）。
+2. 可以 block / revoke / restore trusted publisher；`blocked/revoked` 的 key 不能通过验签。
+3. `expires_at` 过期的 key 不能通过验签，验签结果为 `key_expired`。
+4. Ed25519 签名包（`devhub-signature.json`）可以验签通过（`status=verified`）。
+5. signature_url 下载仅允许 https + .json，且走 SSRF 防护、重定向复检与大小限制（默认 64KB）。
+6. 不支持的算法被拒绝（`algorithm_unsupported`）。
+7. 公钥不存在时验签结果为 `untrusted_publisher`。
+8. package_sha256 / manifest_sha256 / plugin_code / version 不一致时验签失败（`hash_mismatch` / `payload_mismatch`）。
+9. payload 被篡改验签失败（`failed`）。
+10. 未提供签名文件时验签结果为 `unsigned`（不阻断 staging/precheck，但默认阻断 install/upgrade）。
+11. 默认策略下：compat-check 缺少验签记录或非 `verified` 时 `can_install=false`（阻断 install/upgrade）。
+12. install/upgrade 执行前会再次要求 `verified`（后端强校验，不能靠前端伪造）。
+13. 验签结果会写入 `plugin_package_signatures`（或等效记录）。
+14. 验签操作与 publisher 变更写入审计（admin_logs）。
+15. 整个验签链路不执行插件代码、不运行 package scripts、不加载 Go plugin，不影响 /topics/:id 与 /c/:slug SEO。
+
+### 本轮执行命令与结果（v1.7.1）
+
+- `gofmt -w …`：已执行（仅对变更 Go 文件）。
+- `go test ./...`：通过。
+- `go build -o .devhub/devhub .`：通过。
+- `docker compose run --rm admin-e2e npm run build`：通过。
