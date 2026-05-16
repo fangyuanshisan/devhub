@@ -1,5 +1,15 @@
 # Changelog
 
+## Unreleased
+
+### Documentation
+
+- Adjusted DevHub's project goal to a Core + plugin open-source service foundation.
+- Unified README, project progress, plugin architecture, plugin roadmap, API, testing, SEO, plugin package, remote index, SDK, template, release notes, and agent rules around the Core/plugin boundary.
+- Clarified that Core provides stable base capabilities while plugins carry business extensions, frontend/backend extension points, Hook/config/content-type integration, and ecosystem growth.
+- Clarified that default community capabilities are part of Core, not the sole project positioning.
+- Recorded this as a documentation-only task: no code changes, no tests, no builds, no E2E.
+
 ## v1.7.1 (2026-05-16)
 
 v1.7.1 is the signed plugin package verification and trusted publisher enhancement track. It adds detached signature verification (`devhub-signature.json`) over remote/staging packages and gates staging→compat-check→install/upgrade by verified signatures by default.

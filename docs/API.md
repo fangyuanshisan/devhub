@@ -6,6 +6,12 @@
 
 本文档只记录当前仓库真实可用 API。接口路径以 `internal/transport/httpapi/router.go` 为准；未实现能力集中放在“规划 / 未完成”小节，不写入当前真实 API 主体。
 
+## API 定位
+
+DevHub 当前目标是 **Core + 插件 的开源服务底座**。API 属于 Core 基础能力的一部分：Core 通过认证、权限、审计、生命周期和安全边界约束所有读写入口；插件后续只能通过受控 API、HookBus 和明确的运行模型扩展系统，不能绕过 API 直接操作数据库。
+
+本文档只描述已实现接口。第三方插件运行时 API、HTTP 插件服务协议、前端插件挂载 API、远程市场 API 和动态加载 API 仍是规划项；未实现接口不得写入当前真实 API 主体。
+
 ## 通用规则
 
 - API 前缀：`/api/v1`。
@@ -1732,7 +1738,7 @@ Core 兼容：`min_core_version` 缺失为 warning；`min_core_version` 高于�
 
 当前说明：
 
-- 这是当前内置系统插件规范；完整插件系统是最高优先级长期主线。插件市场、插件包、远程安装、在线更新和动态加载进入 P2 / P3 路线，但不是当前真实 API。
+- 这是当前内置系统插件规范；完整插件系统与运行模型是最高优先级长期主线。插件包治理、远程 staging、签名验签、安装 / 启用 / 软卸载 / 升级治理已有真实 API；插件市场、远程自动安装、在线更新、第三方运行时 API 和动态加载仍是后续路线，不属于当前真实 API。
 - `HookDefinition` 当前是扩展点声明；`Service` 已有内部 HookBus，当前调用点覆盖 `BeforeCreateContent`、`AfterCreateContent`、`BeforeUpdateContent`、`AfterUpdateContent`、`BeforeDeleteContent`、`AfterDeleteContent`、`AfterCreateComment`、`OnSearchIndex`、`OnNotificationBuild` 和 `OnSEOBuild`。
 - HookBus 执行会写入 `hook_executions`；blocking hook 失败会返回错误并写入 `plugin.hook.blocked` 审计，non-blocking hook 失败不会阻断主流程但会写入 `plugin.hook.failed` 审计。
 - Search / Notification / SEO 当前只是最小事件派发，尚未实现复杂索引、通知模板或结构化 SEO 插件处理器。

@@ -6,6 +6,12 @@
 
 DevHub 当前 SEO 重点面向百度。核心原则是：`/topics/:id` 必须由 Go 动态输出可被搜索引擎直接读取的 HTML，插件化、前端运行时增强和后台治理都不能把详情页退化成纯 CSR 空壳。
 
+## SEO 在 Core + 插件架构中的定位
+
+SEO 是 DevHub Core 默认内容能力的一部分。当前 Core 负责 `/topics/:id`、`/c/:slug`、标签页、sitemap 和 robots 的稳定输出；后续插件可以扩展 SEO 能力，例如结构化数据、sitemap 扩展、统计代码、站点验证和垂直内容 SEO，但不能绕过 Core 的权限、安全、生命周期和历史内容访问边界。
+
+当前 SEO 仍以默认社区内容页为主。插件 disabled、soft-uninstalled、升级或配置异常都不能破坏历史内容详情页和 Core SEO 兜底。
+
 ## 当前策略
 
 - `/topics/:id` 和 `/topics/:id/` 由 Go 动态输出 SEO HTML。
