@@ -12,6 +12,8 @@
 
 v1.7.0 当前安全边界：远程下载只写入 `storage/plugins/staging/downloads/`，不自动安装；zip 上传只进入 staging / quarantine，不自动安装；promote 只转入本地插件仓库，不等于安装；远程索引只读展示 `index.json` 元数据，下载必须显式调用 staging API 并通过 URL / SSRF / 大小 / sha256 校验；安装、升级、promote 和审批执行前仍需服务端重新 dry-run / checksum / signature / risk_report；后台不展示私钥、key material、敏感配置明文、`enc:v1` / `enc:v2` 密文或系统绝对路径。
 
+v1.7.0 进展补充：已新增远程/包插件升级闭环（v1.7.0-P0-08），升级输入强约束为 `precheck(status=passed)` + `compat-check(can_install=true)` 且 staging download 必须 `downloaded` 并通过 sha256；升级后默认不自动启用、不执行 migration，需要重新 enable-precheck + enable。
+
 v1.7.0 当前仍不支持：远程插件市场、远程插件包自动安装、在线自动更新、自动安装依赖、动态加载 Go 代码、JS/WASM/Lua 脚本沙箱、第三方代码执行、外部 raw SQL 执行、动态前端资产加载、完整 PKI / CA 证书链、远程可信源自动同步、多级审批、hard uninstall、migration down 或全量业务数据自动回滚。
 
 验收发现的限制 / 技术债：当前已安装插件导出仍是 `storage/plugins/exports/` 目录包导出与可选 `signature.json` 结构草案，不提供 zip 下载包与在线签名打包；`plugin-package-export-zip.spec.js` 当前不存在，zip 导出下载能力应作为 v1.7 后续任务处理，不能写作 v1.6 已完成能力。配置历史密钥批量轮换、自动定时轮换、KMS/Vault、远程索引缓存刷新策略、上传/下载异步任务队列和更完整事务恢复仍为后续增强。
@@ -41,7 +43,7 @@ Core 保留用户、认证、子站、板块、通用内容、评论、标签、
 - 插件 API：全局插件 API、子站插件 API、前台子站插件展示 API 和版主插件菜单 API 已在 `router.go` 注册。
 - 插件安装 / 升级预备：已支持 manifest 校验、manifest dry-run、manifest + 配置型插件安装记录、健康总览、批量归档 / 恢复、升级 dry-run 和最小升级执行闭环；这些能力不执行第三方代码、不加载外部前端资源、不执行外部 raw SQL。
 - 插件 SDK / 模板：已新增 `go run ./cmd/devhub plugin:new ...`，默认生成到 `examples/plugins/{plugin_code}/`，包含 `manifest.json`、`README.md`、`config.example.json`、内容类型、权限、Hook、migration 文档和内置 registry 示例；生成器复用现有 ManifestValidator 与简化 `config_schema` 校验。
-- 插件软卸载：已支持全局归档 / 恢复，归档插件会阻断新建内容和子站启用，但保留历史内容、配置、迁移记录、审计记录和 SEO；恢复后默认进入 `disabled`。
+- 插件软卸载：已支持全局归档 / 恢复；v1.7.0-P0-07 在此基础上新增 `plugin_uninstall_tasks` 任务记录、软卸载影响分析与依赖阻断、失败可重试与审计闭环。归档插件会阻断新建内容和子站启用，但保留历史内容、配置、迁移记录、审计记录和 SEO；恢复后默认进入 `disabled`。
 - 插件业务闭环：
   - `qa`：发布 `question` 时写入 `qa_questions`；回答写入 `qa_answers`；采纳后回写已解决状态和最佳答案。
   - `docs`：发布 `document` 时写入 `docs_documents`，并支持基础文档树读取。
@@ -2949,3 +2951,47 @@ v1.6.0-P1-10：v1.6 插件包上传与分发前置能力总验收。
 下一轮建议：
 
 `v1.7.0-P0-06`：插件启用与运行时注册。
+
+## 2026-05-15：v1.7.0-P0-06 插件启用与运行时注册（enable）
+
+已完成：
+
+- 新增启用任务记录：`plugin_enable_tasks`，用于追踪基于 enable-precheck 的启用操作与注册摘要（content_types/permissions/menus/routes/hooks）、effective_config 快照、errors/warnings 与审计链路。
+- 新增 API：
+  - `POST /api/v1/admin/plugins/enable-prechecks/:id/enable`
+  - `GET /api/v1/admin/plugins/enable-tasks`
+  - `GET /api/v1/admin/plugins/enable-tasks/:id`
+  - `POST /api/v1/admin/plugins/enable-tasks/:id/retry`
+  - `DELETE /api/v1/admin/plugins/enable-tasks/:id`
+- 启用强约束：
+  - 仅允许 `enable-precheck status=passed|warning` 且 `can_enable=true` 的插件启用。
+  - 启用时做 TOCTOU 快速再校验：配置 schema/依赖/迁移状态、content_type 冲突等；本轮策略：存在 pending migration 直接阻断启用。
+  - enable-precheck 默认 TTL 600 秒（`DEVHUB_PLUGIN_ENABLE_PRECHECK_TTL_SECONDS`；设置为 0 可禁用 TTL 校验）。
+  - 对 `source_type=local_package` 复用文件完整性复检（危险文件/校验失败/manifest 变更阻断）。
+- 启用成功后插件状态更新为 `enabled`，运行时治理能力通过 DB-as-source 生效：
+  - 内容类型创建校验链路会识别新启用插件。
+  - 前台/后台菜单与入口会按插件状态与权限规则显示（前端隐藏不作为安全边界）。
+  - HookBus 会触发 `AfterPluginEnabled`（non-blocking），并记录 hook 执行结果（如有）。
+- 后台插件详情（Readiness）页签在 enable-precheck 结果 `can_enable=true` 时增加“启用（基于检查结果）”入口，仅用于启用与治理注册，不执行插件代码/脚本/迁移。
+- 审计接入：`plugin.enable.requested/started/success/failed/retry`、`plugin.runtime.registered`。
+
+边界：
+
+- 启用不执行插件包内代码、不运行 package scripts、不加载 Go plugin、不自动执行 migration、不自动为所有子站启用。
+- 本轮启用依赖 enable-precheck 结论，后续真正“运行时动态代码加载/市场”仍不在范围内。
+
+## 2026-05-16：v1.7.0-P0-10 远程插件包治理总验收与发布归档
+
+已完成：
+
+- 完成 v1.7.0 P0（P0-01 ~ P0-09）远程插件包治理主链路总验收与文档归档：下载→预检→兼容性→安装→启用前检查→启用注册→软卸载→升级→验收。
+- 执行前后台构建与 E2E：
+  - `./scripts/check-frontend.sh --admin-only`：通过（admin build + E2E 62 passed）。
+  - `./scripts/check-frontend.sh --frontend-only`：通过（frontend build + E2E 17 passed）。
+- 文档收口与口径统一：
+  - `docs/releases/v1.7.0.md` 补齐 P0-10 收口结论与已知注意事项（`.devhub/` 权限）。
+  - `docs/TESTING.md` 补齐 P0-10 总验收清单与实际执行记录。
+
+已知注意事项：
+
+- 若本地 `.devhub/` 由 root 创建，`go build -o .devhub/devhub .` 可能报权限错误；可手动 `chown -R $(id -u):$(id -g) .devhub` 或临时使用 `.tmp/bin/devhub` 作为构建输出路径完成验收。

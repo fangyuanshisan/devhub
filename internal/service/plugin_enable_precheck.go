@@ -174,14 +174,14 @@ func (s *Service) RunPluginEnablePrecheckAs(operator PluginEnablePrecheckOperato
 		CreatedAt: Now(),
 	})
 	record := domain.PluginEnablePrecheckRecord{
-		PluginCode: p.Code,
-		Version:    p.Version,
-		Status:     domain.PluginEnablePrecheckStatusChecking,
-		CanEnable:  false,
+		PluginCode:  p.Code,
+		Version:     p.Version,
+		Status:      domain.PluginEnablePrecheckStatusChecking,
+		CanEnable:   false,
 		CoreVersion: currentCoreVersion(),
-		CreatedBy:  operator.ID,
-		StartedAt:  started,
-		CreatedAt:  started,
+		CreatedBy:   operator.ID,
+		StartedAt:   started,
+		CreatedAt:   started,
 	}
 	record, _ = s.repo.AppendPluginEnablePrecheck(record)
 
@@ -446,13 +446,13 @@ func (s *Service) enablePrecheckManifest(p domain.Plugin, coreVersion string) (m
 	manifest := p.PluginManifest
 	validation := pluginregistry.ValidatePluginManifest(manifest, s.repo.Plugins(), coreVersion)
 	res := map[string]any{
-		"valid":      validation.Valid,
-		"errors":     validation.Errors,
-		"warnings":   validation.Warnings,
-		"checksum":   validation.Checksum,
-		"core":       validation.Compatibility,
-		"plugin_code": manifest.Code,
-		"version":    manifest.Version,
+		"valid":           validation.Valid,
+		"errors":          validation.Errors,
+		"warnings":        validation.Warnings,
+		"checksum":        validation.Checksum,
+		"core":            validation.Compatibility,
+		"plugin_code":     manifest.Code,
+		"version":         manifest.Version,
 		"manifest_sha256": validation.Checksum,
 	}
 	if !validation.Valid {
@@ -467,9 +467,9 @@ func (s *Service) enablePrecheckManifest(p domain.Plugin, coreVersion string) (m
 			Path:    "compatible_core_version",
 			Message: "当前 Core 版本不满足插件兼容范围",
 			Details: map[string]any{
-				"core_version":           coreVersion,
+				"core_version":            coreVersion,
 				"compatible_core_version": manifest.CompatibleCoreVersion,
-				"messages":               validation.Compatibility.Messages,
+				"messages":                validation.Compatibility.Messages,
 			},
 		})
 	}

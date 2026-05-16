@@ -16,6 +16,14 @@ import (
 	_ "github.com/go-sql-driver/mysql"
 )
 
+func nullJSONString(raw string) any {
+	raw = strings.TrimSpace(raw)
+	if raw == "" || !json.Valid([]byte(raw)) {
+		return nil
+	}
+	return json.RawMessage(raw)
+}
+
 // MySQLConfig 保存 MySQL 连接配置。
 type MySQLConfig struct {
 	Host     string
@@ -3139,6 +3147,553 @@ func (s *MySQLStore) PluginEnableTasks(filter domain.PluginEnableTaskFilter) ([]
 		record.RegisteredRoutesJSON = registeredRoutes.String
 		record.RegisteredHooksJSON = registeredHooks.String
 		record.EffectiveConfigJSON = effectiveConfig.String
+		record.ErrorsJSON = errorsJSON.String
+		record.WarningsJSON = warningsJSON.String
+		record.RollbackLogJSON = rollbackLog.String
+		if startedAt.Valid {
+			record.StartedAt = startedAt.Time.Format(TimeLayout)
+		}
+		if finishedAt.Valid {
+			record.FinishedAt = finishedAt.Time.Format(TimeLayout)
+		}
+		record.CreatedAt = createdAt.Format(TimeLayout)
+		record.UpdatedAt = updatedAt.Format(TimeLayout)
+		out = append(out, record)
+	}
+	return out, total, nil
+}
+
+// ===== Plugin uninstall tasks (v1.7.0-P0-07) =====
+
+func (s *MySQLStore) AppendPluginUninstallTask(record domain.PluginUninstallTask) (domain.PluginUninstallTask, error) {
+	if strings.TrimSpace(record.Status) == "" {
+		record.Status = domain.PluginUninstallTaskStatusPending
+	}
+	if strings.TrimSpace(record.UninstallType) == "" {
+		record.UninstallType = domain.PluginUninstallTypeSoft
+	}
+	res, err := s.db.Exec(`INSERT INTO plugin_uninstall_tasks
+  (plugin_code,version,plugin_installation_id,plugin_enable_task_id,status,uninstall_type,previous_status,new_status,
+   affected_contents_count,affected_communities_count,dependent_plugins_json,
+   unregistered_content_types_json,unregistered_permissions_json,unregistered_menus_json,unregistered_routes_json,unregistered_hooks_json,
+   preserved_files_json,preserved_configs_json,preserved_migrations_json,
+   errors_json,warnings_json,rollback_log_json,reason,started_at,finished_at,duration_ms,requested_by)
+  VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+		strings.TrimSpace(record.PluginCode),
+		strings.TrimSpace(record.Version),
+		record.PluginInstallationID,
+		record.PluginEnableTaskID,
+		strings.TrimSpace(record.Status),
+		strings.TrimSpace(record.UninstallType),
+		strings.TrimSpace(record.PreviousStatus),
+		strings.TrimSpace(record.NewStatus),
+		record.AffectedContentsCount,
+		record.AffectedCommunitiesCount,
+		nullJSONString(record.DependentPluginsJSON),
+		nullJSONString(record.UnregisteredContentTypesJSON),
+		nullJSONString(record.UnregisteredPermissionsJSON),
+		nullJSONString(record.UnregisteredMenusJSON),
+		nullJSONString(record.UnregisteredRoutesJSON),
+		nullJSONString(record.UnregisteredHooksJSON),
+		nullJSONString(record.PreservedFilesJSON),
+		nullJSONString(record.PreservedConfigsJSON),
+		nullJSONString(record.PreservedMigrationsJSON),
+		nullJSONString(record.ErrorsJSON),
+		nullJSONString(record.WarningsJSON),
+		nullJSONString(record.RollbackLogJSON),
+		strings.TrimSpace(record.Reason),
+		nullTime(record.StartedAt),
+		nullTime(record.FinishedAt),
+		record.DurationMS,
+		record.RequestedBy,
+	)
+	if err != nil {
+		return domain.PluginUninstallTask{}, err
+	}
+	id, _ := res.LastInsertId()
+	out, _ := s.PluginUninstallTaskByID(id)
+	return out, nil
+}
+
+func (s *MySQLStore) SavePluginUninstallTask(record domain.PluginUninstallTask) (domain.PluginUninstallTask, error) {
+	if record.ID <= 0 {
+		return s.AppendPluginUninstallTask(record)
+	}
+	_, err := s.db.Exec(`UPDATE plugin_uninstall_tasks SET
+  plugin_code=?,version=?,plugin_installation_id=?,plugin_enable_task_id=?,status=?,uninstall_type=?,previous_status=?,new_status=?,
+  affected_contents_count=?,affected_communities_count=?,dependent_plugins_json=?,
+  unregistered_content_types_json=?,unregistered_permissions_json=?,unregistered_menus_json=?,unregistered_routes_json=?,unregistered_hooks_json=?,
+  preserved_files_json=?,preserved_configs_json=?,preserved_migrations_json=?,
+  errors_json=?,warnings_json=?,rollback_log_json=?,reason=?,started_at=?,finished_at=?,duration_ms=?,requested_by=?
+  WHERE id=?`,
+		strings.TrimSpace(record.PluginCode),
+		strings.TrimSpace(record.Version),
+		record.PluginInstallationID,
+		record.PluginEnableTaskID,
+		strings.TrimSpace(record.Status),
+		strings.TrimSpace(record.UninstallType),
+		strings.TrimSpace(record.PreviousStatus),
+		strings.TrimSpace(record.NewStatus),
+		record.AffectedContentsCount,
+		record.AffectedCommunitiesCount,
+		nullJSONString(record.DependentPluginsJSON),
+		nullJSONString(record.UnregisteredContentTypesJSON),
+		nullJSONString(record.UnregisteredPermissionsJSON),
+		nullJSONString(record.UnregisteredMenusJSON),
+		nullJSONString(record.UnregisteredRoutesJSON),
+		nullJSONString(record.UnregisteredHooksJSON),
+		nullJSONString(record.PreservedFilesJSON),
+		nullJSONString(record.PreservedConfigsJSON),
+		nullJSONString(record.PreservedMigrationsJSON),
+		nullJSONString(record.ErrorsJSON),
+		nullJSONString(record.WarningsJSON),
+		nullJSONString(record.RollbackLogJSON),
+		strings.TrimSpace(record.Reason),
+		nullTime(record.StartedAt),
+		nullTime(record.FinishedAt),
+		record.DurationMS,
+		record.RequestedBy,
+		record.ID,
+	)
+	if err != nil {
+		return domain.PluginUninstallTask{}, err
+	}
+	out, _ := s.PluginUninstallTaskByID(record.ID)
+	return out, nil
+}
+
+func (s *MySQLStore) PluginUninstallTaskByID(id int64) (domain.PluginUninstallTask, bool) {
+	var record domain.PluginUninstallTask
+	var startedAt, finishedAt sql.NullTime
+	var createdAt, updatedAt time.Time
+	var dependentPlugins, unregCT, unregPerm, unregMenus, unregRoutes, unregHooks sql.NullString
+	var preservedFiles, preservedConfigs, preservedMigrations sql.NullString
+	var errorsJSON, warningsJSON, rollbackLog sql.NullString
+	err := s.db.QueryRow(`SELECT id,plugin_code,version,plugin_installation_id,plugin_enable_task_id,status,uninstall_type,previous_status,new_status,
+  affected_contents_count,affected_communities_count,dependent_plugins_json,
+  unregistered_content_types_json,unregistered_permissions_json,unregistered_menus_json,unregistered_routes_json,unregistered_hooks_json,
+  preserved_files_json,preserved_configs_json,preserved_migrations_json,
+  errors_json,warnings_json,rollback_log_json,reason,started_at,finished_at,duration_ms,requested_by,created_at,updated_at
+  FROM plugin_uninstall_tasks WHERE id=?`, id).Scan(
+		&record.ID,
+		&record.PluginCode,
+		&record.Version,
+		&record.PluginInstallationID,
+		&record.PluginEnableTaskID,
+		&record.Status,
+		&record.UninstallType,
+		&record.PreviousStatus,
+		&record.NewStatus,
+		&record.AffectedContentsCount,
+		&record.AffectedCommunitiesCount,
+		&dependentPlugins,
+		&unregCT,
+		&unregPerm,
+		&unregMenus,
+		&unregRoutes,
+		&unregHooks,
+		&preservedFiles,
+		&preservedConfigs,
+		&preservedMigrations,
+		&errorsJSON,
+		&warningsJSON,
+		&rollbackLog,
+		&record.Reason,
+		&startedAt,
+		&finishedAt,
+		&record.DurationMS,
+		&record.RequestedBy,
+		&createdAt,
+		&updatedAt,
+	)
+	if err != nil {
+		return domain.PluginUninstallTask{}, false
+	}
+	record.DependentPluginsJSON = dependentPlugins.String
+	record.UnregisteredContentTypesJSON = unregCT.String
+	record.UnregisteredPermissionsJSON = unregPerm.String
+	record.UnregisteredMenusJSON = unregMenus.String
+	record.UnregisteredRoutesJSON = unregRoutes.String
+	record.UnregisteredHooksJSON = unregHooks.String
+	record.PreservedFilesJSON = preservedFiles.String
+	record.PreservedConfigsJSON = preservedConfigs.String
+	record.PreservedMigrationsJSON = preservedMigrations.String
+	record.ErrorsJSON = errorsJSON.String
+	record.WarningsJSON = warningsJSON.String
+	record.RollbackLogJSON = rollbackLog.String
+	if startedAt.Valid {
+		record.StartedAt = startedAt.Time.Format(TimeLayout)
+	}
+	if finishedAt.Valid {
+		record.FinishedAt = finishedAt.Time.Format(TimeLayout)
+	}
+	record.CreatedAt = createdAt.Format(TimeLayout)
+	record.UpdatedAt = updatedAt.Format(TimeLayout)
+	return record, true
+}
+
+func (s *MySQLStore) PluginUninstallTasks(filter domain.PluginUninstallTaskFilter) ([]domain.PluginUninstallTask, int, error) {
+	page, pageSize := normalizePage(filter.Page, filter.PageSize)
+	status := strings.TrimSpace(filter.Status)
+	code := strings.TrimSpace(filter.PluginCode)
+	keyword := strings.TrimSpace(filter.Keyword)
+
+	where := []string{"1=1"}
+	args := []any{}
+	if status != "" && status != "all" {
+		where = append(where, "status=?")
+		args = append(args, status)
+	}
+	if code != "" {
+		where = append(where, "plugin_code=?")
+		args = append(args, code)
+	}
+	if keyword != "" {
+		where = append(where, "(plugin_code LIKE ? OR version LIKE ? OR status LIKE ? OR reason LIKE ?)")
+		like := "%" + keyword + "%"
+		args = append(args, like, like, like, like)
+	}
+	var total int
+	if err := s.db.QueryRow(`SELECT COUNT(1) FROM plugin_uninstall_tasks WHERE `+strings.Join(where, " AND "), args...).Scan(&total); err != nil {
+		return nil, 0, err
+	}
+	args = append(args, pageSize, (page-1)*pageSize)
+	rows, err := s.db.Query(`SELECT id,plugin_code,version,plugin_installation_id,plugin_enable_task_id,status,uninstall_type,previous_status,new_status,
+  affected_contents_count,affected_communities_count,dependent_plugins_json,
+  unregistered_content_types_json,unregistered_permissions_json,unregistered_menus_json,unregistered_routes_json,unregistered_hooks_json,
+  preserved_files_json,preserved_configs_json,preserved_migrations_json,
+  errors_json,warnings_json,rollback_log_json,reason,started_at,finished_at,duration_ms,requested_by,created_at,updated_at
+  FROM plugin_uninstall_tasks WHERE `+strings.Join(where, " AND ")+` ORDER BY id DESC LIMIT ? OFFSET ?`, args...)
+	if err != nil {
+		return nil, 0, err
+	}
+	defer rows.Close()
+	out := []domain.PluginUninstallTask{}
+	for rows.Next() {
+		var record domain.PluginUninstallTask
+		var startedAt, finishedAt sql.NullTime
+		var createdAt, updatedAt time.Time
+		var dependentPlugins, unregCT, unregPerm, unregMenus, unregRoutes, unregHooks sql.NullString
+		var preservedFiles, preservedConfigs, preservedMigrations sql.NullString
+		var errorsJSON, warningsJSON, rollbackLog sql.NullString
+		if err := rows.Scan(
+			&record.ID,
+			&record.PluginCode,
+			&record.Version,
+			&record.PluginInstallationID,
+			&record.PluginEnableTaskID,
+			&record.Status,
+			&record.UninstallType,
+			&record.PreviousStatus,
+			&record.NewStatus,
+			&record.AffectedContentsCount,
+			&record.AffectedCommunitiesCount,
+			&dependentPlugins,
+			&unregCT,
+			&unregPerm,
+			&unregMenus,
+			&unregRoutes,
+			&unregHooks,
+			&preservedFiles,
+			&preservedConfigs,
+			&preservedMigrations,
+			&errorsJSON,
+			&warningsJSON,
+			&rollbackLog,
+			&record.Reason,
+			&startedAt,
+			&finishedAt,
+			&record.DurationMS,
+			&record.RequestedBy,
+			&createdAt,
+			&updatedAt,
+		); err != nil {
+			return nil, 0, err
+		}
+		record.DependentPluginsJSON = dependentPlugins.String
+		record.UnregisteredContentTypesJSON = unregCT.String
+		record.UnregisteredPermissionsJSON = unregPerm.String
+		record.UnregisteredMenusJSON = unregMenus.String
+		record.UnregisteredRoutesJSON = unregRoutes.String
+		record.UnregisteredHooksJSON = unregHooks.String
+		record.PreservedFilesJSON = preservedFiles.String
+		record.PreservedConfigsJSON = preservedConfigs.String
+		record.PreservedMigrationsJSON = preservedMigrations.String
+		record.ErrorsJSON = errorsJSON.String
+		record.WarningsJSON = warningsJSON.String
+		record.RollbackLogJSON = rollbackLog.String
+		if startedAt.Valid {
+			record.StartedAt = startedAt.Time.Format(TimeLayout)
+		}
+		if finishedAt.Valid {
+			record.FinishedAt = finishedAt.Time.Format(TimeLayout)
+		}
+		record.CreatedAt = createdAt.Format(TimeLayout)
+		record.UpdatedAt = updatedAt.Format(TimeLayout)
+		out = append(out, record)
+	}
+	return out, total, nil
+}
+
+// ===== Plugin upgrade tasks (v1.7.0-P0-08) =====
+
+func (s *MySQLStore) AppendPluginUpgradeTask(record domain.PluginUpgradeTask) (domain.PluginUpgradeTask, error) {
+	if strings.TrimSpace(record.Status) == "" {
+		record.Status = domain.PluginUpgradeTaskStatusPending
+	}
+	res, err := s.db.Exec(`INSERT INTO plugin_upgrade_tasks
+  (plugin_code,old_version,new_version,old_plugin_installation_id,new_package_download_id,new_package_precheck_id,new_package_compat_check_id,
+   status,previous_plugin_status,new_plugin_status,backup_path,old_install_path,new_install_path,
+   manifest_diff_json,config_diff_json,permission_diff_json,menu_diff_json,route_diff_json,hook_diff_json,content_type_diff_json,migration_diff_json,impact_json,
+   errors_json,warnings_json,rollback_log_json,reason,started_at,finished_at,duration_ms,requested_by)
+  VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+		strings.TrimSpace(record.PluginCode),
+		strings.TrimSpace(record.OldVersion),
+		strings.TrimSpace(record.NewVersion),
+		record.OldPluginInstallationID,
+		record.NewPackageDownloadID,
+		record.NewPackagePrecheckID,
+		record.NewPackageCompatCheckID,
+		strings.TrimSpace(record.Status),
+		strings.TrimSpace(record.PreviousPluginStatus),
+		strings.TrimSpace(record.NewPluginStatus),
+		strings.TrimSpace(record.BackupPath),
+		strings.TrimSpace(record.OldInstallPath),
+		strings.TrimSpace(record.NewInstallPath),
+		nullJSONString(record.ManifestDiffJSON),
+		nullJSONString(record.ConfigDiffJSON),
+		nullJSONString(record.PermissionDiffJSON),
+		nullJSONString(record.MenuDiffJSON),
+		nullJSONString(record.RouteDiffJSON),
+		nullJSONString(record.HookDiffJSON),
+		nullJSONString(record.ContentTypeDiffJSON),
+		nullJSONString(record.MigrationDiffJSON),
+		nullJSONString(record.ImpactJSON),
+		nullJSONString(record.ErrorsJSON),
+		nullJSONString(record.WarningsJSON),
+		nullJSONString(record.RollbackLogJSON),
+		strings.TrimSpace(record.Reason),
+		nullTime(record.StartedAt),
+		nullTime(record.FinishedAt),
+		record.DurationMS,
+		record.RequestedBy,
+	)
+	if err != nil {
+		return domain.PluginUpgradeTask{}, err
+	}
+	id, _ := res.LastInsertId()
+	out, _ := s.PluginUpgradeTaskByID(id)
+	return out, nil
+}
+
+func (s *MySQLStore) SavePluginUpgradeTask(record domain.PluginUpgradeTask) (domain.PluginUpgradeTask, error) {
+	if record.ID <= 0 {
+		return s.AppendPluginUpgradeTask(record)
+	}
+	_, err := s.db.Exec(`UPDATE plugin_upgrade_tasks SET
+  plugin_code=?,old_version=?,new_version=?,old_plugin_installation_id=?,new_package_download_id=?,new_package_precheck_id=?,new_package_compat_check_id=?,
+  status=?,previous_plugin_status=?,new_plugin_status=?,backup_path=?,old_install_path=?,new_install_path=?,
+  manifest_diff_json=?,config_diff_json=?,permission_diff_json=?,menu_diff_json=?,route_diff_json=?,hook_diff_json=?,content_type_diff_json=?,migration_diff_json=?,impact_json=?,
+  errors_json=?,warnings_json=?,rollback_log_json=?,reason=?,started_at=?,finished_at=?,duration_ms=?,requested_by=?
+  WHERE id=?`,
+		strings.TrimSpace(record.PluginCode),
+		strings.TrimSpace(record.OldVersion),
+		strings.TrimSpace(record.NewVersion),
+		record.OldPluginInstallationID,
+		record.NewPackageDownloadID,
+		record.NewPackagePrecheckID,
+		record.NewPackageCompatCheckID,
+		strings.TrimSpace(record.Status),
+		strings.TrimSpace(record.PreviousPluginStatus),
+		strings.TrimSpace(record.NewPluginStatus),
+		strings.TrimSpace(record.BackupPath),
+		strings.TrimSpace(record.OldInstallPath),
+		strings.TrimSpace(record.NewInstallPath),
+		nullJSONString(record.ManifestDiffJSON),
+		nullJSONString(record.ConfigDiffJSON),
+		nullJSONString(record.PermissionDiffJSON),
+		nullJSONString(record.MenuDiffJSON),
+		nullJSONString(record.RouteDiffJSON),
+		nullJSONString(record.HookDiffJSON),
+		nullJSONString(record.ContentTypeDiffJSON),
+		nullJSONString(record.MigrationDiffJSON),
+		nullJSONString(record.ImpactJSON),
+		nullJSONString(record.ErrorsJSON),
+		nullJSONString(record.WarningsJSON),
+		nullJSONString(record.RollbackLogJSON),
+		strings.TrimSpace(record.Reason),
+		nullTime(record.StartedAt),
+		nullTime(record.FinishedAt),
+		record.DurationMS,
+		record.RequestedBy,
+		record.ID,
+	)
+	if err != nil {
+		return domain.PluginUpgradeTask{}, err
+	}
+	out, _ := s.PluginUpgradeTaskByID(record.ID)
+	return out, nil
+}
+
+func (s *MySQLStore) PluginUpgradeTaskByID(id int64) (domain.PluginUpgradeTask, bool) {
+	var record domain.PluginUpgradeTask
+	var startedAt, finishedAt sql.NullTime
+	var createdAt, updatedAt time.Time
+	var manifestDiff, configDiff, permDiff, menuDiff, routeDiff, hookDiff, ctDiff, migDiff, impactJSON sql.NullString
+	var errorsJSON, warningsJSON, rollbackLog sql.NullString
+	err := s.db.QueryRow(`SELECT id,plugin_code,old_version,new_version,old_plugin_installation_id,new_package_download_id,new_package_precheck_id,new_package_compat_check_id,
+  status,previous_plugin_status,new_plugin_status,backup_path,old_install_path,new_install_path,
+  manifest_diff_json,config_diff_json,permission_diff_json,menu_diff_json,route_diff_json,hook_diff_json,content_type_diff_json,migration_diff_json,impact_json,
+  errors_json,warnings_json,rollback_log_json,reason,started_at,finished_at,duration_ms,requested_by,created_at,updated_at
+  FROM plugin_upgrade_tasks WHERE id=?`, id).Scan(
+		&record.ID,
+		&record.PluginCode,
+		&record.OldVersion,
+		&record.NewVersion,
+		&record.OldPluginInstallationID,
+		&record.NewPackageDownloadID,
+		&record.NewPackagePrecheckID,
+		&record.NewPackageCompatCheckID,
+		&record.Status,
+		&record.PreviousPluginStatus,
+		&record.NewPluginStatus,
+		&record.BackupPath,
+		&record.OldInstallPath,
+		&record.NewInstallPath,
+		&manifestDiff,
+		&configDiff,
+		&permDiff,
+		&menuDiff,
+		&routeDiff,
+		&hookDiff,
+		&ctDiff,
+		&migDiff,
+		&impactJSON,
+		&errorsJSON,
+		&warningsJSON,
+		&rollbackLog,
+		&record.Reason,
+		&startedAt,
+		&finishedAt,
+		&record.DurationMS,
+		&record.RequestedBy,
+		&createdAt,
+		&updatedAt,
+	)
+	if err != nil {
+		return domain.PluginUpgradeTask{}, false
+	}
+	record.ManifestDiffJSON = manifestDiff.String
+	record.ConfigDiffJSON = configDiff.String
+	record.PermissionDiffJSON = permDiff.String
+	record.MenuDiffJSON = menuDiff.String
+	record.RouteDiffJSON = routeDiff.String
+	record.HookDiffJSON = hookDiff.String
+	record.ContentTypeDiffJSON = ctDiff.String
+	record.MigrationDiffJSON = migDiff.String
+	record.ImpactJSON = impactJSON.String
+	record.ErrorsJSON = errorsJSON.String
+	record.WarningsJSON = warningsJSON.String
+	record.RollbackLogJSON = rollbackLog.String
+	if startedAt.Valid {
+		record.StartedAt = startedAt.Time.Format(TimeLayout)
+	}
+	if finishedAt.Valid {
+		record.FinishedAt = finishedAt.Time.Format(TimeLayout)
+	}
+	record.CreatedAt = createdAt.Format(TimeLayout)
+	record.UpdatedAt = updatedAt.Format(TimeLayout)
+	return record, true
+}
+
+func (s *MySQLStore) PluginUpgradeTasks(filter domain.PluginUpgradeTaskFilter) ([]domain.PluginUpgradeTask, int, error) {
+	page, pageSize := normalizePage(filter.Page, filter.PageSize)
+	status := strings.TrimSpace(filter.Status)
+	code := strings.TrimSpace(filter.PluginCode)
+	keyword := strings.TrimSpace(filter.Keyword)
+
+	where := []string{"1=1"}
+	args := []any{}
+	if status != "" && status != "all" {
+		where = append(where, "status=?")
+		args = append(args, status)
+	}
+	if code != "" {
+		where = append(where, "plugin_code=?")
+		args = append(args, code)
+	}
+	if keyword != "" {
+		where = append(where, "(plugin_code LIKE ? OR old_version LIKE ? OR new_version LIKE ? OR status LIKE ? OR reason LIKE ?)")
+		like := "%" + keyword + "%"
+		args = append(args, like, like, like, like, like)
+	}
+	var total int
+	if err := s.db.QueryRow(`SELECT COUNT(1) FROM plugin_upgrade_tasks WHERE `+strings.Join(where, " AND "), args...).Scan(&total); err != nil {
+		return nil, 0, err
+	}
+	args = append(args, pageSize, (page-1)*pageSize)
+	rows, err := s.db.Query(`SELECT id,plugin_code,old_version,new_version,old_plugin_installation_id,new_package_download_id,new_package_precheck_id,new_package_compat_check_id,
+  status,previous_plugin_status,new_plugin_status,backup_path,old_install_path,new_install_path,
+  manifest_diff_json,config_diff_json,permission_diff_json,menu_diff_json,route_diff_json,hook_diff_json,content_type_diff_json,migration_diff_json,impact_json,
+  errors_json,warnings_json,rollback_log_json,reason,started_at,finished_at,duration_ms,requested_by,created_at,updated_at
+  FROM plugin_upgrade_tasks WHERE `+strings.Join(where, " AND ")+` ORDER BY id DESC LIMIT ? OFFSET ?`, args...)
+	if err != nil {
+		return nil, 0, err
+	}
+	defer rows.Close()
+	out := []domain.PluginUpgradeTask{}
+	for rows.Next() {
+		var record domain.PluginUpgradeTask
+		var startedAt, finishedAt sql.NullTime
+		var createdAt, updatedAt time.Time
+		var manifestDiff, configDiff, permDiff, menuDiff, routeDiff, hookDiff, ctDiff, migDiff, impactJSON sql.NullString
+		var errorsJSON, warningsJSON, rollbackLog sql.NullString
+		if err := rows.Scan(
+			&record.ID,
+			&record.PluginCode,
+			&record.OldVersion,
+			&record.NewVersion,
+			&record.OldPluginInstallationID,
+			&record.NewPackageDownloadID,
+			&record.NewPackagePrecheckID,
+			&record.NewPackageCompatCheckID,
+			&record.Status,
+			&record.PreviousPluginStatus,
+			&record.NewPluginStatus,
+			&record.BackupPath,
+			&record.OldInstallPath,
+			&record.NewInstallPath,
+			&manifestDiff,
+			&configDiff,
+			&permDiff,
+			&menuDiff,
+			&routeDiff,
+			&hookDiff,
+			&ctDiff,
+			&migDiff,
+			&impactJSON,
+			&errorsJSON,
+			&warningsJSON,
+			&rollbackLog,
+			&record.Reason,
+			&startedAt,
+			&finishedAt,
+			&record.DurationMS,
+			&record.RequestedBy,
+			&createdAt,
+			&updatedAt,
+		); err != nil {
+			return nil, 0, err
+		}
+		record.ManifestDiffJSON = manifestDiff.String
+		record.ConfigDiffJSON = configDiff.String
+		record.PermissionDiffJSON = permDiff.String
+		record.MenuDiffJSON = menuDiff.String
+		record.RouteDiffJSON = routeDiff.String
+		record.HookDiffJSON = hookDiff.String
+		record.ContentTypeDiffJSON = ctDiff.String
+		record.MigrationDiffJSON = migDiff.String
+		record.ImpactJSON = impactJSON.String
 		record.ErrorsJSON = errorsJSON.String
 		record.WarningsJSON = warningsJSON.String
 		record.RollbackLogJSON = rollbackLog.String

@@ -660,6 +660,47 @@ CREATE TABLE IF NOT EXISTS plugin_enable_tasks (
   KEY idx_plugin_enable_tasks_precheck (plugin_enable_precheck_id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
+-- Plugin Upgrade Tasks (基于 compat-check 的升级任务记录)
+CREATE TABLE IF NOT EXISTS plugin_upgrade_tasks (
+  id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+  plugin_code VARCHAR(64) NOT NULL DEFAULT '',
+  old_version VARCHAR(64) NOT NULL DEFAULT '',
+  new_version VARCHAR(64) NOT NULL DEFAULT '',
+  old_plugin_installation_id BIGINT UNSIGNED NOT NULL DEFAULT 0,
+  new_package_download_id BIGINT UNSIGNED NOT NULL DEFAULT 0,
+  new_package_precheck_id BIGINT UNSIGNED NOT NULL DEFAULT 0,
+  new_package_compat_check_id BIGINT UNSIGNED NOT NULL DEFAULT 0,
+  status VARCHAR(64) NOT NULL DEFAULT 'pending',
+  previous_plugin_status VARCHAR(64) NOT NULL DEFAULT '',
+  new_plugin_status VARCHAR(64) NOT NULL DEFAULT '',
+  backup_path VARCHAR(500) NOT NULL DEFAULT '',
+  old_install_path VARCHAR(500) NOT NULL DEFAULT '',
+  new_install_path VARCHAR(500) NOT NULL DEFAULT '',
+  manifest_diff_json JSON NULL,
+  config_diff_json JSON NULL,
+  permission_diff_json JSON NULL,
+  menu_diff_json JSON NULL,
+  route_diff_json JSON NULL,
+  hook_diff_json JSON NULL,
+  content_type_diff_json JSON NULL,
+  migration_diff_json JSON NULL,
+  impact_json JSON NULL,
+  errors_json JSON NULL,
+  warnings_json JSON NULL,
+  rollback_log_json JSON NULL,
+  reason VARCHAR(1000) NOT NULL DEFAULT '',
+  started_at DATETIME NULL,
+  finished_at DATETIME NULL,
+  duration_ms BIGINT NOT NULL DEFAULT 0,
+  requested_by BIGINT UNSIGNED NOT NULL DEFAULT 0,
+  created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  PRIMARY KEY (id),
+  KEY idx_plugin_upgrade_tasks_status_created (status, created_at),
+  KEY idx_plugin_upgrade_tasks_plugin_version (plugin_code, new_version),
+  KEY idx_plugin_upgrade_tasks_compat (new_package_compat_check_id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
 -- Plugin Operation Snapshots (安装/升级保护与失败恢复)
 CREATE TABLE IF NOT EXISTS plugin_operation_snapshots (
   id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,

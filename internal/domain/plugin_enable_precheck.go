@@ -1,19 +1,19 @@
 package domain
 
 const (
-	PluginEnablePrecheckStatusPending            = "pending"
-	PluginEnablePrecheckStatusChecking           = "checking"
-	PluginEnablePrecheckStatusPassed             = "passed"
-	PluginEnablePrecheckStatusWarning            = "warning"
-	PluginEnablePrecheckStatusFailed             = "failed"
-	PluginEnablePrecheckStatusBlocked            = "blocked"
-	PluginEnablePrecheckStatusDependencyMissing  = "dependency_missing"
-	PluginEnablePrecheckStatusConfigInvalid      = "config_invalid"
-	PluginEnablePrecheckStatusMigrationPending   = "migration_pending"
+	PluginEnablePrecheckStatusPending             = "pending"
+	PluginEnablePrecheckStatusChecking            = "checking"
+	PluginEnablePrecheckStatusPassed              = "passed"
+	PluginEnablePrecheckStatusWarning             = "warning"
+	PluginEnablePrecheckStatusFailed              = "failed"
+	PluginEnablePrecheckStatusBlocked             = "blocked"
+	PluginEnablePrecheckStatusDependencyMissing   = "dependency_missing"
+	PluginEnablePrecheckStatusConfigInvalid       = "config_invalid"
+	PluginEnablePrecheckStatusMigrationPending    = "migration_pending"
 	PluginEnablePrecheckStatusFileIntegrityFailed = "file_integrity_failed"
-	PluginEnablePrecheckStatusManifestChanged    = "manifest_changed"
-	PluginEnablePrecheckStatusConflictDetected   = "conflict_detected"
-	PluginEnablePrecheckStatusDeleted            = "deleted"
+	PluginEnablePrecheckStatusManifestChanged     = "manifest_changed"
+	PluginEnablePrecheckStatusConflictDetected    = "conflict_detected"
+	PluginEnablePrecheckStatusDeleted             = "deleted"
 )
 
 type PluginEnablePrecheckRecord struct {
@@ -29,21 +29,21 @@ type PluginEnablePrecheckRecord struct {
 	Status    string `json:"status"`
 	CanEnable bool   `json:"can_enable"`
 
-	CoreVersion   string `json:"core_version,omitempty"`
-	InstalledPath string `json:"installed_path,omitempty"`
+	CoreVersion    string `json:"core_version,omitempty"`
+	InstalledPath  string `json:"installed_path,omitempty"`
 	ManifestSHA256 string `json:"manifest_sha256,omitempty"`
 
 	FileIntegrityResultJSON string `json:"file_integrity_result_json,omitempty"`
-	ManifestResultJSON       string `json:"manifest_result_json,omitempty"`
-	DependencyResultJSON     string `json:"dependency_result_json,omitempty"`
-	ConfigResultJSON         string `json:"config_result_json,omitempty"`
-	MigrationResultJSON      string `json:"migration_result_json,omitempty"`
-	PermissionResultJSON     string `json:"permission_result_json,omitempty"`
-	MenuResultJSON           string `json:"menu_result_json,omitempty"`
-	RouteResultJSON          string `json:"route_result_json,omitempty"`
-	HookResultJSON           string `json:"hook_result_json,omitempty"`
-	ContentTypeResultJSON    string `json:"content_type_result_json,omitempty"`
-	RuntimeResultJSON        string `json:"runtime_result_json,omitempty"`
+	ManifestResultJSON      string `json:"manifest_result_json,omitempty"`
+	DependencyResultJSON    string `json:"dependency_result_json,omitempty"`
+	ConfigResultJSON        string `json:"config_result_json,omitempty"`
+	MigrationResultJSON     string `json:"migration_result_json,omitempty"`
+	PermissionResultJSON    string `json:"permission_result_json,omitempty"`
+	MenuResultJSON          string `json:"menu_result_json,omitempty"`
+	RouteResultJSON         string `json:"route_result_json,omitempty"`
+	HookResultJSON          string `json:"hook_result_json,omitempty"`
+	ContentTypeResultJSON   string `json:"content_type_result_json,omitempty"`
+	RuntimeResultJSON       string `json:"runtime_result_json,omitempty"`
 
 	WarningsJSON string `json:"warnings_json,omitempty"`
 	ErrorsJSON   string `json:"errors_json,omitempty"`
@@ -86,6 +86,5 @@ type PluginEnablePrecheckResponse struct {
 
 type PluginEnablePrecheckListResponse struct {
 	Items      []PluginEnablePrecheckResponse `json:"items"`
-	Pagination Pagination                    `json:"pagination"`
+	Pagination Pagination                     `json:"pagination"`
 }
-

@@ -631,6 +631,8 @@ v1.3.5 的边界是治理体验收口，不新增危险运行时能力。当前�
 - `POST /api/v1/admin/plugins/:code/archive` 将插件置为 `archived`。
 - `POST /api/v1/admin/plugins/:code/restore` 将归档插件恢复为 `disabled`，不会自动启用。
 - `POST /api/v1/admin/plugins/bulk-archive` / `bulk-restore` 支持批量软卸载 / 恢复，但不删除任何历史数据。
+- v1.7.0-P0-07：新增 `plugin_uninstall_tasks` 软卸载任务记录与治理 API（impact / list / detail / retry / delete），用于审计与失败可重试；实际软卸载语义仍以 `plugins.status=archived` 为源。
+- v1.7.0-P0-08：新增 `plugin_upgrade_tasks` 升级任务记录与升级 API（upgrade-impact / upgrade-from-package / list / detail / retry / delete），升级输入依赖 `compat-check(can_install=true)`，升级后默认不自动启用、不执行 migration，需要重新 enable-precheck + enable。
 - 归档后禁止新建该插件内容、禁止子站启用、隐藏入口；历史内容、配置、迁移记录、审计记录和 SEO 均保留。
 - 归档插件仍允许后台进入通用 `PluginContent` 历史内容治理页；页面必须提示“插件已归档，只能治理历史内容，不能新建”，当前已覆盖批量隐藏 / 恢复、审核、置顶和加精。
 - 归档 / 恢复写入 `plugin.archived`、`plugin.restored`、`plugin.archive.failed`、`plugin.restore.failed` 审计。
@@ -718,11 +720,32 @@ P0-05 在“插件已安装但未启用”的状态下执行启用前最后检�
   - `GET /api/v1/admin/plugins/enable-prechecks`
   - `GET /api/v1/admin/plugins/enable-prechecks/:id`
   - `DELETE /api/v1/admin/plugins/enable-prechecks/:id`
-- Service：对安装记录进行二次复检：
-  - 强制链路：要求存在最近的 `plugin_package_prechecks(status=passed)` + `plugin_package_compat_checks(can_install=true)`。
-  - 文件完整性：对 `source_type=local_package` 复用 package scanner + checksums 校验，并读取 `manifest.json` 与安装时 `manifest_checksum` 比对，发现篡改/危险文件阻断。
-  - manifest/依赖/配置/迁移/冲突复检：复用既有校验逻辑，输出结构化结果与 summary。
-- Store：`plugin_enable_prechecks` 持久化启用前检查结果，MemoryStore / MySQLStore 均支持，失败也保留 errors/warnings 与状态。
-- Audit：记录 `plugin.enable_precheck.requested/success/failed/blocked/config_invalid/migration_pending/file_integrity_failed/deleted`。
 
-安全边界：启用前检查不会改变插件状态，不会注册权限/菜单/路由/Hook，不会执行 migration，不会执行插件代码或脚本。
+## v1.7.0-P0-06 插件启用与运行时注册架构（enable）
+
+启用阶段用于将已安装插件从 `disabled` 切换为 `enabled`，并让插件的声明能力进入平台治理链路（内容类型校验、权限矩阵、菜单/路由/Hook 声明可见性等）。该阶段不执行插件包内代码，不运行脚本，不加载 Go plugin，不自动执行 migration。
+
+输入约束：
+
+- 必须基于 enable-precheck 记录执行：`enable-precheck status=passed|warning` 且 `can_enable=true`。
+- 启用时会做 TOCTOU 快速再校验（配置/依赖/迁移/content_type 冲突等），防止安装后状态变化导致绕过。
+- 本轮策略：存在 pending migration 直接阻断启用。
+
+核心链路：
+
+1. 创建 `plugin_enable_tasks` 记录，状态 `enabling`。
+2. 校验 enable-precheck / readiness / 冲突。
+3. 更新插件状态为 `enabled`（DB-as-source，前后台展示和内容创建校验链路据此生效）。
+4. 写入注册摘要与 effective_config 快照（不泄露敏感值）。
+5. 写入审计日志：`plugin.enable.*` / `plugin.runtime.registered`。
+6. 触发 HookBus：`AfterPluginEnabled`（non-blocking）。
+
+相关接口：
+
+- `POST /api/v1/admin/plugins/enable-prechecks/:id/enable`
+- `GET /api/v1/admin/plugins/enable-tasks`
+- `GET /api/v1/admin/plugins/enable-tasks/:id`
+- `POST /api/v1/admin/plugins/enable-tasks/:id/retry`
+- `DELETE /api/v1/admin/plugins/enable-tasks/:id`
+
+安全边界：启用流程只注册声明能力并切换状态，不会执行插件包内代码/脚本，不会加载 Go plugin，不会自动执行 migration。

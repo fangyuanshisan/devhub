@@ -1022,6 +1022,108 @@ done
 - `./scripts/check-frontend.sh --frontend-only`：通过，前台 build 通过，前台 E2E `16 passed`；覆盖归档插件入口隐藏、强传拦截、子站启用阻断和历史 Topic SEO 回归。
 - `./scripts/check-frontend.sh --admin-only`：通过，后台 build 通过，后台 E2E `20 passed`；覆盖归档插件治理中心细节、PluginContent 历史治理提示和归档态批量隐藏 / 恢复。
 
+## v1.7.0-P0-07 软卸载任务（plugin_uninstall_tasks）轻量验收清单
+
+1. 远程/包安装插件可执行 `POST /api/v1/admin/plugins/:code/soft-uninstall`。
+2. 内置系统插件返回 `plugin_soft_uninstall_system_forbidden`。
+3. 存在 enabled 的 required 依赖插件时返回 `plugin_soft_uninstall_dependency_blocked`。
+4. 仅 optional 依赖存在时允许软卸载，但返回 warnings。
+5. `GET /api/v1/admin/plugins/:code/uninstall-impact` 能返回 impact 摘要与 dependents 列表。
+6. 软卸载成功后插件全局状态变为 `archived`。
+7. 软卸载成功后不能新建该插件 content_type（后端强校验阻断）。
+8. 软卸载成功后菜单/入口隐藏（按 status!=enabled gating）。
+9. 软卸载成功后 HookBus 不再执行该插件 Hook（按 plugin status gating）。
+10. 历史内容详情仍可访问；`/topics/:id` 和 `/c/:slug` SEO 不受影响。
+11. `GET /api/v1/admin/plugins/uninstall-tasks` 可查询任务列表。
+12. `GET /api/v1/admin/plugins/uninstall-tasks/:id` 可查询任务详情。
+13. 失败任务可 `POST /api/v1/admin/plugins/uninstall-tasks/:id/retry` 重试。
+14. `DELETE /api/v1/admin/plugins/uninstall-tasks/:id` 标记 deleted，不删除插件文件/配置/数据。
+15. 审计日志包含：`plugin.soft_uninstall.requested/started/success/failed`、`plugin.runtime.unregistered`。
+
+## v1.7.0-P0-08 升级任务（plugin_upgrade_tasks）轻量验收清单
+
+1. 同 `plugin_code` 的更高版本包（`compat-check.can_install=true`）可以进入升级影响分析：`GET /api/v1/admin/plugins/:code/upgrade-impact?target_compat_check_id=...`。
+2. 不同 `plugin_code` 的包返回 `plugin_upgrade_target_code_mismatch`。
+3. 低版本或相同版本返回 `plugin_version_same_version`（不支持降级/重复升级）。
+4. `precheck.status!=passed` 的包不能进入升级。
+5. staging download `status!=downloaded` 的包不能进入升级（`plugin_upgrade_target_download_invalid`）。
+6. `checksum_missing` 的包默认不能进入升级（`plugin_upgrade_target_checksum_missing`）。
+7. sha256 不一致不能进入升级（`plugin_upgrade_target_checksum_invalid`）。
+8. 升级执行：`POST /api/v1/admin/plugins/:code/upgrade-from-package` 会创建 `plugin_upgrade_tasks` 记录并写入审计 `plugin.upgrade.requested/started/success/failed`。
+9. 升级前会重新对目标包执行 package dry-run，危险文件/blocked 风险/ checksum mismatch 会阻断升级。
+10. 升级成功后插件默认不自动启用；需要重新 enable-precheck + enable。
+11. 目标版本声明 migrations 时，升级后插件会进入 `migration_pending`（但不会自动执行 migration）。
+12. `GET /api/v1/admin/plugins/upgrade-tasks` / `GET /api/v1/admin/plugins/upgrade-tasks/:id` 可查询任务列表与详情。
+13. `POST /api/v1/admin/plugins/upgrade-tasks/:id/retry` 仅允许重试 `failed` 的任务。
+14. `DELETE /api/v1/admin/plugins/upgrade-tasks/:id` 仅标记 `deleted`，不影响插件当前状态与历史内容。
+15. 升级过程不执行插件代码/脚本、不加载 Go plugin、不执行 migration、不影响历史内容详情与 SEO（/topics/:id、/c/:slug）。
+
+## v1.7.0-P0-09 插件运行时治理验收（P0-01 ~ P0-08 链路）验收清单
+
+本节用于 v1.7.0 P0 阶段的运行时治理验收：确认远程/包插件从 staging 下载、预检、兼容性检查、安装、启用前检查、启用注册、软卸载、升级的关键链路真实可用；仍不执行第三方代码，不做动态加载，不做市场。
+
+下载治理（P0-01）：
+
+1. 仅允许 https 下载；http/file/内网/localhost/重定向到内网均拒绝（SSRF 防护）。
+2. 下载后写入 staging 并记录 status/file_size/final_url/content_type/sha256。
+3. sha256 正确为 downloaded；不一致为 checksum_failed；缺失为 checksum_missing（默认不能进入后续安装/升级）。
+4. 下载失败清理临时文件，并记录 error_message。
+5. staging 列表/详情/删除 API 可用，且删除会删除文件或标记 deleted。
+
+预检与 manifest 校验（P0-02）：
+
+1. 合法包可 precheck；缺 manifest/非法 JSON/危险文件/路径穿越/symlink/hardlink/超限等均被阻断。
+2. 核心越权声明（core/admin/system 权限、敏感路由覆盖、外链菜单、未知 hook）被阻断。
+3. 预检结果保存并可查询，预检过程不执行任何包内代码/脚本。
+
+兼容性检查（P0-03）：
+
+1. 仅 precheck passed 可执行 compat-check。
+2. can_install 由后端计算：errors=>false，warnings=>true(status=warning)。
+3. core 版本不兼容、required 依赖缺失/版本不满足、plugin_code/content_type/permission/route/menu 冲突均阻断。
+
+启用链路（P0-05/06）：
+
+1. enable-precheck 基于已安装插件执行，can_enable 由后端计算。
+2. enable 必须依赖 enable-precheck(can_enable=true)；migration pending/failed、配置无效、依赖缺失、冲突均阻断。
+3. 启用成功后 status=enabled，运行时能力可被平台识别；不执行插件代码/脚本，不加载 Go plugin，不自动执行 migration，不自动启用所有社区。
+
+软卸载（P0-07）：
+
+1. 远程插件可软卸载；内置插件禁止。
+2. required 依赖阻断软卸载；optional 依赖仅 warning。
+3. 软卸载后禁止新建能力，但保留历史内容访问与 SEO（/topics/:id、/c/:slug）。
+
+升级（P0-08）：
+
+1. 升级输入必须来自同 plugin_code 更高版本 compat-check(can_install=true) 的包；checksum_missing 默认禁止。
+2. 升级前重新 dry-run；升级后默认 disabled/migration_pending，不自动启用；需要重新 enable-precheck + enable。
+3. 升级不执行插件代码/脚本、不执行 migration；失败不破坏旧版本治理状态与历史内容访问。
+
+审计与权限边界：
+
+1. 关键操作（download/precheck/compat-check/install/enable-precheck/enable/soft-uninstall/upgrade）均写入 admin_logs。
+2. 普通前台用户不能访问 /api/v1/admin/*；版主不能跨社区越权治理。
+
+## v1.7.0-P0-10 远程插件包治理总验收与发布归档（P0 收口）清单
+
+本节用于 v1.7.0 P0 总收口：对 P0-01 ~ P0-09 的“远程插件包治理主链路 + 横向治理”做最终验收记录与发布归档口径统一。
+
+执行过的检查命令（2026-05-16）：
+
+1. 后端：`gofmt`（对改动 Go 文件）、`go test ./...`（通过）、`go build`（通过；如 `.devhub/` 不可写则用 `go build -o .tmp/bin/devhub .`）。
+2. 后台：admin-only：`./scripts/check-frontend.sh --admin-only`（通过，admin build + Playwright 62 passed）。
+3. 前台：frontend-only：`./scripts/check-frontend.sh --frontend-only`（通过，frontend build + Playwright 17 passed）。
+4. SEO 抽查：
+   - compose devhub 未暴露宿主机端口，且 `curl` 镜像拉取在当前环境失败；因此使用 `frontend-e2e` 容器内 Node HTTP 请求验证 `/topics/1/` 与 `/c/php/`：
+     - `/topics/1/`：存在 `<title>`、canonical、`application/ld+json`；
+     - `/c/php/`：存在 `<title>`、canonical。
+
+发布归档口径（必须满足）：
+
+1. 文档口径以：`VERSION`、`README.md`、`CHANGELOG.md`、`docs/releases/v1.7.0.md`、`docs/API.md`、`docs/PROJECT_PROGRESS.md`、`docs/PLUGIN_ARCHITECTURE.md`、`docs/PLUGIN_PACKAGE.md`（如存在）为准，不得互相矛盾。
+2. v1.7.0 P0 仅包含“治理链路”与“安全边界”，不包含插件市场、远程自动更新、动态加载、第三方代码执行、sandbox、硬卸载、migration down、自动依赖安装。
+
 ## Manifest 校验、dry-run 与配置型安装验收
 
 本节用于记录 manifest + 配置型插件安装预备能力，不代表插件市场、插件包上传、远程安装或动态加载已完成。
@@ -1428,6 +1530,23 @@ skipped / flaky / TODO 结论：
 16. can_enable 由后端返回。
 17. enable-precheck 写入审计（requested/success/failed/blocked/deleted）。
 18. enable-precheck 不启用插件，不注册权限/菜单/路由/Hook，不执行 migration，不执行插件代码。
+
+## v1.7.0-P0-06 插件启用与运行时注册（enable）轻量验收清单
+
+1. enable-precheck `can_enable=true` 且 `status=passed|warning` 的插件可以启用（`POST /api/v1/admin/plugins/enable-prechecks/:id/enable`）。
+2. enable-precheck `can_enable=false` 或 `status=failed|blocked|deleted` 的插件不能启用。
+3. enable-precheck 过期时不能启用（默认 TTL 600 秒；`DEVHUB_PLUGIN_ENABLE_PRECHECK_TTL_SECONDS`）。
+4. migration pending / failed 时不能启用。
+5. 配置无效时不能启用。
+6. 依赖缺失或版本不满足时不能启用。
+7. content_type 冲突时不能启用。
+8. 启用成功后插件状态为 `enabled`。
+9. 启用成功后创建链路能识别插件声明的 `content_type_definitions`（仍受子站启用、板块绑定、权限校验约束）。
+10. 启用成功后前台/后台菜单按插件状态与权限规则显示（前端隐藏不作为安全边界）。
+11. 启用成功后会触发 `AfterPluginEnabled`（non-blocking，如 HookBus 支持）。
+12. 启用过程写入审计：`plugin.enable.requested/started/success/failed/retry`、`plugin.runtime.registered`。
+13. 启用失败不留下半启用状态：插件状态不应为 enabled。
+14. 启用阶段不执行插件包内代码、不运行 package scripts、不加载 Go plugin、不自动执行 migration、不自动为所有子站启用。
 19. 不影响当前内置插件启停。
 20. 不影响 /topics/:id SEO。
 21. 不影响 /c/:slug SEO。

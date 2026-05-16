@@ -1,6 +1,6 @@
 # Changelog
 
-## v1.7.0 (in progress)
+## v1.7.0 (2026-05-16)
 
 v1.7.0 is the remote plugin package governance and installation-safety enhancement track. P0-01 adds safe remote package download into staging only; it does not install, enable, extract for execution, run plugin code, execute SQL, or dynamically load frontend assets.
 
@@ -9,6 +9,8 @@ v1.7.0 is the remote plugin package governance and installation-safety enhanceme
 - Added persistent `plugin_package_downloads` records for status, source/final URL, file size, sha256 expected/actual, content type, staging path, errors, and audit traceability.
 - Added plugin package dependency / compatibility checks over `plugin_package_prechecks.status=passed` records, with persistent `plugin_package_compat_checks`, Core version constraints (`^` / `~` included), dependency validation, plugin/content/permission/menu/route/Hook/config_schema/migration blockers, backend-computed `can_install`, audit logs, and a minimal admin UI. This still does not install, enable, register, migrate, execute, or dynamically load plugin code.
 - Added plugin enable-precheck (`POST /api/v1/admin/plugins/:code/enable-precheck`) with persistent `plugin_enable_prechecks` results and minimal admin UI entry; runs file/manifest/dependency/config/migration/conflict checks only and does not enable/register/execute.
+- Added plugin enable based on enable-precheck (`POST /api/v1/admin/plugins/enable-prechecks/:id/enable`) with persistent `plugin_enable_tasks` records, audit logs, TOCTOU re-checks, pending-migration blocking, and a minimal admin UI entry. This registers only manifest-declared governance capabilities (content types/permissions/menus/routes/hooks/config snapshot) and still does not execute plugin code, scripts, or migrations.
+- Added compat-check driven plugin upgrade tasks: `GET /api/v1/admin/plugins/:code/upgrade-impact?target_compat_check_id=...`, `POST /api/v1/admin/plugins/:code/upgrade-from-package`, plus `plugin_upgrade_tasks` list/detail/retry/delete APIs. Upgrades re-run package dry-run server-side, require sha256-verified staging downloads, do not auto-enable, and do not execute migrations or third-party code.
 
 ## v1.6.0 (2026-05-15)
 
@@ -36,6 +38,8 @@ Current `VERSION` is `v1.5.0`. v1.5.0 closes the plugin package governance track
 - Kept the package governance boundary strict: no zip uploads, no remote market, no remote install/download, no dynamic loading, no third-party code execution, no external SQL execution, and no user-data export.
 
 ## Unreleased
+
+- Plugins: add `plugin_uninstall_tasks` and admin APIs for soft uninstall task tracking (`/admin/plugins/:code/soft-uninstall`, uninstall impact, list/detail/retry/delete). Soft uninstall archives plugin without deleting content/config/files. (v1.7.0-P0-07)
 
 - Added a local plugin package spec draft (`docs/PLUGIN_PACKAGE.md`) and an admin dry-run API for scanning and previewing local plugin packages (`POST /api/v1/admin/plugins/packages/dry-run`); this is a safe read/validate/preview flow only (no install, no code/SQL execution, no dynamic frontend asset loading).
 - Added an admin UI section under `/admin-next/plugins/install` for running local plugin package dry-run previews, plus a safe example package at `examples/plugins/demo_notice/`.

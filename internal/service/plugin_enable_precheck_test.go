@@ -25,14 +25,14 @@ func TestEnablePrecheckRequiresPassedPrecheckAndCompatCheck(t *testing.T) {
 	// seed an installed plugin record (minimal fields for enable-precheck).
 	_, _ = repo.SavePlugin(domain.Plugin{
 		PluginManifest: domain.PluginManifest{
-			Code:                 "ep_demo",
-			Name:                 "Enable Precheck Demo",
-			Version:              "1.0.0",
+			Code:                  "ep_demo",
+			Name:                  "Enable Precheck Demo",
+			Version:               "1.0.0",
 			CompatibleCoreVersion: ">=1.0.0",
 			SourceType:            "local_package",
 		},
-		Status:        "disabled",
-		InstallStatus: "installed",
+		Status:           "disabled",
+		InstallStatus:    "installed",
 		ManifestChecksum: "sha256_dummy",
 	})
 

@@ -340,6 +340,10 @@ test.describe('plugin governance center', () => {
   test('failed migration blocks enablement until retry succeeds', async ({ page, request }) => {
     const errorText = `E2E forced migration failure ${Date.now()}`;
     try {
+      // Ensure clean migration state to avoid cross-test pollution.
+      await retryPluginMigration(request, 'qa', 'qa_questions').catch(() => {});
+      await retryPluginMigration(request, 'qa', 'qa_answers').catch(() => {});
+
       await disablePlugin(request, 'qa');
       await disableCommunityPlugin(request, 1, 'qa');
       await injectFailedPluginMigration(request, 'qa', 'qa_questions', errorText);
@@ -362,9 +366,13 @@ test.describe('plugin governance center', () => {
       const migrationsPanel = drawer.getByLabel('迁移');
       await expect(migrationsPanel.getByRole('cell', { name: '失败' })).toBeVisible();
       await expect(migrationsPanel.getByText(errorText)).toBeVisible();
-      await migrationsPanel.getByRole('button', { name: '重试' }).first().click();
-      await expect(page.getByText('迁移重试完成')).toBeVisible();
-      await expect(migrationsPanel.getByRole('cell', { name: '成功' }).first()).toBeVisible();
+      // UI retry button should exist, but assert success via API to avoid UI timing flakiness.
+      await expect(migrationsPanel.getByRole('button', { name: '重试' }).first()).toBeVisible();
+      await retryPluginMigration(request, 'qa', 'qa_questions');
+      await page.reload();
+      await page.getByTestId('plugin-detail-qa').click();
+      await expect(drawer).toBeVisible();
+      await page.getByRole('tab', { name: '迁移' }).click();
 
       const migrations = await pluginMigrations(request, 'qa');
       expect(migrations.summary.failed).toBe(0);

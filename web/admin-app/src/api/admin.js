@@ -15,6 +15,13 @@ export const validatePluginManifest = (payload) => http.post('/admin/plugins/man
 export const dryRunPluginManifest = (payload) => http.post('/admin/plugins/dry-run', payload);
 export const dryRunPluginUpgrade = (code, payload) => http.post(`/admin/plugins/${code}/upgrade/dry-run`, payload);
 export const upgradePlugin = (code, payload) => http.post(`/admin/plugins/${code}/upgrade`, payload);
+// v1.7.0-P0-08: compat-check driven package upgrade (no auto-enable, no migrations executed)
+export const pluginUpgradeImpact = (code, params) => http.get(`/admin/plugins/${encodeURIComponent(code)}/upgrade-impact`, { params });
+export const upgradePluginFromPackage = (code, payload) => http.post(`/admin/plugins/${encodeURIComponent(code)}/upgrade-from-package`, payload);
+export const listPluginUpgradeTasks = (params) => http.get('/admin/plugins/upgrade-tasks', { params });
+export const getPluginUpgradeTask = (id) => http.get(`/admin/plugins/upgrade-tasks/${id}`);
+export const retryPluginUpgradeTask = (id) => http.post(`/admin/plugins/upgrade-tasks/${id}/retry`);
+export const deletePluginUpgradeTask = (id) => http.delete(`/admin/plugins/upgrade-tasks/${id}`);
 export const dryRunPluginExport = (code, payload) => http.post(`/admin/plugins/${code}/export/dry-run`, payload);
 export const exportPluginPackage = (code, payload) => http.post(`/admin/plugins/${code}/export`, payload);
 export const installPluginManifest = (payload) => http.post('/admin/plugins/install', payload);
@@ -44,6 +51,11 @@ export const runPluginEnablePrecheck = (code) => http.post(`/admin/plugins/${enc
 export const listPluginEnablePrechecks = (params) => http.get('/admin/plugins/enable-prechecks', { params });
 export const getPluginEnablePrecheck = (id) => http.get(`/admin/plugins/enable-prechecks/${id}`);
 export const deletePluginEnablePrecheck = (id) => http.delete(`/admin/plugins/enable-prechecks/${id}`);
+export const enablePluginFromEnablePrecheck = (id) => http.post(`/admin/plugins/enable-prechecks/${id}/enable`);
+export const listPluginEnableTasks = (params) => http.get('/admin/plugins/enable-tasks', { params });
+export const getPluginEnableTask = (id) => http.get(`/admin/plugins/enable-tasks/${id}`);
+export const retryPluginEnableTask = (id) => http.post(`/admin/plugins/enable-tasks/${id}/retry`);
+export const deletePluginEnableTask = (id) => http.delete(`/admin/plugins/enable-tasks/${id}`);
 export const getPluginConfigKeyStatus = () => http.get('/admin/plugins/config-keys/status');
 export const dryRunPluginConfigKeyRotation = (payload) => http.post('/admin/plugins/config-keys/rotation/dry-run', payload);
 export const reencryptPluginConfigKeys = (payload) => http.post('/admin/plugins/config-keys/rotation/re-encrypt', payload);
@@ -94,6 +106,13 @@ export const enablePlugin = (code) => http.post(`/admin/plugins/${code}/enable`)
 export const disablePlugin = (code) => http.post(`/admin/plugins/${code}/disable`);
 export const archivePlugin = (code) => http.post(`/admin/plugins/${code}/archive`);
 export const restorePlugin = (code) => http.post(`/admin/plugins/${code}/restore`);
+// v1.7.0-P0-07 soft uninstall (archive with task record; keep files/config/content)
+export const getPluginUninstallImpact = (code) => http.get(`/admin/plugins/${encodeURIComponent(code)}/uninstall-impact`);
+export const softUninstallPlugin = (code, payload) => http.post(`/admin/plugins/${encodeURIComponent(code)}/soft-uninstall`, payload);
+export const listPluginUninstallTasks = (params) => http.get('/admin/plugins/uninstall-tasks', { params });
+export const getPluginUninstallTask = (id) => http.get(`/admin/plugins/uninstall-tasks/${id}`);
+export const retryPluginUninstallTask = (id) => http.post(`/admin/plugins/uninstall-tasks/${id}/retry`);
+export const deletePluginUninstallTask = (id) => http.delete(`/admin/plugins/uninstall-tasks/${id}`);
 export const bulkArchivePlugins = (payload) => http.post('/admin/plugins/bulk-archive', payload);
 export const bulkRestorePlugins = (payload) => http.post('/admin/plugins/bulk-restore', payload);
 export const updatePluginConfig = (code, payload) => http.put(`/admin/plugins/${code}/config`, payload);

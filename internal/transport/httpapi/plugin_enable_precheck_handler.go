@@ -116,13 +116,13 @@ func (s *Server) deleteAdminPluginEnablePrecheck(c *gin.Context) {
 		return
 	}
 	s.auditStructured(c, "system", "plugin.enable_precheck.deleted", fmt.Sprintf("plugin-enable-prechecks#%d", res.ID), nil, gin.H{"status": res.Status}, gin.H{
-		"id":         res.ID,
+		"id":          res.ID,
 		"plugin_code": res.PluginCode,
-		"version":    res.Version,
-		"status":     res.Status,
-		"can_enable": res.CanEnable,
-		"deleted":    true,
-		"actor":      auditActor(c),
+		"version":     res.Version,
+		"status":      res.Status,
+		"can_enable":  res.CanEnable,
+		"deleted":     true,
+		"actor":       auditActor(c),
 	})
 	c.JSON(http.StatusOK, res)
 }

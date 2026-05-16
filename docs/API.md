@@ -415,6 +415,61 @@
 - 影响分析：后台归档确认会复用 `GET /api/v1/admin/plugins/:code/impact` 展示历史内容、启用子站、绑定板块、待迁移和 Hook 异常计数。
 - 审计：成功写入 `plugin.archived`；失败写入 `plugin.archive.failed`。
 
+### 插件软卸载任务（v1.7.0-P0-07）
+
+> 说明：仓库已有 `archived` 状态作为“软卸载”语义，本轮在此基础上补齐“软卸载任务记录 + 影响分析 + 依赖阻断 + 可重试”闭环。
+> 软卸载不会删除插件文件、配置、迁移记录、审计日志和历史内容，也不会执行 migration down。
+
+`GET /api/v1/admin/plugins/:code/uninstall-impact`
+
+- 认证：后台 admin token。
+- 权限：`plugin.read`。
+- 用途：软卸载前影响分析与依赖阻断预检。
+- 返回：包含 `impact`（复用 `GET /plugins/:code/impact` 轻量计数）与 `dependents`（哪些 enabled 插件依赖当前插件）。
+
+`POST /api/v1/admin/plugins/:code/soft-uninstall`
+
+- 认证：后台 admin token。
+- 权限：`plugin.write`。
+- 用途：执行软卸载（归档）。
+- 请求：
+
+```json
+{
+  "version": "1.0.0",
+  "reason": "不再使用该插件"
+}
+```
+
+- 依赖阻断：若存在 enabled 插件对该插件声明 `required=true` 依赖，返回 `400 plugin_soft_uninstall_dependency_blocked`。
+- 返回：软卸载任务记录（`plugin_uninstall_tasks`）。
+- 审计：写入 `plugin.soft_uninstall.requested/started/success/failed` 与 `plugin.runtime.unregistered`。
+
+`GET /api/v1/admin/plugins/uninstall-tasks`
+
+- 认证：后台 admin token。
+- 权限：`plugin.read`。
+- 查询参数：`status`、`plugin_code`、`keyword`、`page`、`page_size`。
+- 返回：`items/pagination`。
+
+`GET /api/v1/admin/plugins/uninstall-tasks/:id`
+
+- 认证：后台 admin token。
+- 权限：`plugin.read`。
+- 返回：任务详情。
+
+`POST /api/v1/admin/plugins/uninstall-tasks/:id/retry`
+
+- 认证：后台 admin token。
+- 权限：`plugin.write`。
+- 用途：重试失败的软卸载任务（会重新执行依赖阻断与归档）。
+
+`DELETE /api/v1/admin/plugins/uninstall-tasks/:id`
+
+- 认证：后台 admin token。
+- 权限：`plugin.write`。
+- 用途：标记任务为 deleted（不删除插件文件/数据）。
+
 `POST /api/v1/admin/plugins/:code/restore`
 
 - 认证：后台 admin token。
@@ -1865,6 +1920,12 @@ POST /api/v1/admin/plugins/dry-run
 POST /api/v1/admin/plugins/install
 POST /api/v1/admin/plugins/:code/upgrade/dry-run
 POST /api/v1/admin/plugins/:code/upgrade
+GET  /api/v1/admin/plugins/:code/upgrade-impact
+POST /api/v1/admin/plugins/:code/upgrade-from-package
+GET  /api/v1/admin/plugins/upgrade-tasks
+GET  /api/v1/admin/plugins/upgrade-tasks/:id
+POST /api/v1/admin/plugins/upgrade-tasks/:id/retry
+DELETE /api/v1/admin/plugins/upgrade-tasks/:id
 POST /api/v1/admin/plugins/:code/enable
 POST /api/v1/admin/plugins/:code/disable
 POST /api/v1/admin/plugins/:code/archive
@@ -2330,3 +2391,152 @@ GET /api/v1/admin/plugins/remote-indexes/:id/plugins/:code
 - `plugin_enable_precheck_installed_path_missing`
 - `plugin_enable_precheck_manifest_changed`
 - `plugin_enable_precheck_checksum_failed`
+
+## v1.7.0-P0-06：插件启用与运行时注册（enable）
+
+启用用于将「已安装且 enable-precheck 通过」的插件从 `disabled` 切换为 `enabled`，并让该插件的声明能力进入运行时治理链路（内容类型校验、权限矩阵、菜单/路由/Hook 声明可见性等）。
+
+注意：启用不执行插件包内代码，不运行 package scripts，不加载 Go plugin，不自动执行 migration，不会自动为所有子站启用该插件。
+
+### `POST /api/v1/admin/plugins/enable-prechecks/:id/enable`
+
+权限：`plugin.write`。基于 enable-precheck（必须 `can_enable=true` 且 `status=passed|warning`）执行启用。
+
+响应示例：
+
+```json
+{
+  "id": 1,
+  "plugin_code": "demo_notice",
+  "version": "1.0.0",
+  "status": "enabled",
+  "previous_status": "disabled",
+  "new_status": "enabled",
+  "plugin_enable_precheck_id": 10,
+  "registered": {
+    "content_types": 1,
+    "permissions": 4,
+    "menus": 2,
+    "routes": 3,
+    "hooks": 2
+  },
+  "errors": [],
+  "warnings": []
+}
+```
+
+启用前快速校验（TOCTOU）：
+
+- 插件必须已安装且未启用，不能为 `archived`。
+- enable-precheck 必须未过期（默认 TTL 600 秒，可通过 `DEVHUB_PLUGIN_ENABLE_PRECHECK_TTL_SECONDS` 调整；设置为 0 可禁用 TTL 校验）。
+- 仍需通过 `readiness(enable)` 关键校验：配置 schema、依赖满足、迁移无 failed。
+- 本轮策略：存在 pending migration 直接阻断启用。
+- 对 `source_type=local_package` 会复用 enable-precheck 的文件完整性复检（危险文件/校验失败/manifest 变更阻断）。
+- content_type 冲突会阻断启用。
+
+### `GET /api/v1/admin/plugins/enable-tasks`
+
+权限：`plugin.read`。查询参数：`status`、`plugin_code`、`keyword`、`page`、`page_size`。返回 `items`、`pagination`。
+
+### `GET /api/v1/admin/plugins/enable-tasks/:id`
+
+权限：`plugin.read`。返回单条启用任务详情。
+
+### `POST /api/v1/admin/plugins/enable-tasks/:id/retry`
+
+权限：`plugin.write`。仅允许重试 `failed` / `rolled_back` / `rollback_failed` 的任务。
+
+### `DELETE /api/v1/admin/plugins/enable-tasks/:id`
+
+权限：`plugin.write`。软删除启用任务记录（状态置为 `deleted`），不影响插件状态。
+
+新增错误码：
+
+- `plugin_enable_invalid_request`
+- `plugin_enable_precheck_not_found`
+- `plugin_enable_precheck_blocked`
+- `plugin_enable_precheck_expired`
+- `plugin_enable_already_enabled`
+- `plugin_enable_task_not_found`
+- `plugin_enable_task_invalid_status`
+
+## v1.7.0-P0-08：插件升级流程（远程包 / compat-check 驱动）
+
+升级用于将「已安装的远程/包插件」从旧版本升级到新版本。**本轮升级不会自动启用新版本，不会执行 migration，不会执行插件代码/脚本，不会加载 Go plugin**。
+
+升级输入必须来自通过 `compat-check(can_install=true)` 的同 `plugin_code` 新版本包；并且 staging 下载必须 `downloaded` 且 sha256 校验一致（`checksum_missing` 默认禁止进入升级）。
+
+### `GET /api/v1/admin/plugins/:code/upgrade-impact?target_compat_check_id=:id`
+
+权限：`plugin.read`。用于在执行升级前查看影响范围和 manifest diff 摘要。
+
+返回示例（字段按实际返回为准）：
+
+```json
+{
+  "plugin_code": "demo_notice",
+  "old_version": "1.0.0",
+  "new_version": "1.1.0",
+  "target_compat_check_id": 123,
+  "status": "ok",
+  "can_upgrade": true,
+  "warnings": [],
+  "errors": [],
+  "impact": {},
+  "manifest_diff_summary": {"added": 0, "removed": 0, "changed": 1, "high_risk": 0, "blocked": 0},
+  "manifest_diff_sections": []
+}
+```
+
+### `POST /api/v1/admin/plugins/:code/upgrade-from-package`
+
+权限：`plugin.approve`（保持与现有 `/plugins/:code/upgrade` 的“执行升级”权限口径一致）。
+
+请求：
+
+```json
+{
+  "target_compat_check_id": 123,
+  "reason": "升级到 1.1.0"
+}
+```
+
+行为与边界：
+
+- 只允许同 `plugin_code` 的更高版本升级；不支持降级。
+- 升级前会重新对目标包执行 dry-run（scan/checksum/risk/manifest validate/install preview），并阻断危险文件、checksum mismatch、risk blocked 等情况。
+- 升级后插件默认进入 `disabled`；如果新版本声明 migrations，则会进入 `migration_pending`（但不会自动执行 migration）。
+- 升级后需要重新执行 enable-precheck，再由管理员决定是否启用。
+
+### `GET /api/v1/admin/plugins/upgrade-tasks`
+
+权限：`plugin.read`。查询参数：`status`、`plugin_code`、`keyword`、`page`、`page_size`。
+
+### `GET /api/v1/admin/plugins/upgrade-tasks/:id`
+
+权限：`plugin.read`。返回单条升级任务详情，包含 impact/diff 摘要与 errors/warnings。
+
+### `POST /api/v1/admin/plugins/upgrade-tasks/:id/retry`
+
+权限：`plugin.approve`。仅允许重试 `failed` 的任务（会重新执行前置校验与升级）。
+
+### `DELETE /api/v1/admin/plugins/upgrade-tasks/:id`
+
+权限：`plugin.approve`。软删除升级任务记录（状态置为 `deleted`），不影响插件当前状态。
+
+新增错误码（本轮新增或复用）：
+
+- `plugin_upgrade_invalid_request`
+- `plugin_upgrade_system_forbidden`
+- `plugin_upgrade_target_code_mismatch`
+- `plugin_upgrade_target_not_installable`
+- `plugin_upgrade_target_download_invalid`
+- `plugin_upgrade_target_checksum_missing`
+- `plugin_upgrade_target_checksum_invalid`
+- `plugin_upgrade_target_manifest_missing`
+- `plugin_upgrade_target_manifest_invalid`
+- `plugin_upgrade_target_package_missing`
+- `plugin_upgrade_target_dry_run_failed`
+- `plugin_upgrade_target_config_incompatible`
+- `plugin_upgrade_task_not_found`
+- `plugin_upgrade_task_invalid_status`

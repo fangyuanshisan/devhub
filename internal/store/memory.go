@@ -43,6 +43,8 @@ type MemoryStore struct {
 	nextPackageCompatID   int64
 	nextEnablePrecheckID  int64
 	nextEnableTaskID      int64
+	nextUninstallTaskID   int64
+	nextUpgradeTaskID     int64
 	nextTrustedPubID      int64
 	nextRemoteIndexID     int64
 	nextOperationID       int64
@@ -86,6 +88,8 @@ type MemoryStore struct {
 	packageCompatChecks   []domain.PluginPackageCompatCheckRecord
 	enablePrechecks       []domain.PluginEnablePrecheckRecord
 	enableTasks           []domain.PluginEnableTask
+	uninstallTasks        []domain.PluginUninstallTask
+	upgradeTasks          []domain.PluginUpgradeTask
 	pluginOperations      []domain.PluginOperationSnapshot
 	trustedPublishers     []domain.PluginTrustedPublisher
 	remoteIndexes         []domain.PluginRemoteIndexSource
@@ -367,6 +371,8 @@ func NewMemoryStore() *MemoryStore {
 		packageCompatChecks: []domain.PluginPackageCompatCheckRecord{},
 		enablePrechecks:     []domain.PluginEnablePrecheckRecord{},
 		enableTasks:         []domain.PluginEnableTask{},
+		uninstallTasks:      []domain.PluginUninstallTask{},
+		upgradeTasks:        []domain.PluginUpgradeTask{},
 		trustedPublishers:   pluginregistry.DomainPublishersFromConfig(mustLoadTrustedPublishersConfig()),
 	}
 	for i := range s.trustedPublishers {
@@ -7206,6 +7212,181 @@ func (s *MemoryStore) PluginEnableTasks(filter domain.PluginEnableTaskFilter) ([
 }
 
 // ===== Plugin operations (v1.6.0-P0-06) =====
+
+// ===== Plugin uninstall tasks (v1.7.0-P0-07) =====
+
+func (s *MemoryStore) AppendPluginUninstallTask(record domain.PluginUninstallTask) (domain.PluginUninstallTask, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.nextUninstallTaskID++
+	record.ID = s.nextUninstallTaskID
+	now := Now()
+	if strings.TrimSpace(record.Status) == "" {
+		record.Status = domain.PluginUninstallTaskStatusPending
+	}
+	if strings.TrimSpace(record.UninstallType) == "" {
+		record.UninstallType = domain.PluginUninstallTypeSoft
+	}
+	if strings.TrimSpace(record.CreatedAt) == "" {
+		record.CreatedAt = now
+	}
+	record.UpdatedAt = now
+	s.uninstallTasks = append(s.uninstallTasks, record)
+	return record, nil
+}
+
+func (s *MemoryStore) SavePluginUninstallTask(record domain.PluginUninstallTask) (domain.PluginUninstallTask, error) {
+	if record.ID <= 0 {
+		return s.AppendPluginUninstallTask(record)
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	now := Now()
+	record.UpdatedAt = now
+	for i := range s.uninstallTasks {
+		if s.uninstallTasks[i].ID == record.ID {
+			s.uninstallTasks[i] = record
+			return record, nil
+		}
+	}
+	s.uninstallTasks = append(s.uninstallTasks, record)
+	return record, nil
+}
+
+func (s *MemoryStore) PluginUninstallTaskByID(id int64) (domain.PluginUninstallTask, bool) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	for _, it := range s.uninstallTasks {
+		if it.ID == id {
+			return it, true
+		}
+	}
+	return domain.PluginUninstallTask{}, false
+}
+
+func (s *MemoryStore) PluginUninstallTasks(filter domain.PluginUninstallTaskFilter) ([]domain.PluginUninstallTask, int, error) {
+	page, pageSize := normalizeMemoryPage(filter.Page, filter.PageSize)
+	status := strings.TrimSpace(filter.Status)
+	code := strings.TrimSpace(filter.PluginCode)
+	keyword := strings.ToLower(strings.TrimSpace(filter.Keyword))
+
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	all := make([]domain.PluginUninstallTask, 0, len(s.uninstallTasks))
+	for _, it := range s.uninstallTasks {
+		if status != "" && status != "all" && it.Status != status {
+			continue
+		}
+		if code != "" && it.PluginCode != code {
+			continue
+		}
+		if keyword != "" {
+			hay := strings.ToLower(strings.Join([]string{it.PluginCode, it.Version, it.Status, it.PreviousStatus, it.NewStatus, it.UninstallType, it.Reason}, " "))
+			if !strings.Contains(hay, keyword) {
+				continue
+			}
+		}
+		all = append(all, it)
+	}
+	sort.Slice(all, func(i, j int) bool { return all[i].ID > all[j].ID })
+	total := len(all)
+	start := (page - 1) * pageSize
+	if start > total {
+		start = total
+	}
+	end := start + pageSize
+	if end > total {
+		end = total
+	}
+	return append([]domain.PluginUninstallTask(nil), all[start:end]...), total, nil
+}
+
+// ===== Plugin upgrade tasks (v1.7.0-P0-08) =====
+
+func (s *MemoryStore) AppendPluginUpgradeTask(record domain.PluginUpgradeTask) (domain.PluginUpgradeTask, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.nextUpgradeTaskID++
+	record.ID = s.nextUpgradeTaskID
+	now := Now()
+	if strings.TrimSpace(record.Status) == "" {
+		record.Status = domain.PluginUpgradeTaskStatusPending
+	}
+	if strings.TrimSpace(record.CreatedAt) == "" {
+		record.CreatedAt = now
+	}
+	record.UpdatedAt = now
+	s.upgradeTasks = append(s.upgradeTasks, record)
+	return record, nil
+}
+
+func (s *MemoryStore) SavePluginUpgradeTask(record domain.PluginUpgradeTask) (domain.PluginUpgradeTask, error) {
+	if record.ID <= 0 {
+		return s.AppendPluginUpgradeTask(record)
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	now := Now()
+	record.UpdatedAt = now
+	for i := range s.upgradeTasks {
+		if s.upgradeTasks[i].ID == record.ID {
+			s.upgradeTasks[i] = record
+			return record, nil
+		}
+	}
+	s.upgradeTasks = append(s.upgradeTasks, record)
+	return record, nil
+}
+
+func (s *MemoryStore) PluginUpgradeTaskByID(id int64) (domain.PluginUpgradeTask, bool) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	for _, it := range s.upgradeTasks {
+		if it.ID == id {
+			return it, true
+		}
+	}
+	return domain.PluginUpgradeTask{}, false
+}
+
+func (s *MemoryStore) PluginUpgradeTasks(filter domain.PluginUpgradeTaskFilter) ([]domain.PluginUpgradeTask, int, error) {
+	page, pageSize := normalizeMemoryPage(filter.Page, filter.PageSize)
+	status := strings.TrimSpace(filter.Status)
+	code := strings.TrimSpace(filter.PluginCode)
+	keyword := strings.ToLower(strings.TrimSpace(filter.Keyword))
+
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	all := make([]domain.PluginUpgradeTask, 0, len(s.upgradeTasks))
+	for _, it := range s.upgradeTasks {
+		if status != "" && status != "all" && it.Status != status {
+			continue
+		}
+		if code != "" && it.PluginCode != code {
+			continue
+		}
+		if keyword != "" {
+			hay := strings.ToLower(strings.Join([]string{it.PluginCode, it.OldVersion, it.NewVersion, it.Status, it.PreviousPluginStatus, it.NewPluginStatus, it.Reason}, " "))
+			if !strings.Contains(hay, keyword) {
+				continue
+			}
+		}
+		all = append(all, it)
+	}
+	sort.Slice(all, func(i, j int) bool { return all[i].ID > all[j].ID })
+	total := len(all)
+	start := (page - 1) * pageSize
+	if start > total {
+		start = total
+	}
+	end := start + pageSize
+	if end > total {
+		end = total
+	}
+	return append([]domain.PluginUpgradeTask(nil), all[start:end]...), total, nil
+}
 
 func (s *MemoryStore) AppendPluginOperationSnapshot(record domain.PluginOperationSnapshot) (domain.PluginOperationSnapshot, error) {
 	s.mu.Lock()

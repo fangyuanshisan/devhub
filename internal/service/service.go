@@ -77,6 +77,16 @@ type Repository interface {
 	SavePluginEnableTask(record domain.PluginEnableTask) (domain.PluginEnableTask, error)
 	PluginEnableTaskByID(id int64) (domain.PluginEnableTask, bool)
 	PluginEnableTasks(filter domain.PluginEnableTaskFilter) ([]domain.PluginEnableTask, int, error)
+	// Plugin soft uninstall tasks (v1.7.0-P0-07).
+	AppendPluginUninstallTask(record domain.PluginUninstallTask) (domain.PluginUninstallTask, error)
+	SavePluginUninstallTask(record domain.PluginUninstallTask) (domain.PluginUninstallTask, error)
+	PluginUninstallTaskByID(id int64) (domain.PluginUninstallTask, bool)
+	PluginUninstallTasks(filter domain.PluginUninstallTaskFilter) ([]domain.PluginUninstallTask, int, error)
+	// Plugin upgrade tasks (v1.7.0-P0-08).
+	AppendPluginUpgradeTask(record domain.PluginUpgradeTask) (domain.PluginUpgradeTask, error)
+	SavePluginUpgradeTask(record domain.PluginUpgradeTask) (domain.PluginUpgradeTask, error)
+	PluginUpgradeTaskByID(id int64) (domain.PluginUpgradeTask, bool)
+	PluginUpgradeTasks(filter domain.PluginUpgradeTaskFilter) ([]domain.PluginUpgradeTask, int, error)
 	// Plugin operations (v1.6.0-P0-06).
 	AppendPluginOperationSnapshot(record domain.PluginOperationSnapshot) (domain.PluginOperationSnapshot, error)
 	SavePluginOperationSnapshot(record domain.PluginOperationSnapshot) (domain.PluginOperationSnapshot, error)

@@ -34,12 +34,12 @@ type PluginEnableTask struct {
 	WarningsJSON    string `json:"warnings_json,omitempty"`
 	RollbackLogJSON string `json:"rollback_log_json,omitempty"`
 
-	StartedAt   string `json:"started_at,omitempty"`
-	FinishedAt  string `json:"finished_at,omitempty"`
-	DurationMS  int64  `json:"duration_ms,omitempty"`
-	EnabledBy   int64  `json:"enabled_by,omitempty"`
-	CreatedAt   string `json:"created_at,omitempty"`
-	UpdatedAt   string `json:"updated_at,omitempty"`
+	StartedAt  string `json:"started_at,omitempty"`
+	FinishedAt string `json:"finished_at,omitempty"`
+	DurationMS int64  `json:"duration_ms,omitempty"`
+	EnabledBy  int64  `json:"enabled_by,omitempty"`
+	CreatedAt  string `json:"created_at,omitempty"`
+	UpdatedAt  string `json:"updated_at,omitempty"`
 }
 
 type PluginEnableTaskFilter struct {
@@ -61,6 +61,5 @@ type PluginEnableTaskResponse struct {
 
 type PluginEnableTaskListResponse struct {
 	Items      []PluginEnableTaskResponse `json:"items"`
-	Pagination Pagination                `json:"pagination"`
+	Pagination Pagination                 `json:"pagination"`
 }
-

@@ -146,9 +146,152 @@
                 <div><strong>can_enable：</strong>{{ enablePrecheckResult.can_enable }}</div>
                 <div v-if="(enablePrecheckResult.errors || []).length"><strong>errors：</strong>{{ (enablePrecheckResult.errors || []).join('；') }}</div>
                 <div v-if="(enablePrecheckResult.warnings || []).length"><strong>warnings：</strong>{{ (enablePrecheckResult.warnings || []).join('；') }}</div>
+              <div v-if="enablePrecheckResult.id && enablePrecheckResult.can_enable">
+                  <el-button type="primary" size="small" :loading="enableTaskLoading" data-testid="plugin-enable-from-precheck" @click="enableFromPrecheck">
+                    {{ t('plugin.ops.enableFromPrecheck') }}
+                  </el-button>
+                </div>
               </div>
             </template>
           </el-alert>
+
+          <div class="mt" data-testid="plugin-upgrade-panel">
+            <el-alert type="info" show-icon :closable="false" class="mb" :title="t('plugin.ops.packageUpgradeTip')" />
+            <div class="sub-toolbar">
+              <el-select
+                v-model="selectedUpgradeCompatCheckID"
+                size="small"
+                style="max-width: 340px"
+                data-testid="plugin-upgrade-compat-select"
+                :placeholder="t('plugin.ops.packageUpgradeSelectPlaceholder')"
+              >
+                <el-option v-for="it in upgradeCompatChecks" :key="`upgrade-compat-${it.id}`" :value="it.id" :label="upgradeCompatLabel(it)" />
+              </el-select>
+              <el-button size="small" :loading="upgradeLoading" data-testid="plugin-upgrade-load-impact" @click="loadUpgradeImpact">
+                {{ t('plugin.ops.packageUpgradeLoadImpact') }}
+              </el-button>
+              <el-button
+                v-if="canRunPackageUpgrade"
+                size="small"
+                type="warning"
+                plain
+                :disabled="!selectedUpgradeCompatCheckID"
+                :loading="upgradeLoading"
+                data-testid="plugin-upgrade-run"
+                @click="runPackageUpgrade"
+              >
+                {{ t('plugin.ops.packageUpgrade') }}
+              </el-button>
+              <el-button size="small" :loading="upgradeTasksLoading" data-testid="plugin-upgrade-tasks-refresh" @click="loadUpgradeTasks">
+                {{ t('plugin.ops.packageUpgradeTasks') }}
+              </el-button>
+            </div>
+
+            <el-alert
+              v-if="upgradeImpact"
+              :title="t('plugin.ops.packageUpgradeImpactTitle')"
+              :type="upgradeImpact.can_upgrade ? 'success' : 'error'"
+              show-icon
+              :closable="false"
+              class="mb"
+            >
+              <template #default>
+                <div class="banner-lines">
+                  <div><strong>can_upgrade：</strong>{{ upgradeImpact.can_upgrade }}</div>
+                  <div><strong>old_version：</strong>{{ upgradeImpact.old_version }}</div>
+                  <div><strong>new_version：</strong>{{ upgradeImpact.new_version }}</div>
+                  <div v-if="(upgradeImpact.errors || []).length"><strong>errors：</strong>{{ (upgradeImpact.errors || []).join('；') }}</div>
+                  <div v-if="(upgradeImpact.warnings || []).length"><strong>warnings：</strong>{{ (upgradeImpact.warnings || []).join('；') }}</div>
+                  <div v-if="upgradeImpact.manifest_diff_summary">
+                    <strong>diff_summary：</strong>
+                    added={{ upgradeImpact.manifest_diff_summary.added ?? 0 }},
+                    removed={{ upgradeImpact.manifest_diff_summary.removed ?? 0 }},
+                    changed={{ upgradeImpact.manifest_diff_summary.changed ?? 0 }},
+                    high_risk={{ upgradeImpact.manifest_diff_summary.high_risk ?? 0 }},
+                    blocked={{ upgradeImpact.manifest_diff_summary.blocked ?? 0 }}
+                  </div>
+                </div>
+              </template>
+            </el-alert>
+
+            <el-alert
+              v-if="upgradeResult"
+              :title="t('plugin.ops.packageUpgradeResultTitle')"
+              :type="upgradeResult.status === 'upgraded' ? 'success' : 'warning'"
+              show-icon
+              :closable="false"
+              class="mb"
+            >
+              <template #default>
+                <div class="banner-lines">
+                  <div><strong>status：</strong>{{ upgradeResult.status }}</div>
+                  <div><strong>old_version：</strong>{{ upgradeResult.old_version }}</div>
+                  <div><strong>new_version：</strong>{{ upgradeResult.new_version }}</div>
+                  <div><strong>new_plugin_status：</strong>{{ upgradeResult.new_plugin_status || '-' }}</div>
+                  <div v-if="(upgradeResult.errors || []).length"><strong>errors：</strong>{{ (upgradeResult.errors || []).join('；') }}</div>
+                  <div v-if="(upgradeResult.warnings || []).length"><strong>warnings：</strong>{{ (upgradeResult.warnings || []).join('；') }}</div>
+                </div>
+              </template>
+            </el-alert>
+
+            <el-table
+              v-loading="upgradeTasksLoading"
+              :data="upgradeTasks"
+              border
+              stripe
+              size="small"
+              data-testid="plugin-upgrade-tasks-table"
+              :empty-text="t('plugin.ops.packageUpgradeTasksEmpty')"
+            >
+              <el-table-column prop="id" label="id" width="90" />
+              <el-table-column prop="status" :label="t('field.status')" width="150" />
+              <el-table-column prop="old_version" :label="t('plugin.ops.currentVersion')" width="140" />
+              <el-table-column prop="new_version" :label="t('plugin.ops.newVersion')" width="140" />
+              <el-table-column prop="created_at" :label="t('field.created_at')" width="180" />
+              <el-table-column :label="t('plugin.action')" width="140" fixed="right">
+                <template #default="{ row }">
+                  <el-button link type="primary" :disabled="!row?.id" @click="openUpgradeTask(row.id)">{{ t('common.detail') }}</el-button>
+                  <el-button link type="warning" :disabled="row?.status !== 'failed'" @click="retryUpgradeTask(row.id)">{{ t('common.retry') }}</el-button>
+                </template>
+              </el-table-column>
+            </el-table>
+          </div>
+
+          <div class="mt" data-testid="plugin-soft-uninstall-panel">
+            <el-alert type="warning" show-icon :closable="false" class="mb" :title="t('plugin.ops.softUninstallTip')" />
+            <div class="sub-toolbar">
+              <el-input v-model="softUninstallReason" :placeholder="t('plugin.ops.softUninstallReasonPlaceholder')" size="small" style="max-width: 420px" />
+              <el-button
+                v-if="canSoftUninstall"
+                size="small"
+                type="danger"
+                plain
+                :loading="softUninstallLoading"
+                data-testid="plugin-soft-uninstall-run"
+                @click="runSoftUninstall"
+              >
+                {{ t('plugin.ops.softUninstall') }}
+              </el-button>
+            </div>
+            <el-alert
+              v-if="softUninstallResult"
+              :title="t('plugin.ops.softUninstallResult')"
+              :type="softUninstallResult.status === 'soft_uninstalled' ? 'success' : 'warning'"
+              show-icon
+              :closable="false"
+              class="mb"
+            >
+              <template #default>
+                <div class="banner-lines">
+                  <div><strong>status：</strong>{{ softUninstallResult.status }}</div>
+                  <div><strong>previous_status：</strong>{{ softUninstallResult.previous_status || '-' }}</div>
+                  <div><strong>new_status：</strong>{{ softUninstallResult.new_status || '-' }}</div>
+                  <div v-if="(softUninstallResult.errors || []).length"><strong>errors：</strong>{{ (softUninstallResult.errors || []).join('；') }}</div>
+                  <div v-if="(softUninstallResult.warnings || []).length"><strong>warnings：</strong>{{ (softUninstallResult.warnings || []).join('；') }}</div>
+                </div>
+              </template>
+            </el-alert>
+          </div>
           <el-table v-loading="readinessLoading" :data="readinessResult?.checks || []" border stripe data-testid="plugin-readiness-table">
             <el-table-column prop="title" :label="t('field.name')" min-width="220" />
             <el-table-column :label="t('field.status')" width="120">
@@ -827,7 +970,7 @@ import { computed, reactive, ref, watch } from 'vue';
 import { ElMessage, ElMessageBox } from 'element-plus';
 import PluginConfigEditor from './PluginConfigEditor.vue';
 import PluginConfigVersionsDialog from './PluginConfigVersionsDialog.vue';
-import { dryRunPluginExport, exportPluginPackage, pluginAuditLogs, pluginHookExecutions, pluginHooks, pluginMenusPreview, pluginMigrations, pluginReadiness, retryPluginMigration, runPluginEnablePrecheck, runPluginMigrations, updatePluginConfig } from '@/api/admin';
+import { dryRunPluginExport, enablePluginFromEnablePrecheck, exportPluginPackage, getPluginUninstallImpact, getPluginUpgradeTask, listPluginPackageCompatChecks, listPluginUpgradeTasks, pluginAuditLogs, pluginHookExecutions, pluginHooks, pluginMenusPreview, pluginMigrations, pluginReadiness, pluginUpgradeImpact, retryPluginUpgradeTask, runPluginEnablePrecheck, runPluginMigrations, softUninstallPlugin, upgradePluginFromPackage, updatePluginConfig } from '@/api/admin';
 import { t } from '@/i18n';
 import { auditActionLabel, migrationStatusLabel, pluginHealthLabel, pluginStatusLabel } from '@/i18n/formatters';
 import { useRouter } from 'vue-router';
@@ -896,6 +1039,19 @@ const menuPreviewLoading = ref(false);
 const menuPreviewRows = ref([]);
 const enablePrecheckLoading = ref(false);
 const enablePrecheckResult = ref(null);
+const enableTaskLoading = ref(false);
+const softUninstallLoading = ref(false);
+const softUninstallReason = ref('');
+const softUninstallImpact = ref(null);
+const softUninstallResult = ref(null);
+const upgradeLoading = ref(false);
+const upgradeImpact = ref(null);
+const upgradeCompatChecks = ref([]);
+const selectedUpgradeCompatCheckID = ref(0);
+const upgradeResult = ref(null);
+const upgradeTasksLoading = ref(false);
+const upgradeTasks = ref([]);
+const upgradeTasksTotal = ref(0);
 const menuPreviewParams = reactive({
   community_slug: '',
   category_id: '',
@@ -942,6 +1098,25 @@ const canRunEnablePrecheck = computed(() => {
   return auth?.can ? auth.can('plugin.write') : true;
 });
 
+const canSoftUninstall = computed(() => {
+  const p = props.plugin;
+  if (!p || !p.code) return false;
+  if (p.is_system) return false;
+  if (String(p.source_type || '').trim() === 'builtin') return false;
+  // Archived == already soft-uninstalled.
+  if (String(p.status || '').trim() === 'archived') return false;
+  return auth?.can ? auth.can('plugin.write') : true;
+});
+
+const canRunPackageUpgrade = computed(() => {
+  const p = props.plugin;
+  if (!p || !p.code) return false;
+  if (p.is_system) return false;
+  if (String(p.source_type || '').trim() === 'builtin') return false;
+  // needs approver permission; UI remains best-effort.
+  return auth?.can ? auth.can('plugin.approve') : true;
+});
+
 watch(
   () => props.plugin,
   (p) => {
@@ -970,8 +1145,18 @@ watch(
     exportPreview.value = null;
     exportResult.value = null;
     exportError.value = '';
+    upgradeImpact.value = null;
+    upgradeCompatChecks.value = [];
+    selectedUpgradeCompatCheckID.value = 0;
+    upgradeResult.value = null;
+    upgradeTasks.value = [];
+    upgradeTasksTotal.value = 0;
     if (visible.value && tab.value === 'hooks') loadHooks();
     if (visible.value && tab.value === 'migrations') loadMigrations();
+    if (visible.value && tab.value === 'readiness') {
+      loadUpgradeCompatChecks();
+      loadUpgradeTasks();
+    }
   },
   { immediate: true },
 );
@@ -1037,6 +1222,217 @@ async function runEnablePrecheck() {
     ElMessage.error(String(e?.message || e || t('common.failed')));
   } finally {
     enablePrecheckLoading.value = false;
+  }
+}
+
+async function enableFromPrecheck() {
+  const id = Number(enablePrecheckResult.value?.id || 0);
+  if (!id) return;
+  enableTaskLoading.value = true;
+  try {
+    await ElMessageBox.confirm(t('plugin.ops.enableFromPrecheckConfirmText'), t('plugin.ops.enableFromPrecheckConfirmTitle'), {
+      type: 'warning',
+      confirmButtonText: t('plugin.ops.enableFromPrecheckConfirm'),
+      cancelButtonText: t('common.cancel'),
+    });
+    await enablePluginFromEnablePrecheck(id);
+    ElMessage.success(t('plugin.ops.enableFromPrecheckDone'));
+    emit('refresh');
+    await loadReadiness();
+  } catch (e) {
+    if (e === 'cancel') return;
+    ElMessage.error(String(e?.message || e || t('common.failed')));
+  } finally {
+    enableTaskLoading.value = false;
+  }
+}
+
+async function loadSoftUninstallImpact() {
+  const p = props.plugin;
+  if (!p || !p.code) return;
+  try {
+    softUninstallImpact.value = await getPluginUninstallImpact(p.code);
+  } catch (e) {
+    softUninstallImpact.value = null;
+  }
+}
+
+async function runSoftUninstall() {
+  const p = props.plugin;
+  if (!p || !p.code) return;
+  softUninstallLoading.value = true;
+  try {
+    await loadSoftUninstallImpact();
+    const lines = [];
+    if (softUninstallImpact.value?.impact) {
+      const impact = softUninstallImpact.value.impact;
+      lines.push(`历史内容数：${impact.existing_contents_count ?? '-'}`);
+      lines.push(`已启用子站数：${impact.enabled_communities_count ?? '-'}`);
+      lines.push(`待迁移数：${impact.pending_migrations_count ?? '-'}`);
+    }
+    lines.push('软卸载会将插件归档（archived），并从运行时入口中移除内容类型/菜单/路由/Hook 的可用性。');
+    lines.push('软卸载不会删除历史内容、配置、迁移记录或审计日志；不会执行插件代码。');
+
+    await ElMessageBox.confirm(lines.join('\n'), t('plugin.ops.softUninstallConfirmTitle'), {
+      type: 'warning',
+      confirmButtonText: t('plugin.ops.softUninstallConfirm'),
+      cancelButtonText: t('common.cancel'),
+    });
+    softUninstallResult.value = await softUninstallPlugin(p.code, { version: p.version, reason: String(softUninstallReason.value || '').trim() });
+    ElMessage.success(t('plugin.ops.softUninstallDone'));
+    emit('refresh');
+    await loadReadiness();
+  } catch (e) {
+    if (e === 'cancel') return;
+    ElMessage.error(String(e?.message || e || t('common.failed')));
+  } finally {
+    softUninstallLoading.value = false;
+  }
+}
+
+function upgradeCompatLabel(it) {
+  if (!it) return '';
+  const version = String(it.version || it.Version || '').trim();
+  const status = String(it.status || '').trim();
+  const canInstall = Boolean(it.can_install ?? it.canInstall);
+  return `${version || '-'} / ${status || '-'} / can_install=${canInstall ? 'true' : 'false'} #${it.id}`;
+}
+
+async function loadUpgradeCompatChecks() {
+  const p = props.plugin;
+  if (!p || !p.code) return;
+  try {
+    const res = await listPluginPackageCompatChecks({ plugin_code: p.code, page: 1, page_size: 50 });
+    const items = Array.isArray(res?.items) ? res.items : [];
+    // Only show passed+can_install and version > current.
+    upgradeCompatChecks.value = items
+      .filter((it) => Boolean(it?.can_install))
+      .filter((it) => String(it?.plugin_code || '').trim() === String(p.code || '').trim())
+      .filter((it) => compareVersionStrings(String(it?.version || ''), String(p.version || '')) > 0)
+      .sort((a, b) => -compareVersionStrings(String(a?.version || ''), String(b?.version || '')));
+    if (!selectedUpgradeCompatCheckID.value && upgradeCompatChecks.value.length) {
+      selectedUpgradeCompatCheckID.value = Number(upgradeCompatChecks.value[0].id || 0);
+    }
+  } catch (e) {
+    upgradeCompatChecks.value = [];
+  }
+}
+
+function compareVersionStrings(a, b) {
+  // Minimal x.y.z compare (v prefix allowed). Keep frontend best-effort; backend is source of truth.
+  const norm = (v) => String(v || '').trim().replace(/^v/i, '');
+  const pa = norm(a).split('.').map((x) => parseInt(x, 10) || 0);
+  const pb = norm(b).split('.').map((x) => parseInt(x, 10) || 0);
+  for (let i = 0; i < Math.max(pa.length, pb.length); i++) {
+    const da = pa[i] ?? 0;
+    const db = pb[i] ?? 0;
+    if (da !== db) return da > db ? 1 : -1;
+  }
+  return 0;
+}
+
+async function loadUpgradeImpact() {
+  const p = props.plugin;
+  if (!p || !p.code) return;
+  const id = Number(selectedUpgradeCompatCheckID.value || 0);
+  if (!id) return;
+  upgradeLoading.value = true;
+  try {
+    upgradeImpact.value = await pluginUpgradeImpact(p.code, { target_compat_check_id: id });
+    ElMessage.success(t('plugin.ops.packageUpgradeImpactDone'));
+  } catch (e) {
+    upgradeImpact.value = null;
+    ElMessage.error(String(e?.message || e || t('common.failed')));
+  } finally {
+    upgradeLoading.value = false;
+  }
+}
+
+async function runPackageUpgrade() {
+  const p = props.plugin;
+  if (!p || !p.code) return;
+  const id = Number(selectedUpgradeCompatCheckID.value || 0);
+  if (!id) return;
+  upgradeLoading.value = true;
+  try {
+    await loadUpgradeImpact();
+    const canUpgrade = Boolean(upgradeImpact.value?.can_upgrade);
+    const lines = [];
+    lines.push(`plugin_code=${p.code}`);
+    if (upgradeImpact.value?.old_version) lines.push(`old_version=${upgradeImpact.value.old_version}`);
+    if (upgradeImpact.value?.new_version) lines.push(`new_version=${upgradeImpact.value.new_version}`);
+    lines.push(t('plugin.ops.packageUpgradeConfirmTip'));
+    if (!canUpgrade) lines.push(t('plugin.ops.packageUpgradeBlockedTip'));
+    await ElMessageBox.confirm(lines.join('\n'), t('plugin.ops.packageUpgradeConfirmTitle'), {
+      type: 'warning',
+      confirmButtonText: t('plugin.ops.packageUpgradeConfirm'),
+      cancelButtonText: t('common.cancel'),
+    });
+    upgradeResult.value = await upgradePluginFromPackage(p.code, { target_compat_check_id: id, reason: t('plugin.ops.packageUpgradeDefaultReason') });
+    ElMessage.success(t('plugin.ops.packageUpgradeDone'));
+    emit('refresh');
+    await loadReadiness();
+    await loadUpgradeTasks();
+  } catch (e) {
+    if (e === 'cancel') return;
+    ElMessage.error(String(e?.message || e || t('common.failed')));
+  } finally {
+    upgradeLoading.value = false;
+  }
+}
+
+async function loadUpgradeTasks() {
+  const p = props.plugin;
+  if (!p || !p.code) return;
+  upgradeTasksLoading.value = true;
+  try {
+    const res = await listPluginUpgradeTasks({ plugin_code: p.code, page: 1, page_size: 20 });
+    upgradeTasks.value = Array.isArray(res?.items) ? res.items : [];
+    upgradeTasksTotal.value = Number(res?.pagination?.total || 0);
+  } catch (e) {
+    upgradeTasks.value = [];
+    upgradeTasksTotal.value = 0;
+  } finally {
+    upgradeTasksLoading.value = false;
+  }
+}
+
+async function openUpgradeTask(id) {
+  const taskID = Number(id || 0);
+  if (!taskID) return;
+  try {
+    const res = await getPluginUpgradeTask(taskID);
+    const lines = [];
+    lines.push(`id=${res?.id}`);
+    lines.push(`status=${res?.status}`);
+    lines.push(`old_version=${res?.old_version}`);
+    lines.push(`new_version=${res?.new_version}`);
+    if ((res?.errors || []).length) lines.push(`errors=${(res.errors || []).join('；')}`);
+    if ((res?.warnings || []).length) lines.push(`warnings=${(res.warnings || []).join('；')}`);
+    await ElMessageBox.alert(lines.join('\n'), t('plugin.ops.packageUpgradeTaskDetailTitle'), { type: 'info', confirmButtonText: t('common.close') });
+  } catch (e) {
+    ElMessage.error(String(e?.message || e || t('common.failed')));
+  }
+}
+
+async function retryUpgradeTask(id) {
+  const taskID = Number(id || 0);
+  if (!taskID) return;
+  try {
+    await ElMessageBox.confirm(t('plugin.ops.packageUpgradeRetryConfirmTip'), t('plugin.ops.packageUpgradeRetryConfirmTitle'), {
+      type: 'warning',
+      confirmButtonText: t('common.retry'),
+      cancelButtonText: t('common.cancel'),
+    });
+    const res = await retryPluginUpgradeTask(taskID);
+    upgradeResult.value = res;
+    ElMessage.success(t('plugin.ops.packageUpgradeRetryDone'));
+    emit('refresh');
+    await loadReadiness();
+    await loadUpgradeTasks();
+  } catch (e) {
+    if (e === 'cancel') return;
+    ElMessage.error(String(e?.message || e || t('common.failed')));
   }
 }
 

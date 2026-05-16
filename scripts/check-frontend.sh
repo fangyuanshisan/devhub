@@ -40,7 +40,13 @@ cd "${REPO_ROOT}" || exit 1
 
 TS="$(date +%Y%m%d-%H%M%S)"
 LOG_DIR="${DEVHUB_CHECK_LOG_DIR:-${REPO_ROOT}/.devhub/checks/${TS}}"
-mkdir -p "${LOG_DIR}"
+if mkdir -p "${LOG_DIR}" 2>/dev/null; then
+  :
+else
+  # Fallback when `.devhub/` is not writable (e.g. created by root inside containers).
+  LOG_DIR="${DEVHUB_CHECK_LOG_DIR:-${REPO_ROOT}/.tmp/devhub-checks/${TS}}"
+  mkdir -p "${LOG_DIR}"
+fi
 
 if [[ -t 1 ]]; then
   C_RESET=$'\033[0m'
