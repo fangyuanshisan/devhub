@@ -802,6 +802,63 @@ CREATE TABLE IF NOT EXISTS webhook_circuit_breakers (
   KEY idx_webhook_circuit_breakers_status_updated (status, updated_at)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
+-- Plugin callback tokens for external plugin services (v1.7.7)
+CREATE TABLE IF NOT EXISTS plugin_callback_tokens (
+  id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+  plugin_code VARCHAR(64) NOT NULL,
+  plugin_installation_id BIGINT UNSIGNED NOT NULL DEFAULT 0,
+  publisher_id VARCHAR(128) NOT NULL DEFAULT '',
+  token_ref VARCHAR(128) NOT NULL,
+  token_hash VARCHAR(128) NOT NULL,
+  name VARCHAR(255) NOT NULL DEFAULT '',
+  status ENUM('active','disabled','revoked','expired') NOT NULL DEFAULT 'active',
+  scopes_json JSON NULL,
+  community_scope_json JSON NULL,
+  expires_at DATETIME NULL,
+  last_used_at DATETIME NULL,
+  last_used_ip VARCHAR(64) NOT NULL DEFAULT '',
+  created_by BIGINT UNSIGNED NOT NULL DEFAULT 0,
+  created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  rotated_at DATETIME NULL,
+  revoked_at DATETIME NULL,
+  revoked_reason VARCHAR(500) NOT NULL DEFAULT '',
+  updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  PRIMARY KEY (id),
+  UNIQUE KEY uk_plugin_callback_tokens_ref (token_ref),
+  UNIQUE KEY uk_plugin_callback_tokens_hash (token_hash),
+  KEY idx_plugin_callback_tokens_plugin_status (plugin_code, status),
+  KEY idx_plugin_callback_tokens_status_updated (status, updated_at),
+  KEY idx_plugin_callback_tokens_expires (expires_at)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- Plugin callback request logs (v1.7.7)
+CREATE TABLE IF NOT EXISTS plugin_callback_requests (
+  id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+  request_id VARCHAR(64) NOT NULL,
+  plugin_code VARCHAR(64) NOT NULL,
+  token_ref VARCHAR(128) NOT NULL DEFAULT '',
+  api_path VARCHAR(255) NOT NULL,
+  method VARCHAR(16) NOT NULL,
+  scope_required VARCHAR(64) NOT NULL DEFAULT '',
+  status ENUM('accepted','rejected','failed') NOT NULL DEFAULT 'accepted',
+  response_status INT NOT NULL DEFAULT 0,
+  error_code VARCHAR(64) NOT NULL DEFAULT '',
+  error_message VARCHAR(1000) NOT NULL DEFAULT '',
+  community_id BIGINT UNSIGNED NOT NULL DEFAULT 0,
+  actor_type VARCHAR(32) NOT NULL DEFAULT '',
+  actor_id BIGINT UNSIGNED NOT NULL DEFAULT 0,
+  ip_address VARCHAR(64) NOT NULL DEFAULT '',
+  user_agent VARCHAR(255) NOT NULL DEFAULT '',
+  duration_ms BIGINT NOT NULL DEFAULT 0,
+  created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (id),
+  UNIQUE KEY uk_plugin_callback_requests_request_id (request_id),
+  KEY idx_plugin_callback_requests_plugin_created (plugin_code, created_at),
+  KEY idx_plugin_callback_requests_request_id (request_id),
+  KEY idx_plugin_callback_requests_status_created (status, created_at),
+  KEY idx_plugin_callback_requests_token_ref (token_ref)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
 -- Plugin Upgrade Tasks (基于 compat-check 的升级任务记录)
 CREATE TABLE IF NOT EXISTS plugin_upgrade_tasks (
   id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,

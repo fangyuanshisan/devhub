@@ -144,6 +144,16 @@ export const rotateWebhookSecret = (id) => http.post(`/admin/plugins/webhooks/se
 export const disableWebhookSecret = (id) => http.post(`/admin/plugins/webhooks/secrets/${id}/disable`);
 export const enableWebhookSecret = (id) => http.post(`/admin/plugins/webhooks/secrets/${id}/enable`);
 export const revokeWebhookSecret = (id) => http.post(`/admin/plugins/webhooks/secrets/${id}/revoke`);
+
+// v1.7.7: plugin callback tokens (external plugin service -> Core callback APIs).
+export const listPluginCallbackTokens = (params) => http.get('/admin/plugins/callback-tokens', { params });
+export const getPluginCallbackToken = (id) => http.get(`/admin/plugins/callback-tokens/${id}`);
+export const createPluginCallbackToken = (payload) => http.post('/admin/plugins/callback-tokens', payload);
+export const disablePluginCallbackToken = (id) => http.post(`/admin/plugins/callback-tokens/${id}/disable`);
+export const enablePluginCallbackToken = (id) => http.post(`/admin/plugins/callback-tokens/${id}/enable`);
+export const revokePluginCallbackToken = (id, payload = {}) => http.post(`/admin/plugins/callback-tokens/${id}/revoke`, payload);
+export const rotatePluginCallbackToken = (id) => http.post(`/admin/plugins/callback-tokens/${id}/rotate`);
+export const listPluginCallbackRequests = (params) => http.get('/admin/plugins/callback-requests', { params });
 export const adminCommunities = (params) => http.get('/admin/communities', { params });
 export const createCommunity = (payload) => http.post('/admin/communities', payload);
 export const adminCommunity = (id) => http.get(`/admin/communities/${id}`);

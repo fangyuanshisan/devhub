@@ -144,6 +144,50 @@ Secret 轮换窗口说明（建议）：
 - 插件接收端在 grace period 内可同时接受 `active` 和 `previous` 的 secret_ref；
 - grace period 后 `previous` 进入 `expired`，接收端应停止接受旧 secret_ref。
 
+v1.7.7 补充（插件服务回调 Core API：Callback Token + Scopes）：
+
+本仓库在 v1.7.7 增加了“插件服务回调 Core API”的最小受控通道：
+
+- Callback Token：外部插件服务使用 `Authorization: Bearer cbsk_...` 调用 `/api/v1/plugin-callback/*`。
+- Webhook Secret：仅用于 DevHub -> 插件服务 Webhook 签名，两者不是同一能力。
+
+最小 scopes（当前实现）：
+
+- `config.read`：读取本插件在指定 `community_id` 下的 effective config（已按 `config_schema` 脱敏）。
+- `audit.write`：写入以 `plugin_code.` 前缀开头的插件审计 action（禁止伪造 Core/admin 审计）。
+
+Callback Token 使用示例（curl）：
+
+- 读取配置（需要 scope：`config.read`，且 `community_id` 必须在 token 的 community_scope 内）：
+
+```bash
+curl -sS -H "Authorization: Bearer cbsk_xxx" \
+  -H "X-DevHub-Plugin-Code: official_announcement" \
+  -H "X-DevHub-Token-Ref: cbtk_xxx" \
+  -H "X-DevHub-Request-ID: cbreq_demo_1" \
+  "http://localhost:8090/api/v1/plugin-callback/config?community_id=1"
+```
+
+- 写入插件审计（需要 scope：`audit.write`，action 必须以 `official_announcement.` 前缀开头）：
+
+```bash
+curl -sS -X POST -H "Authorization: Bearer cbsk_xxx" \
+  -H "X-DevHub-Plugin-Code: official_announcement" \
+  -H "X-DevHub-Token-Ref: cbtk_xxx" \
+  -H "X-DevHub-Request-ID: cbreq_demo_2" \
+  -H "Content-Type: application/json" \
+  -d '{"action":"official_announcement.received_event","resource_type":"webhook_event","resource_id":"evt_xxx","metadata":{"note":"demo"}}' \
+  "http://localhost:8090/api/v1/plugin-callback/audit-events"
+```
+
+验证点（建议补测）：
+
+1. Token 缺失 / 无效 / disabled / revoked / expired → 401。
+2. scope 不足 → 403。
+3. community_scope 不匹配 → 403。
+4. 插件 global disabled / soft_uninstalled → 403（callback 通道禁止绕过插件状态）。
+5. callback request 记录可在后台 `Webhook 治理` 页的 `Callback Requests` 中查看（不保存 token 明文）。
+
 ## 5. 端到端验证目标（按实现阶段）
 
 ### 阶段 1：non_blocking delivery 最小闭环

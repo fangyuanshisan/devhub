@@ -53,6 +53,8 @@ type MemoryStore struct {
 	nextWebhookDeliveryID  int64
 	nextWebhookBreakerID   int64
 	nextWebhookSecretID    int64
+	nextCallbackTokenID    int64
+	nextCallbackRequestID  int64
 	sites                  map[string]domain.Site
 	boards                 map[string]domain.Board
 	communities            map[int64]*domain.Community
@@ -103,6 +105,8 @@ type MemoryStore struct {
 	webhookDeliveries      []domain.WebhookDelivery
 	webhookCircuitBreakers []domain.WebhookCircuitBreaker
 	webhookSecrets         []domain.PluginWebhookSecret
+	callbackTokens         []domain.PluginCallbackToken
+	callbackRequests       []domain.PluginCallbackRequest
 }
 
 func countPluginMenus(def domain.Plugin, area string) int {
@@ -331,6 +335,8 @@ func NewMemoryStore() *MemoryStore {
 		nextPackagePrecheckID:  1,
 		nextPackageCompatID:    1,
 		nextPackageSignatureID: 1,
+		nextCallbackTokenID:    1,
+		nextCallbackRequestID:  1,
 		sites:                  map[string]domain.Site{},
 		boards:                 map[string]domain.Board{},
 		communities:            map[int64]*domain.Community{},
@@ -388,6 +394,8 @@ func NewMemoryStore() *MemoryStore {
 		webhookDeliveries:      []domain.WebhookDelivery{},
 		webhookCircuitBreakers: []domain.WebhookCircuitBreaker{},
 		webhookSecrets:         []domain.PluginWebhookSecret{},
+		callbackTokens:         []domain.PluginCallbackToken{},
+		callbackRequests:       []domain.PluginCallbackRequest{},
 		trustedPublishers:      pluginregistry.DomainPublishersFromConfig(mustLoadTrustedPublishersConfig()),
 	}
 	for i := range s.trustedPublishers {
@@ -1085,6 +1093,204 @@ func (s *MemoryStore) PluginWebhookSecretByRef(secretRef string) (domain.PluginW
 		}
 	}
 	return domain.PluginWebhookSecret{}, false
+}
+
+// ===== Plugin callback tokens (v1.7.7) =====
+
+func (s *MemoryStore) AppendPluginCallbackToken(record domain.PluginCallbackToken) (domain.PluginCallbackToken, error) {
+	record.PluginCode = strings.TrimSpace(record.PluginCode)
+	record.TokenRef = strings.TrimSpace(record.TokenRef)
+	record.TokenHash = strings.TrimSpace(record.TokenHash)
+	record.Status = strings.TrimSpace(record.Status)
+	if record.PluginCode == "" || record.TokenRef == "" || record.TokenHash == "" {
+		return domain.PluginCallbackToken{}, errors.New("plugin_code/token_ref/token_hash 不能为空")
+	}
+	if record.Status == "" {
+		record.Status = domain.PluginCallbackTokenStatusActive
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	for _, it := range s.callbackTokens {
+		if it.TokenRef == record.TokenRef {
+			return it, nil
+		}
+		if it.TokenHash == record.TokenHash {
+			return it, nil
+		}
+	}
+	s.nextCallbackTokenID++
+	record.ID = s.nextCallbackTokenID
+	now := Now()
+	if record.CreatedAt == "" {
+		record.CreatedAt = now
+	}
+	record.UpdatedAt = now
+	s.callbackTokens = append(s.callbackTokens, record)
+	return record, nil
+}
+
+func (s *MemoryStore) SavePluginCallbackToken(record domain.PluginCallbackToken) (domain.PluginCallbackToken, error) {
+	if record.ID <= 0 {
+		return s.AppendPluginCallbackToken(record)
+	}
+	record.PluginCode = strings.TrimSpace(record.PluginCode)
+	record.TokenRef = strings.TrimSpace(record.TokenRef)
+	record.TokenHash = strings.TrimSpace(record.TokenHash)
+	record.Status = strings.TrimSpace(record.Status)
+	if record.PluginCode == "" || record.TokenRef == "" || record.TokenHash == "" {
+		return domain.PluginCallbackToken{}, errors.New("plugin_code/token_ref/token_hash 不能为空")
+	}
+	if record.Status == "" {
+		record.Status = domain.PluginCallbackTokenStatusActive
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	now := Now()
+	if record.CreatedAt == "" {
+		record.CreatedAt = now
+	}
+	record.UpdatedAt = now
+	for i := range s.callbackTokens {
+		if s.callbackTokens[i].ID == record.ID {
+			s.callbackTokens[i] = record
+			return record, nil
+		}
+	}
+	s.callbackTokens = append(s.callbackTokens, record)
+	return record, nil
+}
+
+func (s *MemoryStore) PluginCallbackTokenByID(id int64) (domain.PluginCallbackToken, bool) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	for _, it := range s.callbackTokens {
+		if it.ID == id {
+			return it, true
+		}
+	}
+	return domain.PluginCallbackToken{}, false
+}
+
+func (s *MemoryStore) PluginCallbackTokenByRef(tokenRef string) (domain.PluginCallbackToken, bool) {
+	tokenRef = strings.TrimSpace(tokenRef)
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	for _, it := range s.callbackTokens {
+		if it.TokenRef == tokenRef {
+			return it, true
+		}
+	}
+	return domain.PluginCallbackToken{}, false
+}
+
+func (s *MemoryStore) PluginCallbackTokenByHash(tokenHash string) (domain.PluginCallbackToken, bool) {
+	tokenHash = strings.TrimSpace(tokenHash)
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	for _, it := range s.callbackTokens {
+		if it.TokenHash == tokenHash {
+			return it, true
+		}
+	}
+	return domain.PluginCallbackToken{}, false
+}
+
+func (s *MemoryStore) PluginCallbackTokens(filter domain.PluginCallbackTokenFilter) ([]domain.PluginCallbackToken, int, error) {
+	filter = filter.Normalize()
+	page, pageSize := normalizeMemoryPage(filter.Page, filter.PageSize)
+	pluginCode := strings.TrimSpace(filter.PluginCode)
+	status := strings.TrimSpace(filter.Status)
+	scope := strings.TrimSpace(filter.Scope)
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	all := make([]domain.PluginCallbackToken, 0, len(s.callbackTokens))
+	for _, it := range s.callbackTokens {
+		if pluginCode != "" && it.PluginCode != pluginCode {
+			continue
+		}
+		if status != "" && status != "all" && it.Status != status {
+			continue
+		}
+		if scope != "" && it.ScopesJSON != "" && !strings.Contains(it.ScopesJSON, scope) {
+			continue
+		}
+		all = append(all, it)
+	}
+	sort.Slice(all, func(i, j int) bool { return all[i].ID > all[j].ID })
+	total := len(all)
+	start := (page - 1) * pageSize
+	if start > total {
+		start = total
+	}
+	end := start + pageSize
+	if end > total {
+		end = total
+	}
+	return append([]domain.PluginCallbackToken(nil), all[start:end]...), total, nil
+}
+
+func (s *MemoryStore) AppendPluginCallbackRequest(record domain.PluginCallbackRequest) (domain.PluginCallbackRequest, error) {
+	record.RequestID = strings.TrimSpace(record.RequestID)
+	record.PluginCode = strings.TrimSpace(record.PluginCode)
+	record.TokenRef = strings.TrimSpace(record.TokenRef)
+	record.APIPath = strings.TrimSpace(record.APIPath)
+	record.Method = strings.TrimSpace(record.Method)
+	record.Status = strings.TrimSpace(record.Status)
+	if record.RequestID == "" {
+		record.RequestID = "req_" + Now()
+	}
+	if record.PluginCode == "" || record.APIPath == "" || record.Method == "" {
+		return domain.PluginCallbackRequest{}, errors.New("plugin_code/api_path/method 不能为空")
+	}
+	if record.Status == "" {
+		record.Status = domain.PluginCallbackRequestStatusAccepted
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.nextCallbackRequestID++
+	record.ID = s.nextCallbackRequestID
+	record.CreatedAt = Now()
+	s.callbackRequests = append(s.callbackRequests, record)
+	return record, nil
+}
+
+func (s *MemoryStore) PluginCallbackRequests(filter domain.PluginCallbackRequestFilter) ([]domain.PluginCallbackRequest, int, error) {
+	filter = filter.Normalize()
+	page, pageSize := normalizeMemoryPage(filter.Page, filter.PageSize)
+	pluginCode := strings.TrimSpace(filter.PluginCode)
+	status := strings.TrimSpace(filter.Status)
+	tokenRef := strings.TrimSpace(filter.TokenRef)
+	requestID := strings.TrimSpace(filter.RequestID)
+
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	all := make([]domain.PluginCallbackRequest, 0, len(s.callbackRequests))
+	for _, it := range s.callbackRequests {
+		if pluginCode != "" && it.PluginCode != pluginCode {
+			continue
+		}
+		if status != "" && status != "all" && it.Status != status {
+			continue
+		}
+		if tokenRef != "" && it.TokenRef != tokenRef {
+			continue
+		}
+		if requestID != "" && it.RequestID != requestID {
+			continue
+		}
+		all = append(all, it)
+	}
+	sort.Slice(all, func(i, j int) bool { return all[i].ID > all[j].ID })
+	total := len(all)
+	start := (page - 1) * pageSize
+	if start > total {
+		start = total
+	}
+	end := start + pageSize
+	if end > total {
+		end = total
+	}
+	return append([]domain.PluginCallbackRequest(nil), all[start:end]...), total, nil
 }
 
 func (s *MemoryStore) PluginWebhookSecrets(filter domain.PluginWebhookSecretFilter) ([]domain.PluginWebhookSecret, int, error) {

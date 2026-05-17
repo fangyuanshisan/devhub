@@ -278,6 +278,208 @@
           />
         </div>
       </el-tab-pane>
+
+      <el-tab-pane label="Callback Tokens" name="callback_tokens">
+        <PluginFilterBar title="Callback Tokens" tip="Token 明文只会在创建/轮换时展示一次" testid="callback-tokens-filter">
+          <template #actions>
+            <el-button size="small" @click="refreshCallbackTokens">刷新</el-button>
+            <el-button size="small" type="primary" data-testid="callback-token-create" @click="openCreateCallbackToken">
+              创建 Token
+            </el-button>
+          </template>
+          <el-input v-model="callbackTokenFilters.plugin_code" size="small" placeholder="plugin_code" style="width: 180px" />
+          <el-select v-model="callbackTokenFilters.status" size="small" placeholder="status" style="width: 180px">
+            <el-option label="all" value="all" />
+            <el-option label="active" value="active" />
+            <el-option label="disabled" value="disabled" />
+            <el-option label="revoked" value="revoked" />
+            <el-option label="expired" value="expired" />
+          </el-select>
+          <el-input v-model="callbackTokenFilters.scope" size="small" placeholder="scope (e.g. config.read)" style="width: 220px" />
+          <el-button size="small" type="primary" data-testid="callback-tokens-search" @click="refreshCallbackTokens">查询</el-button>
+        </PluginFilterBar>
+
+        <PluginErrorAlert :message="callbackTokensError" />
+
+        <el-table
+          v-loading="callbackTokensLoading"
+          :data="callbackTokens.items"
+          stripe
+          border
+          size="small"
+          data-testid="callback-tokens-table"
+        >
+          <el-table-column prop="id" label="ID" width="80" />
+          <el-table-column prop="plugin_code" label="plugin" width="160" />
+          <el-table-column prop="token_ref" label="token_ref" min-width="220" show-overflow-tooltip />
+          <el-table-column label="status" width="140">
+            <template #default="{ row }">
+              <PluginStatusTag :value="row.status" testid="callback-token-status" />
+            </template>
+          </el-table-column>
+          <el-table-column prop="expires_at" label="expires_at" width="170" />
+          <el-table-column prop="last_used_at" label="last_used_at" width="170" />
+          <el-table-column prop="last_used_ip" label="last_used_ip" width="140" />
+          <el-table-column prop="scopes_json" label="scopes" min-width="220" show-overflow-tooltip />
+          <el-table-column prop="community_scope_json" label="community_scope" min-width="220" show-overflow-tooltip />
+          <el-table-column label="actions" width="280" fixed="right">
+            <template #default="{ row }">
+              <el-button
+                size="small"
+                type="primary"
+                plain
+                data-testid="callback-token-rotate"
+                :disabled="row.status === 'revoked'"
+                @click="rotateCallbackToken(row)"
+              >
+                轮换
+              </el-button>
+              <el-button
+                size="small"
+                type="warning"
+                plain
+                data-testid="callback-token-disable"
+                :disabled="row.status === 'disabled' || row.status === 'revoked'"
+                @click="disableCallbackToken(row)"
+              >
+                禁用
+              </el-button>
+              <el-button
+                size="small"
+                type="success"
+                plain
+                data-testid="callback-token-enable"
+                :disabled="row.status !== 'disabled'"
+                @click="enableCallbackToken(row)"
+              >
+                恢复
+              </el-button>
+              <el-button
+                size="small"
+                type="danger"
+                plain
+                data-testid="callback-token-revoke"
+                :disabled="row.status === 'revoked'"
+                @click="revokeCallbackToken(row)"
+              >
+                吊销
+              </el-button>
+            </template>
+          </el-table-column>
+        </el-table>
+
+        <PluginEmptyState
+          v-if="!callbackTokensLoading && callbackTokens.items.length === 0 && !callbackTokensError"
+          description="暂无 Callback Token"
+          testid="callback-tokens-empty"
+        />
+
+        <div class="pager">
+          <el-pagination
+            layout="prev, pager, next"
+            :current-page="callbackTokens.pagination.page || 1"
+            :page-size="callbackTokens.pagination.page_size || 20"
+            :total="callbackTokens.pagination.total || 0"
+            @current-change="onCallbackTokenPageChange"
+          />
+        </div>
+
+        <el-dialog v-model="createCallbackTokenDialogVisible" title="创建 Callback Token" width="620px">
+          <el-form :model="createCallbackTokenForm" label-width="120px">
+            <el-form-item label="plugin_code">
+              <el-input v-model="createCallbackTokenForm.plugin_code" placeholder="official_announcement" />
+            </el-form-item>
+            <el-form-item label="name">
+              <el-input v-model="createCallbackTokenForm.name" placeholder="公告插件回调 Token" />
+            </el-form-item>
+            <el-form-item label="scopes">
+              <el-select v-model="createCallbackTokenForm.scopes" multiple placeholder="选择 scopes" style="width: 100%">
+                <el-option label="config.read" value="config.read" />
+                <el-option label="audit.write" value="audit.write" />
+              </el-select>
+            </el-form-item>
+            <el-form-item label="community_scope">
+              <el-input v-model="createCallbackTokenForm.community_scope_text" placeholder="例如：1,2" />
+            </el-form-item>
+            <el-form-item label="expires_at">
+              <el-input v-model="createCallbackTokenForm.expires_at" placeholder="RFC3339，例如：2027-01-01T00:00:00Z（可选）" />
+            </el-form-item>
+          </el-form>
+          <template #footer>
+            <el-button @click="createCallbackTokenDialogVisible = false">取消</el-button>
+            <el-button type="primary" :loading="createCallbackTokenLoading" data-testid="callback-token-create-confirm" @click="submitCreateCallbackToken">创建</el-button>
+          </template>
+        </el-dialog>
+
+        <el-dialog v-model="callbackTokenPlaintextDialogVisible" title="Callback Token（只展示一次）" width="560px">
+          <div class="muted">请立即复制保存。关闭后无法再次查看。</div>
+          <el-input v-model="callbackTokenPlaintext" type="textarea" :rows="3" readonly data-testid="callback-token-plaintext" />
+          <template #footer>
+            <el-button type="primary" @click="callbackTokenPlaintextDialogVisible = false">我已保存</el-button>
+          </template>
+        </el-dialog>
+      </el-tab-pane>
+
+      <el-tab-pane label="Callback Requests" name="callback_requests">
+        <PluginFilterBar title="Callback Requests" tip="插件服务回调 Core API 的请求记录（不保存 token 明文）" testid="callback-requests-filter">
+          <template #actions>
+            <el-button size="small" @click="refreshCallbackRequests">刷新</el-button>
+          </template>
+          <el-input v-model="callbackRequestFilters.plugin_code" size="small" placeholder="plugin_code" style="width: 180px" />
+          <el-input v-model="callbackRequestFilters.token_ref" size="small" placeholder="token_ref" style="width: 220px" />
+          <el-select v-model="callbackRequestFilters.status" size="small" placeholder="status" style="width: 180px">
+            <el-option label="all" value="all" />
+            <el-option label="accepted" value="accepted" />
+            <el-option label="rejected" value="rejected" />
+            <el-option label="failed" value="failed" />
+          </el-select>
+          <el-input v-model="callbackRequestFilters.request_id" size="small" placeholder="request_id" style="width: 220px" />
+          <el-button size="small" type="primary" data-testid="callback-requests-search" @click="refreshCallbackRequests">查询</el-button>
+        </PluginFilterBar>
+
+        <PluginErrorAlert :message="callbackRequestsError" />
+
+        <el-table
+          v-loading="callbackRequestsLoading"
+          :data="callbackRequests.items"
+          stripe
+          border
+          size="small"
+          data-testid="callback-requests-table"
+        >
+          <el-table-column prop="id" label="ID" width="80" />
+          <el-table-column prop="created_at" label="created_at" width="170" />
+          <el-table-column prop="plugin_code" label="plugin" width="160" />
+          <el-table-column prop="token_ref" label="token_ref" min-width="220" show-overflow-tooltip />
+          <el-table-column prop="api_path" label="api_path" min-width="220" show-overflow-tooltip />
+          <el-table-column prop="method" label="method" width="90" />
+          <el-table-column prop="scope_required" label="scope" width="140" />
+          <el-table-column label="status" width="140">
+            <template #default="{ row }">
+              <PluginStatusTag :value="row.status" testid="callback-request-status" />
+            </template>
+          </el-table-column>
+          <el-table-column prop="response_status" label="resp" width="90" />
+          <el-table-column prop="error_code" label="error_code" width="160" />
+          <el-table-column prop="error_message" label="error" min-width="240" show-overflow-tooltip />
+        </el-table>
+
+        <PluginEmptyState
+          v-if="!callbackRequestsLoading && callbackRequests.items.length === 0 && !callbackRequestsError"
+          description="暂无 Callback Request 记录"
+          testid="callback-requests-empty"
+        />
+
+        <div class="pager">
+          <el-pagination
+            layout="prev, pager, next"
+            :current-page="callbackRequests.pagination.page || 1"
+            :page-size="callbackRequests.pagination.page_size || 20"
+            :total="callbackRequests.pagination.total || 0"
+            @current-change="onCallbackRequestPageChange"
+          />
+        </div>
+      </el-tab-pane>
     </el-tabs>
 
     <el-dialog v-model="createSecretDialogVisible" title="创建 Webhook Secret" width="560px">
@@ -369,6 +571,42 @@ const createSecretForm = ref({ plugin_code: '', target_url: '' });
 const secretOnceDialogVisible = ref(false);
 const secretOnceValue = ref('');
 
+// ===== v1.7.7: callback tokens + requests =====
+const callbackTokens = ref({ items: [], pagination: { page: 1, page_size: 20, total: 0 } });
+const callbackTokensLoading = ref(false);
+const callbackTokensError = ref('');
+const callbackTokenFilters = ref({
+  plugin_code: String(route.query.cbtk_plugin_code || ''),
+  status: String(route.query.cbtk_status || 'all'),
+  scope: String(route.query.cbtk_scope || ''),
+  page: Number(route.query.cbtk_page || 1),
+  page_size: 20,
+});
+
+const createCallbackTokenDialogVisible = ref(false);
+const createCallbackTokenLoading = ref(false);
+const createCallbackTokenForm = ref({
+  plugin_code: '',
+  name: '',
+  scopes: ['config.read', 'audit.write'],
+  community_scope_text: '',
+  expires_at: '',
+});
+const callbackTokenPlaintextDialogVisible = ref(false);
+const callbackTokenPlaintext = ref('');
+
+const callbackRequests = ref({ items: [], pagination: { page: 1, page_size: 20, total: 0 } });
+const callbackRequestsLoading = ref(false);
+const callbackRequestsError = ref('');
+const callbackRequestFilters = ref({
+  plugin_code: String(route.query.cbr_plugin_code || ''),
+  token_ref: String(route.query.cbr_token_ref || ''),
+  status: String(route.query.cbr_status || 'all'),
+  request_id: String(route.query.cbr_request_id || ''),
+  page: Number(route.query.cbr_page || 1),
+  page_size: 20,
+});
+
 function openCreateSecret() {
   createSecretForm.value = { plugin_code: secretFilters.value.plugin_code || '', target_url: '' };
   createSecretDialogVisible.value = true;
@@ -410,6 +648,138 @@ async function refreshSecrets() {
 function onSecretPageChange(page) {
   secretFilters.value.page = page;
   refreshSecrets();
+}
+
+function openCreateCallbackToken() {
+  createCallbackTokenForm.value = {
+    plugin_code: callbackTokenFilters.value.plugin_code || '',
+    name: '',
+    scopes: ['config.read', 'audit.write'],
+    community_scope_text: '',
+    expires_at: '',
+  };
+  createCallbackTokenDialogVisible.value = true;
+}
+
+function parseCommunityScope(text) {
+  return String(text || '')
+    .split(',')
+    .map((x) => Number(String(x).trim()))
+    .filter((n) => Number.isFinite(n) && n > 0);
+}
+
+async function submitCreateCallbackToken() {
+  createCallbackTokenLoading.value = true;
+  try {
+    const payload = {
+      plugin_code: createCallbackTokenForm.value.plugin_code,
+      name: createCallbackTokenForm.value.name,
+      scopes: createCallbackTokenForm.value.scopes || [],
+      community_scope: parseCommunityScope(createCallbackTokenForm.value.community_scope_text),
+      expires_at: createCallbackTokenForm.value.expires_at || '',
+    };
+    const res = await admin.createPluginCallbackToken(payload);
+    callbackTokenPlaintext.value = res?.token || '';
+    callbackTokenPlaintextDialogVisible.value = true;
+    createCallbackTokenDialogVisible.value = false;
+    if (tab.value === 'callback_tokens') await refreshCallbackTokens();
+  } finally {
+    createCallbackTokenLoading.value = false;
+  }
+}
+
+async function refreshCallbackTokens() {
+  callbackTokensLoading.value = true;
+  callbackTokensError.value = '';
+  try {
+    const params = { ...callbackTokenFilters.value };
+    await router.replace({
+      query: {
+        ...route.query,
+        tab: tab.value,
+        cbtk_plugin_code: params.plugin_code,
+        cbtk_status: params.status,
+        cbtk_scope: params.scope,
+        cbtk_page: params.page,
+      },
+    });
+    const res = await admin.listPluginCallbackTokens(params);
+    callbackTokens.value = res;
+  } catch (e) {
+    callbackTokensError.value = e?.message || '加载失败';
+  } finally {
+    callbackTokensLoading.value = false;
+  }
+}
+
+function onCallbackTokenPageChange(page) {
+  callbackTokenFilters.value.page = page;
+  refreshCallbackTokens();
+}
+
+async function rotateCallbackToken(row) {
+  await confirmDanger(`确认轮换 Callback Token #${row.id}？新 Token 明文只展示一次。`, '轮换 Token', {
+    confirmButtonText: '轮换',
+    cancelButtonText: '取消',
+  });
+  const res = await admin.rotatePluginCallbackToken(row.id);
+  callbackTokenPlaintext.value = res?.token || '';
+  callbackTokenPlaintextDialogVisible.value = true;
+  await refreshCallbackTokens();
+}
+
+async function disableCallbackToken(row) {
+  await confirmDanger(`确认禁用 Callback Token #${row.id}？禁用后插件服务将无法回调 Core API。`, '禁用 Token', {
+    confirmButtonText: '禁用',
+    cancelButtonText: '取消',
+  });
+  await admin.disablePluginCallbackToken(row.id);
+  await refreshCallbackTokens();
+}
+
+async function enableCallbackToken(row) {
+  await confirmDanger(`确认恢复 Callback Token #${row.id}？`, '恢复 Token', { confirmButtonText: '恢复', cancelButtonText: '取消' });
+  await admin.enablePluginCallbackToken(row.id);
+  await refreshCallbackTokens();
+}
+
+async function revokeCallbackToken(row) {
+  await confirmDanger(`确认吊销 Callback Token #${row.id}？吊销后将立即失效且不可恢复。`, '吊销 Token', {
+    confirmButtonText: '吊销',
+    cancelButtonText: '取消',
+  });
+  await admin.revokePluginCallbackToken(row.id, {});
+  await refreshCallbackTokens();
+}
+
+async function refreshCallbackRequests() {
+  callbackRequestsLoading.value = true;
+  callbackRequestsError.value = '';
+  try {
+    const params = { ...callbackRequestFilters.value };
+    await router.replace({
+      query: {
+        ...route.query,
+        tab: tab.value,
+        cbr_plugin_code: params.plugin_code,
+        cbr_token_ref: params.token_ref,
+        cbr_status: params.status,
+        cbr_request_id: params.request_id,
+        cbr_page: params.page,
+      },
+    });
+    const res = await admin.listPluginCallbackRequests(params);
+    callbackRequests.value = res;
+  } catch (e) {
+    callbackRequestsError.value = e?.message || '加载失败';
+  } finally {
+    callbackRequestsLoading.value = false;
+  }
+}
+
+function onCallbackRequestPageChange(page) {
+  callbackRequestFilters.value.page = page;
+  refreshCallbackRequests();
 }
 
 async function rotateSecret(row) {
@@ -509,6 +879,8 @@ function onCircuitPageChange(page) {
 onMounted(async () => {
   if (tab.value === 'circuits') await refreshCircuits();
   else if (tab.value === 'secrets') await refreshSecrets();
+  else if (tab.value === 'callback_tokens') await refreshCallbackTokens();
+  else if (tab.value === 'callback_requests') await refreshCallbackRequests();
   else await refreshDeliveries();
 });
 </script>

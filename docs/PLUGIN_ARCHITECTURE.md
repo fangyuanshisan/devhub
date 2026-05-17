@@ -51,6 +51,7 @@ DevHub 插件运行模型拆分为三类：
 
 - v1.7.5：已实现 non_blocking delivery 的治理能力增强（delivery 记录、重试调度 `retry_scheduled/retry_exhausted`、circuit breaker `closed/open/half_open`、最小后台治理入口与审计）。
 - v1.7.6：已实现 DevHub → 插件服务的 HMAC-SHA256 发送端签名与 Webhook Secret 管理/轮换（active/previous grace window），并在后台 Webhook 治理页增加 Secrets Tab；仍不执行第三方插件代码，仍不实现 blocking Hook。
+- v1.7.7：已实现外部插件服务回调 Core API 的最小通道（callback token + scope 白名单 + community scope 校验 + callback request 记录与审计），并在后台 Webhook 治理页增加 Callback Tokens/Callback Requests 页内 Tabs。
 
 当前兼容命名：
 

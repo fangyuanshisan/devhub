@@ -3136,3 +3136,32 @@ v1.6.0-P1-10：v1.6 插件包上传与分发前置能力总验收。
 
 - 已执行：`gofmt`、`go test ./...`、`go build`。
 - 后台构建：当前执行环境缺少可用的 node/vite（并出现 WSL/UNC 路径问题），未执行 `cd web/admin-app && npm run build`；需使用 Docker/compose 或项目脚本在具备 node 的容器环境执行并归档结果。
+
+## 2026-05-17：v1.7.7 Webhook 插件回调 Core API（Callback Token + Scopes）
+
+已完成：
+
+- callback token（插件服务 → Core）数据模型：
+  - 新增 `plugin_callback_tokens`（仅保存 `token_hash`，token 明文仅创建/轮换响应返回一次）
+  - 支持创建 / 禁用 / 恢复 / 吊销 / 轮换
+  - scopes 最小白名单：`config.read`、`audit.write`（未知 scope 直接拒绝）
+  - `community_scope` 必填，避免 token 默认全社区可用
+- 最小插件回调 API（authenticated by callback token，非 admin token）：
+  - `GET /api/v1/plugin-callback/config`：读取本插件在指定 `community_id` 下的 effective config（已按 `config_schema` 脱敏）
+  - `POST /api/v1/plugin-callback/audit-events`：写入插件审计事件（action 必须以 `plugin_code.` 前缀开头，防止伪造 Core/admin 审计）
+- callback request 记录与可追踪性：
+  - 新增 `plugin_callback_requests`，记录 accepted/rejected 请求（不保存 token 明文）
+  - admin 审计覆盖：token 管理动作 + callback accepted/rejected/scope denied/community denied 等
+- 后台最小 UI：
+  - 插件 → 运行时治理 → Webhook 治理：页内 Tabs 新增 `Callback Tokens` / `Callback Requests`
+  - 创建/轮换 token 时弹窗仅展示一次 token 明文（关闭后不可再查看）
+
+边界：
+
+- callback token 不等于 admin 权限：不能绕过插件 enabled/disabled 状态、community plugin 状态与 community_scope。
+- 仍不实现 blocking Hook；仍不执行第三方插件代码；仍不做动态加载；仍不实现插件代表用户操作（actor 代理）。
+
+本轮检查说明：
+
+- 已执行：`gofmt`。
+- `go test ./...` / `go build` 与前端 build 需按 `docs/TESTING.md` 的最低检查要求执行并归档（当前环境缺少 node，建议通过 `./scripts/check-frontend.sh --admin-only --quick` 在容器中执行后台 build）。

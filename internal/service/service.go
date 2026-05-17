@@ -150,6 +150,16 @@ type Repository interface {
 	PreviousPluginWebhookSecret(pluginCode, targetURL string) (domain.PluginWebhookSecret, bool)
 	LatestPluginWebhookSecretForTarget(pluginCode, targetURL string) (domain.PluginWebhookSecret, bool)
 	// PluginReadiness is computed in service; no repo method.
+	// ===== Plugin callback tokens (v1.7.7) =====
+	AppendPluginCallbackToken(record domain.PluginCallbackToken) (domain.PluginCallbackToken, error)
+	SavePluginCallbackToken(record domain.PluginCallbackToken) (domain.PluginCallbackToken, error)
+	PluginCallbackTokenByID(id int64) (domain.PluginCallbackToken, bool)
+	PluginCallbackTokenByRef(tokenRef string) (domain.PluginCallbackToken, bool)
+	PluginCallbackTokenByHash(tokenHash string) (domain.PluginCallbackToken, bool)
+	PluginCallbackTokens(filter domain.PluginCallbackTokenFilter) ([]domain.PluginCallbackToken, int, error)
+
+	AppendPluginCallbackRequest(record domain.PluginCallbackRequest) (domain.PluginCallbackRequest, error)
+	PluginCallbackRequests(filter domain.PluginCallbackRequestFilter) ([]domain.PluginCallbackRequest, int, error)
 	CommunityPlugins(communityID int64) ([]domain.Plugin, error)
 	SetCommunityPluginStatus(communityID int64, code, status string) (domain.Plugin, error)
 	SetCommunityPluginConfig(communityID int64, code, configJSON string) (domain.Plugin, error)
@@ -1881,6 +1891,20 @@ func (s *Service) AdminLogsByFilter(filter domain.AdminLogFilter) ([]domain.Admi
 
 // AppendAdminLog 写入带站点和操作者上下文的后台操作日志。
 func (s *Service) AppendAdminLog(log domain.AdminLog) { s.repo.AppendAdminLog(log) }
+
+// ===== Plugin callback tokens (v1.7.7) =====
+
+func (s *Service) PluginCallbackTokenByHash(tokenHash string) (domain.PluginCallbackToken, bool) {
+	return s.repo.PluginCallbackTokenByHash(tokenHash)
+}
+
+func (s *Service) AppendPluginCallbackRequest(record domain.PluginCallbackRequest) (domain.PluginCallbackRequest, error) {
+	return s.repo.AppendPluginCallbackRequest(record)
+}
+
+func (s *Service) PluginCallbackRequests(filter domain.PluginCallbackRequestFilter) ([]domain.PluginCallbackRequest, int, error) {
+	return s.repo.PluginCallbackRequests(filter)
+}
 
 // PushNotification 创建一条站内通知。
 func (s *Service) PushNotification(req domain.PushNotificationRequest) *domain.Notification {

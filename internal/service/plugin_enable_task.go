@@ -36,7 +36,9 @@ func getEnv(key, fallback string) string {
 // getenv is a seam for tests.
 var getenv = os.Getenv
 
-func parseTimeLayout(value string) (time.Time, bool) {
+// ParseTimeLayout parses datetime in '2006-01-02 15:04:05' (local time).
+// It is used across plugin governance flows for persisted DATETIME strings.
+func ParseTimeLayout(value string) (time.Time, bool) {
 	value = strings.TrimSpace(value)
 	if value == "" {
 		return time.Time{}, false
@@ -84,7 +86,7 @@ func (s *Service) EnablePluginFromEnablePrecheckAs(operator PluginEnableOperator
 
 	// TTL check (best-effort, can be disabled by setting TTL=0).
 	if ttl := pluginEnablePrecheckTTL(); ttl > 0 {
-		if finished, ok := parseTimeLayout(pre.FinishedAt); ok && time.Since(finished) > ttl {
+		if finished, ok := ParseTimeLayout(pre.FinishedAt); ok && time.Since(finished) > ttl {
 			return domain.PluginEnableTaskResponse{}, domain.NewPluginError("plugin_enable_precheck_expired", "启用前检查已过期，请重新执行启用前检查后再启用").
 				WithStatus(400).
 				WithDetail("enable_precheck_id", pre.ID).
@@ -194,7 +196,7 @@ func (s *Service) EnablePluginFromEnablePrecheckAs(operator PluginEnableOperator
 
 	task.Status = domain.PluginEnableTaskStatusEnabled
 	task.FinishedAt = Now()
-	if start, ok := parseTimeLayout(task.StartedAt); ok {
+	if start, ok := ParseTimeLayout(task.StartedAt); ok {
 		task.DurationMS = int64(time.Since(start).Milliseconds())
 	}
 	task, _ = s.repo.SavePluginEnableTask(task)

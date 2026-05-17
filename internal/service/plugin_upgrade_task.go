@@ -374,7 +374,7 @@ func (s *Service) UpgradePluginFromCompatCheckAs(operator PluginUpgradeOperator,
 	task.Status = domain.PluginUpgradeTaskStatusUpgraded
 	task.NewPluginStatus = nextStatus
 	task.FinishedAt = Now()
-	if start, ok := parseTimeLayout(task.StartedAt); ok {
+	if start, ok := ParseTimeLayout(task.StartedAt); ok {
 		task.DurationMS = int64(time.Since(start).Milliseconds())
 	}
 	task, _ = s.repo.SavePluginUpgradeTask(task)
@@ -402,7 +402,7 @@ func (s *Service) UpgradePluginFromCompatCheckAs(operator PluginUpgradeOperator,
 func (s *Service) failUpgradeTask(task domain.PluginUpgradeTask, operator PluginUpgradeOperator, code, message string, err error) (domain.PluginUpgradeTaskResponse, error) {
 	task.Status = domain.PluginUpgradeTaskStatusFailed
 	task.FinishedAt = Now()
-	if start, ok := parseTimeLayout(task.StartedAt); ok {
+	if start, ok := ParseTimeLayout(task.StartedAt); ok {
 		task.DurationMS = int64(time.Since(start).Milliseconds())
 	}
 	if strings.TrimSpace(task.ErrorsJSON) == "" && err != nil {

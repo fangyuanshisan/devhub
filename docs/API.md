@@ -2738,3 +2738,111 @@ GET /api/v1/admin/plugins/remote-indexes/:id/plugins/:code
 ### `POST /api/v1/admin/plugins/webhooks/secrets/:id/revoke`
 
 权限：`plugin.manage`。吊销 Secret（revoked Secret 立即失效且不可恢复）。
+
+## v1.7.7：Webhook 受控 Core API 回调 Token 与权限 Scope（最小落地）
+
+说明：本节描述 **已实现** 的“插件服务回调 Core API”能力。它与 v1.7.6 的 Webhook Secret 不同：
+
+- Webhook Secret：用于 DevHub → 插件服务的 HMAC 发送端签名。
+- Callback Token：用于 插件服务 → DevHub Core 的受控回调（Bearer token + scopes）。
+
+重要边界：
+
+- callback token 明文仅在创建/轮换成功响应中返回一次；列表/详情不返回明文。
+- callback token 明文不写入日志、审计与 request 记录；仅保存不可逆 `token_hash`。
+- 仅支持最小 scope 白名单（当前：`config.read`、`audit.write`）。
+- callback token 不等于 admin 权限；不能绕过插件 enabled/disabled、community plugin 状态与 community_scope 边界。
+- 本版本仍不实现 blocking Hook、不实现插件代表用户操作（actor 代理）、不实现通用插件 SDK。
+
+### Admin 管理接口（Token 治理）
+
+#### `GET /api/v1/admin/plugins/callback-tokens`
+
+权限：`plugin.read`。查询参数：
+
+- `plugin_code`
+- `status`（`active|disabled|revoked|expired`，或 `all`）
+- `scope`
+- `page`
+- `page_size`
+
+返回：`items + pagination`（不包含 token 明文）。
+
+#### `GET /api/v1/admin/plugins/callback-tokens/:id`
+
+权限：`plugin.read`。返回单条 token 详情（不包含 token 明文）。
+
+#### `POST /api/v1/admin/plugins/callback-tokens`
+
+权限：`plugin.manage`。创建 callback token（明文仅返回一次）。请求示例：
+
+```json
+{
+  "plugin_code": "official_announcement",
+  "name": "公告插件回调 Token",
+  "scopes": ["config.read", "audit.write"],
+  "community_scope": [1],
+  "expires_at": "2027-01-01T00:00:00Z"
+}
+```
+
+响应示例（注意：`token` 字段只返回一次）：
+
+```json
+{
+  "token_record": { "id": 1, "plugin_code": "official_announcement", "token_ref": "cbtk_xxx", "status": "active" },
+  "token_ref": "cbtk_xxx",
+  "token": "cbsk_xxx",
+  "scopes": ["config.read", "audit.write"],
+  "status": "active"
+}
+```
+
+#### `POST /api/v1/admin/plugins/callback-tokens/:id/disable`
+
+权限：`plugin.manage`。禁用 token。
+
+#### `POST /api/v1/admin/plugins/callback-tokens/:id/enable`
+
+权限：`plugin.manage`。恢复 disabled token。
+
+#### `POST /api/v1/admin/plugins/callback-tokens/:id/revoke`
+
+权限：`plugin.manage`。吊销 token（不可恢复）。
+
+#### `POST /api/v1/admin/plugins/callback-tokens/:id/rotate`
+
+权限：`plugin.manage`。轮换 token（默认立即吊销旧 token；新 token 明文仅返回一次）。
+
+#### `GET /api/v1/admin/plugins/callback-requests`
+
+权限：`plugin.read`。查询参数：
+
+- `plugin_code`
+- `token_ref`
+- `status`（`accepted|rejected|failed`，或 `all`）
+- `request_id`
+- `page`
+- `page_size`
+
+返回：`items + pagination`（不保存 token 明文）。
+
+### 插件回调接口（插件服务 → Core）
+
+#### `GET /api/v1/plugin-callback/config`
+
+认证：`Authorization: Bearer cbsk_...`（callback token）。需要 scope：`config.read`。
+
+查询参数：
+
+- `community_id`（必填；必须在 token 的 community_scope 内）
+
+返回：当前 `plugin_code` 在该 `community_id` 下的 effective config（已脱敏）。
+
+#### `POST /api/v1/plugin-callback/audit-events`
+
+认证：`Authorization: Bearer cbsk_...`（callback token）。需要 scope：`audit.write`。
+
+要求：
+
+- `action` 必须以 `plugin_code.` 前缀开头（例如 `official_announcement.received_event`），防止伪造 Core/admin 审计。

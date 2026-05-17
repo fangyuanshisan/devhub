@@ -43,6 +43,7 @@ v1.7.3 任务拆解补充（文档阶段）：
 - v1.7.4：Webhook non_blocking delivery 最小实现（event/delivery 持久化 + 最小投递 + 最小审计 + 最小后台查看；不做 blocking、不做复杂重试、不做熔断）。
 - v1.7.5：Webhook 重试队列与熔断机制（non_blocking）。
 - v1.7.6：Webhook 签名鉴权与 Secret 轮换（发送端签名 + Secret 管理/轮换 + 最小后台治理；仍仅 non_blocking）。
+- v1.7.7：Webhook 插件服务回调 Core API（callback token + scopes + community scope + callback request 记录与审计）。
 
 ## v1.7.2 插件运行模型设计结论
 

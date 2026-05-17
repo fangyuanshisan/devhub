@@ -11,6 +11,7 @@
 - 协议主体仍以“设计”为主，尤其是签名鉴权、secret 管理、token scopes 与投递队列 worker 体系仍未实现。
 - v1.7.5 已实现 non_blocking delivery 的治理能力增强（delivery 记录、重试调度、circuit breaker、最小后台治理入口与审计），但不代表完整协议已落地。
 - v1.7.6 已实现 DevHub 发送端 HMAC-SHA256 签名与 Webhook Secret 管理/轮换（仅治理与签名，不执行第三方代码）。
+- v1.7.7 已实现“插件服务回调 Core API”的最小通道：callback token（Bearer）+ scope 白名单 + community scope 校验 + callback request 记录与审计（不等于完整插件 SDK/运行时）。
 
 重要边界：
 
@@ -117,7 +118,12 @@ Webhook / HTTP 插件服务是 DevHub 第三方插件运行模型的推荐方向
 
 ### 2.5 Plugin Callback
 
-表示插件服务回调 DevHub Core API 的身份模型（本轮不实现 token，只设计字段）。
+表示插件服务回调 DevHub Core API 的身份模型。
+
+实现状态：
+
+- v1.7.7 已落地 **最小** callback token 与 scopes（仅 `config.read`、`audit.write`）以及 `/api/v1/plugin-callback/*` 的最小回调 API。
+- 仍未实现：插件代表用户操作（actor 代理）、更完整的 scopes、插件回调通用 Core API、SDK/模板自动注入等。
 
 字段建议：
 

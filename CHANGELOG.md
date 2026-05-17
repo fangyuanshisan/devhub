@@ -19,6 +19,7 @@
 
 - Webhook governance (v1.7.5): added webhook deliveries retry scheduling (`retry_scheduled`/`retry_exhausted`, `next_retry_at`, `attempt/max_attempts`) and circuit breaker (`closed/open/half_open`) with minimal admin APIs and admin UI page. Non-blocking only; no third-party plugin code execution.
 - Webhook signing & secret rotation (v1.7.6): added HMAC-SHA256 signed webhook delivery (sender-side), persisted signature metadata on deliveries (no plaintext secret), plus admin-managed webhook secrets (create/rotate/disable/enable/revoke) with one-time secret display and a minimal admin UI tab.
+- Webhook controlled Core API callback (v1.7.7): added callback tokens (bearer, one-time plaintext display, stored as `token_hash` only), minimal scope whitelist (`config.read`, `audit.write`), community scope checks, plugin callback endpoints (`/api/v1/plugin-callback/config`, `/api/v1/plugin-callback/audit-events`), callback request logs, and minimal admin UI tabs (Callback Tokens/Callback Requests).
 
 ## v1.7.1 (2026-05-16)
 

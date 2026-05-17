@@ -1,6 +1,7 @@
 package service
 
 import (
+	"context"
 	"crypto/hmac"
 	"crypto/sha256"
 	"encoding/hex"
@@ -107,7 +108,7 @@ func TestWebhookSigningHeadersAndSignature_SignedAndRedactedInStore(t *testing.T
 		t.Fatalf("AppendWebhookDelivery err: %v", err)
 	}
 
-	out, err := svc.ManualRetryWebhookDelivery(t.Context(), saved.ID)
+	out, err := svc.ManualRetryWebhookDelivery(context.Background(), saved.ID)
 	if err != nil {
 		t.Fatalf("ManualRetryWebhookDelivery err: %v", err)
 	}
@@ -206,7 +207,7 @@ func TestWebhookSigning_DisabledSecretDoesNotSend(t *testing.T) {
 	if err != nil {
 		t.Fatalf("AppendWebhookDelivery err: %v", err)
 	}
-	out, err := svc.ManualRetryWebhookDelivery(t.Context(), saved.ID)
+	out, err := svc.ManualRetryWebhookDelivery(context.Background(), saved.ID)
 	if err != nil {
 		t.Fatalf("ManualRetryWebhookDelivery err: %v", err)
 	}
@@ -257,7 +258,7 @@ func TestWebhookSigning_Remote401DoesNotRetry(t *testing.T) {
 	if err != nil {
 		t.Fatalf("AppendWebhookDelivery err: %v", err)
 	}
-	out, err := svc.ManualRetryWebhookDelivery(t.Context(), saved.ID)
+	out, err := svc.ManualRetryWebhookDelivery(context.Background(), saved.ID)
 	if err != nil {
 		t.Fatalf("ManualRetryWebhookDelivery err: %v", err)
 	}

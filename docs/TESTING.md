@@ -146,6 +146,37 @@ v1.7.2 插件运行模型设计任务同样为文档设计任务：主要修改�
 17. 远端 5xx / timeout 仍按重试队列策略调度（不属于本节新增，但需保持不退化）。
 18. request_headers_json 中 signature 被脱敏存储（`v1=[REDACTED]`），不存完整签名。
 
+## v1.7.7：Webhook 插件回调 Core API（Callback Token + Scopes）（实现）
+
+说明：本节为 v1.7.7 实现轮的轻量验收清单。本轮为外部 HTTP 插件服务增加受控 Core API 回调通道（callback token + scope + community scope），仍不执行第三方插件代码，仍不实现 blocking Hook。
+
+1. 可以创建 callback token（`POST /api/v1/admin/plugins/callback-tokens`）。
+2. 创建 token 时明文只返回一次（响应包含 `token`，列表/详情不返回）。
+3. token 列表不返回明文（`GET /api/v1/admin/plugins/callback-tokens`）。
+4. token 详情不返回明文（`GET /api/v1/admin/plugins/callback-tokens/:id`）。
+5. 可以禁用 token（disabled token 调用 callback API 返回 401）。
+6. 可以恢复 disabled token。
+7. 可以吊销 token（revoked token 调用 callback API 返回 401）。
+8. expired token 调用 callback API 返回 401（如实现包含 expires_at 校验）。
+9. 可以轮换 token（轮换后新 token 明文只返回一次；旧 token 按策略失效）。
+10. 缺少 token 返回 401（TOKEN_MISSING）。
+11. token 无效返回 401（TOKEN_INVALID）。
+12. scope 不足返回 403（SCOPE_DENIED）。
+13. community scope 不匹配返回 403（COMMUNITY_SCOPE_DENIED）。
+14. 插件 global disabled / soft_uninstalled 后 token 不能调用 callback API（PLUGIN_DISABLED / plugin_disabled）。
+15. `config.read` 只能读取本插件配置（`GET /api/v1/plugin-callback/config?community_id=...`）。
+16. `audit.write` 可以写入插件审计事件（`POST /api/v1/plugin-callback/audit-events`）。
+17. `audit.write` 不能伪造 admin/Core action（action 必须以 `plugin_code.` 前缀开头）。
+18. callback request 有记录（`plugin_callback_requests` 或等效记录），且不保存 token 明文。
+19. Token 创建/轮换/禁用/吊销写入审计（admin_logs）。
+20. callback accepted/rejected 写入审计（admin_logs）。
+21. 后台 `Webhook 治理` 页可查看 Callback Tokens 与 Callback Requests（页内 Tab，不进入左侧菜单）。
+22. 普通用户不能访问 Token 管理 API（`/api/v1/admin/plugins/callback-tokens*`）。
+23. 本轮不执行第三方代码。
+24. 本轮不实现 blocking Hook。
+25. 不影响 `/topics/:id` SEO。
+26. 不影响 `/c/:slug` SEO。
+
 ## v1.5.0 收口验收（2026-05-14）
 
 本节记录 v1.5.0 插件包治理收口后的最终验收结果，作为当前仓库“已真实跑过的检查”口径来源。

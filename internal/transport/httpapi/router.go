@@ -118,6 +118,15 @@ func NewRouter(svc *service.Service) *gin.Engine {
 		api.GET("/me/activities", srv.userAuthRequired(), srv.myActivities)
 		api.GET("/me/notifications", srv.userAuthRequired(), srv.myNotifications)
 		api.POST("/me/notifications/read-all", srv.userAuthRequired(), srv.readAllMyNotifications)
+
+		// ===== External plugin service callback APIs (v1.7.7) =====
+		// These endpoints are authenticated by plugin callback tokens (NOT admin/user tokens).
+		// They are intentionally minimal and scope-restricted.
+		pluginCallback := api.Group("/plugin-callback")
+		{
+			pluginCallback.GET("/config", srv.pluginCallbackAuthRequired("config.read"), srv.pluginCallbackConfig)
+			pluginCallback.POST("/audit-events", srv.pluginCallbackAuthRequired("audit.write"), srv.pluginCallbackAuditEvents)
+		}
 		api.POST("/me/notifications/:id/read", srv.userAuthRequired(), srv.readMyNotification)
 		api.POST("/reports", srv.userAuthRequired(), srv.createReport)
 
@@ -245,6 +254,15 @@ func NewRouter(svc *service.Service) *gin.Engine {
 			protected.POST("/plugins/webhooks/secrets/:id/disable", srv.requirePermission("plugin.manage"), srv.disableAdminWebhookSecret)
 			protected.POST("/plugins/webhooks/secrets/:id/enable", srv.requirePermission("plugin.manage"), srv.enableAdminWebhookSecret)
 			protected.POST("/plugins/webhooks/secrets/:id/revoke", srv.requirePermission("plugin.manage"), srv.revokeAdminWebhookSecret)
+			// v1.7.7: plugin callback tokens (external plugin service -> Core callback APIs).
+			protected.GET("/plugins/callback-tokens", srv.requirePermission("plugin.read"), srv.listAdminPluginCallbackTokens)
+			protected.GET("/plugins/callback-tokens/:id", srv.requirePermission("plugin.read"), srv.adminPluginCallbackTokenDetail)
+			protected.POST("/plugins/callback-tokens", srv.requirePermission("plugin.manage"), srv.createAdminPluginCallbackToken)
+			protected.POST("/plugins/callback-tokens/:id/disable", srv.requirePermission("plugin.manage"), srv.disableAdminPluginCallbackToken)
+			protected.POST("/plugins/callback-tokens/:id/enable", srv.requirePermission("plugin.manage"), srv.enableAdminPluginCallbackToken)
+			protected.POST("/plugins/callback-tokens/:id/revoke", srv.requirePermission("plugin.manage"), srv.revokeAdminPluginCallbackToken)
+			protected.POST("/plugins/callback-tokens/:id/rotate", srv.requirePermission("plugin.manage"), srv.rotateAdminPluginCallbackToken)
+			protected.GET("/plugins/callback-requests", srv.requirePermission("plugin.read"), srv.listAdminPluginCallbackRequests)
 			protected.POST("/plugins/:code/rollback/dry-run", srv.requirePermission("plugin.manage"), srv.rollbackDryRunAdminPluginUpgrade)
 			// v1.5.0-P1-07: approvals (install/upgrade).
 			protected.POST("/plugins/approvals", srv.requirePermission("plugin.write"), srv.createAdminPluginApproval)

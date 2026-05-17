@@ -145,7 +145,7 @@ func (s *Service) SoftUninstallPluginAs(operator PluginUninstallOperator, code s
 		task.Status = domain.PluginUninstallTaskStatusFailed
 		task.ErrorsJSON = mustJSON([]string{"plugin_soft_uninstall_dependency_blocked: 存在启用中的 required 依赖插件：" + strings.Join(dependents.RequiredEnabled, ",")})
 		task.FinishedAt = Now()
-		if start, ok := parseTimeLayout(task.StartedAt); ok {
+		if start, ok := ParseTimeLayout(task.StartedAt); ok {
 			task.DurationMS = int64(time.Since(start).Milliseconds())
 		}
 		task, _ = s.repo.AppendPluginUninstallTask(task)
@@ -229,7 +229,7 @@ func (s *Service) SoftUninstallPluginAs(operator PluginUninstallOperator, code s
 
 	task.Status = domain.PluginUninstallTaskStatusSoftDone
 	task.FinishedAt = Now()
-	if start, ok := parseTimeLayout(task.StartedAt); ok {
+	if start, ok := ParseTimeLayout(task.StartedAt); ok {
 		task.DurationMS = int64(time.Since(start).Milliseconds())
 	}
 	task, _ = s.repo.SavePluginUninstallTask(task)

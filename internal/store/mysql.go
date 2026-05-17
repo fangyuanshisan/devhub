@@ -257,6 +257,250 @@ func (s *MySQLStore) LatestPluginWebhookSecretForTarget(pluginCode, targetURL st
 	return it, true
 }
 
+// ===== Plugin callback tokens (v1.7.7) =====
+
+func (s *MySQLStore) AppendPluginCallbackToken(record domain.PluginCallbackToken) (domain.PluginCallbackToken, error) {
+	record.PluginCode = strings.TrimSpace(record.PluginCode)
+	record.TokenRef = strings.TrimSpace(record.TokenRef)
+	record.TokenHash = strings.TrimSpace(record.TokenHash)
+	record.Status = strings.TrimSpace(record.Status)
+	if record.PluginCode == "" || record.TokenRef == "" || record.TokenHash == "" {
+		return domain.PluginCallbackToken{}, errors.New("plugin_code/token_ref/token_hash 不能为空")
+	}
+	if record.Status == "" {
+		record.Status = domain.PluginCallbackTokenStatusActive
+	}
+	_, err := s.db.Exec(`INSERT INTO plugin_callback_tokens
+		(plugin_code, plugin_installation_id, publisher_id, token_ref, token_hash, name, status, scopes_json, community_scope_json,
+		 expires_at, last_used_at, last_used_ip, created_by, created_at, rotated_at, revoked_at, revoked_reason, updated_at)
+		VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,COALESCE(?,NOW()),?,?,?,?,NOW())
+		ON DUPLICATE KEY UPDATE updated_at=NOW()`,
+		record.PluginCode, record.PluginInstallationID, record.PublisherID, record.TokenRef, record.TokenHash, record.Name, record.Status,
+		nullJSONString(record.ScopesJSON), nullJSONString(record.CommunityScopeJSON),
+		nullTime(record.ExpiresAt), nullTime(record.LastUsedAt), record.LastUsedIP, record.CreatedBy, nullTime(record.CreatedAt),
+		nullTime(record.RotatedAt), nullTime(record.RevokedAt), record.RevokedReason)
+	if err != nil {
+		return domain.PluginCallbackToken{}, err
+	}
+	out, ok := s.PluginCallbackTokenByRef(record.TokenRef)
+	if ok {
+		return out, nil
+	}
+	return domain.PluginCallbackToken{}, errors.New("append callback token failed")
+}
+
+func (s *MySQLStore) SavePluginCallbackToken(record domain.PluginCallbackToken) (domain.PluginCallbackToken, error) {
+	if record.ID <= 0 {
+		return s.AppendPluginCallbackToken(record)
+	}
+	record.PluginCode = strings.TrimSpace(record.PluginCode)
+	record.TokenRef = strings.TrimSpace(record.TokenRef)
+	record.TokenHash = strings.TrimSpace(record.TokenHash)
+	record.Status = strings.TrimSpace(record.Status)
+	if record.PluginCode == "" || record.TokenRef == "" || record.TokenHash == "" {
+		return domain.PluginCallbackToken{}, errors.New("plugin_code/token_ref/token_hash 不能为空")
+	}
+	if record.Status == "" {
+		record.Status = domain.PluginCallbackTokenStatusActive
+	}
+	_, err := s.db.Exec(`UPDATE plugin_callback_tokens SET
+		plugin_code=?, plugin_installation_id=?, publisher_id=?, token_ref=?, token_hash=?, name=?, status=?, scopes_json=?, community_scope_json=?,
+		expires_at=?, last_used_at=?, last_used_ip=?, created_by=?, created_at=COALESCE(?, created_at), rotated_at=?, revoked_at=?, revoked_reason=?, updated_at=NOW()
+		WHERE id=?`,
+		record.PluginCode, record.PluginInstallationID, record.PublisherID, record.TokenRef, record.TokenHash, record.Name, record.Status,
+		nullJSONString(record.ScopesJSON), nullJSONString(record.CommunityScopeJSON),
+		nullTime(record.ExpiresAt), nullTime(record.LastUsedAt), record.LastUsedIP, record.CreatedBy, nullTime(record.CreatedAt),
+		nullTime(record.RotatedAt), nullTime(record.RevokedAt), record.RevokedReason, record.ID)
+	if err != nil {
+		return domain.PluginCallbackToken{}, err
+	}
+	out, _ := s.PluginCallbackTokenByID(record.ID)
+	return out, nil
+}
+
+func (s *MySQLStore) PluginCallbackTokenByID(id int64) (domain.PluginCallbackToken, bool) {
+	var it domain.PluginCallbackToken
+	err := s.db.QueryRow(`SELECT id, plugin_code, plugin_installation_id, COALESCE(publisher_id,''), token_ref, token_hash, COALESCE(name,''), status,
+		COALESCE(CAST(scopes_json AS CHAR),''), COALESCE(CAST(community_scope_json AS CHAR),''),
+		COALESCE(DATE_FORMAT(expires_at,'%Y-%m-%d %H:%i:%s'),''), COALESCE(DATE_FORMAT(last_used_at,'%Y-%m-%d %H:%i:%s'),''), COALESCE(last_used_ip,''),
+		created_by, DATE_FORMAT(created_at,'%Y-%m-%d %H:%i:%s'),
+		COALESCE(DATE_FORMAT(rotated_at,'%Y-%m-%d %H:%i:%s'),''), COALESCE(DATE_FORMAT(revoked_at,'%Y-%m-%d %H:%i:%s'),''), COALESCE(revoked_reason,''),
+		DATE_FORMAT(updated_at,'%Y-%m-%d %H:%i:%s')
+		FROM plugin_callback_tokens WHERE id=? LIMIT 1`, id).
+		Scan(&it.ID, &it.PluginCode, &it.PluginInstallationID, &it.PublisherID, &it.TokenRef, &it.TokenHash, &it.Name, &it.Status,
+			&it.ScopesJSON, &it.CommunityScopeJSON, &it.ExpiresAt, &it.LastUsedAt, &it.LastUsedIP, &it.CreatedBy, &it.CreatedAt,
+			&it.RotatedAt, &it.RevokedAt, &it.RevokedReason, &it.UpdatedAt)
+	if err != nil {
+		return domain.PluginCallbackToken{}, false
+	}
+	return it, true
+}
+
+func (s *MySQLStore) PluginCallbackTokenByRef(tokenRef string) (domain.PluginCallbackToken, bool) {
+	tokenRef = strings.TrimSpace(tokenRef)
+	var it domain.PluginCallbackToken
+	err := s.db.QueryRow(`SELECT id, plugin_code, plugin_installation_id, COALESCE(publisher_id,''), token_ref, token_hash, COALESCE(name,''), status,
+		COALESCE(CAST(scopes_json AS CHAR),''), COALESCE(CAST(community_scope_json AS CHAR),''),
+		COALESCE(DATE_FORMAT(expires_at,'%Y-%m-%d %H:%i:%s'),''), COALESCE(DATE_FORMAT(last_used_at,'%Y-%m-%d %H:%i:%s'),''), COALESCE(last_used_ip,''),
+		created_by, DATE_FORMAT(created_at,'%Y-%m-%d %H:%i:%s'),
+		COALESCE(DATE_FORMAT(rotated_at,'%Y-%m-%d %H:%i:%s'),''), COALESCE(DATE_FORMAT(revoked_at,'%Y-%m-%d %H:%i:%s'),''), COALESCE(revoked_reason,''),
+		DATE_FORMAT(updated_at,'%Y-%m-%d %H:%i:%s')
+		FROM plugin_callback_tokens WHERE token_ref=? LIMIT 1`, tokenRef).
+		Scan(&it.ID, &it.PluginCode, &it.PluginInstallationID, &it.PublisherID, &it.TokenRef, &it.TokenHash, &it.Name, &it.Status,
+			&it.ScopesJSON, &it.CommunityScopeJSON, &it.ExpiresAt, &it.LastUsedAt, &it.LastUsedIP, &it.CreatedBy, &it.CreatedAt,
+			&it.RotatedAt, &it.RevokedAt, &it.RevokedReason, &it.UpdatedAt)
+	if err != nil {
+		return domain.PluginCallbackToken{}, false
+	}
+	return it, true
+}
+
+func (s *MySQLStore) PluginCallbackTokenByHash(tokenHash string) (domain.PluginCallbackToken, bool) {
+	tokenHash = strings.TrimSpace(tokenHash)
+	var it domain.PluginCallbackToken
+	err := s.db.QueryRow(`SELECT id, plugin_code, plugin_installation_id, COALESCE(publisher_id,''), token_ref, token_hash, COALESCE(name,''), status,
+		COALESCE(CAST(scopes_json AS CHAR),''), COALESCE(CAST(community_scope_json AS CHAR),''),
+		COALESCE(DATE_FORMAT(expires_at,'%Y-%m-%d %H:%i:%s'),''), COALESCE(DATE_FORMAT(last_used_at,'%Y-%m-%d %H:%i:%s'),''), COALESCE(last_used_ip,''),
+		created_by, DATE_FORMAT(created_at,'%Y-%m-%d %H:%i:%s'),
+		COALESCE(DATE_FORMAT(rotated_at,'%Y-%m-%d %H:%i:%s'),''), COALESCE(DATE_FORMAT(revoked_at,'%Y-%m-%d %H:%i:%s'),''), COALESCE(revoked_reason,''),
+		DATE_FORMAT(updated_at,'%Y-%m-%d %H:%i:%s')
+		FROM plugin_callback_tokens WHERE token_hash=? LIMIT 1`, tokenHash).
+		Scan(&it.ID, &it.PluginCode, &it.PluginInstallationID, &it.PublisherID, &it.TokenRef, &it.TokenHash, &it.Name, &it.Status,
+			&it.ScopesJSON, &it.CommunityScopeJSON, &it.ExpiresAt, &it.LastUsedAt, &it.LastUsedIP, &it.CreatedBy, &it.CreatedAt,
+			&it.RotatedAt, &it.RevokedAt, &it.RevokedReason, &it.UpdatedAt)
+	if err != nil {
+		return domain.PluginCallbackToken{}, false
+	}
+	return it, true
+}
+
+func (s *MySQLStore) PluginCallbackTokens(filter domain.PluginCallbackTokenFilter) ([]domain.PluginCallbackToken, int, error) {
+	filter = filter.Normalize()
+	where := []string{"1=1"}
+	args := []any{}
+	if filter.PluginCode != "" {
+		where = append(where, "plugin_code=?")
+		args = append(args, filter.PluginCode)
+	}
+	if filter.Status != "" && filter.Status != "all" {
+		where = append(where, "status=?")
+		args = append(args, filter.Status)
+	}
+	if filter.Scope != "" {
+		// JSON search: simple LIKE fallback for portability; exact enforcement happens in service/auth layer.
+		where = append(where, "CAST(scopes_json AS CHAR) LIKE ?")
+		args = append(args, "%"+filter.Scope+"%")
+	}
+	whereSQL := strings.Join(where, " AND ")
+	var total int
+	if err := s.db.QueryRow("SELECT COUNT(*) FROM plugin_callback_tokens WHERE "+whereSQL, args...).Scan(&total); err != nil {
+		return nil, 0, err
+	}
+	offset := (filter.Page - 1) * filter.PageSize
+	args2 := append(append([]any{}, args...), filter.PageSize, offset)
+	rows, err := s.db.Query(`SELECT id, plugin_code, plugin_installation_id, COALESCE(publisher_id,''), token_ref, token_hash, COALESCE(name,''), status,
+		COALESCE(CAST(scopes_json AS CHAR),''), COALESCE(CAST(community_scope_json AS CHAR),''),
+		COALESCE(DATE_FORMAT(expires_at,'%Y-%m-%d %H:%i:%s'),''), COALESCE(DATE_FORMAT(last_used_at,'%Y-%m-%d %H:%i:%s'),''), COALESCE(last_used_ip,''),
+		created_by, DATE_FORMAT(created_at,'%Y-%m-%d %H:%i:%s'),
+		COALESCE(DATE_FORMAT(rotated_at,'%Y-%m-%d %H:%i:%s'),''), COALESCE(DATE_FORMAT(revoked_at,'%Y-%m-%d %H:%i:%s'),''), COALESCE(revoked_reason,''),
+		DATE_FORMAT(updated_at,'%Y-%m-%d %H:%i:%s')
+		FROM plugin_callback_tokens WHERE `+whereSQL+` ORDER BY id DESC LIMIT ? OFFSET ?`, args2...)
+	if err != nil {
+		return nil, 0, err
+	}
+	defer rows.Close()
+	out := []domain.PluginCallbackToken{}
+	for rows.Next() {
+		var it domain.PluginCallbackToken
+		if err := rows.Scan(&it.ID, &it.PluginCode, &it.PluginInstallationID, &it.PublisherID, &it.TokenRef, &it.TokenHash, &it.Name, &it.Status,
+			&it.ScopesJSON, &it.CommunityScopeJSON, &it.ExpiresAt, &it.LastUsedAt, &it.LastUsedIP, &it.CreatedBy, &it.CreatedAt,
+			&it.RotatedAt, &it.RevokedAt, &it.RevokedReason, &it.UpdatedAt); err != nil {
+			return nil, 0, err
+		}
+		out = append(out, it)
+	}
+	return out, total, nil
+}
+
+func (s *MySQLStore) AppendPluginCallbackRequest(record domain.PluginCallbackRequest) (domain.PluginCallbackRequest, error) {
+	record.RequestID = strings.TrimSpace(record.RequestID)
+	record.PluginCode = strings.TrimSpace(record.PluginCode)
+	record.TokenRef = strings.TrimSpace(record.TokenRef)
+	record.APIPath = strings.TrimSpace(record.APIPath)
+	record.Method = strings.TrimSpace(record.Method)
+	record.ScopeRequired = strings.TrimSpace(record.ScopeRequired)
+	record.Status = strings.TrimSpace(record.Status)
+	record.ErrorCode = strings.TrimSpace(record.ErrorCode)
+	record.ErrorMessage = strings.TrimSpace(record.ErrorMessage)
+	record.IPAddress = strings.TrimSpace(record.IPAddress)
+	record.UserAgent = strings.TrimSpace(record.UserAgent)
+	if record.RequestID == "" || record.PluginCode == "" || record.APIPath == "" || record.Method == "" {
+		return domain.PluginCallbackRequest{}, errors.New("request_id/plugin_code/api_path/method 不能为空")
+	}
+	if record.Status == "" {
+		record.Status = domain.PluginCallbackRequestStatusAccepted
+	}
+	_, err := s.db.Exec(`INSERT INTO plugin_callback_requests
+		(request_id, plugin_code, token_ref, api_path, method, scope_required, status, response_status, error_code, error_message,
+		 community_id, actor_type, actor_id, ip_address, user_agent, duration_ms, created_at)
+		VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,COALESCE(?,NOW()))`,
+		record.RequestID, record.PluginCode, record.TokenRef, record.APIPath, record.Method, record.ScopeRequired, record.Status,
+		record.ResponseStatus, record.ErrorCode, record.ErrorMessage, record.CommunityID, record.ActorType, record.ActorID, record.IPAddress, record.UserAgent, record.DurationMS, nullTime(record.CreatedAt))
+	if err != nil {
+		return domain.PluginCallbackRequest{}, err
+	}
+	// no stable unique key; just return record
+	record.CreatedAt = Now()
+	return record, nil
+}
+
+func (s *MySQLStore) PluginCallbackRequests(filter domain.PluginCallbackRequestFilter) ([]domain.PluginCallbackRequest, int, error) {
+	filter = filter.Normalize()
+	where := []string{"1=1"}
+	args := []any{}
+	if filter.PluginCode != "" {
+		where = append(where, "plugin_code=?")
+		args = append(args, filter.PluginCode)
+	}
+	if filter.TokenRef != "" {
+		where = append(where, "token_ref=?")
+		args = append(args, filter.TokenRef)
+	}
+	if filter.Status != "" && filter.Status != "all" {
+		where = append(where, "status=?")
+		args = append(args, filter.Status)
+	}
+	if filter.RequestID != "" {
+		where = append(where, "request_id=?")
+		args = append(args, filter.RequestID)
+	}
+	whereSQL := strings.Join(where, " AND ")
+	var total int
+	if err := s.db.QueryRow("SELECT COUNT(*) FROM plugin_callback_requests WHERE "+whereSQL, args...).Scan(&total); err != nil {
+		return nil, 0, err
+	}
+	offset := (filter.Page - 1) * filter.PageSize
+	args2 := append(append([]any{}, args...), filter.PageSize, offset)
+	rows, err := s.db.Query(`SELECT id, request_id, plugin_code, token_ref, api_path, method, scope_required, status, response_status,
+		COALESCE(error_code,''), COALESCE(error_message,''), community_id, COALESCE(actor_type,''), actor_id,
+		COALESCE(ip_address,''), COALESCE(user_agent,''), duration_ms, DATE_FORMAT(created_at,'%Y-%m-%d %H:%i:%s')
+		FROM plugin_callback_requests WHERE `+whereSQL+` ORDER BY id DESC LIMIT ? OFFSET ?`, args2...)
+	if err != nil {
+		return nil, 0, err
+	}
+	defer rows.Close()
+	out := []domain.PluginCallbackRequest{}
+	for rows.Next() {
+		var it domain.PluginCallbackRequest
+		if err := rows.Scan(&it.ID, &it.RequestID, &it.PluginCode, &it.TokenRef, &it.APIPath, &it.Method, &it.ScopeRequired, &it.Status, &it.ResponseStatus,
+			&it.ErrorCode, &it.ErrorMessage, &it.CommunityID, &it.ActorType, &it.ActorID, &it.IPAddress, &it.UserAgent, &it.DurationMS, &it.CreatedAt); err != nil {
+			return nil, 0, err
+		}
+		out = append(out, it)
+	}
+	return out, total, nil
+}
+
 func (s *MySQLStore) AppendWebhookEvent(record domain.WebhookEvent) (domain.WebhookEvent, error) {
 	record.EventID = strings.TrimSpace(record.EventID)
 	record.PluginCode = strings.TrimSpace(record.PluginCode)
