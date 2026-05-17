@@ -36,6 +36,58 @@
 - 不做完整 PKI / CA 证书链 / 远程可信源同步；当前可信来源只来自后台本地可信发布者记录。
 - 不做完整插件运行模型；第三方插件前端挂载、后端隔离运行、HTTP 插件服务协议、iframe 沙箱和受控 API 调用仍处于规划中。
 
+## 运行模型字段设计（v1.7.2）
+
+以下字段用于未来插件运行模型设计，当前只是 manifest 规划字段，不代表已实现：
+
+```json
+{
+  "runtime": {
+    "type": "internal|http_service|iframe",
+    "entry": "string",
+    "health_check": "/health",
+    "timeout_ms": 3000,
+    "permissions": [],
+    "scopes": []
+  },
+  "frontend": {
+    "mounts": [
+      {
+        "slot": "admin.sidebar.menu",
+        "title": "Demo",
+        "path": "/admin-next/plugins/demo",
+        "mode": "iframe",
+        "url": "/plugins/demo/admin"
+      }
+    ]
+  },
+  "backend": {
+    "service_url": "https://plugin-service.example.com",
+    "auth": "signed_request",
+    "hooks": []
+  },
+  "api_scopes": [
+    "content.read",
+    "content.write"
+  ]
+}
+```
+
+设计边界：
+
+- `runtime.type=internal` 仅用于 Core 内置插件或官方随仓库编译插件。
+- `runtime.type=http_service` 表示后端能力由独立 HTTP 插件服务承载。
+- `runtime.type=iframe` 表示插件主要提供前端隔离页面。
+- `frontend.mounts` 只声明挂载位置，不代表当前 Core 已实现该 slot。
+- `backend.service_url` 必须在后续实现中经过可信来源、SSRF、防重放和签名校验设计。
+- `api_scopes` 是插件申请的最大 Core API 权限范围，最终授权仍由管理员和 Core 策略决定。
+
+完整设计见 [插件运行模型设计](PLUGIN_RUNTIME_MODEL.md)。
+
+Webhook / HTTP 插件服务协议设计见 [Webhook / HTTP 插件服务协议（设计）](PLUGIN_WEBHOOK_PROTOCOL.md)。
+
+实现阶段拆解（v1.7.3 文档阶段）见 [Webhook 协议实现拆解（v1.7.3）](PLUGIN_WEBHOOK_IMPLEMENTATION_PLAN.md) 与官方示例插件验证方案（公告插件）：`docs/plugins/official-announcement-plugin.md`。两者均为任务拆解/验证方案，不代表已实现真实投递、重试队列、熔断或外部插件服务运行。
+
 ## 插件包目录结构
 
 推荐结构（示例）：

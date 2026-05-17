@@ -4,7 +4,7 @@ DevHub 是一个 **Core + 插件** 的开源服务底座。Core 提供账号、�
 
 DevHub 提供默认社区能力，但长期目标不是单一社区程序，而是面向社区、内容站、知识库、内部工具平台和垂直业务系统等场景的可扩展服务底座。插件系统是 DevHub 长期架构的核心组成部分，不是附属功能。
 
-当前版本：`v1.7.1`，版本主题为“插件包签名验签与可信发布者增强版”。
+当前文档设计阶段：`v1.7.2`，主题为“插件运行模型设计”。当前仓库 `VERSION` 仍以实际文件为准。
 
 当前只维护两个入口：
 
@@ -29,6 +29,8 @@ DevHub 提供默认社区能力，但长期目标不是单一社区程序，而�
 - [BACKUP_AND_ROLLBACK.md](docs/BACKUP_AND_ROLLBACK.md)
 - [SEO.md](docs/SEO.md)
 - [PLUGIN_ARCHITECTURE.md](docs/PLUGIN_ARCHITECTURE.md)
+- [PLUGIN_RUNTIME_MODEL.md](docs/PLUGIN_RUNTIME_MODEL.md)
+- [docs/releases/v1.7.2.md](docs/releases/v1.7.2.md)
 - [docs/releases/v1.7.1.md](docs/releases/v1.7.1.md)
 - [docs/releases/v1.7.0.md](docs/releases/v1.7.0.md)
 - [docs/releases/v1.6.0.md](docs/releases/v1.6.0.md)
@@ -53,9 +55,9 @@ DevHub 提供默认社区能力，但长期目标不是单一社区程序，而�
 
 DevHub 当前定位为 **Core + 插件 的开源服务底座**。Core 保持稳定、克制和通用，不承载过多垂直业务；插件扩展业务能力，但不能绕过 Core 的权限、安全、审计和生命周期治理。
 
-当前 `v1.7.1` 重点仍是插件包签名验签与可信发布者增强。已落地能力主要集中在插件包治理、生命周期、安全检查、签名验签、后台治理和远程索引只读能力；完整第三方插件运行模型（前端挂载、后端隔离运行、HTTP 插件服务协议、iframe/sandbox、受控 API 调用）仍未完成。
+当前 `v1.7.2` 文档重点是插件运行模型设计。已落地能力主要集中在插件包治理、生命周期、安全检查、签名验签、后台治理和远程索引只读能力；完整第三方插件运行模型（前端挂载、后端隔离运行、HTTP 插件服务协议、iframe/sandbox、受控 API 调用）仍未实现，详见 [插件运行模型设计](docs/PLUGIN_RUNTIME_MODEL.md)。
 
-当前版本范围和限制以 [v1.7.1 Release Notes](docs/releases/v1.7.1.md) 为准，长期滚动状态见 [项目进度](docs/PROJECT_PROGRESS.md)。
+当前设计范围和限制以 [v1.7.2 Release Notes](docs/releases/v1.7.2.md) 为准，长期滚动状态见 [项目进度](docs/PROJECT_PROGRESS.md)。
 
 历史版本说明见 `docs/README.md` 的“历史版本归档”。
 

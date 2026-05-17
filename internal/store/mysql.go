@@ -39,6 +39,685 @@ type MySQLStore struct {
 	database string
 }
 
+// ===== Webhook secrets (v1.7.6) =====
+
+func (s *MySQLStore) AppendPluginWebhookSecret(record domain.PluginWebhookSecret) (domain.PluginWebhookSecret, error) {
+	record.PluginCode = strings.TrimSpace(record.PluginCode)
+	record.TargetURL = strings.TrimSpace(record.TargetURL)
+	record.SecretRef = strings.TrimSpace(record.SecretRef)
+	record.Status = strings.TrimSpace(record.Status)
+	if record.PluginCode == "" || record.TargetURL == "" || record.SecretRef == "" {
+		return domain.PluginWebhookSecret{}, errors.New("plugin_code/target_url/secret_ref 不能为空")
+	}
+	if record.Status == "" {
+		record.Status = domain.PluginWebhookSecretStatusActive
+	}
+	if record.Version <= 0 {
+		record.Version = 1
+	}
+	res, err := s.db.Exec(`INSERT INTO plugin_webhook_secrets
+		(plugin_code, target_url, secret_ref, secret_ciphertext, secret_hash, version, status, rotation_group, previous_secret_ref,
+		 active_from, active_until, grace_until, created_by, created_at, rotated_at, revoked_at, last_used_at, updated_at)
+		VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,COALESCE(?,NOW()),?,?,?,?,NOW())
+		ON DUPLICATE KEY UPDATE updated_at=NOW()`,
+		record.PluginCode, record.TargetURL, record.SecretRef, record.SecretCiphertext, record.SecretHash, record.Version, record.Status, record.RotationGroup, record.PreviousSecretRef,
+		nullTime(record.ActiveFrom), nullTime(record.ActiveUntil), nullTime(record.GraceUntil), record.CreatedBy, nullTime(record.CreatedAt), nullTime(record.RotatedAt), nullTime(record.RevokedAt), nullTime(record.LastUsedAt))
+	if err != nil {
+		return domain.PluginWebhookSecret{}, err
+	}
+	if id, _ := res.LastInsertId(); id > 0 {
+		out, _ := s.PluginWebhookSecretByID(id)
+		return out, nil
+	}
+	out, ok := s.PluginWebhookSecretByRef(record.SecretRef)
+	if ok {
+		return out, nil
+	}
+	return domain.PluginWebhookSecret{}, errors.New("append webhook secret failed")
+}
+
+func (s *MySQLStore) SavePluginWebhookSecret(record domain.PluginWebhookSecret) (domain.PluginWebhookSecret, error) {
+	if record.ID <= 0 {
+		return s.AppendPluginWebhookSecret(record)
+	}
+	record.PluginCode = strings.TrimSpace(record.PluginCode)
+	record.TargetURL = strings.TrimSpace(record.TargetURL)
+	record.SecretRef = strings.TrimSpace(record.SecretRef)
+	record.Status = strings.TrimSpace(record.Status)
+	if record.PluginCode == "" || record.TargetURL == "" || record.SecretRef == "" {
+		return domain.PluginWebhookSecret{}, errors.New("plugin_code/target_url/secret_ref 不能为空")
+	}
+	if record.Status == "" {
+		record.Status = domain.PluginWebhookSecretStatusActive
+	}
+	if record.Version <= 0 {
+		record.Version = 1
+	}
+	_, err := s.db.Exec(`UPDATE plugin_webhook_secrets SET
+		plugin_code=?, target_url=?, secret_ref=?, secret_ciphertext=?, secret_hash=?, version=?, status=?, rotation_group=?, previous_secret_ref=?,
+		active_from=?, active_until=?, grace_until=?, created_by=?, created_at=COALESCE(?, created_at), rotated_at=?, revoked_at=?, last_used_at=?, updated_at=NOW()
+		WHERE id=?`,
+		record.PluginCode, record.TargetURL, record.SecretRef, record.SecretCiphertext, record.SecretHash, record.Version, record.Status, record.RotationGroup, record.PreviousSecretRef,
+		nullTime(record.ActiveFrom), nullTime(record.ActiveUntil), nullTime(record.GraceUntil), record.CreatedBy, nullTime(record.CreatedAt), nullTime(record.RotatedAt), nullTime(record.RevokedAt), nullTime(record.LastUsedAt),
+		record.ID)
+	if err != nil {
+		return domain.PluginWebhookSecret{}, err
+	}
+	out, _ := s.PluginWebhookSecretByID(record.ID)
+	return out, nil
+}
+
+func (s *MySQLStore) PluginWebhookSecretByID(id int64) (domain.PluginWebhookSecret, bool) {
+	var it domain.PluginWebhookSecret
+	err := s.db.QueryRow(`SELECT id, plugin_code, target_url, secret_ref, secret_ciphertext, secret_hash, version, status,
+		COALESCE(rotation_group,''), COALESCE(previous_secret_ref,''),
+		COALESCE(DATE_FORMAT(active_from,'%Y-%m-%d %H:%i:%s'),''), COALESCE(DATE_FORMAT(active_until,'%Y-%m-%d %H:%i:%s'),''), COALESCE(DATE_FORMAT(grace_until,'%Y-%m-%d %H:%i:%s'),''),
+		created_by, DATE_FORMAT(created_at,'%Y-%m-%d %H:%i:%s'),
+		COALESCE(DATE_FORMAT(rotated_at,'%Y-%m-%d %H:%i:%s'),''), COALESCE(DATE_FORMAT(revoked_at,'%Y-%m-%d %H:%i:%s'),''), COALESCE(DATE_FORMAT(last_used_at,'%Y-%m-%d %H:%i:%s'),''),
+		DATE_FORMAT(updated_at,'%Y-%m-%d %H:%i:%s')
+		FROM plugin_webhook_secrets WHERE id=? LIMIT 1`, id).
+		Scan(&it.ID, &it.PluginCode, &it.TargetURL, &it.SecretRef, &it.SecretCiphertext, &it.SecretHash, &it.Version, &it.Status,
+			&it.RotationGroup, &it.PreviousSecretRef, &it.ActiveFrom, &it.ActiveUntil, &it.GraceUntil, &it.CreatedBy, &it.CreatedAt,
+			&it.RotatedAt, &it.RevokedAt, &it.LastUsedAt, &it.UpdatedAt)
+	if err != nil {
+		return domain.PluginWebhookSecret{}, false
+	}
+	return it, true
+}
+
+func (s *MySQLStore) PluginWebhookSecretByRef(secretRef string) (domain.PluginWebhookSecret, bool) {
+	secretRef = strings.TrimSpace(secretRef)
+	if secretRef == "" {
+		return domain.PluginWebhookSecret{}, false
+	}
+	var it domain.PluginWebhookSecret
+	err := s.db.QueryRow(`SELECT id, plugin_code, target_url, secret_ref, secret_ciphertext, secret_hash, version, status,
+		COALESCE(rotation_group,''), COALESCE(previous_secret_ref,''),
+		COALESCE(DATE_FORMAT(active_from,'%Y-%m-%d %H:%i:%s'),''), COALESCE(DATE_FORMAT(active_until,'%Y-%m-%d %H:%i:%s'),''), COALESCE(DATE_FORMAT(grace_until,'%Y-%m-%d %H:%i:%s'),''),
+		created_by, DATE_FORMAT(created_at,'%Y-%m-%d %H:%i:%s'),
+		COALESCE(DATE_FORMAT(rotated_at,'%Y-%m-%d %H:%i:%s'),''), COALESCE(DATE_FORMAT(revoked_at,'%Y-%m-%d %H:%i:%s'),''), COALESCE(DATE_FORMAT(last_used_at,'%Y-%m-%d %H:%i:%s'),''),
+		DATE_FORMAT(updated_at,'%Y-%m-%d %H:%i:%s')
+		FROM plugin_webhook_secrets WHERE secret_ref=? LIMIT 1`, secretRef).
+		Scan(&it.ID, &it.PluginCode, &it.TargetURL, &it.SecretRef, &it.SecretCiphertext, &it.SecretHash, &it.Version, &it.Status,
+			&it.RotationGroup, &it.PreviousSecretRef, &it.ActiveFrom, &it.ActiveUntil, &it.GraceUntil, &it.CreatedBy, &it.CreatedAt,
+			&it.RotatedAt, &it.RevokedAt, &it.LastUsedAt, &it.UpdatedAt)
+	if err != nil {
+		return domain.PluginWebhookSecret{}, false
+	}
+	return it, true
+}
+
+func (s *MySQLStore) PluginWebhookSecrets(filter domain.PluginWebhookSecretFilter) ([]domain.PluginWebhookSecret, int, error) {
+	filter = filter.Normalize()
+	where := []string{"1=1"}
+	args := []any{}
+	if filter.PluginCode != "" {
+		where = append(where, "plugin_code=?")
+		args = append(args, filter.PluginCode)
+	}
+	if filter.Status != "" && filter.Status != "all" {
+		where = append(where, "status=?")
+		args = append(args, filter.Status)
+	}
+	if filter.SecretRef != "" {
+		where = append(where, "secret_ref=?")
+		args = append(args, filter.SecretRef)
+	}
+	whereSQL := strings.Join(where, " AND ")
+	var total int
+	if err := s.db.QueryRow("SELECT COUNT(*) FROM plugin_webhook_secrets WHERE "+whereSQL, args...).Scan(&total); err != nil {
+		return nil, 0, err
+	}
+	offset := (filter.Page - 1) * filter.PageSize
+	args2 := append(append([]any{}, args...), filter.PageSize, offset)
+	rows, err := s.db.Query(`SELECT id, plugin_code, target_url, secret_ref, secret_ciphertext, secret_hash, version, status,
+		COALESCE(rotation_group,''), COALESCE(previous_secret_ref,''),
+		COALESCE(DATE_FORMAT(active_from,'%Y-%m-%d %H:%i:%s'),''), COALESCE(DATE_FORMAT(active_until,'%Y-%m-%d %H:%i:%s'),''), COALESCE(DATE_FORMAT(grace_until,'%Y-%m-%d %H:%i:%s'),''),
+		created_by, DATE_FORMAT(created_at,'%Y-%m-%d %H:%i:%s'),
+		COALESCE(DATE_FORMAT(rotated_at,'%Y-%m-%d %H:%i:%s'),''), COALESCE(DATE_FORMAT(revoked_at,'%Y-%m-%d %H:%i:%s'),''), COALESCE(DATE_FORMAT(last_used_at,'%Y-%m-%d %H:%i:%s'),''),
+		DATE_FORMAT(updated_at,'%Y-%m-%d %H:%i:%s')
+		FROM plugin_webhook_secrets WHERE `+whereSQL+` ORDER BY id DESC LIMIT ? OFFSET ?`, args2...)
+	if err != nil {
+		return nil, 0, err
+	}
+	defer rows.Close()
+	out := []domain.PluginWebhookSecret{}
+	for rows.Next() {
+		var it domain.PluginWebhookSecret
+		if err := rows.Scan(&it.ID, &it.PluginCode, &it.TargetURL, &it.SecretRef, &it.SecretCiphertext, &it.SecretHash, &it.Version, &it.Status,
+			&it.RotationGroup, &it.PreviousSecretRef, &it.ActiveFrom, &it.ActiveUntil, &it.GraceUntil, &it.CreatedBy, &it.CreatedAt,
+			&it.RotatedAt, &it.RevokedAt, &it.LastUsedAt, &it.UpdatedAt); err != nil {
+			return nil, 0, err
+		}
+		out = append(out, it)
+	}
+	return out, total, nil
+}
+
+func (s *MySQLStore) ActivePluginWebhookSecret(pluginCode, targetURL string) (domain.PluginWebhookSecret, bool) {
+	pluginCode = strings.TrimSpace(pluginCode)
+	targetURL = strings.TrimSpace(targetURL)
+	var it domain.PluginWebhookSecret
+	err := s.db.QueryRow(`SELECT id, plugin_code, target_url, secret_ref, secret_ciphertext, secret_hash, version, status,
+		COALESCE(rotation_group,''), COALESCE(previous_secret_ref,''),
+		COALESCE(DATE_FORMAT(active_from,'%Y-%m-%d %H:%i:%s'),''), COALESCE(DATE_FORMAT(active_until,'%Y-%m-%d %H:%i:%s'),''), COALESCE(DATE_FORMAT(grace_until,'%Y-%m-%d %H:%i:%s'),''),
+		created_by, DATE_FORMAT(created_at,'%Y-%m-%d %H:%i:%s'),
+		COALESCE(DATE_FORMAT(rotated_at,'%Y-%m-%d %H:%i:%s'),''), COALESCE(DATE_FORMAT(revoked_at,'%Y-%m-%d %H:%i:%s'),''), COALESCE(DATE_FORMAT(last_used_at,'%Y-%m-%d %H:%i:%s'),''),
+		DATE_FORMAT(updated_at,'%Y-%m-%d %H:%i:%s')
+		FROM plugin_webhook_secrets WHERE plugin_code=? AND target_url=? AND status=? ORDER BY id DESC LIMIT 1`,
+		pluginCode, targetURL, domain.PluginWebhookSecretStatusActive).
+		Scan(&it.ID, &it.PluginCode, &it.TargetURL, &it.SecretRef, &it.SecretCiphertext, &it.SecretHash, &it.Version, &it.Status,
+			&it.RotationGroup, &it.PreviousSecretRef, &it.ActiveFrom, &it.ActiveUntil, &it.GraceUntil, &it.CreatedBy, &it.CreatedAt,
+			&it.RotatedAt, &it.RevokedAt, &it.LastUsedAt, &it.UpdatedAt)
+	if err != nil {
+		return domain.PluginWebhookSecret{}, false
+	}
+	return it, true
+}
+
+func (s *MySQLStore) PreviousPluginWebhookSecret(pluginCode, targetURL string) (domain.PluginWebhookSecret, bool) {
+	pluginCode = strings.TrimSpace(pluginCode)
+	targetURL = strings.TrimSpace(targetURL)
+	var it domain.PluginWebhookSecret
+	err := s.db.QueryRow(`SELECT id, plugin_code, target_url, secret_ref, secret_ciphertext, secret_hash, version, status,
+		COALESCE(rotation_group,''), COALESCE(previous_secret_ref,''),
+		COALESCE(DATE_FORMAT(active_from,'%Y-%m-%d %H:%i:%s'),''), COALESCE(DATE_FORMAT(active_until,'%Y-%m-%d %H:%i:%s'),''), COALESCE(DATE_FORMAT(grace_until,'%Y-%m-%d %H:%i:%s'),''),
+		created_by, DATE_FORMAT(created_at,'%Y-%m-%d %H:%i:%s'),
+		COALESCE(DATE_FORMAT(rotated_at,'%Y-%m-%d %H:%i:%s'),''), COALESCE(DATE_FORMAT(revoked_at,'%Y-%m-%d %H:%i:%s'),''), COALESCE(DATE_FORMAT(last_used_at,'%Y-%m-%d %H:%i:%s'),''),
+		DATE_FORMAT(updated_at,'%Y-%m-%d %H:%i:%s')
+		FROM plugin_webhook_secrets WHERE plugin_code=? AND target_url=? AND status=? ORDER BY id DESC LIMIT 1`,
+		pluginCode, targetURL, domain.PluginWebhookSecretStatusPrevious).
+		Scan(&it.ID, &it.PluginCode, &it.TargetURL, &it.SecretRef, &it.SecretCiphertext, &it.SecretHash, &it.Version, &it.Status,
+			&it.RotationGroup, &it.PreviousSecretRef, &it.ActiveFrom, &it.ActiveUntil, &it.GraceUntil, &it.CreatedBy, &it.CreatedAt,
+			&it.RotatedAt, &it.RevokedAt, &it.LastUsedAt, &it.UpdatedAt)
+	if err != nil {
+		return domain.PluginWebhookSecret{}, false
+	}
+	return it, true
+}
+
+func (s *MySQLStore) LatestPluginWebhookSecretForTarget(pluginCode, targetURL string) (domain.PluginWebhookSecret, bool) {
+	pluginCode = strings.TrimSpace(pluginCode)
+	targetURL = strings.TrimSpace(targetURL)
+	var it domain.PluginWebhookSecret
+	err := s.db.QueryRow(`SELECT id, plugin_code, target_url, secret_ref, secret_ciphertext, secret_hash, version, status,
+		COALESCE(rotation_group,''), COALESCE(previous_secret_ref,''),
+		COALESCE(DATE_FORMAT(active_from,'%Y-%m-%d %H:%i:%s'),''), COALESCE(DATE_FORMAT(active_until,'%Y-%m-%d %H:%i:%s'),''), COALESCE(DATE_FORMAT(grace_until,'%Y-%m-%d %H:%i:%s'),''),
+		created_by, DATE_FORMAT(created_at,'%Y-%m-%d %H:%i:%s'),
+		COALESCE(DATE_FORMAT(rotated_at,'%Y-%m-%d %H:%i:%s'),''), COALESCE(DATE_FORMAT(revoked_at,'%Y-%m-%d %H:%i:%s'),''), COALESCE(DATE_FORMAT(last_used_at,'%Y-%m-%d %H:%i:%s'),''),
+		DATE_FORMAT(updated_at,'%Y-%m-%d %H:%i:%s')
+		FROM plugin_webhook_secrets WHERE plugin_code=? AND target_url=? ORDER BY id DESC LIMIT 1`,
+		pluginCode, targetURL).
+		Scan(&it.ID, &it.PluginCode, &it.TargetURL, &it.SecretRef, &it.SecretCiphertext, &it.SecretHash, &it.Version, &it.Status,
+			&it.RotationGroup, &it.PreviousSecretRef, &it.ActiveFrom, &it.ActiveUntil, &it.GraceUntil, &it.CreatedBy, &it.CreatedAt,
+			&it.RotatedAt, &it.RevokedAt, &it.LastUsedAt, &it.UpdatedAt)
+	if err != nil {
+		return domain.PluginWebhookSecret{}, false
+	}
+	return it, true
+}
+
+func (s *MySQLStore) AppendWebhookEvent(record domain.WebhookEvent) (domain.WebhookEvent, error) {
+	record.EventID = strings.TrimSpace(record.EventID)
+	record.PluginCode = strings.TrimSpace(record.PluginCode)
+	record.HookName = strings.TrimSpace(record.HookName)
+	if record.EventID == "" || record.PluginCode == "" {
+		return domain.WebhookEvent{}, errors.New("event_id 和 plugin_code 不能为空")
+	}
+	if strings.TrimSpace(record.Status) == "" {
+		record.Status = domain.WebhookEventStatusPending
+	}
+	res, err := s.db.Exec(`INSERT INTO webhook_events
+		(event_id, event_name, event_type, plugin_code, hook_name, mode, community_id, actor_type, actor_id, resource_type, resource_id, request_id,
+		 payload_json, metadata_json, status, occurred_at, created_at, updated_at)
+		VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,COALESCE(?,NOW()),NOW())
+		ON DUPLICATE KEY UPDATE updated_at=NOW()`,
+		record.EventID, record.EventName, record.EventType, record.PluginCode, record.HookName, record.Mode, record.CommunityID, record.ActorType, record.ActorID, record.ResourceType, record.ResourceID, record.RequestID,
+		nullJSONString(record.PayloadJSON), nullJSONString(record.MetadataJSON), record.Status, nullTime(record.OccurredAt), nullTime(record.CreatedAt))
+	if err != nil {
+		return domain.WebhookEvent{}, err
+	}
+	if id, _ := res.LastInsertId(); id > 0 {
+		out, _ := s.WebhookEventByID(id)
+		return out, nil
+	}
+	// duplicated insert, fallback to fetch by event_id
+	var out domain.WebhookEvent
+	err = s.db.QueryRow(`SELECT id, event_id, event_name, event_type, plugin_code, hook_name, mode, community_id, actor_type, actor_id, resource_type, resource_id, request_id,
+		COALESCE(CAST(payload_json AS CHAR),''), COALESCE(CAST(metadata_json AS CHAR),''), status,
+		COALESCE(DATE_FORMAT(occurred_at,'%Y-%m-%d %H:%i:%s'),''), DATE_FORMAT(created_at,'%Y-%m-%d %H:%i:%s'), DATE_FORMAT(updated_at,'%Y-%m-%d %H:%i:%s')
+		FROM webhook_events WHERE event_id=? LIMIT 1`, record.EventID).
+		Scan(&out.ID, &out.EventID, &out.EventName, &out.EventType, &out.PluginCode, &out.HookName, &out.Mode, &out.CommunityID, &out.ActorType, &out.ActorID, &out.ResourceType, &out.ResourceID, &out.RequestID,
+			&out.PayloadJSON, &out.MetadataJSON, &out.Status, &out.OccurredAt, &out.CreatedAt, &out.UpdatedAt)
+	if err != nil {
+		return domain.WebhookEvent{}, err
+	}
+	return out, nil
+}
+
+func (s *MySQLStore) SaveWebhookEvent(record domain.WebhookEvent) (domain.WebhookEvent, error) {
+	if record.ID <= 0 {
+		return s.AppendWebhookEvent(record)
+	}
+	record.EventID = strings.TrimSpace(record.EventID)
+	record.PluginCode = strings.TrimSpace(record.PluginCode)
+	record.HookName = strings.TrimSpace(record.HookName)
+	if record.EventID == "" || record.PluginCode == "" {
+		return domain.WebhookEvent{}, errors.New("event_id 和 plugin_code 不能为空")
+	}
+	if strings.TrimSpace(record.Status) == "" {
+		record.Status = domain.WebhookEventStatusPending
+	}
+	_, err := s.db.Exec(`UPDATE webhook_events SET
+		event_id=?, event_name=?, event_type=?, plugin_code=?, hook_name=?, mode=?, community_id=?, actor_type=?, actor_id=?, resource_type=?, resource_id=?, request_id=?,
+		payload_json=?, metadata_json=?, status=?, occurred_at=?, created_at=COALESCE(?, created_at), updated_at=NOW()
+		WHERE id=?`,
+		record.EventID, record.EventName, record.EventType, record.PluginCode, record.HookName, record.Mode, record.CommunityID, record.ActorType, record.ActorID, record.ResourceType, record.ResourceID, record.RequestID,
+		nullJSONString(record.PayloadJSON), nullJSONString(record.MetadataJSON), record.Status, nullTime(record.OccurredAt), nullTime(record.CreatedAt), record.ID)
+	if err != nil {
+		return domain.WebhookEvent{}, err
+	}
+	out, _ := s.WebhookEventByID(record.ID)
+	return out, nil
+}
+
+func (s *MySQLStore) WebhookEventByID(id int64) (domain.WebhookEvent, bool) {
+	var it domain.WebhookEvent
+	err := s.db.QueryRow(`SELECT id, event_id, event_name, event_type, plugin_code, hook_name, mode, community_id, actor_type, actor_id, resource_type, resource_id, request_id,
+		COALESCE(CAST(payload_json AS CHAR),''), COALESCE(CAST(metadata_json AS CHAR),''), status,
+		COALESCE(DATE_FORMAT(occurred_at,'%Y-%m-%d %H:%i:%s'),''), DATE_FORMAT(created_at,'%Y-%m-%d %H:%i:%s'), DATE_FORMAT(updated_at,'%Y-%m-%d %H:%i:%s')
+		FROM webhook_events WHERE id=? LIMIT 1`, id).
+		Scan(&it.ID, &it.EventID, &it.EventName, &it.EventType, &it.PluginCode, &it.HookName, &it.Mode, &it.CommunityID, &it.ActorType, &it.ActorID, &it.ResourceType, &it.ResourceID, &it.RequestID,
+			&it.PayloadJSON, &it.MetadataJSON, &it.Status, &it.OccurredAt, &it.CreatedAt, &it.UpdatedAt)
+	if err != nil {
+		return domain.WebhookEvent{}, false
+	}
+	return it, true
+}
+
+func (s *MySQLStore) WebhookEvents(filter domain.WebhookEventFilter) ([]domain.WebhookEvent, int, error) {
+	filter = filter.Normalize()
+	where := []string{"1=1"}
+	args := []any{}
+	if filter.PluginCode != "" {
+		where = append(where, "plugin_code=?")
+		args = append(args, filter.PluginCode)
+	}
+	if filter.HookName != "" {
+		where = append(where, "hook_name=?")
+		args = append(args, filter.HookName)
+	}
+	if filter.Mode != "" {
+		where = append(where, "mode=?")
+		args = append(args, filter.Mode)
+	}
+	if filter.Status != "" && filter.Status != "all" {
+		where = append(where, "status=?")
+		args = append(args, filter.Status)
+	}
+	if filter.CommunityID > 0 {
+		where = append(where, "community_id=?")
+		args = append(args, filter.CommunityID)
+	}
+	if filter.ActorType != "" {
+		where = append(where, "actor_type=?")
+		args = append(args, filter.ActorType)
+	}
+	if filter.ActorID > 0 {
+		where = append(where, "actor_id=?")
+		args = append(args, filter.ActorID)
+	}
+	if filter.RequestID != "" {
+		where = append(where, "request_id=?")
+		args = append(args, filter.RequestID)
+	}
+	whereSQL := strings.Join(where, " AND ")
+	var total int
+	if err := s.db.QueryRow("SELECT COUNT(*) FROM webhook_events WHERE "+whereSQL, args...).Scan(&total); err != nil {
+		return nil, 0, err
+	}
+	offset := (filter.Page - 1) * filter.PageSize
+	args2 := append(append([]any{}, args...), filter.PageSize, offset)
+	rows, err := s.db.Query(`SELECT id, event_id, event_name, event_type, plugin_code, hook_name, mode, community_id, actor_type, actor_id, resource_type, resource_id, request_id,
+		COALESCE(CAST(payload_json AS CHAR),''), COALESCE(CAST(metadata_json AS CHAR),''), status,
+		COALESCE(DATE_FORMAT(occurred_at,'%Y-%m-%d %H:%i:%s'),''), DATE_FORMAT(created_at,'%Y-%m-%d %H:%i:%s'), DATE_FORMAT(updated_at,'%Y-%m-%d %H:%i:%s')
+		FROM webhook_events WHERE `+whereSQL+` ORDER BY id DESC LIMIT ? OFFSET ?`, args2...)
+	if err != nil {
+		return nil, 0, err
+	}
+	defer rows.Close()
+	out := []domain.WebhookEvent{}
+	for rows.Next() {
+		var it domain.WebhookEvent
+		if err := rows.Scan(&it.ID, &it.EventID, &it.EventName, &it.EventType, &it.PluginCode, &it.HookName, &it.Mode, &it.CommunityID, &it.ActorType, &it.ActorID, &it.ResourceType, &it.ResourceID, &it.RequestID,
+			&it.PayloadJSON, &it.MetadataJSON, &it.Status, &it.OccurredAt, &it.CreatedAt, &it.UpdatedAt); err != nil {
+			return nil, 0, err
+		}
+		out = append(out, it)
+	}
+	return out, total, nil
+}
+
+func (s *MySQLStore) AppendWebhookDelivery(record domain.WebhookDelivery) (domain.WebhookDelivery, error) {
+	record.DeliveryID = strings.TrimSpace(record.DeliveryID)
+	record.EventID = strings.TrimSpace(record.EventID)
+	record.PluginCode = strings.TrimSpace(record.PluginCode)
+	record.HookName = strings.TrimSpace(record.HookName)
+	record.TargetURL = strings.TrimSpace(record.TargetURL)
+	if record.DeliveryID == "" || record.EventID == "" || record.PluginCode == "" || record.TargetURL == "" {
+		return domain.WebhookDelivery{}, errors.New("delivery_id/event_id/plugin_code/target_url 不能为空")
+	}
+	if strings.TrimSpace(record.Status) == "" {
+		record.Status = domain.WebhookDeliveryStatusPending
+	}
+	if record.Attempt <= 0 {
+		record.Attempt = 1
+	}
+	if record.MaxAttempts <= 0 {
+		record.MaxAttempts = 5
+	}
+	res, err := s.db.Exec(`INSERT INTO webhook_deliveries
+		(delivery_id, event_id, plugin_code, hook_name, target_url, status, attempt, max_attempts,
+		 signature_alg, secret_ref, body_sha256, signature_status, signed_at, signature_error,
+		 next_retry_at, retry_reason, request_headers_json, request_body_sha256,
+		 response_status, response_body_excerpt, error_message, duration_ms, started_at, finished_at, created_at, updated_at)
+		VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,COALESCE(?,NOW()),NOW())
+		ON DUPLICATE KEY UPDATE updated_at=NOW()`,
+		record.DeliveryID, record.EventID, record.PluginCode, record.HookName, record.TargetURL, record.Status, record.Attempt, record.MaxAttempts,
+		record.SignatureAlg, record.SecretRef, record.BodySHA256, record.SignatureStatus, nullTime(record.SignedAt), record.SignatureError,
+		nullTime(record.NextRetryAt), record.RetryReason, nullJSONString(record.RequestHeadersJSON), record.RequestBodySHA256,
+		record.ResponseStatus, record.ResponseBodyExcerpt, record.ErrorMessage, record.DurationMS, nullTime(record.StartedAt), nullTime(record.FinishedAt), nullTime(record.CreatedAt))
+	if err != nil {
+		return domain.WebhookDelivery{}, err
+	}
+	if id, _ := res.LastInsertId(); id > 0 {
+		out, _ := s.WebhookDeliveryByID(id)
+		return out, nil
+	}
+	var out domain.WebhookDelivery
+	err = s.db.QueryRow(`SELECT id, delivery_id, event_id, plugin_code, hook_name, target_url, status, attempt, max_attempts,
+		COALESCE(signature_alg,''), COALESCE(secret_ref,''), COALESCE(body_sha256,''), COALESCE(signature_status,''), COALESCE(DATE_FORMAT(signed_at,'%Y-%m-%d %H:%i:%s'),''), COALESCE(signature_error,''),
+		COALESCE(DATE_FORMAT(next_retry_at,'%Y-%m-%d %H:%i:%s'),''), COALESCE(retry_reason,''), COALESCE(CAST(request_headers_json AS CHAR),''),
+		COALESCE(request_body_sha256,''), response_status, COALESCE(response_body_excerpt,''), COALESCE(error_message,''), duration_ms,
+		COALESCE(DATE_FORMAT(started_at,'%Y-%m-%d %H:%i:%s'),''), COALESCE(DATE_FORMAT(finished_at,'%Y-%m-%d %H:%i:%s'),''),
+		DATE_FORMAT(created_at,'%Y-%m-%d %H:%i:%s'), DATE_FORMAT(updated_at,'%Y-%m-%d %H:%i:%s')
+		FROM webhook_deliveries WHERE delivery_id=? LIMIT 1`, record.DeliveryID).
+		Scan(&out.ID, &out.DeliveryID, &out.EventID, &out.PluginCode, &out.HookName, &out.TargetURL, &out.Status, &out.Attempt, &out.MaxAttempts,
+			&out.SignatureAlg, &out.SecretRef, &out.BodySHA256, &out.SignatureStatus, &out.SignedAt, &out.SignatureError,
+			&out.NextRetryAt, &out.RetryReason, &out.RequestHeadersJSON, &out.RequestBodySHA256, &out.ResponseStatus, &out.ResponseBodyExcerpt, &out.ErrorMessage, &out.DurationMS,
+			&out.StartedAt, &out.FinishedAt, &out.CreatedAt, &out.UpdatedAt)
+	if err != nil {
+		return domain.WebhookDelivery{}, err
+	}
+	return out, nil
+}
+
+func (s *MySQLStore) SaveWebhookDelivery(record domain.WebhookDelivery) (domain.WebhookDelivery, error) {
+	if record.ID <= 0 {
+		return s.AppendWebhookDelivery(record)
+	}
+	record.DeliveryID = strings.TrimSpace(record.DeliveryID)
+	record.EventID = strings.TrimSpace(record.EventID)
+	record.PluginCode = strings.TrimSpace(record.PluginCode)
+	record.HookName = strings.TrimSpace(record.HookName)
+	record.TargetURL = strings.TrimSpace(record.TargetURL)
+	if record.DeliveryID == "" || record.EventID == "" || record.PluginCode == "" || record.TargetURL == "" {
+		return domain.WebhookDelivery{}, errors.New("delivery_id/event_id/plugin_code/target_url 不能为空")
+	}
+	if strings.TrimSpace(record.Status) == "" {
+		record.Status = domain.WebhookDeliveryStatusPending
+	}
+	if record.Attempt <= 0 {
+		record.Attempt = 1
+	}
+	if record.MaxAttempts <= 0 {
+		record.MaxAttempts = 5
+	}
+	_, err := s.db.Exec(`UPDATE webhook_deliveries SET
+		delivery_id=?, event_id=?, plugin_code=?, hook_name=?, target_url=?, status=?, attempt=?, max_attempts=?,
+		signature_alg=?, secret_ref=?, body_sha256=?, signature_status=?, signed_at=?, signature_error=?,
+		next_retry_at=?, retry_reason=?, request_headers_json=?, request_body_sha256=?, response_status=?, response_body_excerpt=?, error_message=?, duration_ms=?,
+		started_at=?, finished_at=?, created_at=COALESCE(?, created_at), updated_at=NOW()
+		WHERE id=?`,
+		record.DeliveryID, record.EventID, record.PluginCode, record.HookName, record.TargetURL, record.Status, record.Attempt, record.MaxAttempts,
+		record.SignatureAlg, record.SecretRef, record.BodySHA256, record.SignatureStatus, nullTime(record.SignedAt), record.SignatureError,
+		nullTime(record.NextRetryAt), record.RetryReason, nullJSONString(record.RequestHeadersJSON), record.RequestBodySHA256,
+		record.ResponseStatus, record.ResponseBodyExcerpt, record.ErrorMessage, record.DurationMS,
+		nullTime(record.StartedAt), nullTime(record.FinishedAt), nullTime(record.CreatedAt), record.ID)
+	if err != nil {
+		return domain.WebhookDelivery{}, err
+	}
+	out, _ := s.WebhookDeliveryByID(record.ID)
+	return out, nil
+}
+
+func (s *MySQLStore) TryMarkWebhookDeliveryStatus(id int64, fromStatus, toStatus string) (bool, error) {
+	fromStatus = strings.TrimSpace(fromStatus)
+	toStatus = strings.TrimSpace(toStatus)
+	if id <= 0 || fromStatus == "" || toStatus == "" {
+		return false, errors.New("invalid args")
+	}
+	res, err := s.db.Exec(`UPDATE webhook_deliveries SET status=?, updated_at=NOW() WHERE id=? AND status=?`, toStatus, id, fromStatus)
+	if err != nil {
+		return false, err
+	}
+	aff, _ := res.RowsAffected()
+	return aff == 1, nil
+}
+
+func (s *MySQLStore) WebhookDeliveryByID(id int64) (domain.WebhookDelivery, bool) {
+	var it domain.WebhookDelivery
+	err := s.db.QueryRow(`SELECT id, delivery_id, event_id, plugin_code, hook_name, target_url, status, attempt, max_attempts,
+		COALESCE(signature_alg,''), COALESCE(secret_ref,''), COALESCE(body_sha256,''), COALESCE(signature_status,''), COALESCE(DATE_FORMAT(signed_at,'%Y-%m-%d %H:%i:%s'),''), COALESCE(signature_error,''),
+		COALESCE(DATE_FORMAT(next_retry_at,'%Y-%m-%d %H:%i:%s'),''), COALESCE(retry_reason,''), COALESCE(CAST(request_headers_json AS CHAR),''),
+		COALESCE(request_body_sha256,''), response_status, COALESCE(response_body_excerpt,''), COALESCE(error_message,''), duration_ms,
+		COALESCE(DATE_FORMAT(started_at,'%Y-%m-%d %H:%i:%s'),''), COALESCE(DATE_FORMAT(finished_at,'%Y-%m-%d %H:%i:%s'),''),
+		DATE_FORMAT(created_at,'%Y-%m-%d %H:%i:%s'), DATE_FORMAT(updated_at,'%Y-%m-%d %H:%i:%s')
+		FROM webhook_deliveries WHERE id=? LIMIT 1`, id).
+		Scan(&it.ID, &it.DeliveryID, &it.EventID, &it.PluginCode, &it.HookName, &it.TargetURL, &it.Status, &it.Attempt, &it.MaxAttempts,
+			&it.SignatureAlg, &it.SecretRef, &it.BodySHA256, &it.SignatureStatus, &it.SignedAt, &it.SignatureError,
+			&it.NextRetryAt, &it.RetryReason, &it.RequestHeadersJSON, &it.RequestBodySHA256, &it.ResponseStatus, &it.ResponseBodyExcerpt, &it.ErrorMessage, &it.DurationMS,
+			&it.StartedAt, &it.FinishedAt, &it.CreatedAt, &it.UpdatedAt)
+	if err != nil {
+		return domain.WebhookDelivery{}, false
+	}
+	return it, true
+}
+
+func (s *MySQLStore) WebhookDeliveries(filter domain.WebhookDeliveryFilter) ([]domain.WebhookDelivery, int, error) {
+	filter = filter.Normalize()
+	where := []string{"1=1"}
+	args := []any{}
+	if filter.PluginCode != "" {
+		where = append(where, "plugin_code=?")
+		args = append(args, filter.PluginCode)
+	}
+	if filter.HookName != "" {
+		where = append(where, "hook_name=?")
+		args = append(args, filter.HookName)
+	}
+	if filter.Status != "" && filter.Status != "all" {
+		where = append(where, "status=?")
+		args = append(args, filter.Status)
+	}
+	if filter.EventID != "" {
+		where = append(where, "event_id=?")
+		args = append(args, filter.EventID)
+	}
+	if filter.DeliveryID != "" {
+		where = append(where, "delivery_id=?")
+		args = append(args, filter.DeliveryID)
+	}
+	whereSQL := strings.Join(where, " AND ")
+	var total int
+	if err := s.db.QueryRow("SELECT COUNT(*) FROM webhook_deliveries WHERE "+whereSQL, args...).Scan(&total); err != nil {
+		return nil, 0, err
+	}
+	offset := (filter.Page - 1) * filter.PageSize
+	args2 := append(append([]any{}, args...), filter.PageSize, offset)
+	rows, err := s.db.Query(`SELECT id, delivery_id, event_id, plugin_code, hook_name, target_url, status, attempt, max_attempts,
+		COALESCE(signature_alg,''), COALESCE(secret_ref,''), COALESCE(body_sha256,''), COALESCE(signature_status,''), COALESCE(DATE_FORMAT(signed_at,'%Y-%m-%d %H:%i:%s'),''), COALESCE(signature_error,''),
+		COALESCE(DATE_FORMAT(next_retry_at,'%Y-%m-%d %H:%i:%s'),''), COALESCE(retry_reason,''), COALESCE(CAST(request_headers_json AS CHAR),''),
+		COALESCE(request_body_sha256,''), response_status, COALESCE(response_body_excerpt,''), COALESCE(error_message,''), duration_ms,
+		COALESCE(DATE_FORMAT(started_at,'%Y-%m-%d %H:%i:%s'),''), COALESCE(DATE_FORMAT(finished_at,'%Y-%m-%d %H:%i:%s'),''),
+		DATE_FORMAT(created_at,'%Y-%m-%d %H:%i:%s'), DATE_FORMAT(updated_at,'%Y-%m-%d %H:%i:%s')
+		FROM webhook_deliveries WHERE `+whereSQL+` ORDER BY id DESC LIMIT ? OFFSET ?`, args2...)
+	if err != nil {
+		return nil, 0, err
+	}
+	defer rows.Close()
+	out := []domain.WebhookDelivery{}
+	for rows.Next() {
+		var it domain.WebhookDelivery
+		if err := rows.Scan(&it.ID, &it.DeliveryID, &it.EventID, &it.PluginCode, &it.HookName, &it.TargetURL, &it.Status, &it.Attempt, &it.MaxAttempts,
+			&it.SignatureAlg, &it.SecretRef, &it.BodySHA256, &it.SignatureStatus, &it.SignedAt, &it.SignatureError,
+			&it.NextRetryAt, &it.RetryReason, &it.RequestHeadersJSON, &it.RequestBodySHA256, &it.ResponseStatus, &it.ResponseBodyExcerpt, &it.ErrorMessage, &it.DurationMS,
+			&it.StartedAt, &it.FinishedAt, &it.CreatedAt, &it.UpdatedAt); err != nil {
+			return nil, 0, err
+		}
+		out = append(out, it)
+	}
+	return out, total, nil
+}
+
+func (s *MySQLStore) DueWebhookDeliveries(dueBefore string, limit int) ([]domain.WebhookDelivery, error) {
+	dueBefore = strings.TrimSpace(dueBefore)
+	if dueBefore == "" {
+		dueBefore = time.Now().Format("2006-01-02 15:04:05")
+	}
+	if limit <= 0 || limit > 200 {
+		limit = 50
+	}
+	rows, err := s.db.Query(`SELECT id, delivery_id, event_id, plugin_code, hook_name, target_url, status, attempt, max_attempts,
+		COALESCE(signature_alg,''), COALESCE(secret_ref,''), COALESCE(body_sha256,''), COALESCE(signature_status,''), COALESCE(DATE_FORMAT(signed_at,'%Y-%m-%d %H:%i:%s'),''), COALESCE(signature_error,''),
+		COALESCE(DATE_FORMAT(next_retry_at,'%Y-%m-%d %H:%i:%s'),''), COALESCE(retry_reason,''), COALESCE(CAST(request_headers_json AS CHAR),''),
+		COALESCE(request_body_sha256,''), response_status, COALESCE(response_body_excerpt,''), COALESCE(error_message,''), duration_ms,
+		COALESCE(DATE_FORMAT(started_at,'%Y-%m-%d %H:%i:%s'),''), COALESCE(DATE_FORMAT(finished_at,'%Y-%m-%d %H:%i:%s'),''),
+		DATE_FORMAT(created_at,'%Y-%m-%d %H:%i:%s'), DATE_FORMAT(updated_at,'%Y-%m-%d %H:%i:%s')
+		FROM webhook_deliveries
+		WHERE status=? AND next_retry_at IS NOT NULL AND next_retry_at <= ?
+		ORDER BY next_retry_at ASC, id ASC LIMIT ?`, domain.WebhookDeliveryStatusRetryScheduled, nullTime(dueBefore), limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := []domain.WebhookDelivery{}
+	for rows.Next() {
+		var it domain.WebhookDelivery
+		if err := rows.Scan(&it.ID, &it.DeliveryID, &it.EventID, &it.PluginCode, &it.HookName, &it.TargetURL, &it.Status, &it.Attempt, &it.MaxAttempts,
+			&it.SignatureAlg, &it.SecretRef, &it.BodySHA256, &it.SignatureStatus, &it.SignedAt, &it.SignatureError,
+			&it.NextRetryAt, &it.RetryReason, &it.RequestHeadersJSON, &it.RequestBodySHA256, &it.ResponseStatus, &it.ResponseBodyExcerpt, &it.ErrorMessage, &it.DurationMS,
+			&it.StartedAt, &it.FinishedAt, &it.CreatedAt, &it.UpdatedAt); err != nil {
+			return nil, err
+		}
+		out = append(out, it)
+	}
+	return out, nil
+}
+
+func (s *MySQLStore) UpsertWebhookCircuitBreaker(record domain.WebhookCircuitBreaker) (domain.WebhookCircuitBreaker, error) {
+	record.PluginCode = strings.TrimSpace(record.PluginCode)
+	record.TargetURL = strings.TrimSpace(record.TargetURL)
+	if record.PluginCode == "" || record.TargetURL == "" {
+		return domain.WebhookCircuitBreaker{}, errors.New("plugin_code 和 target_url 不能为空")
+	}
+	if strings.TrimSpace(record.Status) == "" {
+		record.Status = domain.WebhookCircuitBreakerStatusClosed
+	}
+	_, err := s.db.Exec(`INSERT INTO webhook_circuit_breakers
+		(plugin_code, target_url, status, failure_count, success_count, opened_at, closed_at, next_probe_at, last_error_message, last_failure_at, last_success_at, created_at, updated_at)
+		VALUES (?,?,?,?,?,?,?,?,?,?,?,COALESCE(?,NOW()),NOW())
+		ON DUPLICATE KEY UPDATE
+		status=VALUES(status), failure_count=VALUES(failure_count), success_count=VALUES(success_count),
+		opened_at=VALUES(opened_at), closed_at=VALUES(closed_at), next_probe_at=VALUES(next_probe_at),
+		last_error_message=VALUES(last_error_message), last_failure_at=VALUES(last_failure_at), last_success_at=VALUES(last_success_at),
+		updated_at=NOW()`,
+		record.PluginCode, record.TargetURL, record.Status, record.FailureCount, record.SuccessCount,
+		nullTime(record.OpenedAt), nullTime(record.ClosedAt), nullTime(record.NextProbeAt), record.LastErrorMessage, nullTime(record.LastFailureAt), nullTime(record.LastSuccessAt), nullTime(record.CreatedAt))
+	if err != nil {
+		return domain.WebhookCircuitBreaker{}, err
+	}
+	out, ok := s.WebhookCircuitBreakerByKey(record.PluginCode, record.TargetURL)
+	if ok {
+		return out, nil
+	}
+	return domain.WebhookCircuitBreaker{}, errors.New("upsert circuit breaker failed")
+}
+
+func (s *MySQLStore) WebhookCircuitBreakerByID(id int64) (domain.WebhookCircuitBreaker, bool) {
+	var it domain.WebhookCircuitBreaker
+	err := s.db.QueryRow(`SELECT id, plugin_code, target_url, status, failure_count, success_count,
+		COALESCE(DATE_FORMAT(opened_at,'%Y-%m-%d %H:%i:%s'),''), COALESCE(DATE_FORMAT(closed_at,'%Y-%m-%d %H:%i:%s'),''), COALESCE(DATE_FORMAT(next_probe_at,'%Y-%m-%d %H:%i:%s'),''),
+		COALESCE(last_error_message,''), COALESCE(DATE_FORMAT(last_failure_at,'%Y-%m-%d %H:%i:%s'),''), COALESCE(DATE_FORMAT(last_success_at,'%Y-%m-%d %H:%i:%s'),''),
+		DATE_FORMAT(created_at,'%Y-%m-%d %H:%i:%s'), DATE_FORMAT(updated_at,'%Y-%m-%d %H:%i:%s')
+		FROM webhook_circuit_breakers WHERE id=? LIMIT 1`, id).
+		Scan(&it.ID, &it.PluginCode, &it.TargetURL, &it.Status, &it.FailureCount, &it.SuccessCount,
+			&it.OpenedAt, &it.ClosedAt, &it.NextProbeAt, &it.LastErrorMessage, &it.LastFailureAt, &it.LastSuccessAt,
+			&it.CreatedAt, &it.UpdatedAt)
+	if err != nil {
+		return domain.WebhookCircuitBreaker{}, false
+	}
+	return it, true
+}
+
+func (s *MySQLStore) WebhookCircuitBreakerByKey(pluginCode, targetURL string) (domain.WebhookCircuitBreaker, bool) {
+	pluginCode = strings.TrimSpace(pluginCode)
+	targetURL = strings.TrimSpace(targetURL)
+	var it domain.WebhookCircuitBreaker
+	err := s.db.QueryRow(`SELECT id, plugin_code, target_url, status, failure_count, success_count,
+		COALESCE(DATE_FORMAT(opened_at,'%Y-%m-%d %H:%i:%s'),''), COALESCE(DATE_FORMAT(closed_at,'%Y-%m-%d %H:%i:%s'),''), COALESCE(DATE_FORMAT(next_probe_at,'%Y-%m-%d %H:%i:%s'),''),
+		COALESCE(last_error_message,''), COALESCE(DATE_FORMAT(last_failure_at,'%Y-%m-%d %H:%i:%s'),''), COALESCE(DATE_FORMAT(last_success_at,'%Y-%m-%d %H:%i:%s'),''),
+		DATE_FORMAT(created_at,'%Y-%m-%d %H:%i:%s'), DATE_FORMAT(updated_at,'%Y-%m-%d %H:%i:%s')
+		FROM webhook_circuit_breakers WHERE plugin_code=? AND target_url=? LIMIT 1`, pluginCode, targetURL).
+		Scan(&it.ID, &it.PluginCode, &it.TargetURL, &it.Status, &it.FailureCount, &it.SuccessCount,
+			&it.OpenedAt, &it.ClosedAt, &it.NextProbeAt, &it.LastErrorMessage, &it.LastFailureAt, &it.LastSuccessAt,
+			&it.CreatedAt, &it.UpdatedAt)
+	if err != nil {
+		return domain.WebhookCircuitBreaker{}, false
+	}
+	return it, true
+}
+
+func (s *MySQLStore) WebhookCircuitBreakers(filter domain.WebhookCircuitBreakerFilter) ([]domain.WebhookCircuitBreaker, int, error) {
+	filter = filter.Normalize()
+	where := []string{"1=1"}
+	args := []any{}
+	if filter.PluginCode != "" {
+		where = append(where, "plugin_code=?")
+		args = append(args, filter.PluginCode)
+	}
+	if filter.Status != "" && filter.Status != "all" {
+		where = append(where, "status=?")
+		args = append(args, filter.Status)
+	}
+	whereSQL := strings.Join(where, " AND ")
+	var total int
+	if err := s.db.QueryRow("SELECT COUNT(*) FROM webhook_circuit_breakers WHERE "+whereSQL, args...).Scan(&total); err != nil {
+		return nil, 0, err
+	}
+	offset := (filter.Page - 1) * filter.PageSize
+	args2 := append(append([]any{}, args...), filter.PageSize, offset)
+	rows, err := s.db.Query(`SELECT id, plugin_code, target_url, status, failure_count, success_count,
+		COALESCE(DATE_FORMAT(opened_at,'%Y-%m-%d %H:%i:%s'),''), COALESCE(DATE_FORMAT(closed_at,'%Y-%m-%d %H:%i:%s'),''), COALESCE(DATE_FORMAT(next_probe_at,'%Y-%m-%d %H:%i:%s'),''),
+		COALESCE(last_error_message,''), COALESCE(DATE_FORMAT(last_failure_at,'%Y-%m-%d %H:%i:%s'),''), COALESCE(DATE_FORMAT(last_success_at,'%Y-%m-%d %H:%i:%s'),''),
+		DATE_FORMAT(created_at,'%Y-%m-%d %H:%i:%s'), DATE_FORMAT(updated_at,'%Y-%m-%d %H:%i:%s')
+		FROM webhook_circuit_breakers WHERE `+whereSQL+` ORDER BY id DESC LIMIT ? OFFSET ?`, args2...)
+	if err != nil {
+		return nil, 0, err
+	}
+	defer rows.Close()
+	out := []domain.WebhookCircuitBreaker{}
+	for rows.Next() {
+		var it domain.WebhookCircuitBreaker
+		if err := rows.Scan(&it.ID, &it.PluginCode, &it.TargetURL, &it.Status, &it.FailureCount, &it.SuccessCount,
+			&it.OpenedAt, &it.ClosedAt, &it.NextProbeAt, &it.LastErrorMessage, &it.LastFailureAt, &it.LastSuccessAt, &it.CreatedAt, &it.UpdatedAt); err != nil {
+			return nil, 0, err
+		}
+		out = append(out, it)
+	}
+	return out, total, nil
+}
+
 func (s *MySQLStore) columnExists(tableName, columnName string) bool {
 	var count int
 	err := s.db.QueryRow(`SELECT COUNT(*) FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME=? AND COLUMN_NAME=?`, tableName, columnName).Scan(&count)

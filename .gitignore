@@ -51,6 +51,7 @@ web/frontend-app/test-results/
 .astro/
 
 # Runtime storage (generated at runtime / E2E)
+storage/test-sig/
 storage/plugins/uploads/
 storage/plugins/staging/
 storage/plugins/quarantine/

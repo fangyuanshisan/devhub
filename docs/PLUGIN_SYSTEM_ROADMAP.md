@@ -2,7 +2,7 @@
 
 [返回文档入口](README.md)
 
-状态：Core + 插件服务底座长期路线与当前需求分层文档。本文定义 DevHub 插件系统的目标流程、治理能力、运行时能力、审计能力和测试要求，并按当前代码事实区分已完成、收尾、下一阶段和预留能力。
+状态：Core + 插件服务底座长期路线与当前需求分层文档。本文定义 DevHub 插件系统的目标流程、治理能力、运行时能力、审计能力和测试要求，并按当前代码事实区分已完成、收尾、下一阶段和预留能力；插件运行模型详细设计见 [插件运行模型设计](PLUGIN_RUNTIME_MODEL.md)。
 
 更新时间：2026-05-15
 
@@ -10,7 +10,7 @@
 
 DevHub 的长期目标是 **Core + 插件 的开源服务底座**。Core 稳定化、插件扩展点、插件治理、插件运行模型和插件生态是后续开发主线；默认社区能力是 Core 基础能力之一，不是项目唯一边界。
 
-`VERSION` 当前为 `v1.7.1`，代码能力已进入远程插件包治理与安装安全增强阶段；在 `v1.7.0` 下载→预检→compat-check→安装→enable-precheck→enable→软卸载→升级的基础上，`v1.7.1` 进一步补齐 detached signature（`devhub-signature.json`）的 Ed25519 验签并强联动到 compat-check / install / upgrade。远程包仍不执行第三方代码或外部 SQL。
+`VERSION` 当前为 `v1.7.1`；文档设计阶段进入 `v1.7.2` 插件运行模型设计。代码能力已进入远程插件包治理与安装安全增强阶段；在 `v1.7.0` 下载→预检→compat-check→安装→enable-precheck→enable→软卸载→升级的基础上，`v1.7.1` 进一步补齐 detached signature（`devhub-signature.json`）的 Ed25519 验签并强联动到 compat-check / install / upgrade。远程包仍不执行第三方代码或外部 SQL。
 
 当前实现快照：
 
@@ -25,13 +25,51 @@ DevHub 的长期目标是 **Core + 插件 的开源服务底座**。Core 稳定�
 
 - 阶段一：插件包治理与生命周期收口。目标是完成插件包结构、manifest、checksum/signature、staging、预检、compat-check、安装、启用、软卸载、升级、审计和失败恢复。
 - 阶段二：远程插件包 staging 下载与安全校验。目标是远程索引中的包可以安全下载到本地 staging，但不自动安装、不运行、不动态加载。
-- 阶段三：插件运行模型设计。目标是明确第三方插件前端、后端、Hook、权限、配置、API 调用和安全隔离模型。
+- 阶段三：插件运行模型设计。目标是明确 Core 内置插件、外部 HTTP 服务插件、iframe / sandbox 前端插件三种运行模式，以及第三方插件前端、后端、Hook、权限、配置、API 调用和安全隔离模型。
 - 阶段四：前端插件挂载模型。目标是定义后台菜单、前台 slots、配置页面、iframe / sandbox / postMessage 等隔离边界。
 - 阶段五：HTTP 插件服务协议。目标是定义后端插件服务以独立 HTTP 服务方式运行，DevHub 通过 HookBus 和受控 API 与插件通信。
 - 阶段六：真实官方插件验证。目标是实现公告、友情链接、SEO 扩展、统计代码等官方示例插件，用真实插件反推 Core 扩展点是否可用。
 - 阶段七：插件市场 / 远程分发能力。目标是在插件包治理、运行模型和官方插件验证完成后，再推进远程分发、插件市场和第三方插件生态。
 
-下一阶段建议优先级：先补运行模型设计，再推进前端插件挂载、HTTP 插件服务协议、官方示例插件验证和远程分发能力。动态 Go 加载、脚本沙箱、第三方代码执行、完整插件市场交易 / 评分 / 评论系统继续后置。
+下一阶段建议优先级：先把 `docs/PLUGIN_RUNTIME_MODEL.md` 中的前端挂载、HTTP 插件服务协议、受控 API token 和隔离边界拆成实现任务，再推进官方示例插件验证和远程分发能力。动态 Go 加载、脚本沙箱、第三方代码执行、完整插件市场交易 / 评分 / 评论系统继续后置。
+
+v1.7.3 任务拆解补充（文档阶段）：
+
+- 已新增 Webhook / HTTP 插件服务协议的实现阶段拆解：`docs/PLUGIN_WEBHOOK_IMPLEMENTATION_PLAN.md`（non_blocking delivery 优先，blocking Hook 明确后置）。
+- 已新增官方公告插件端到端验证方案：`docs/plugins/official-announcement-plugin.md`（用于验证 delivery 记录 / 重试 / 熔断 / 审计与后台治理入口；不执行第三方代码）。
+
+下一阶段建议（实现阶段）：
+
+- v1.7.4：Webhook non_blocking delivery 最小实现（event/delivery 持久化 + 最小投递 + 最小审计 + 最小后台查看；不做 blocking、不做复杂重试、不做熔断）。
+- v1.7.5：Webhook 重试队列与熔断机制（non_blocking）。
+- v1.7.6：Webhook 签名鉴权与 Secret 轮换（发送端签名 + Secret 管理/轮换 + 最小后台治理；仍仅 non_blocking）。
+
+## v1.7.2 插件运行模型设计结论
+
+- 推荐运行模式：Core 内置插件、外部 HTTP 服务插件、前端 iframe / sandbox 插件。
+- 推荐第三方后端方式：独立 HTTP 插件服务，DevHub 通过签名请求调用插件服务，插件通过受控 Core API 回写或读取系统能力。
+- 推荐第三方前端方式：iframe / sandbox 容器挂载，配合 `postMessage` 或受控 SDK 通信；默认不直接注入第三方 JS。
+- 受控 API：插件 API token 需要绑定 `plugin_code`、`publisher_id`、`install_id`、`community_id`、`actor` 和 scopes；不能等同管理员 token。
+- 隔离边界：插件不能直接访问数据库、读取系统配置、获取用户 token / 密钥、覆盖核心路由 / 权限、绕过 enabled / community 状态或调用未授权 API。
+- 官方示例插件验证：优先公告插件或友情链接插件，再扩展 SEO 扩展、统计代码和 Webhook 通知插件。
+- 本轮为插件运行模型设计任务，主要修改文档，未修改代码，未执行测试、构建或 E2E。
+
+Webhook / HTTP 插件服务协议（设计）：
+
+- 设计文档：`docs/PLUGIN_WEBHOOK_PROTOCOL.md`。
+- 后续实现建议：先落地 non_blocking 投递（delivery 记录 + 重试队列 + 熔断），再评估可控的 blocking hook（短超时 + 明确失败策略）。
+
+v1.7.5 实现补充：
+
+- 已实现 non_blocking delivery 的治理能力增强：delivery 记录状态机、`retry_scheduled/retry_exhausted`、`next_retry_at` 调度、DB 扫描式 `retry-due`、以及 `plugin_code + target_url` 维度的熔断（`closed/open/half_open`）。
+- 已提供后台最小治理入口：插件 → 运行时治理 → Webhook 治理（Deliveries/Circuit Breakers）。
+- 仍未实现：blocking Hook、插件回调 Core API token。
+
+v1.7.6 实现补充：
+
+- 已实现 DevHub → 插件服务的 HMAC-SHA256 发送端签名（包含 `timestamp/method/path/body_sha256` signing string）。
+- 已实现 Webhook Secret 管理与轮换窗口（active/previous + grace period），Secret 明文只在创建/轮换响应中展示一次。
+- 已提供后台最小治理入口：插件 → 运行时治理 → Webhook 治理（新增 Secrets Tab），并提供对应 Admin API（`/api/v1/admin/plugins/webhooks/secrets*`）。
 
 ## 历史收尾：v1.3.5 插件治理体验与安装升级向导
 

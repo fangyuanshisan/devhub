@@ -12,6 +12,140 @@ DevHub 当前目标是 **Core + 插件 的开源服务底座**，测试体系不
 
 本轮“统一 DevHub 项目目标为 Core + 插件服务底座”为纯文档整理与项目目标统一任务，未修改代码，未执行测试、构建或 E2E。
 
+v1.7.2 插件运行模型设计任务同样为文档设计任务：主要修改文档，未修改代码，未执行测试、构建或 E2E。后续实现阶段需要新增针对 HTTP 插件服务、iframe / sandbox 挂载、受控 API token、HookBus 远程调用、权限隔离和审计的专项测试矩阵。
+
+## Webhook / HTTP 插件服务协议测试规划（设计）
+
+说明：本节是 v1.7.2 Webhook / HTTP 插件服务协议的测试规划草案，本轮不执行测试。
+
+建议覆盖：
+
+1. 签名正确投递成功（2xx）。
+2. 签名错误投递失败（401/403），并写入审计 `plugin.webhook.signature.failed`。
+3. timestamp 过期失败（防重放窗口外）。
+4. body 被篡改（body_sha256 不一致）失败。
+5. blocking hook 返回 `decision=deny` 时阻断主流程。
+6. non_blocking hook 失败不阻断主流程，但写入 delivery failed + 审计。
+7. 5xx / timeout 触发重试并记录 `retry_scheduled`。
+8. 4xx 默认不重试（除非明确允许 429）。
+9. 429 按 `Retry-After` 重试；无 `Retry-After` 时按退避策略重试。
+10. 超过最大重试次数标记 `retry_exhausted` 并写审计。
+11. `idempotency_key` 重复投递插件服务不重复处理（幂等）。
+12. 插件服务超时记录失败，包含 duration_ms 与错误码。
+13. 熔断开启后暂停投递并记录 `circuit_open/skipped`。
+14. 插件回调 Core API scope 不足时被拒绝并写审计（设计）。
+15. 插件回调写入审计 `plugin.webhook.callback.accepted/rejected`（设计）。
+
+补充（v1.7.3 文档拆解阶段）：
+
+- 实现阶段拆解见 `docs/PLUGIN_WEBHOOK_IMPLEMENTATION_PLAN.md`，第一优先级为 non_blocking delivery（不阻断主流程），blocking Hook 明确后置。
+- 官方示例插件（公告插件）端到端验证方案见 `docs/plugins/official-announcement-plugin.md`，用于后续验证 delivery 记录 / 重试 / 熔断 / 审计 / 后台治理入口（仍不执行第三方代码）。
+
+## v1.7.5：Webhook 重试队列与熔断机制（实现）
+
+说明：本节为 v1.7.5 实现轮验收清单。本轮仅治理 non_blocking delivery 的 **重试队列** 与 **熔断机制**，仍不执行第三方插件代码，仍不实现 blocking Hook。
+
+本轮检查命令说明（按最低检查要求）：
+
+- 已执行：`gofmt`、`go test ./...`、`go build`。
+- 后台构建：在当前执行环境中，`node` 缺失导致 `cd web/admin-app && npm run build` 无法执行（`vite` 不可用，且出现 Windows/UNC CMD 提示）。按 `docs/AGENT_RULES.md`，建议使用 Docker/compose 或 `scripts/check-frontend.sh --admin-only` 在具备 node 的容器环境执行并归档结果；未执行不能写成通过。
+
+1. 5xx delivery 失败后进入 `retry_scheduled`。
+2. timeout delivery 失败后进入 `retry_scheduled`。
+3. 429 delivery 根据 `Retry-After` 或默认策略进入 `retry_scheduled`。
+4. 4xx delivery 默认不重试。
+5. `retry_scheduled` 有 `next_retry_at`。
+6. 到期 delivery 可以被 `retry-due` 扫描重试。
+7. 超过 `max_attempts` 后进入 `retry_exhausted`。
+8. `retry_exhausted` 可以手动重试（记录 `manual_retry`）。
+9. `success` delivery 默认不能重复重试。
+10. 重试保持 `event_id` 稳定（不重新生成新 event_id）。
+11. 重试保持 `idempotency_key` 稳定（如当前实现未落库，需在后续任务补齐并保持稳定）。
+12. 每次 attempt 有记录（`attempt/max_attempts`）。
+13. 连续失败达到阈值后 circuit `open`。
+14. circuit `open` 后 delivery 被标记为 `circuit_open` / `skipped`。
+15. circuit `open` 后不继续打爆插件服务。
+16. 到达 `next_probe_at` 后允许 `half_open` 探测。
+17. `half_open` 成功后 circuit `closed`。
+18. `half_open` 失败后继续 `open`。
+19. 管理员可以手动恢复熔断。
+20. 熔断状态可以在后台查看。
+21. delivery 列表可以在后台查看。
+22. 手动重试可以在后台触发。
+23. 重试和熔断操作写入审计。
+24. 普通用户不能访问 Webhook 治理 API。
+25. non_blocking delivery 失败不影响 Core 主流程。
+26. disabled 插件不投递。
+27. soft_uninstalled 插件不投递。
+28. 本轮不执行第三方插件代码。
+29. 本轮不实现 blocking Hook。
+30. 不影响 `/topics/:id` SEO。
+31. 不影响 `/c/:slug` SEO。
+
+## v1.7.6：Webhook 签名鉴权与 Secret 轮换（实现）
+
+说明：本节为 v1.7.6 实现轮的轻量验收清单。本轮补齐 DevHub → 插件服务的 HMAC-SHA256 发送端签名、Secret 管理与轮换窗口，并保持 non_blocking delivery 的安全边界。
+
+1. 可以创建 Webhook Secret。
+2. 创建 Secret 时明文只返回一次。
+3. Secret 列表不返回明文。
+4. Secret 详情不返回明文。
+5. 可以禁用 Secret。
+6. disabled Secret 不能用于签名。
+7. 可以吊销 Secret。
+8. revoked Secret 不能用于签名。
+9. 可以轮换 Secret。
+10. 轮换后新 Secret 为 active。
+11. 轮换后旧 Secret 为 previous。
+12. grace period 内接收端示例可接受 previous Secret（文档/示例）。
+13. grace period 后 previous Secret 过期（expired）。
+14. 没有 active Secret 时 delivery 签名失败。
+15. 发送 Webhook 时包含签名 Header。
+16. body_sha256 与实际 body 一致。
+17. body 被篡改时接收端验签失败（文档/示例）。
+18. timestamp 过期时接收端验签失败（文档/示例）。
+19. path 不一致时验签失败（文档/示例）。
+20. method 不一致时验签失败（文档/示例）。
+21. HMAC 签名不一致时验签失败（文档/示例）。
+22. 远程 401 默认不重试。
+23. 远程 403 默认不重试。
+24. 远程 5xx 仍按重试队列处理。
+25. 远程 timeout 仍按重试队列处理。
+26. 签名生成失败写入审计（或写入 delivery signature_status，并可通过审计追踪）。
+27. Secret 创建 / 轮换 / 禁用 / 吊销写入审计。
+28. 审计不包含 Secret 明文。
+29. 后台可以查看 Secret 状态。
+30. 后台可以轮换 Secret。
+31. 官方公告插件文档包含接收端验签说明。
+32. 普通用户不能访问 Webhook Secret API。
+33. 本轮不执行第三方代码。
+34. 本轮不实现 blocking Hook。
+35. 不影响 `/topics/:id` SEO。
+36. 不影响 `/c/:slug` SEO。
+
+## v1.7.6-S1：Webhook 签名鉴权与 Secret 轮换（专项验收 / 补测 / 修缺口）
+
+说明：本节为 v1.7.6-S1 专项验收清单，用于确认 v1.7.6 的签名鉴权与 Secret 轮换真实可用，且无敏感信息泄露。本轮仍只覆盖 non_blocking Webhook。
+
+1. Webhook 请求包含签名 Header（Event/Delivery/Plugin/Timestamp/Signature/Alg/Idempotency/RequestID/BodySHA256/SecretRef）。
+2. `X-DevHub-Signature-Alg=HMAC-SHA256` 且 `X-DevHub-Signature` 为 `v1=<hex>` 格式。
+3. signing string 规则与文档一致：`timestamp.method.path.body_sha256`。
+4. `body_sha256` 与实际 body 一致，并参与签名（body 改变后验签失败）。
+5. `timestamp` 参与签名（timestamp 改变后验签失败）。
+6. `path` 与 `method` 参与签名（任一不一致验签失败）。
+7. Secret 创建接口明文只返回一次（创建成功响应包含 `secret`，列表/详情不返回）。
+8. Secret 列表/详情不返回明文，也不返回 `secret_ciphertext`。
+9. Secret 明文不进入审计、不进入日志、不进入 delivery 记录（包括 request_headers_json）。
+10. disabled Secret 不能用于签名（不会发送网络请求，delivery 标记 failed 且 `signature_status=secret_disabled`）。
+11. revoked Secret 不能用于签名（同上，`signature_status=secret_revoked`）。
+12. expired Secret 不能用于签名（同上，`signature_status=secret_expired`）。
+13. 轮换后新 Secret 为 active，旧 Secret 为 previous 并设置 grace period。
+14. grace period 到期后 previous Secret 变为 expired（可通过 sweep 或治理动作触发）。
+15. 无 active Secret 时 delivery 签名失败（`signature_status=secret_missing`）。
+16. 远端 401/403 默认不重试（不进入 `retry_scheduled`，`next_retry_at` 为空）。
+17. 远端 5xx / timeout 仍按重试队列策略调度（不属于本节新增，但需保持不退化）。
+18. request_headers_json 中 signature 被脱敏存储（`v1=[REDACTED]`），不存完整签名。
+
 ## v1.5.0 收口验收（2026-05-14）
 
 本节记录 v1.5.0 插件包治理收口后的最终验收结果，作为当前仓库“已真实跑过的检查”口径来源。

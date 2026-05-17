@@ -90,6 +90,7 @@ export const adminModuleGroups = {
         { key: 'hooks', label: 'Hook 排障', path: '/plugins/hooks', permission: 'plugin.read' },
         { key: 'navigation', label: '前台入口', path: '/plugins/navigation', permission: 'plugin.read' },
         { key: 'searchIndex', label: '搜索索引', path: '/plugins/search-index', permission: 'plugin.read' },
+        { key: 'webhooks', label: 'Webhook 治理', path: '/plugins/webhooks', permission: 'plugin.read' },
         { key: 'events', label: '事件通知', path: '/plugins/events', permission: 'plugin.read' },
       ],
     },

@@ -8,6 +8,10 @@
 
 DevHub 的长期目标是 Core + 插件服务底座。本文档当前只覆盖已实现的声明型插件契约；第三方插件前端挂载、HTTP 插件服务协议、后端隔离运行、iframe/sandbox 和受控 API 调用仍属于待设计运行模型。
 
+v1.7.2 已补充插件运行模型设计，详见 [插件运行模型设计](PLUGIN_RUNTIME_MODEL.md)。设计结论是：第三方插件优先采用外部 HTTP 服务插件和前端 iframe / sandbox 插件形态；当前 SDK 仍不包含真实第三方运行时、受控 API token、HTTP 插件服务协议实现或前端挂载 SDK。
+
+Webhook / HTTP 插件服务协议设计见 [Webhook / HTTP 插件服务协议（设计）](PLUGIN_WEBHOOK_PROTOCOL.md)。该协议仅为设计，不代表已实现投递队列、secret 管理或插件回调 token 系统。
+
 ## 插件开发边界
 
 当前支持：
@@ -65,6 +69,20 @@ DevHub 的长期目标是 Core + 插件服务底座。本文档当前只覆盖�
 - `migrations`：migration 声明；当前只支持 up/no-op 记录型边界。
 - `assets`：资产路径声明数组；当前仅校验安全路径，不动态加载前端资产。
 - `external_service`：预留字段；当前不执行远程 Webhook。
+
+### 运行模型设计字段（未实现）
+
+以下字段只作为后续运行模型设计参考，不属于当前已实现 SDK：
+
+- `runtime.type`：`internal`、`http_service`、`iframe`。
+- `runtime.health_check`：HTTP 插件服务健康检查路径。
+- `runtime.timeout_ms`：Core 调用插件服务的超时建议。
+- `frontend.mounts`：前端挂载点声明，例如 `admin.sidebar.menu`、`frontend.topic.after_content`。
+- `backend.service_url`：外部 HTTP 插件服务地址。
+- `backend.auth`：插件服务鉴权方式，例如 `signed_request`。
+- `api_scopes`：插件申请的受控 Core API scopes，例如 `content.read`、`notification.send`、`seo.extend`。
+
+这些字段需要后续 Core 实现支持后才能生效；当前 validator / install / enable 不应把它们视为已完成运行时能力。
 
 
 ## 依赖与版本兼容

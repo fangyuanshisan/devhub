@@ -4,11 +4,21 @@
 
 ### Documentation
 
+- Added v1.7.2 Webhook / HTTP plugin service protocol design (signing, replay protection, idempotency, retry, timeouts/rate limits/circuit breaker, audit, and governance planning).
+- Added v1.7.3 implementation plan for the Webhook / HTTP plugin service protocol (non-blocking delivery first, with delivery records, retry queue, circuit breaker, audit, and minimal governance UI; blocking hooks explicitly deferred).
+- Added an official example plugin plan (official announcement plugin) for end-to-end verification of non-blocking Webhook delivery without executing third-party code.
+- Added v1.7.2 plugin runtime model design, defining Core built-in plugins, external HTTP service plugins, and iframe/sandbox frontend plugins.
+- Documented frontend plugin mount slots, controlled Core API scopes, HookBus participation, runtime isolation boundaries, and manifest runtime design fields as planning-only capabilities.
 - Adjusted DevHub's project goal to a Core + plugin open-source service foundation.
 - Unified README, project progress, plugin architecture, plugin roadmap, API, testing, SEO, plugin package, remote index, SDK, template, release notes, and agent rules around the Core/plugin boundary.
 - Clarified that Core provides stable base capabilities while plugins carry business extensions, frontend/backend extension points, Hook/config/content-type integration, and ecosystem growth.
 - Clarified that default community capabilities are part of Core, not the sole project positioning.
 - Recorded this as a documentation-only task: no code changes, no tests, no builds, no E2E.
+
+### Added
+
+- Webhook governance (v1.7.5): added webhook deliveries retry scheduling (`retry_scheduled`/`retry_exhausted`, `next_retry_at`, `attempt/max_attempts`) and circuit breaker (`closed/open/half_open`) with minimal admin APIs and admin UI page. Non-blocking only; no third-party plugin code execution.
+- Webhook signing & secret rotation (v1.7.6): added HMAC-SHA256 signed webhook delivery (sender-side), persisted signature metadata on deliveries (no plaintext secret), plus admin-managed webhook secrets (create/rotate/disable/enable/revoke) with one-time secret display and a minimal admin UI tab.
 
 ## v1.7.1 (2026-05-16)
 

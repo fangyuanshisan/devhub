@@ -228,6 +228,23 @@ func NewRouter(svc *service.Service) *gin.Engine {
 			protected.GET("/plugins/config-keys/status", srv.requirePermission("plugin.manage"), srv.adminPluginConfigKeyStatus)
 			protected.POST("/plugins/config-keys/rotation/dry-run", srv.requirePermission("plugin.manage"), srv.dryRunAdminPluginConfigKeyRotation)
 			protected.POST("/plugins/config-keys/rotation/re-encrypt", srv.requirePermission("plugin.manage"), srv.reencryptAdminPluginConfigKeys)
+			// v1.7.5: webhook governance (non_blocking retry + circuit breaker).
+			protected.GET("/plugins/webhooks/deliveries", srv.requirePermission("plugin.read"), srv.listAdminWebhookDeliveries)
+			protected.GET("/plugins/webhooks/deliveries/:id", srv.requirePermission("plugin.read"), srv.adminWebhookDeliveryDetail)
+			protected.POST("/plugins/webhooks/deliveries/:id/retry", srv.requirePermission("plugin.write"), srv.retryAdminWebhookDelivery)
+			protected.POST("/plugins/webhooks/retry-due", srv.requirePermission("plugin.write"), srv.retryDueAdminWebhookDeliveries)
+			protected.GET("/plugins/webhooks/circuit-breakers", srv.requirePermission("plugin.read"), srv.listAdminWebhookCircuitBreakers)
+			protected.GET("/plugins/webhooks/circuit-breakers/:id", srv.requirePermission("plugin.read"), srv.adminWebhookCircuitBreakerDetail)
+			protected.POST("/plugins/webhooks/circuit-breakers/:id/close", srv.requirePermission("plugin.manage"), srv.closeAdminWebhookCircuitBreaker)
+			protected.POST("/plugins/webhooks/circuit-breakers/:id/open", srv.requirePermission("plugin.manage"), srv.openAdminWebhookCircuitBreaker)
+			// v1.7.6: webhook signing + secret rotation (admin only).
+			protected.GET("/plugins/webhooks/secrets", srv.requirePermission("plugin.read"), srv.listAdminWebhookSecrets)
+			protected.GET("/plugins/webhooks/secrets/:id", srv.requirePermission("plugin.read"), srv.adminWebhookSecretDetail)
+			protected.POST("/plugins/webhooks/secrets", srv.requirePermission("plugin.manage"), srv.createAdminWebhookSecret)
+			protected.POST("/plugins/webhooks/secrets/:id/rotate", srv.requirePermission("plugin.manage"), srv.rotateAdminWebhookSecret)
+			protected.POST("/plugins/webhooks/secrets/:id/disable", srv.requirePermission("plugin.manage"), srv.disableAdminWebhookSecret)
+			protected.POST("/plugins/webhooks/secrets/:id/enable", srv.requirePermission("plugin.manage"), srv.enableAdminWebhookSecret)
+			protected.POST("/plugins/webhooks/secrets/:id/revoke", srv.requirePermission("plugin.manage"), srv.revokeAdminWebhookSecret)
 			protected.POST("/plugins/:code/rollback/dry-run", srv.requirePermission("plugin.manage"), srv.rollbackDryRunAdminPluginUpgrade)
 			// v1.5.0-P1-07: approvals (install/upgrade).
 			protected.POST("/plugins/approvals", srv.requirePermission("plugin.write"), srv.createAdminPluginApproval)

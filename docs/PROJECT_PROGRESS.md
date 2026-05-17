@@ -8,7 +8,9 @@
 
 ## 当前版本结论
 
-当前 `VERSION` 为 `v1.7.1`，主题是“插件包签名验签与可信发布者增强版”。本阶段在 v1.7.0 远程插件包治理 P0 链路（下载 → 预检 → compat-check → 安装 → enable-precheck → enable → 软卸载 → 升级）基础上，补齐“来源可信/内容未被篡改”的最小闭环：引入 detached signature（`devhub-signature.json`）并执行 Ed25519 真实验签，并将验签结果强联动到 compat-check / install / upgrade（默认阻断 unsigned）。
+当前 `VERSION` 为 `v1.7.1`，代码主题是“插件包签名验签与可信发布者增强版”。文档设计阶段进入 `v1.7.2`“插件运行模型设计”：在 Core + 插件服务底座目标下，明确 Core 内置插件、外部 HTTP 服务插件、前端 iframe / sandbox 插件三类运行模式，以及受控 API、HookBus、权限隔离、审计和 manifest 运行字段边界。本轮不修改代码，不新增运行时实现。
+
+补充：`v1.7.3` 定义为“Webhook / HTTP 插件服务协议实现拆解与官方示例插件验证准备版”。本仓库已新增/更新对应文档（实现阶段拆解 + 官方公告插件验证方案），但 **v1.7.3 仍是文档与任务拆解阶段**：未实现真实 Webhook 投递、重试队列、熔断或插件回调 Core API token；不执行第三方代码、不做动态加载。
 
 ## 当前项目目标：Core + 插件服务底座
 
@@ -38,7 +40,7 @@ v1.7.0 当前仍不支持：远程插件市场、远程插件包自动安装、�
 
 验收发现的限制 / 技术债：当前已安装插件导出仍是 `storage/plugins/exports/` 目录包导出与可选 `signature.json` 结构草案，不提供 zip 下载包与在线签名打包；`plugin-package-export-zip.spec.js` 当前不存在，zip 导出下载能力应作为 v1.7 后续任务处理，不能写作 v1.6 已完成能力。配置历史密钥批量轮换、自动定时轮换、KMS/Vault、远程索引缓存刷新策略、上传/下载异步任务队列和更完整事务恢复仍为后续增强。
 
-下一阶段建议进入 `v1.7.2`：可信发布者管理增强（例如 allowed/blocked plugin_codes、批量导入/导出、引用统计、publisher 变更联动再验签），以及远程索引文件自身签名草案（`index.json` 签名 + 缓存刷新策略）。v1.7.x 仍不应直接引入动态运行时或第三方代码执行。
+下一阶段建议：把 `docs/PLUGIN_RUNTIME_MODEL.md` 中的运行模型拆成实现任务，优先前端 iframe / sandbox 挂载、HTTP 插件服务协议、插件 API token / scopes、运行时审计和官方示例插件验证；可信发布者管理增强与远程索引文件签名仍可并行推进。v1.7.x 仍不应直接引入动态 Go 加载或第三方代码执行。
 
 Core 保留用户、认证、子站、板块、通用内容、评论、标签、搜索、通知、SEO、权限、审计、插件注册和分发能力。问答、文档、Wiki、项目、招聘、AI 作品已按内置系统插件建模：`qa -> question`、`docs -> document`、`wiki -> wiki_page`、`projects -> project`、`jobs -> job`、`ai_works -> ai_work`。
 
@@ -61,6 +63,21 @@ Core 保留用户、认证、子站、板块、通用内容、评论、标签、
 - 修改范围：仅更新 README、CHANGELOG、项目进度、API、测试、SEO、插件架构、插件路线图、插件包、远程索引、SDK、模板、release notes 和相关 Markdown 文档口径。
 - 统一结论：Core 提供稳定基础能力，插件承载业务扩展能力；默认社区能力是 Core 基础能力之一，不再作为 DevHub 唯一长期定位。
 - 测试记录：本轮为纯文档整理与项目目标统一任务，未修改代码，未执行测试、构建或 E2E。
+
+## v1.7.2 插件运行模型设计记录（2026-05-16）
+
+- 新增 `docs/PLUGIN_RUNTIME_MODEL.md`，明确 Core 内置插件、外部 HTTP 服务插件、前端 iframe / sandbox 插件三类运行模式。
+- 明确前端插件挂载 slot 设计、HTTP 插件服务接口草案、插件受控 API scope、HookBus 参与方式、运行时隔离边界和审计字段。
+- 明确运行模型相关 manifest 字段 `runtime`、`frontend.mounts`、`backend`、`api_scopes` 仅为设计字段，当前不能写作已实现。
+- 明确官方示例插件验证方向优先公告插件或友情链接插件。
+- 本轮为插件运行模型设计任务，主要修改文档，未修改代码，未执行测试、构建或 E2E。
+
+## v1.7.2 Webhook / HTTP 插件服务协议设计记录（2026-05-16）
+
+- 新增 `docs/PLUGIN_WEBHOOK_PROTOCOL.md`，定义 Core 调用外部插件服务的 Webhook/HTTP 协议设计：签名鉴权、防重放、幂等、重试、超时/限流/熔断、审计与治理规划。
+- 说明 blocking 与 non_blocking 的默认策略：第三方插件默认推荐 non_blocking，blocking 必须短超时且谨慎使用。
+- 明确插件回调 Core API 仍需受控 API token / scopes（本轮仅设计，不实现）。
+- 本轮为 Webhook / HTTP 插件服务协议设计任务，只修改文档，未修改代码，未执行测试、构建或 E2E。
 
 ## 当前已完成
 
@@ -2620,7 +2637,7 @@ P1 规划边界：
 未完成事项：
 
 - 本轮只优化 `/admin-next/plugins` 主治理中心；`PluginContent` 页面已有归档态提示、筛选、详情、多选、批量隐藏 / 恢复和审计入口，本轮未继续重排其视觉层级。
-- 安装 / 升级向导当前支持粘贴 manifest JSON；插件包 zip 上传、远程安装、市场和动态加载仍未实现。
+- 安装 / 升级向导历史记录中仅支持粘贴 manifest JSON；后续版本已补齐插件包 zip / staging 治理和远程包下载到 staging。远程自动安装、插件市场和动态加载仍未实现。
 - 状态治理页是异常聚合入口，不是独立监控系统；Hook 告警、自动恢复和外部服务 Webhook 仍是后续能力。
 
 已执行检查命令和结果：
@@ -3029,3 +3046,93 @@ v1.6.0-P1-10：v1.6 插件包上传与分发前置能力总验收。
 已知注意事项：
 
 - 若本地 `.devhub/` 由 root 创建，`go build -o .devhub/devhub .` 可能报权限错误；可手动 `chown -R $(id -u):$(id -g) .devhub` 或临时使用 `.tmp/bin/devhub` 作为构建输出路径完成验收。
+
+## 2026-05-17：v1.7.5 Webhook 重试队列与熔断机制（non_blocking）
+
+已完成：
+
+- 新增 Webhook 治理数据模型（DB-as-source）：
+  - `webhook_events`：事件记录（为后续自动投递链路预留）
+  - `webhook_deliveries`：投递记录（attempt/max_attempts/next_retry_at/retry_reason/response_status/error_message）
+  - `webhook_circuit_breakers`：熔断记录（维度：`plugin_code + target_url`，状态 `closed/open/half_open`）
+- delivery 重试队列（轻量实现：DB 扫描 + limit）：
+  - `retry_scheduled` 到期可由管理员触发 `retry-due` 扫描重试
+  - 超过 `max_attempts` 标记 `retry_exhausted`（不阻断主流程）
+  - `429` 优先读取 `Retry-After`，否则按默认退避
+- 熔断机制：
+  - 连续失败阈值默认 5 次打开熔断（`open`），并设置 `next_probe_at = now + 10min`
+  - 到达 `next_probe_at` 后允许一次 `half_open` 探测；成功则关闭（`closed`），失败则重新打开
+  - 支持管理员手动恢复熔断（close）/手动打开熔断（open）
+- 新增 Admin API（后台管理端）：
+  - deliveries：列表 / 详情 / 手动重试 / 批量 retry-due
+  - circuit breakers：列表 / 详情 / close / open
+- 后台最小 UI：
+  - 插件 → 运行时治理 → Webhook 治理（页内 Tabs：Deliveries / Circuit Breakers；筛选区 + 空状态 + 错误态 + 危险操作确认）
+- 审计接入：重试与熔断相关 action（manual_retry/retry_started/retry_success/retry_failed/circuit_opened/circuit_closed 等）
+
+边界：
+
+- 仅 non_blocking delivery 的治理能力；仍未实现 blocking Hook。
+- 不执行第三方插件代码；不运行 package scripts；不加载 Go plugin；不做动态代码加载。
+- 未引入外部队列（Redis/Kafka/RabbitMQ）；重试采用 DB 扫描式触发。
+
+下一轮建议：
+
+- `v1.7.6`：Webhook 签名鉴权与 Secret 轮换（发送端签名、接收端验签、secret_ref 管理与轮换审计）。
+
+## 2026-05-17：v1.7.6 Webhook 签名鉴权与 Secret 轮换（non_blocking）
+
+已完成：
+
+- Webhook Secret 管理（持久化）：
+  - 新增 `plugin_webhook_secrets`（secret_ref、密文存储、status、active/previous grace window、审计字段）
+  - Secret 明文仅在创建/轮换成功响应中返回一次；列表/详情不返回明文
+- delivery 记录扩展（签名元信息，不含 Secret 明文）：
+  - `signature_alg` / `secret_ref` / `body_sha256`
+  - `signature_status` / `signed_at` / `signature_error`
+- 发送端签名（DevHub → 插件服务）：
+  - HMAC-SHA256
+  - signing string：`timestamp + "." + method + "." + path + "." + body_sha256`
+  - headers：`X-DevHub-*`（包含 timestamp/body_sha256/secret_ref 等）
+- 重试与熔断联动规则补齐：
+  - 本地 Secret 缺失/禁用/吊销/过期：不发送、不重试
+  - 远端 `401/403`：默认不重试（避免无意义重试与安全风险）
+- 新增 Admin API（后台管理端）：
+  - secrets：列表 / 详情 / 创建 / 轮换 / 禁用 / 恢复 / 吊销
+- 后台最小 UI：
+  - 插件 → 运行时治理 → Webhook 治理（页内 Tabs 新增 Secrets）
+  - 创建/轮换弹窗展示 Secret 明文一次（关闭后不可再查看）
+- 审计接入：
+  - Secret 创建/轮换/禁用/恢复/吊销/过期等 action
+
+边界：
+
+- 仅 non_blocking delivery；仍未实现 blocking Hook。
+- 不执行第三方插件代码；不运行 package scripts；不加载 Go plugin；不做动态代码加载。
+- Secret 加密复用 `DEVHUB_PLUGIN_CONFIG_KEYS` keyring（不引入 Vault/KMS）。
+
+本轮检查说明：
+
+- 已执行：`gofmt`、`go test ./...`、`go build`。
+- 后台构建：当前执行环境缺少 `node`，未执行 `cd web/admin-app && npm run build`；建议按 `docs/AGENT_RULES.md` 使用 Docker/compose 或 `scripts/check-frontend.sh --admin-only` 在具备 node 的容器环境执行并归档结果。
+
+## 2026-05-17：v1.7.6-S1 Webhook 签名鉴权与 Secret 轮换（专项验收 / 补测 / 修缺口）
+
+定位：
+
+- 本轮不是重新实现 v1.7.6，而是对 **签名 Header / signing string / Secret 生命周期 / 明文泄露风险 / 与重试熔断联动** 做专项验收与补测，允许修 P0/P1 缺口。
+
+已完成：
+
+- 补测：新增 Go 单测覆盖签名 Header 完整性、`body_sha256` 参与签名、签名落库脱敏（request_headers_json 中 `X-DevHub-Signature` 为 `v1=[REDACTED]`）、disabled Secret 不发送请求、远端 401 不进入重试调度。
+- 修缺口：当 `(plugin_code, target_url)` 存在 Secret 但非 active（例如被禁用/吊销/过期）时，delivery 的 `signature_status` 返回更精确的状态（`secret_disabled/secret_revoked/secret_expired`），避免被笼统标记为 `secret_missing`，便于治理排障与审计追踪。
+
+边界（保持不变）：
+
+- 仍只处理 non_blocking Webhook；不实现 blocking Hook；不实现插件回调 Core API token/scopes。
+- 不执行第三方插件代码；不做动态加载；不引入 Vault/KMS。
+
+本轮检查说明：
+
+- 已执行：`gofmt`、`go test ./...`、`go build`。
+- 后台构建：当前执行环境缺少可用的 node/vite（并出现 WSL/UNC 路径问题），未执行 `cd web/admin-app && npm run build`；需使用 Docker/compose 或项目脚本在具备 node 的容器环境执行并归档结果。

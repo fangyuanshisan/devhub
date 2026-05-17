@@ -79,6 +79,14 @@
 - 本地不存在：展示 unknown，并进入风险提示。
 - 本地为 `blocked` / `revoked`：展示 blocked / revoked，并标记 blocked 风险。
 
+## Webhook / HTTP 插件服务协议关系（设计）
+
+远程索引用于“插件分发信息源”，它描述插件包的下载与验签信息；**不**承诺第三方插件运行模型已经实现。
+
+- Webhook / HTTP 插件服务协议（设计）见：`docs/PLUGIN_WEBHOOK_PROTOCOL.md`。
+- 协议实现任务拆解（v1.7.3 文档阶段）见：`docs/PLUGIN_WEBHOOK_IMPLEMENTATION_PLAN.md`。
+- 这些内容仅是设计与任务清单；当前远程索引阶段不做真实 Webhook 投递、重试队列或熔断，不执行第三方代码。
+
 远程索引不能自动创建、更新或信任 publisher；远程源声明 trusted 不会被采信。
 
 ## Core 兼容性和本地安装状态

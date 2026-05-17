@@ -13,6 +13,10 @@
 
 模板能力服务于 DevHub “Core + 插件服务底座”的长期目标：它帮助开发者准备受 Core 生命周期、权限、安全和审计约束的插件声明包。当前模板不是第三方动态运行时 SDK，也不生成可执行插件服务。
 
+v1.7.2 插件运行模型设计已明确未来会支持 Core 内置插件、外部 HTTP 服务插件、前端 iframe / sandbox 插件三类方向；当前模板仍只生成声明型插件骨架，不生成 HTTP 插件服务、不生成 iframe 挂载页面、不生成受控 API token，也不加载第三方代码。完整运行模型设计见 [插件运行模型设计](PLUGIN_RUNTIME_MODEL.md)。
+
+如后续落地 Webhook / HTTP 插件服务协议，模板可以辅助生成 `webhooks`/`auth`/`api_scopes` 等字段的示例（不含 secret 明文）；协议设计见 [Webhook / HTTP 插件服务协议（设计）](PLUGIN_WEBHOOK_PROTOCOL.md)。
+
 ## CLI 命令
 
 ```bash

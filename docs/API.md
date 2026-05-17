@@ -12,6 +12,8 @@ DevHub 当前目标是 **Core + 插件 的开源服务底座**。API 属于 Core
 
 本文档只描述已实现接口。第三方插件运行时 API、HTTP 插件服务协议、前端插件挂载 API、远程市场 API 和动态加载 API 仍是规划项；未实现接口不得写入当前真实 API 主体。
 
+v1.7.2 插件运行模型设计补充：外部 HTTP 插件服务接口（如 `GET /health`、`GET /manifest`、`POST /hooks/:hookName`、`POST /actions/:actionName`、`POST /config/validate`）以及插件受控 API token / scopes 当前仅记录在 [插件运行模型设计](PLUGIN_RUNTIME_MODEL.md)，不属于本 API 文档的已实现接口。
+
 ## 通用规则
 
 - API 前缀：`/api/v1`。
@@ -287,7 +289,7 @@ DevHub 当前目标是 **Core + 插件 的开源服务底座**。API 属于 Core
 - 权限：`plugin.read`。
 - 返回：全部注册插件，包括插件状态、`config_schema`、`config_json`、`resolved_config` 和轻量 `health` 摘要。
 - 状态口径：`plugins.status` 当前接受 `discovered`、`installed`、`migrated`、`configured`、`enabled`、`disabled`、`running`、`archived`、`config_invalid`、`migration_pending`、`migration_failed`、`dependency_missing`；但发布可用性仍只以 `enabled` 为通过状态，其余状态均不会放行新建内容。
-- 生命周期字段：返回对象会派生 `install_status`、`lifecycle_status`、`status_reason`、`installed_at`、`archived_at`、`last_health_check_at`，用于后台展示插件安装生命周期。当前这些字段由 `plugins.status`、时间戳、迁移和健康状态派生；manifest + 配置型安装已可写入插件记录，但插件包 zip、远程安装和动态加载仍未实现。
+- 生命周期字段：返回对象会派生 `install_status`、`lifecycle_status`、`status_reason`、`installed_at`、`archived_at`、`last_health_check_at`，用于后台展示插件安装生命周期。当前这些字段由 `plugins.status`、时间戳、迁移和健康状态派生；manifest + 配置型安装、插件包 zip / staging 治理和远程包下载到 staging 已可写入治理记录，但远程自动安装、插件市场和动态加载仍未实现。
 - `health` 字段：后台治理摘要，由全局状态、配置校验、迁移记录、依赖状态和 Hook 失败统计计算；不是 Prometheus / Grafana 级监控。
 
 `health` 示例：
@@ -1793,12 +1795,12 @@ Core 兼容：`min_core_version` 缺失为 warning；`min_core_version` 高于�
 - HookBus：已有内部调度、调用点、`hook_executions` 执行记录、Hook 统计 API、失败审计和轻量健康摘要；尚未实现重试 API、告警系统或第三方动态 Hook。
 - 插件迁移：当前 runner 只支持内置插件 up/no-op 执行记录、失败记录和失败重试；不支持 migration down、真实 rollback、迁移前备份或外部插件迁移包。
 - 插件后台治理：已有列表、详情、配置、impact、审计、运行状态、迁移 Tab 和通用内容页；告警、重试策略和影响对象明细仍未完成。
-- 插件安装：当前已支持 manifest + 配置型插件的 dry-run、安装记录和升级执行最小闭环，但不支持插件包文件上传、远程市场、前端资产动态加载或第三方本地代码执行。
+- 插件安装：当前已支持 manifest + 配置型插件的 dry-run、安装记录、插件包 zip / staging 治理、远程包安全下载到 staging 和升级执行最小闭环，但不支持远程自动安装、插件市场、前端资产动态加载或第三方本地代码执行。
 
 预留 / 后续：
 
 - `discovered`、`migrated`、`configured`、`running`、`config_invalid`、`migration_pending`、`dependency_missing` 已是 `plugins.status` 可接受值；完整外部插件安装器状态机、自动迁移、状态告警和完整分步向导仍需继续演进。
-- 外部服务型 Webhook、插件包 zip dry-run、插件包签名、远程安装、市场、动态加载和沙箱均不是当前真实能力。
+- 外部服务型 Webhook、第三方 HTTP 插件服务协议、前端 iframe / sandbox 挂载、受控 API token、远程自动安装、市场、动态加载和沙箱均不是当前真实能力。
 
 下一阶段 API / 验收目标：
 
@@ -2608,3 +2610,131 @@ GET /api/v1/admin/plugins/remote-indexes/:id/plugins/:code
 - `plugin_upgrade_target_config_incompatible`
 - `plugin_upgrade_task_not_found`
 - `plugin_upgrade_task_invalid_status`
+
+## v1.7.5：Webhook 重试队列与熔断机制（non_blocking）
+
+说明：本节描述 **已实现** 的 Webhook 治理接口（后台管理端）。当前仅覆盖 non_blocking delivery 的重试调度与熔断，不包含第三方插件回调 Core API token，也不包含 blocking Hook。
+
+### `GET /api/v1/admin/plugins/webhooks/deliveries`
+
+权限：`plugin.read`。查询参数：
+
+- `plugin_code`
+- `hook_name`
+- `status`
+- `event_id`
+- `delivery_id`
+- `page`
+- `page_size`
+
+返回：`items + pagination`（delivery 列表）。
+
+### `GET /api/v1/admin/plugins/webhooks/deliveries/:id`
+
+权限：`plugin.read`。返回单条 delivery 详情。
+
+### `POST /api/v1/admin/plugins/webhooks/deliveries/:id/retry`
+
+权限：`plugin.write`。手动重试单条 delivery（`success` 默认不允许重试；`retry_exhausted` 允许手动重试并记录审计）。
+
+### `POST /api/v1/admin/plugins/webhooks/retry-due`
+
+权限：`plugin.write`。批量扫描并重试到期 delivery。请求示例：
+
+```json
+{ "limit": 50 }
+```
+
+### `GET /api/v1/admin/plugins/webhooks/circuit-breakers`
+
+权限：`plugin.read`。查询参数：`plugin_code`、`status`、`page`、`page_size`。
+
+### `GET /api/v1/admin/plugins/webhooks/circuit-breakers/:id`
+
+权限：`plugin.read`。返回单条熔断记录详情。
+
+### `POST /api/v1/admin/plugins/webhooks/circuit-breakers/:id/close`
+
+权限：`plugin.manage`。手动恢复熔断（状态置为 `closed`，并清理失败计数）。
+
+### `POST /api/v1/admin/plugins/webhooks/circuit-breakers/:id/open`
+
+权限：`plugin.manage`。手动打开熔断（状态置为 `open`，并设置 `next_probe_at`）。
+
+## v1.7.6：Webhook 签名鉴权与 Secret 轮换（non_blocking）
+
+说明：本节描述 **已实现** 的 Webhook Secret 管理接口（后台管理端），用于支持 DevHub → 插件服务的 HMAC-SHA256 签名发送端与 Secret 轮换窗口。
+
+重要边界：
+
+- Secret 明文 **只会在创建/轮换成功响应中返回一次**，列表/详情接口不返回明文。
+- Secret 明文不会写入审计、日志或 delivery 记录。
+- 本版本仍然只处理 non_blocking Webhook；不实现 blocking Hook；不实现插件回调 Core API token/scopes。
+
+### `GET /api/v1/admin/plugins/webhooks/secrets`
+
+权限：`plugin.read`。查询参数：
+
+- `plugin_code`
+- `status`（`active|previous|disabled|revoked|expired`，或 `all`）
+- `secret_ref`
+- `page`
+- `page_size`
+
+返回：`items + pagination`（Secret 列表，不包含明文）。
+
+### `GET /api/v1/admin/plugins/webhooks/secrets/:id`
+
+权限：`plugin.read`。返回单条 Secret 详情（不包含明文）。
+
+### `POST /api/v1/admin/plugins/webhooks/secrets`
+
+权限：`plugin.manage`。创建 Secret（明文仅返回一次）。请求示例：
+
+```json
+{
+  "plugin_code": "official_announcement",
+  "target_url": "https://plugin.example.com/hooks/content.after_create"
+}
+```
+
+响应示例（注意：`secret` 字段只返回一次）：
+
+```json
+{
+  "secret_record": {
+    "id": 1,
+    "plugin_code": "official_announcement",
+    "target_url": "https://plugin.example.com/hooks/content.after_create",
+    "secret_ref": "whsec_xxx",
+    "status": "active"
+  },
+  "secret": "base64..."
+}
+```
+
+### `POST /api/v1/admin/plugins/webhooks/secrets/:id/rotate`
+
+权限：`plugin.manage`。轮换 Secret（新 Secret 明文只返回一次；旧 active 进入 previous 并进入 grace window）。响应示例：
+
+```json
+{
+  "old_secret_ref": "whsec_old",
+  "new_secret_ref": "whsec_new",
+  "grace_until": "2026-05-18 12:00:00",
+  "secret_record": { "id": 2, "secret_ref": "whsec_new", "status": "active" },
+  "secret": "base64..."
+}
+```
+
+### `POST /api/v1/admin/plugins/webhooks/secrets/:id/disable`
+
+权限：`plugin.manage`。禁用 Secret（disabled Secret 不能用于签名）。
+
+### `POST /api/v1/admin/plugins/webhooks/secrets/:id/enable`
+
+权限：`plugin.manage`。恢复 disabled Secret（恢复后会尝试成为 active，并禁用同 target_url 的其他 active，避免多 active 并存）。
+
+### `POST /api/v1/admin/plugins/webhooks/secrets/:id/revoke`
+
+权限：`plugin.manage`。吊销 Secret（revoked Secret 立即失效且不可恢复）。

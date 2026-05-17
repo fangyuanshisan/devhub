@@ -49,6 +49,10 @@ type MemoryStore struct {
 	nextTrustedPubID       int64
 	nextRemoteIndexID      int64
 	nextOperationID        int64
+	nextWebhookEventID     int64
+	nextWebhookDeliveryID  int64
+	nextWebhookBreakerID   int64
+	nextWebhookSecretID    int64
 	sites                  map[string]domain.Site
 	boards                 map[string]domain.Board
 	communities            map[int64]*domain.Community
@@ -95,6 +99,10 @@ type MemoryStore struct {
 	pluginOperations       []domain.PluginOperationSnapshot
 	trustedPublishers      []domain.PluginTrustedPublisher
 	remoteIndexes          []domain.PluginRemoteIndexSource
+	webhookEvents          []domain.WebhookEvent
+	webhookDeliveries      []domain.WebhookDelivery
+	webhookCircuitBreakers []domain.WebhookCircuitBreaker
+	webhookSecrets         []domain.PluginWebhookSecret
 }
 
 func countPluginMenus(def domain.Plugin, area string) int {
@@ -366,17 +374,21 @@ func NewMemoryStore() *MemoryStore {
 			HotLikeWeight:     8,
 			HotCommentWeight:  15,
 		},
-		pluginConfigVers:    []domain.PluginConfigVersion{},
-		pluginApprovals:     []domain.PluginApprovalRequest{},
-		packageUploads:      []domain.PluginPackageUploadRecord{},
-		packageDownloads:    []domain.PluginPackageDownloadRecord{},
-		packagePrechecks:    []domain.PluginPackagePrecheckRecord{},
-		packageCompatChecks: []domain.PluginPackageCompatCheckRecord{},
-		enablePrechecks:     []domain.PluginEnablePrecheckRecord{},
-		enableTasks:         []domain.PluginEnableTask{},
-		uninstallTasks:      []domain.PluginUninstallTask{},
-		upgradeTasks:        []domain.PluginUpgradeTask{},
-		trustedPublishers:   pluginregistry.DomainPublishersFromConfig(mustLoadTrustedPublishersConfig()),
+		pluginConfigVers:       []domain.PluginConfigVersion{},
+		pluginApprovals:        []domain.PluginApprovalRequest{},
+		packageUploads:         []domain.PluginPackageUploadRecord{},
+		packageDownloads:       []domain.PluginPackageDownloadRecord{},
+		packagePrechecks:       []domain.PluginPackagePrecheckRecord{},
+		packageCompatChecks:    []domain.PluginPackageCompatCheckRecord{},
+		enablePrechecks:        []domain.PluginEnablePrecheckRecord{},
+		enableTasks:            []domain.PluginEnableTask{},
+		uninstallTasks:         []domain.PluginUninstallTask{},
+		upgradeTasks:           []domain.PluginUpgradeTask{},
+		webhookEvents:          []domain.WebhookEvent{},
+		webhookDeliveries:      []domain.WebhookDelivery{},
+		webhookCircuitBreakers: []domain.WebhookCircuitBreaker{},
+		webhookSecrets:         []domain.PluginWebhookSecret{},
+		trustedPublishers:      pluginregistry.DomainPublishersFromConfig(mustLoadTrustedPublishersConfig()),
 	}
 	for i := range s.trustedPublishers {
 		s.nextTrustedPubID++
@@ -575,6 +587,580 @@ func (s *MemoryStore) HookStats(pluginCode string) ([]domain.HookStats, error) {
 		return out[i].PluginCode < out[j].PluginCode
 	})
 	return out, nil
+}
+
+// ===== Webhook governance (v1.7.4+ / v1.7.5) =====
+
+func (s *MemoryStore) AppendWebhookEvent(record domain.WebhookEvent) (domain.WebhookEvent, error) {
+	record.EventID = strings.TrimSpace(record.EventID)
+	record.PluginCode = strings.TrimSpace(record.PluginCode)
+	record.HookName = strings.TrimSpace(record.HookName)
+	if record.EventID == "" || record.PluginCode == "" {
+		return domain.WebhookEvent{}, errors.New("event_id 和 plugin_code 不能为空")
+	}
+	if record.Status == "" {
+		record.Status = domain.WebhookEventStatusPending
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	for _, it := range s.webhookEvents {
+		if it.EventID == record.EventID {
+			return it, nil
+		}
+	}
+	s.nextWebhookEventID++
+	record.ID = s.nextWebhookEventID
+	now := Now()
+	if record.CreatedAt == "" {
+		record.CreatedAt = now
+	}
+	record.UpdatedAt = now
+	s.webhookEvents = append(s.webhookEvents, record)
+	return record, nil
+}
+
+func (s *MemoryStore) SaveWebhookEvent(record domain.WebhookEvent) (domain.WebhookEvent, error) {
+	if record.ID <= 0 {
+		return s.AppendWebhookEvent(record)
+	}
+	record.EventID = strings.TrimSpace(record.EventID)
+	record.PluginCode = strings.TrimSpace(record.PluginCode)
+	record.HookName = strings.TrimSpace(record.HookName)
+	if record.EventID == "" || record.PluginCode == "" {
+		return domain.WebhookEvent{}, errors.New("event_id 和 plugin_code 不能为空")
+	}
+	if record.Status == "" {
+		record.Status = domain.WebhookEventStatusPending
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	now := Now()
+	if record.CreatedAt == "" {
+		record.CreatedAt = now
+	}
+	record.UpdatedAt = now
+	for i := range s.webhookEvents {
+		if s.webhookEvents[i].ID == record.ID {
+			s.webhookEvents[i] = record
+			return record, nil
+		}
+	}
+	s.webhookEvents = append(s.webhookEvents, record)
+	return record, nil
+}
+
+func (s *MemoryStore) WebhookEventByID(id int64) (domain.WebhookEvent, bool) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	for _, it := range s.webhookEvents {
+		if it.ID == id {
+			return it, true
+		}
+	}
+	return domain.WebhookEvent{}, false
+}
+
+func (s *MemoryStore) WebhookEvents(filter domain.WebhookEventFilter) ([]domain.WebhookEvent, int, error) {
+	filter = filter.Normalize()
+	page, pageSize := normalizeMemoryPage(filter.Page, filter.PageSize)
+	pluginCode := strings.TrimSpace(filter.PluginCode)
+	hookName := strings.TrimSpace(filter.HookName)
+	mode := strings.TrimSpace(filter.Mode)
+	status := strings.TrimSpace(filter.Status)
+	requestID := strings.TrimSpace(filter.RequestID)
+
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	all := make([]domain.WebhookEvent, 0, len(s.webhookEvents))
+	for _, it := range s.webhookEvents {
+		if pluginCode != "" && it.PluginCode != pluginCode {
+			continue
+		}
+		if hookName != "" && it.HookName != hookName {
+			continue
+		}
+		if mode != "" && it.Mode != mode {
+			continue
+		}
+		if status != "" && status != "all" && it.Status != status {
+			continue
+		}
+		if filter.CommunityID > 0 && it.CommunityID != filter.CommunityID {
+			continue
+		}
+		if filter.ActorType != "" && it.ActorType != filter.ActorType {
+			continue
+		}
+		if filter.ActorID > 0 && it.ActorID != filter.ActorID {
+			continue
+		}
+		if requestID != "" && it.RequestID != requestID {
+			continue
+		}
+		all = append(all, it)
+	}
+	sort.Slice(all, func(i, j int) bool { return all[i].ID > all[j].ID })
+	total := len(all)
+	start := (page - 1) * pageSize
+	if start > total {
+		start = total
+	}
+	end := start + pageSize
+	if end > total {
+		end = total
+	}
+	return append([]domain.WebhookEvent(nil), all[start:end]...), total, nil
+}
+
+func (s *MemoryStore) AppendWebhookDelivery(record domain.WebhookDelivery) (domain.WebhookDelivery, error) {
+	record.DeliveryID = strings.TrimSpace(record.DeliveryID)
+	record.EventID = strings.TrimSpace(record.EventID)
+	record.PluginCode = strings.TrimSpace(record.PluginCode)
+	record.HookName = strings.TrimSpace(record.HookName)
+	record.TargetURL = strings.TrimSpace(record.TargetURL)
+	if record.DeliveryID == "" || record.EventID == "" || record.PluginCode == "" || record.TargetURL == "" {
+		return domain.WebhookDelivery{}, errors.New("delivery_id/event_id/plugin_code/target_url 不能为空")
+	}
+	if record.Status == "" {
+		record.Status = domain.WebhookDeliveryStatusPending
+	}
+	if record.Attempt <= 0 {
+		record.Attempt = 1
+	}
+	if record.MaxAttempts <= 0 {
+		record.MaxAttempts = 5
+	}
+	record.SignatureAlg = strings.TrimSpace(record.SignatureAlg)
+	record.SecretRef = strings.TrimSpace(record.SecretRef)
+	record.BodySHA256 = strings.TrimSpace(record.BodySHA256)
+	record.SignatureStatus = strings.TrimSpace(record.SignatureStatus)
+	record.SignatureError = strings.TrimSpace(record.SignatureError)
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	for _, it := range s.webhookDeliveries {
+		if it.DeliveryID == record.DeliveryID {
+			return it, nil
+		}
+	}
+	s.nextWebhookDeliveryID++
+	record.ID = s.nextWebhookDeliveryID
+	now := Now()
+	if record.CreatedAt == "" {
+		record.CreatedAt = now
+	}
+	record.UpdatedAt = now
+	s.webhookDeliveries = append(s.webhookDeliveries, record)
+	return record, nil
+}
+
+func (s *MemoryStore) SaveWebhookDelivery(record domain.WebhookDelivery) (domain.WebhookDelivery, error) {
+	if record.ID <= 0 {
+		return s.AppendWebhookDelivery(record)
+	}
+	record.DeliveryID = strings.TrimSpace(record.DeliveryID)
+	record.EventID = strings.TrimSpace(record.EventID)
+	record.PluginCode = strings.TrimSpace(record.PluginCode)
+	record.HookName = strings.TrimSpace(record.HookName)
+	record.TargetURL = strings.TrimSpace(record.TargetURL)
+	if record.DeliveryID == "" || record.EventID == "" || record.PluginCode == "" || record.TargetURL == "" {
+		return domain.WebhookDelivery{}, errors.New("delivery_id/event_id/plugin_code/target_url 不能为空")
+	}
+	if record.Status == "" {
+		record.Status = domain.WebhookDeliveryStatusPending
+	}
+	if record.Attempt <= 0 {
+		record.Attempt = 1
+	}
+	if record.MaxAttempts <= 0 {
+		record.MaxAttempts = 5
+	}
+	record.SignatureAlg = strings.TrimSpace(record.SignatureAlg)
+	record.SecretRef = strings.TrimSpace(record.SecretRef)
+	record.BodySHA256 = strings.TrimSpace(record.BodySHA256)
+	record.SignatureStatus = strings.TrimSpace(record.SignatureStatus)
+	record.SignatureError = strings.TrimSpace(record.SignatureError)
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	now := Now()
+	if record.CreatedAt == "" {
+		record.CreatedAt = now
+	}
+	record.UpdatedAt = now
+	for i := range s.webhookDeliveries {
+		if s.webhookDeliveries[i].ID == record.ID {
+			s.webhookDeliveries[i] = record
+			return record, nil
+		}
+	}
+	s.webhookDeliveries = append(s.webhookDeliveries, record)
+	return record, nil
+}
+
+func (s *MemoryStore) TryMarkWebhookDeliveryStatus(id int64, fromStatus, toStatus string) (bool, error) {
+	fromStatus = strings.TrimSpace(fromStatus)
+	toStatus = strings.TrimSpace(toStatus)
+	if id <= 0 || fromStatus == "" || toStatus == "" {
+		return false, errors.New("invalid args")
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	for i := range s.webhookDeliveries {
+		if s.webhookDeliveries[i].ID != id {
+			continue
+		}
+		if s.webhookDeliveries[i].Status != fromStatus {
+			return false, nil
+		}
+		s.webhookDeliveries[i].Status = toStatus
+		s.webhookDeliveries[i].UpdatedAt = Now()
+		return true, nil
+	}
+	return false, nil
+}
+
+func (s *MemoryStore) WebhookDeliveryByID(id int64) (domain.WebhookDelivery, bool) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	for _, it := range s.webhookDeliveries {
+		if it.ID == id {
+			return it, true
+		}
+	}
+	return domain.WebhookDelivery{}, false
+}
+
+func (s *MemoryStore) WebhookDeliveries(filter domain.WebhookDeliveryFilter) ([]domain.WebhookDelivery, int, error) {
+	filter = filter.Normalize()
+	page, pageSize := normalizeMemoryPage(filter.Page, filter.PageSize)
+	pluginCode := strings.TrimSpace(filter.PluginCode)
+	hookName := strings.TrimSpace(filter.HookName)
+	status := strings.TrimSpace(filter.Status)
+	eventID := strings.TrimSpace(filter.EventID)
+	deliveryID := strings.TrimSpace(filter.DeliveryID)
+
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	all := make([]domain.WebhookDelivery, 0, len(s.webhookDeliveries))
+	for _, it := range s.webhookDeliveries {
+		if pluginCode != "" && it.PluginCode != pluginCode {
+			continue
+		}
+		if hookName != "" && it.HookName != hookName {
+			continue
+		}
+		if status != "" && status != "all" && it.Status != status {
+			continue
+		}
+		if eventID != "" && it.EventID != eventID {
+			continue
+		}
+		if deliveryID != "" && it.DeliveryID != deliveryID {
+			continue
+		}
+		all = append(all, it)
+	}
+	sort.Slice(all, func(i, j int) bool { return all[i].ID > all[j].ID })
+	total := len(all)
+	start := (page - 1) * pageSize
+	if start > total {
+		start = total
+	}
+	end := start + pageSize
+	if end > total {
+		end = total
+	}
+	return append([]domain.WebhookDelivery(nil), all[start:end]...), total, nil
+}
+
+func (s *MemoryStore) DueWebhookDeliveries(dueBefore string, limit int) ([]domain.WebhookDelivery, error) {
+	dueBefore = strings.TrimSpace(dueBefore)
+	if limit <= 0 || limit > 200 {
+		limit = 50
+	}
+	var dueTime time.Time
+	if dueBefore == "" {
+		dueTime = time.Now()
+	} else {
+		t, err := time.ParseInLocation(TimeLayout, dueBefore, time.Local)
+		if err != nil {
+			return nil, err
+		}
+		dueTime = t
+	}
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	out := make([]domain.WebhookDelivery, 0)
+	for i := range s.webhookDeliveries {
+		it := s.webhookDeliveries[i]
+		if it.Status != domain.WebhookDeliveryStatusRetryScheduled {
+			continue
+		}
+		if strings.TrimSpace(it.NextRetryAt) == "" {
+			continue
+		}
+		t, err := time.ParseInLocation(TimeLayout, it.NextRetryAt, time.Local)
+		if err != nil {
+			continue
+		}
+		if !t.After(dueTime) {
+			out = append(out, it)
+		}
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].ID < out[j].ID })
+	if len(out) > limit {
+		out = out[:limit]
+	}
+	return append([]domain.WebhookDelivery(nil), out...), nil
+}
+
+func (s *MemoryStore) UpsertWebhookCircuitBreaker(record domain.WebhookCircuitBreaker) (domain.WebhookCircuitBreaker, error) {
+	record.PluginCode = strings.TrimSpace(record.PluginCode)
+	record.TargetURL = strings.TrimSpace(record.TargetURL)
+	record.Status = strings.TrimSpace(record.Status)
+	if record.PluginCode == "" || record.TargetURL == "" {
+		return domain.WebhookCircuitBreaker{}, errors.New("plugin_code 和 target_url 不能为空")
+	}
+	if record.Status == "" {
+		record.Status = domain.WebhookCircuitBreakerStatusClosed
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	now := Now()
+	if record.CreatedAt == "" {
+		record.CreatedAt = now
+	}
+	record.UpdatedAt = now
+	for i := range s.webhookCircuitBreakers {
+		it := s.webhookCircuitBreakers[i]
+		if it.PluginCode == record.PluginCode && it.TargetURL == record.TargetURL {
+			record.ID = it.ID
+			if record.CreatedAt == "" {
+				record.CreatedAt = it.CreatedAt
+			}
+			s.webhookCircuitBreakers[i] = record
+			return record, nil
+		}
+	}
+	s.nextWebhookBreakerID++
+	record.ID = s.nextWebhookBreakerID
+	s.webhookCircuitBreakers = append(s.webhookCircuitBreakers, record)
+	return record, nil
+}
+
+func (s *MemoryStore) WebhookCircuitBreakerByID(id int64) (domain.WebhookCircuitBreaker, bool) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	for _, it := range s.webhookCircuitBreakers {
+		if it.ID == id {
+			return it, true
+		}
+	}
+	return domain.WebhookCircuitBreaker{}, false
+}
+
+func (s *MemoryStore) WebhookCircuitBreakerByKey(pluginCode, targetURL string) (domain.WebhookCircuitBreaker, bool) {
+	pluginCode = strings.TrimSpace(pluginCode)
+	targetURL = strings.TrimSpace(targetURL)
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	for _, it := range s.webhookCircuitBreakers {
+		if it.PluginCode == pluginCode && it.TargetURL == targetURL {
+			return it, true
+		}
+	}
+	return domain.WebhookCircuitBreaker{}, false
+}
+
+func (s *MemoryStore) WebhookCircuitBreakers(filter domain.WebhookCircuitBreakerFilter) ([]domain.WebhookCircuitBreaker, int, error) {
+	filter = filter.Normalize()
+	page, pageSize := normalizeMemoryPage(filter.Page, filter.PageSize)
+	pluginCode := strings.TrimSpace(filter.PluginCode)
+	status := strings.TrimSpace(filter.Status)
+
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	all := make([]domain.WebhookCircuitBreaker, 0, len(s.webhookCircuitBreakers))
+	for _, it := range s.webhookCircuitBreakers {
+		if pluginCode != "" && it.PluginCode != pluginCode {
+			continue
+		}
+		if status != "" && status != "all" && it.Status != status {
+			continue
+		}
+		all = append(all, it)
+	}
+	sort.Slice(all, func(i, j int) bool { return all[i].ID > all[j].ID })
+	total := len(all)
+	start := (page - 1) * pageSize
+	if start > total {
+		start = total
+	}
+	end := start + pageSize
+	if end > total {
+		end = total
+	}
+	return append([]domain.WebhookCircuitBreaker(nil), all[start:end]...), total, nil
+}
+
+// ===== Webhook secrets (v1.7.6) =====
+
+func (s *MemoryStore) AppendPluginWebhookSecret(record domain.PluginWebhookSecret) (domain.PluginWebhookSecret, error) {
+	record.PluginCode = strings.TrimSpace(record.PluginCode)
+	record.TargetURL = strings.TrimSpace(record.TargetURL)
+	record.SecretRef = strings.TrimSpace(record.SecretRef)
+	record.Status = strings.TrimSpace(record.Status)
+	if record.PluginCode == "" || record.TargetURL == "" || record.SecretRef == "" {
+		return domain.PluginWebhookSecret{}, errors.New("plugin_code/target_url/secret_ref 不能为空")
+	}
+	if record.Status == "" {
+		record.Status = domain.PluginWebhookSecretStatusActive
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	for _, it := range s.webhookSecrets {
+		if it.SecretRef == record.SecretRef {
+			return it, nil
+		}
+	}
+	s.nextWebhookSecretID++
+	record.ID = s.nextWebhookSecretID
+	now := Now()
+	if record.CreatedAt == "" {
+		record.CreatedAt = now
+	}
+	record.UpdatedAt = now
+	s.webhookSecrets = append(s.webhookSecrets, record)
+	return record, nil
+}
+
+func (s *MemoryStore) SavePluginWebhookSecret(record domain.PluginWebhookSecret) (domain.PluginWebhookSecret, error) {
+	if record.ID <= 0 {
+		return s.AppendPluginWebhookSecret(record)
+	}
+	record.PluginCode = strings.TrimSpace(record.PluginCode)
+	record.TargetURL = strings.TrimSpace(record.TargetURL)
+	record.SecretRef = strings.TrimSpace(record.SecretRef)
+	record.Status = strings.TrimSpace(record.Status)
+	if record.PluginCode == "" || record.TargetURL == "" || record.SecretRef == "" {
+		return domain.PluginWebhookSecret{}, errors.New("plugin_code/target_url/secret_ref 不能为空")
+	}
+	if record.Status == "" {
+		record.Status = domain.PluginWebhookSecretStatusActive
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	now := Now()
+	if record.CreatedAt == "" {
+		record.CreatedAt = now
+	}
+	record.UpdatedAt = now
+	for i := range s.webhookSecrets {
+		if s.webhookSecrets[i].ID == record.ID {
+			s.webhookSecrets[i] = record
+			return record, nil
+		}
+	}
+	s.webhookSecrets = append(s.webhookSecrets, record)
+	return record, nil
+}
+
+func (s *MemoryStore) PluginWebhookSecretByID(id int64) (domain.PluginWebhookSecret, bool) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	for _, it := range s.webhookSecrets {
+		if it.ID == id {
+			return it, true
+		}
+	}
+	return domain.PluginWebhookSecret{}, false
+}
+
+func (s *MemoryStore) PluginWebhookSecretByRef(secretRef string) (domain.PluginWebhookSecret, bool) {
+	secretRef = strings.TrimSpace(secretRef)
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	for _, it := range s.webhookSecrets {
+		if it.SecretRef == secretRef {
+			return it, true
+		}
+	}
+	return domain.PluginWebhookSecret{}, false
+}
+
+func (s *MemoryStore) PluginWebhookSecrets(filter domain.PluginWebhookSecretFilter) ([]domain.PluginWebhookSecret, int, error) {
+	filter = filter.Normalize()
+	page, pageSize := normalizeMemoryPage(filter.Page, filter.PageSize)
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	all := make([]domain.PluginWebhookSecret, 0, len(s.webhookSecrets))
+	for _, it := range s.webhookSecrets {
+		if filter.PluginCode != "" && it.PluginCode != filter.PluginCode {
+			continue
+		}
+		if filter.Status != "" && filter.Status != "all" && it.Status != filter.Status {
+			continue
+		}
+		if filter.SecretRef != "" && it.SecretRef != filter.SecretRef {
+			continue
+		}
+		all = append(all, it)
+	}
+	sort.Slice(all, func(i, j int) bool { return all[i].ID > all[j].ID })
+	total := len(all)
+	start := (page - 1) * pageSize
+	if start > total {
+		start = total
+	}
+	end := start + pageSize
+	if end > total {
+		end = total
+	}
+	return append([]domain.PluginWebhookSecret(nil), all[start:end]...), total, nil
+}
+
+func (s *MemoryStore) ActivePluginWebhookSecret(pluginCode, targetURL string) (domain.PluginWebhookSecret, bool) {
+	pluginCode = strings.TrimSpace(pluginCode)
+	targetURL = strings.TrimSpace(targetURL)
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	for _, it := range s.webhookSecrets {
+		if it.PluginCode == pluginCode && it.TargetURL == targetURL && it.Status == domain.PluginWebhookSecretStatusActive {
+			return it, true
+		}
+	}
+	return domain.PluginWebhookSecret{}, false
+}
+
+func (s *MemoryStore) PreviousPluginWebhookSecret(pluginCode, targetURL string) (domain.PluginWebhookSecret, bool) {
+	pluginCode = strings.TrimSpace(pluginCode)
+	targetURL = strings.TrimSpace(targetURL)
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	for _, it := range s.webhookSecrets {
+		if it.PluginCode == pluginCode && it.TargetURL == targetURL && it.Status == domain.PluginWebhookSecretStatusPrevious {
+			return it, true
+		}
+	}
+	return domain.PluginWebhookSecret{}, false
+}
+
+func (s *MemoryStore) LatestPluginWebhookSecretForTarget(pluginCode, targetURL string) (domain.PluginWebhookSecret, bool) {
+	pluginCode = strings.TrimSpace(pluginCode)
+	targetURL = strings.TrimSpace(targetURL)
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	var latest domain.PluginWebhookSecret
+	found := false
+	for _, it := range s.webhookSecrets {
+		if it.PluginCode != pluginCode || it.TargetURL != targetURL {
+			continue
+		}
+		if !found || it.ID > latest.ID {
+			latest = it
+			found = true
+		}
+	}
+	return latest, found
 }
 
 func (s *MemoryStore) HookExecutionsByFilter(filter domain.HookExecutionFilter) ([]domain.HookExecution, int, error) {

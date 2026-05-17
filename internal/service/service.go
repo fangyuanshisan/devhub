@@ -121,6 +121,34 @@ type Repository interface {
 	HookExecutions(pluginCode string, limit int) ([]domain.HookExecution, error)
 	HookStats(pluginCode string) ([]domain.HookStats, error)
 	HookExecutionsByFilter(filter domain.HookExecutionFilter) ([]domain.HookExecution, int, error)
+
+	// ===== Webhook governance (v1.7.4+ / v1.7.5) =====
+	AppendWebhookEvent(record domain.WebhookEvent) (domain.WebhookEvent, error)
+	SaveWebhookEvent(record domain.WebhookEvent) (domain.WebhookEvent, error)
+	WebhookEventByID(id int64) (domain.WebhookEvent, bool)
+	WebhookEvents(filter domain.WebhookEventFilter) ([]domain.WebhookEvent, int, error)
+
+	AppendWebhookDelivery(record domain.WebhookDelivery) (domain.WebhookDelivery, error)
+	SaveWebhookDelivery(record domain.WebhookDelivery) (domain.WebhookDelivery, error)
+	WebhookDeliveryByID(id int64) (domain.WebhookDelivery, bool)
+	WebhookDeliveries(filter domain.WebhookDeliveryFilter) ([]domain.WebhookDelivery, int, error)
+	DueWebhookDeliveries(dueBefore string, limit int) ([]domain.WebhookDelivery, error)
+	TryMarkWebhookDeliveryStatus(id int64, fromStatus, toStatus string) (bool, error)
+
+	UpsertWebhookCircuitBreaker(record domain.WebhookCircuitBreaker) (domain.WebhookCircuitBreaker, error)
+	WebhookCircuitBreakerByID(id int64) (domain.WebhookCircuitBreaker, bool)
+	WebhookCircuitBreakerByKey(pluginCode, targetURL string) (domain.WebhookCircuitBreaker, bool)
+	WebhookCircuitBreakers(filter domain.WebhookCircuitBreakerFilter) ([]domain.WebhookCircuitBreaker, int, error)
+
+	// ===== Webhook secrets (v1.7.6) =====
+	AppendPluginWebhookSecret(record domain.PluginWebhookSecret) (domain.PluginWebhookSecret, error)
+	SavePluginWebhookSecret(record domain.PluginWebhookSecret) (domain.PluginWebhookSecret, error)
+	PluginWebhookSecretByID(id int64) (domain.PluginWebhookSecret, bool)
+	PluginWebhookSecretByRef(secretRef string) (domain.PluginWebhookSecret, bool)
+	PluginWebhookSecrets(filter domain.PluginWebhookSecretFilter) ([]domain.PluginWebhookSecret, int, error)
+	ActivePluginWebhookSecret(pluginCode, targetURL string) (domain.PluginWebhookSecret, bool)
+	PreviousPluginWebhookSecret(pluginCode, targetURL string) (domain.PluginWebhookSecret, bool)
+	LatestPluginWebhookSecretForTarget(pluginCode, targetURL string) (domain.PluginWebhookSecret, bool)
 	// PluginReadiness is computed in service; no repo method.
 	CommunityPlugins(communityID int64) ([]domain.Plugin, error)
 	SetCommunityPluginStatus(communityID int64, code, status string) (domain.Plugin, error)

@@ -127,6 +127,23 @@ export const pluginAuditLogs = (code, params) => http.get(`/admin/plugins/${code
 export const pluginMigrations = (code) => http.get(`/admin/plugins/${code}/migrations`);
 export const runPluginMigrations = (code) => http.post(`/admin/plugins/${code}/migrations/run`);
 export const retryPluginMigration = (code, name) => http.post(`/admin/plugins/${code}/migrations/${encodeURIComponent(name)}/retry`);
+// v1.7.5: webhook governance (retry queue + circuit breaker)
+export const listWebhookDeliveries = (params) => http.get('/admin/plugins/webhooks/deliveries', { params });
+export const getWebhookDelivery = (id) => http.get(`/admin/plugins/webhooks/deliveries/${id}`);
+export const retryWebhookDelivery = (id) => http.post(`/admin/plugins/webhooks/deliveries/${id}/retry`);
+export const retryDueWebhookDeliveries = (payload) => http.post('/admin/plugins/webhooks/retry-due', payload);
+export const listWebhookCircuitBreakers = (params) => http.get('/admin/plugins/webhooks/circuit-breakers', { params });
+export const getWebhookCircuitBreaker = (id) => http.get(`/admin/plugins/webhooks/circuit-breakers/${id}`);
+export const closeWebhookCircuitBreaker = (id) => http.post(`/admin/plugins/webhooks/circuit-breakers/${id}/close`);
+export const openWebhookCircuitBreaker = (id) => http.post(`/admin/plugins/webhooks/circuit-breakers/${id}/open`);
+// v1.7.6: webhook signing + secret rotation
+export const listWebhookSecrets = (params) => http.get('/admin/plugins/webhooks/secrets', { params });
+export const getWebhookSecret = (id) => http.get(`/admin/plugins/webhooks/secrets/${id}`);
+export const createWebhookSecret = (payload) => http.post('/admin/plugins/webhooks/secrets', payload);
+export const rotateWebhookSecret = (id) => http.post(`/admin/plugins/webhooks/secrets/${id}/rotate`);
+export const disableWebhookSecret = (id) => http.post(`/admin/plugins/webhooks/secrets/${id}/disable`);
+export const enableWebhookSecret = (id) => http.post(`/admin/plugins/webhooks/secrets/${id}/enable`);
+export const revokeWebhookSecret = (id) => http.post(`/admin/plugins/webhooks/secrets/${id}/revoke`);
 export const adminCommunities = (params) => http.get('/admin/communities', { params });
 export const createCommunity = (payload) => http.post('/admin/communities', payload);
 export const adminCommunity = (id) => http.get(`/admin/communities/${id}`);

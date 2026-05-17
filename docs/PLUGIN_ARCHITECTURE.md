@@ -10,7 +10,7 @@ DevHub 当前长期目标是 **Core + 插件 的开源服务底座**。插件系
 
 社区能力是 Core 默认能力之一，但不是 DevHub 的唯一边界。DevHub 应面向社区、内容站、知识库、内部工具平台和垂直业务系统等可扩展服务场景。
 
-完整插件系统与插件运行模型是当前最高优先级长期主线。下一阶段完整目标、生命周期和验收标准以 [完整插件系统长期完善路线图](PLUGIN_SYSTEM_ROADMAP.md) 为准。插件市场、远程安装、在线更新、动态加载、前端插件沙箱和 HTTP 插件服务协议仍属于后续阶段路线，必须在权限、安全、审计、生命周期和 SEO 红线内推进。
+完整插件系统与插件运行模型是当前最高优先级长期主线。插件运行模型的详细设计见 [插件运行模型设计](PLUGIN_RUNTIME_MODEL.md)；下一阶段完整目标、生命周期和验收标准以 [完整插件系统长期完善路线图](PLUGIN_SYSTEM_ROADMAP.md) 为准。插件市场、远程安装、在线更新、动态加载、前端插件沙箱和 HTTP 插件服务协议仍属于后续阶段路线，必须在权限、安全、审计、生命周期和 SEO 红线内推进。
 
 ## Core 边界
 
@@ -30,6 +30,27 @@ Core 保持稳定、克制、通用，不承载过多垂直业务。当前 Core 
 - 前台页面扩展、后台菜单扩展、前台 slot / 区块扩展、主题 / UI 扩展。
 - 统计、SEO、公告、友情链接、支付、AI、Webhook 等可选能力。
 - 插件不能绕过 Core 的权限、安全、审计和生命周期治理。
+
+## 插件运行模型摘要（v1.7.2 设计）
+
+DevHub 插件运行模型拆分为三类：
+
+1. **Core 内置插件**：如 `qa`、`docs`、`wiki`、`projects`、`jobs`、`ai_works`，随 DevHub 主仓库编译发布，运行在 DevHub 进程内，受 Core 权限、审计、配置、生命周期和 HookBus 约束。
+2. **外部 HTTP 服务插件**：第三方后端插件作为独立 HTTP 服务运行，DevHub 不加载插件代码，通过签名请求 / token 与插件服务通信；插件服务只能调用受控 Core API。这是中期推荐的第三方后端运行方式。
+3. **前端 iframe / sandbox 插件**：第三方前端页面通过 iframe 或 sandbox 容器挂载，通过 `postMessage` 或受控 SDK 与 Core 通信；DevHub 不直接执行不可信 JS。
+
+当前这些运行模型是设计口径：外部 HTTP 插件服务协议、iframe / sandbox 前端挂载、插件 SDK、受控 API token、运行时鉴权、资源限制和错误隔离仍未实现。
+
+相关协议设计：
+
+- Webhook / HTTP 插件服务协议（设计）：`docs/PLUGIN_WEBHOOK_PROTOCOL.md`（签名鉴权、防重放、幂等/重试、超时/限流/熔断、审计与治理规划）。
+- Webhook 协议实现拆解（v1.7.3 计划，文档阶段）：`docs/PLUGIN_WEBHOOK_IMPLEMENTATION_PLAN.md`（non_blocking delivery 优先，blocking Hook 后置；文档与真实实现需保持一致）。
+- 官方示例插件（公告插件）端到端验证方案：`docs/plugins/official-announcement-plugin.md`（用于后续验证协议实现与治理闭环，不执行第三方代码）。
+
+实现进度补充（v1.7.5/v1.7.6）：
+
+- v1.7.5：已实现 non_blocking delivery 的治理能力增强（delivery 记录、重试调度 `retry_scheduled/retry_exhausted`、circuit breaker `closed/open/half_open`、最小后台治理入口与审计）。
+- v1.7.6：已实现 DevHub → 插件服务的 HMAC-SHA256 发送端签名与 Webhook Secret 管理/轮换（active/previous grace window），并在后台 Webhook 治理页增加 Secrets Tab；仍不执行第三方插件代码，仍不实现 blocking Hook。
 
 当前兼容命名：
 
