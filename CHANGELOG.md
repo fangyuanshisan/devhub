@@ -13,6 +13,8 @@
 - v1.8.3-S2：完成插件后台二级导航收敛与三级 Tab 重组。左侧插件导航只保留 5 个治理域，原 20+ 入口沉到页内 Tab；旧路由兼容跳转到新治理域和 `?tab=`；Webhook 治理新增总览 Tab；后台 quick build 通过。
 - v1.8.3-S4：修正插件后台总览页左侧异常留白和内容偏右；插件列表筛选区改为紧凑横向筛选栏，高级筛选默认折叠；健康摘要和批量操作减少首屏占用；official_announcement 详情入口更直观；新增 `scripts/check-admin-plugin-ia.sh` 用于轻量回归 5 个治理域和旧路由 Tab。
 - v1.8.3-S5：优化插件详情抽屉视觉层级与信息密度。可见 Tab 收敛为概览、配置、前端挂载、Webhook、安全凭据、运行记录、审计日志、技术详情；Webhook 密钥和回调 Token 合并为安全凭据，原始配置和声明 JSON 默认进入技术详情并脱敏，official_announcement 配置/挂载/预览入口更直观；后台 quick build 通过。
+- v1.8.3-S6：完成插件详情抽屉性能拆包与 1024 宽度视觉回归。配置版本弹窗、技术详情和 JSON 编辑器改为按需加载，详情抽屉低频 Tab 懒渲染；`PluginConfigEditor` chunk 明显降低，普通插件详情、技术详情、配置 Tab 和配置版本弹窗已截图回归；后台 quick build 通过。
+- v1.8.3-S7：为 `official_announcement` 浏览器回归补固定 fixture。`scripts/check-admin-plugin-ia.sh` 通过现有后台 API 幂等准备官方公告插件全局 / 子站启用状态和公告配置，并强制覆盖插件列表、详情概览、公告配置、前端挂载、公告预览截图；同时修复后台预览 Host helper 请求 context / audit 未带 admin Authorization 导致 iframe 不创建的问题。token 只用于 Host 请求，不暴露给 iframe；不开放远程 iframe，不改变插件逻辑或 Webhook 协议。
 - 优化插件后台公共筛选条布局：标题说明置顶、筛选控件网格排布、按钮与条件同行，改善宽屏下控件过长和按钮位置松散的问题。
 - 调整插件模块二级导航呈现：保留左侧二级导航栏，在“插件管理”分组下直接展示 5 个治理域，页内 Tab 继续作为三级导航。
 - 修复 `/admin-next/plugins/operations` 操作历史页读取 `undefined.items` 的运行时错误，兼容前端 HTTP 拦截器已解包的业务响应和空列表响应。

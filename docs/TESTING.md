@@ -174,6 +174,67 @@ Codex / Agent 默认不要在完成任务时自动跑测试、E2E 或完整验�
 23. blocking Hook 仍未开放。
 24. admin quick 检查通过。
 
+### v1.8.3-S6 插件详情抽屉性能拆包与视觉回归验收项
+
+1. PluginConfigVersionsDialog 按需加载。
+2. 插件详情抽屉低频 Tab 按需加载。
+3. 技术详情 Tab 按需加载或默认折叠。
+4. 1024 宽度下详情抽屉可用。
+5. 1024 宽度下 Tab 横向滚动自然。
+6. 1024 宽度下技术详情 JSON 不撑破抽屉。
+7. 1366 宽度下详情抽屉布局自然。
+8. official_announcement 配置入口清晰。
+9. official_announcement 前端挂载说明清晰。
+10. official_announcement 预览入口清晰。
+11. 配置版本弹窗不溢出。
+12. 配置版本弹窗空状态中文。
+13. 技术详情默认折叠。
+14. 技术详情空状态显示“暂无技术详情”。
+15. Secret 明文不显示。
+16. Callback Token 明文不显示。
+17. token_hash 不显示。
+18. Authorization Header 不显示。
+19. 完整 HMAC signature 不显示。
+20. 远程 iframe URL 仍未开放。
+21. 第三方代码执行仍未开放。
+22. blocking Hook 仍未开放。
+23. admin quick 检查通过。
+
+### v1.8.3-S7 official_announcement 固定 fixture 与浏览器回归验收项
+
+建议命令：
+
+```bash
+./scripts/check-admin-plugin-ia.sh
+./scripts/check-frontend.sh --admin-only --quick
+```
+
+说明：`check-admin-plugin-ia.sh` 会在浏览器回归前通过现有后台 API 幂等准备 `official_announcement` fixture；该脚本用于插件 IA / UI 回归，不替代完整后台 E2E。
+
+1. official_announcement fixture 可准备。
+2. fixture 多次执行不重复污染数据：配置一致时跳过重复写入。
+3. official_announcement 在插件列表中稳定可见。
+4. 插件列表显示“官方公告插件”。
+5. 插件列表显示“官方内置插件”标识。
+6. official_announcement 详情抽屉可打开。
+7. 配置 Tab 可截图。
+8. 前端挂载 Tab 可截图。
+9. 预览区域可截图。
+10. iframe 容器可见。
+11. fixture 下配置 `enabled=true`。
+12. fixture 下 `message` 非空，固定为“欢迎使用 DevHub 官方公告插件”。
+13. PHP 或首个可用子站启用状态可覆盖。
+14. 浏览器回归脚本能强制覆盖 official_announcement，不再因为数据缺失条件跳过。
+15. 页面不显示 callback token 明文。
+16. 页面不显示 webhook secret 明文。
+17. iframe DOM 不包含 token_hash、authorization、secret/token query。
+18. iframe 路由仍为内置 `/plugins/official-announcement/iframe`。
+19. iframe sandbox 仍为 `allow-scripts`。
+20. 不开放远程 iframe URL。
+21. 不执行第三方代码。
+22. blocking Hook 仍未开放。
+23. admin quick 检查通过。
+
 本轮结果记录：
 
 - `./scripts/check-frontend.sh --admin-only --quick`：通过（后台 build 成功），日志目录 `.devhub/checks/20260518-194453/`。
@@ -185,6 +246,11 @@ Codex / Agent 默认不要在完成任务时自动跑测试、E2E 或完整验�
 - `scripts/check-admin-plugin-ia.sh`：v1.8.3-S4 浏览器 IA 回归通过，截图目录 `/workspace/.devhub/screenshots/v1.8.3-s4`，覆盖 5 个治理域、旧路由到 Tab 跳转、1024 宽度和中文空状态。
 - `./scripts/check-frontend.sh --admin-only --quick`：v1.8.3-S4 复跑通过（后台 build 成功），日志目录 `.devhub/checks/20260519-002055/`。
 - `./scripts/check-frontend.sh --admin-only --quick`：v1.8.3-S5 复跑通过（后台 build 成功），日志目录 `.devhub/checks/20260519-003946/`。
+- `scripts/check-admin-plugin-ia.sh`：v1.8.3-S6 浏览器回归通过，截图目录 `.devhub/screenshots/v1.8.3-s6`，覆盖普通插件详情 1024、技术详情、配置 Tab、配置版本弹窗、5 个治理域 1366；当前测试数据未返回 `official_announcement`，脚本记录跳过原因。
+- `./scripts/check-frontend.sh --admin-only --quick`：v1.8.3-S6 复跑通过（后台 build 成功），日志目录 `.devhub/checks/20260519-010359/`。
+- `scripts/check-admin-plugin-ia.sh`：v1.8.3-S7 浏览器回归通过，截图目录 `.devhub/screenshots/plugin-ia`，报告文件 `.devhub/screenshots/plugin-ia/report.json`；fixture 固定 `official_announcement` 全局与 PHP 子站启用，强制覆盖官方公告插件列表、详情概览、公告配置、前端挂载、公告预览、iframe 内置路由和 sandbox。
+- `./scripts/check-frontend.sh --admin-only --quick`：v1.8.3-S7 复跑通过（后台 build 成功），日志目录 `.devhub/checks/20260519-014314/`。
+- `gofmt internal/transport/httpapi/plugin_mount_host_helper.go`、`go test ./...`、`go build ./...`：v1.8.3-S7 通过；本轮因修复后台预览 Host helper 鉴权而补跑 Go 检查。
 - `git diff --check`：通过。
 - `bash -n scripts/check-frontend.sh`：通过。
 

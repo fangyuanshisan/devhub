@@ -66,7 +66,20 @@
         <el-tabs :model-value="$route.path" type="card" closable @tab-remove="removeTab" @tab-click="openTab">
           <el-tab-pane v-for="tab in tabs.tabs" :key="tab.path" :label="tab.title" :name="tab.path" />
         </el-tabs>
-        <el-icon class="grid-icon"><Grid /></el-icon>
+        <el-dropdown trigger="click" @command="handleTabCommand">
+          <button class="tabbar-menu-trigger" type="button" title="批量关闭页签" data-testid="admin-tabbar-batch-close">
+            <el-icon class="grid-icon"><Grid /></el-icon>
+          </button>
+          <template #dropdown>
+            <el-dropdown-menu>
+              <el-dropdown-item command="close-current" :disabled="route.path === '/dashboard'">关闭当前</el-dropdown-item>
+              <el-dropdown-item command="close-others" :disabled="tabs.tabs.length <= 1">关闭其他</el-dropdown-item>
+              <el-dropdown-item command="close-left" :disabled="currentTabIndex <= 1">关闭左侧</el-dropdown-item>
+              <el-dropdown-item command="close-right" :disabled="currentTabIndex < 0 || currentTabIndex >= tabs.tabs.length - 1">关闭右侧</el-dropdown-item>
+              <el-dropdown-item divided command="close-all" :disabled="tabs.tabs.length <= 1">关闭全部</el-dropdown-item>
+            </el-dropdown-menu>
+          </template>
+        </el-dropdown>
       </div>
 
       <el-main class="main">
@@ -147,6 +160,7 @@ const showLeafBreadcrumb = computed(() => {
   return currentPageTitle.value !== activeNavPage.value.label;
 });
 const keepAliveNames = computed(() => router.getRoutes().filter((r) => r.meta?.keepAlive && r.name).map((r) => r.name));
+const currentTabIndex = computed(() => tabs.tabs.findIndex((tab) => tab.path === route.path));
 const scopeLabel = computed(() => {
   const site = new URLSearchParams(window.location.search).get('site') || 'portal';
   return site === 'portal' ? '全局后台' : `${site} 子站`;
@@ -171,6 +185,30 @@ function removeTab(path) {
 
 function openTab(tab) {
   router.push(tab.props.name);
+}
+
+function handleTabCommand(command) {
+  const currentPath = route.path;
+  if (command === 'close-current') {
+    removeTab(currentPath);
+    return;
+  }
+  if (command === 'close-others') {
+    tabs.closeOthers(currentPath);
+    return;
+  }
+  if (command === 'close-left') {
+    tabs.closeLeft(currentPath);
+    return;
+  }
+  if (command === 'close-right') {
+    tabs.closeRight(currentPath);
+    return;
+  }
+  if (command === 'close-all') {
+    tabs.closeAll();
+    if (currentPath !== '/dashboard') router.push('/dashboard');
+  }
 }
 
 async function logout() {

@@ -110,7 +110,7 @@
           </section>
         </el-tab-pane>
 
-        <el-tab-pane label="运行记录" name="runtime">
+        <el-tab-pane label="运行记录" name="runtime" lazy>
           <p class="tab-note">展示当前插件运行健康摘要、最近异常和排障入口；完整操作历史请进入“运行记录 / 审计”治理域。</p>
           <el-alert
             type="info"
@@ -150,7 +150,7 @@
           </div>
         </el-tab-pane>
 
-        <el-tab-pane :label="t('plugin.tabs.webhook')" name="webhook">
+        <el-tab-pane :label="t('plugin.tabs.webhook')" name="webhook" lazy>
           <p class="tab-note">这里只展示当前插件的 Webhook 摘要和跳转入口，不复制全局投递、重试和熔断表格。</p>
           <el-alert
             type="info"
@@ -172,7 +172,7 @@
           </div>
         </el-tab-pane>
 
-        <el-tab-pane label="安全凭据" name="webhookSecrets">
+        <el-tab-pane label="安全凭据" name="webhookSecrets" lazy>
           <p class="tab-note">Webhook 密钥和回调 Token 统一在这里说明；明文只在创建或轮换时展示一次。</p>
           <el-alert
             type="warning"
@@ -528,7 +528,7 @@
           </el-dialog>
         </el-tab-pane>
 
-        <el-tab-pane :label="t('plugin.tabs.frontendMount')" name="menus">
+        <el-tab-pane :label="t('plugin.tabs.frontendMount')" name="menus" lazy>
           <p class="tab-note">说明插件前端如何挂载，以及 iframe、sandbox、postMessage 的安全边界。</p>
           <el-alert
             type="info"
@@ -601,7 +601,7 @@
           </section>
         </el-tab-pane>
 
-        <el-tab-pane :label="plugin.code === 'official_announcement' ? '公告配置' : t('plugin.tabs.config')" name="config">
+        <el-tab-pane :label="plugin.code === 'official_announcement' ? '公告配置' : t('plugin.tabs.config')" name="config" lazy>
           <p class="tab-note">配置区只保留生效摘要和编辑入口；配置模型、原始配置和调试 JSON 已移入“技术详情”。</p>
           <el-alert
             :title="plugin.code === 'official_announcement' ? '公告开关、公告内容、链接文字、链接地址和是否允许关闭通过配置管理；保存后后台预览会刷新。' : t('plugin.configCapabilityNote')"
@@ -667,7 +667,7 @@
           </section>
         </el-tab-pane>
 
-        <el-tab-pane v-if="plugin.code === 'official_announcement'" label="公告预览" name="officialAnnouncementPreview">
+        <el-tab-pane v-if="plugin.code === 'official_announcement'" label="公告预览" name="officialAnnouncementPreview" lazy>
           <p class="tab-note">后台预览复用官方 iframe Host，不允许远程 iframe URL，也不暴露管理员 Token、回调 Token 或 Webhook 密钥。</p>
           <el-alert
             type="info"
@@ -949,7 +949,7 @@
           </el-table>
         </el-tab-pane>
 
-        <el-tab-pane :label="t('plugin.tabs.audit')" name="audit">
+        <el-tab-pane :label="t('plugin.tabs.audit')" name="audit" lazy>
           <p class="tab-note">展示当前插件最近审计摘要；完整审计追踪请进入“运行记录 / 审计”治理域。</p>
           <el-alert
             type="info"
@@ -1037,7 +1037,7 @@
           </div>
         </el-tab-pane>
 
-        <el-tab-pane label="技术详情" name="technical">
+        <el-tab-pane label="技术详情" name="technical" lazy>
           <p class="tab-note">低频技术字段、原始声明和 JSON 默认折叠，仅用于排障；敏感字段会脱敏显示。</p>
           <section class="export-panel mb" data-testid="plugin-export-panel">
             <div>
@@ -1048,24 +1048,34 @@
           </section>
 
           <el-empty v-if="!technicalDetailBlocks.length" description="暂无技术详情" />
-          <el-collapse v-else v-model="technicalPanels" class="technical-collapse">
-            <el-collapse-item v-for="block in technicalDetailBlocks" :key="block.name" :name="block.name" :title="block.title">
-              <pre class="json-box">{{ formatJSON(block.value) }}</pre>
-            </el-collapse-item>
-          </el-collapse>
+          <Suspense v-else>
+            <template #default>
+              <AsyncPluginTechnicalDetails :blocks="technicalDetailBlocks" />
+            </template>
+            <template #fallback>
+              <div class="lazy-state">技术详情加载中...</div>
+            </template>
+          </Suspense>
         </el-tab-pane>
         </el-tabs>
       </div>
     </template>
   </el-drawer>
 
-        <PluginConfigVersionsDialog
+        <Suspense v-if="configVersionsVisible && safePlugin?.code">
+          <template #default>
+            <AsyncPluginConfigVersionsDialog
     v-if="safePlugin?.code"
     v-model="configVersionsVisible"
     :plugin-code="safePlugin.code"
     scope="global"
     :community-id="0"
   />
+          </template>
+          <template #fallback>
+            <div class="lazy-state floating">配置版本加载中...</div>
+          </template>
+        </Suspense>
 
   <el-dialog v-model="exportDialogVisible" title="导出本地插件包" width="820px" destroy-on-close data-testid="plugin-export-dialog">
     <template v-if="plugin">
@@ -1130,10 +1140,9 @@
 </template>
 
 <script setup>
-import { computed, reactive, ref, watch } from 'vue';
+import { computed, defineAsyncComponent, h, reactive, ref, watch } from 'vue';
 import { ElMessage, ElMessageBox } from 'element-plus';
 import PluginConfigEditor from './PluginConfigEditor.vue';
-import PluginConfigVersionsDialog from './PluginConfigVersionsDialog.vue';
 import PluginIframeMount from './PluginIframeMount.vue';
 import { dryRunPluginExport, enablePluginFromEnablePrecheck, exportPluginPackage, getPluginUninstallImpact, getPluginUpgradeTask, listPluginPackageCompatChecks, listPluginUpgradeTasks, pluginAuditLogs, pluginHookExecutions, pluginHooks, pluginMenusPreview, pluginMigrations, pluginReadiness, pluginUpgradeImpact, retryPluginUpgradeTask, runPluginEnablePrecheck, runPluginMigrations, softUninstallPlugin, upgradePluginFromPackage, updatePluginConfig } from '@/api/admin';
 import { t } from '@/i18n';
@@ -1150,6 +1159,26 @@ const props = defineProps({
 const emit = defineEmits(['update:modelValue', 'refresh', 'open-plugin']);
 const router = useRouter();
 const auth = useAuthStore();
+
+const AsyncPluginConfigVersionsDialog = defineAsyncComponent({
+  loader: () => import('./PluginConfigVersionsDialog.vue'),
+  loadingComponent: {
+    render: () => h('div', { class: 'lazy-state floating' }, '配置版本加载中...'),
+  },
+  errorComponent: {
+    render: () => h('div', { class: 'lazy-state error' }, '配置版本加载失败，请稍后重试'),
+  },
+});
+
+const AsyncPluginTechnicalDetails = defineAsyncComponent({
+  loader: () => import('./PluginTechnicalDetails.vue'),
+  loadingComponent: {
+    render: () => h('div', { class: 'lazy-state' }, '技术详情加载中...'),
+  },
+  errorComponent: {
+    render: () => h('div', { class: 'lazy-state error' }, '技术详情加载失败，请稍后重试'),
+  },
+});
 
 const visible = computed({
   get: () => props.modelValue,
@@ -1172,7 +1201,6 @@ const selectedPermission = ref(null);
 const selectedPermissionRefs = ref([]);
 const schemaErrors = ref([]);
 const configVersionsVisible = ref(false);
-const technicalPanels = ref([]);
 const editableConfig = ref({});
 const auditLoading = ref(false);
 const auditRows = ref([]);
@@ -1293,7 +1321,6 @@ watch(
     tab.value = normalizeDetailTab(props.initialTab || 'overview', p);
     permQ.value = '';
     schemaErrors.value = [];
-    technicalPanels.value = [];
     editableConfig.value = jsonValue(p?.config_json);
     // Reset audit query state for new plugin target.
     auditQ.action = '';
@@ -2502,10 +2529,6 @@ async function confirmExport() {
 .official-config-item strong {
   font-size: 14px;
 }
-.technical-collapse :deep(.el-collapse-item__header) {
-  padding: 0 12px;
-  font-weight: 600;
-}
 .export-panel {
   display: flex;
   justify-content: space-between;
@@ -2572,6 +2595,26 @@ async function confirmExport() {
 }
 .official-announcement-preview .host {
   min-height: 56px;
+}
+.lazy-state {
+  padding: 14px;
+  border: 1px solid #dbeafe;
+  border-radius: 10px;
+  background: #f8fbff;
+  color: #475569;
+  font-size: 13px;
+}
+.lazy-state.error {
+  border-color: #fecaca;
+  background: #fff7f7;
+  color: #b91c1c;
+}
+.lazy-state.floating {
+  position: fixed;
+  right: 24px;
+  bottom: 24px;
+  z-index: 3000;
+  box-shadow: 0 10px 24px rgba(15, 23, 42, 0.12);
 }
 
 @media (max-width: 900px) {

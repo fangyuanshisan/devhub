@@ -52,6 +52,8 @@ v1.8.3 后台治理稳定性与体验补充：
 - v1.8.3-S2 已完成后台插件二级导航收敛与三级 Tab 重组：左侧只保留插件总览、插件包治理、Webhook 治理、发布者与信任、运行记录 / 审计 5 个治理域，原 20+ 入口沉到页内 Tab；旧路由继续重定向到新治理域和 `?tab=`，减少低频能力在左侧堆叠。
 - v1.8.3-S4 已完成插件总览页布局与筛选体验收口：总览页修正左侧异常留白和内容偏右，健康摘要默认折叠，快捷操作压缩；插件列表筛选区改为紧凑横向筛选栏，高级筛选默认折叠；新增轻量脚本 `scripts/check-admin-plugin-ia.sh` 用于回归 5 个治理域、旧路由到 Tab、1024 宽度和中文空状态。
 - v1.8.3-S5 已完成插件详情抽屉视觉 polish 与信息减负：详情抽屉可见 Tab 收敛为概览、配置、前端挂载、Webhook、安全凭据、运行记录、审计日志、技术详情；Webhook 密钥和回调 Token 合并到安全凭据；原始配置、声明 JSON、低频技术字段收纳到默认折叠的技术详情并脱敏展示。该批次只改后台 UI 和文档，不改变 API、插件生命周期、Webhook 协议或 Secret / Token 安全模型。
+- v1.8.3-S6 已完成插件详情抽屉性能拆包与视觉回归：配置版本弹窗、技术详情和 JSON 编辑器按需加载，低频 Tab 使用懒渲染；1024 宽度下普通插件详情、配置 Tab、技术详情和配置版本弹窗已截图回归。剩余大 chunk 主要来自后台主入口、内容页和按需 `json-editor-vue`。
+- v1.8.3-S7 已完成 `official_announcement` 浏览器回归固定 fixture：`scripts/check-admin-plugin-ia.sh` 通过后台登录和现有插件配置 / 启用 API 幂等准备官方公告插件，确保插件列表、详情概览、公告配置、前端挂载和公告预览从条件覆盖变为强制覆盖；同时修复 admin area Host context / audit 请求鉴权，token 只用于 Host 请求，不进入 iframe。fixture 不写入真实 token / Secret，不改变 Host + iframe + postMessage 协议或安全边界。
 - 插件后台治理页面按“一级插件模块 / 5 个治理域 / 详情三级 Tab”继续收口，5 个治理域为：插件总览、插件包治理、Webhook 治理、可信发布者、运行记录 / 审计。
 - Webhook 治理页补齐空数据 / 缺字段安全默认值，避免 Events、Deliveries、Retry、Circuit Breakers、Secrets、Callback Tokens、Callback Requests 因 `null` 响应导致白屏。
 - 插件详情抽屉补齐运行时依赖并保护空插件状态，避免打开详情或页面初始化时出现运行时异常。

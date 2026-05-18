@@ -60,6 +60,14 @@ func pluginMountHostHelperJS() string {
 
   function safeString(v){ return String(v == null ? '' : v); }
 
+  function adminHeaders(){
+    try {
+      var token = window.sessionStorage && window.sessionStorage.getItem('devhub_admin_token');
+      if (token) return { Authorization: 'Bearer ' + token };
+    } catch (e) {}
+    return {};
+  }
+
   function shouldShowByConfig(cfg){
     cfg = cfg || {};
     if (!cfg.enabled) return false;
@@ -106,7 +114,7 @@ func pluginMountHostHelperJS() string {
     url.searchParams.set('area', area);
     if (communitySlug) url.searchParams.set('community_slug', communitySlug);
 
-    fetch(url.toString(), { credentials: (area === 'admin') ? 'include' : 'same-origin' })
+    fetch(url.toString(), { credentials: (area === 'admin') ? 'include' : 'same-origin', headers: (area === 'admin') ? adminHeaders() : {} })
       .then(function(res){ return res && res.ok ? res.json() : null; })
       .then(function(data){
         if (!data) return;
@@ -131,7 +139,7 @@ func pluginMountHostHelperJS() string {
           fetch(plugin.auditAPI, {
             method: 'POST',
             credentials: (area === 'admin') ? 'include' : 'same-origin',
-            headers: { 'Content-Type': 'application/json' },
+            headers: Object.assign({ 'Content-Type': 'application/json' }, (area === 'admin') ? adminHeaders() : {}),
             body: JSON.stringify({
               mount_id: mountId,
               area: area,

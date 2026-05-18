@@ -134,15 +134,21 @@
           </div>
         </div>
 
-        <JsonEditorVue
-          v-else
-          v-model="localValue"
-          mode="tree"
-          :main-menu-bar="true"
-          :navigation-bar="true"
-          :status-bar="true"
-          data-testid="plugin-config-json-mode"
-        />
+        <Suspense v-else>
+          <template #default>
+            <AsyncJsonEditorVue
+              v-model="localValue"
+              mode="tree"
+              :main-menu-bar="true"
+              :navigation-bar="true"
+              :status-bar="true"
+              data-testid="plugin-config-json-mode"
+            />
+          </template>
+          <template #fallback>
+            <div class="lazy-state">JSON 编辑器加载中...</div>
+          </template>
+        </Suspense>
 
         <div v-if="schemaErrors.length" class="error-box" data-testid="schema-error-box">
           <div class="error-title">{{ t('plugin.config.schemaErrors') }}</div>
@@ -166,9 +172,8 @@
 </template>
 
 <script setup>
-import { computed, ref, watch } from 'vue';
+import { computed, defineAsyncComponent, h, ref, watch } from 'vue';
 import { ElMessage } from 'element-plus';
-import JsonEditorVue from 'json-editor-vue';
 import Ajv from 'ajv';
 import { t } from '@/i18n';
 import { safeJSON } from '@/i18n/formatters';
@@ -187,6 +192,15 @@ const emit = defineEmits(['update:modelValue', 'schema-errors', 'mode-change']);
 
 const localValue = ref(props.modelValue ?? {});
 const mode = ref('form');
+const AsyncJsonEditorVue = defineAsyncComponent({
+  loader: () => import('json-editor-vue'),
+  loadingComponent: {
+    render: () => h('div', { class: 'lazy-state' }, 'JSON 编辑器加载中...'),
+  },
+  errorComponent: {
+    render: () => h('div', { class: 'lazy-state error' }, 'JSON 编辑器加载失败，请稍后重试'),
+  },
+});
 
 watch(
   () => props.modelValue,
@@ -436,6 +450,19 @@ function formatInline(value) {
 .inline-alert { margin: 6px 0; }
 .sensitive-wrap { display: flex; gap: 8px; align-items: center; }
 .field-control { width: 100%; }
+.lazy-state {
+  padding: 14px;
+  border: 1px solid #dbeafe;
+  border-radius: 10px;
+  background: #f8fbff;
+  color: #475569;
+  font-size: 13px;
+}
+.lazy-state.error {
+  border-color: #fecaca;
+  background: #fff7f7;
+  color: #b91c1c;
+}
 @media (max-width: 1100px) {
   .layout-grid { grid-template-columns: 1fr; }
 }

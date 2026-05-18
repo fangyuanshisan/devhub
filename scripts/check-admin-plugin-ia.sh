@@ -35,6 +35,16 @@ const adminUser = {
   permissions: ['*'],
 };
 
+const officialAnnouncementConfig = {
+  enabled: true,
+  message: '欢迎使用 DevHub 官方公告插件',
+  link_text: '查看详情',
+  link_url: '/',
+  dismissible: false,
+};
+
+const adminLoginPayload = { account: 'admin', password: 'admin123' };
+
 const domains = [
   ['overview', '/admin-next/plugins/overview', 'plugin-overview-domain', '插件总览'],
   ['packages', '/admin-next/plugins/packages', 'plugin-packages-domain', '插件包治理'],
@@ -53,13 +63,126 @@ const legacyRoutes = [
   ['/admin-next/plugins/hooks', /\/admin-next\/plugins\/runtime.*tab=hooks/],
 ];
 
-async function seedSession(page) {
+async function apiRequest(method, urlPath, token, body) {
+  const response = await fetch(`${origin}${urlPath}`, {
+    method,
+    headers: {
+      'Content-Type': 'application/json',
+      ...(token ? { Authorization: `Bearer ${token}` } : {}),
+    },
+    body: body === undefined ? undefined : JSON.stringify(body),
+  });
+  const text = await response.text();
+  let data = {};
+  if (text) {
+    try {
+      data = JSON.parse(text);
+    } catch {
+      data = { raw: text };
+    }
+  }
+  if (!response.ok) {
+    const message = data?.message || data?.error || data?.raw || response.statusText;
+    throw new Error(`${method} ${urlPath} 失败：${response.status} ${message}`);
+  }
+  return data;
+}
+
+async function loginAdminForFixture() {
+  const session = await apiRequest('POST', '/api/v1/admin/login', '', adminLoginPayload);
+  const token = session.access_token || session.accessToken || session.token;
+  const refreshToken = session.refresh_token || session.refreshToken || `${token}-refresh`;
+  const user = session.user || adminUser;
+  if (!token) throw new Error('无法获取后台登录 token，official_announcement fixture 未准备');
+  return { token, refreshToken, user };
+}
+
+function normalizeItems(payload) {
+  if (Array.isArray(payload)) return payload;
+  if (Array.isArray(payload?.items)) return payload.items;
+  if (Array.isArray(payload?.data?.items)) return payload.data.items;
+  return [];
+}
+
+function parseConfig(value) {
+  if (!value) return {};
+  if (typeof value === 'string') {
+    try {
+      return JSON.parse(value);
+    } catch {
+      return {};
+    }
+  }
+  if (typeof value === 'object') return value;
+  return {};
+}
+
+function configMatchesFixture(item) {
+  const config = parseConfig(item?.config_json || item?.configJSON || item?.resolved_config || item?.resolvedConfig);
+  return Object.entries(officialAnnouncementConfig).every(([key, value]) => config?.[key] === value);
+}
+
+function assertTextIncludesAny(text, label, candidates) {
+  if (!candidates.some((candidate) => text.includes(candidate))) {
+    throw new Error(`${label} 缺少文案：${candidates.join(' / ')}`);
+  }
+}
+
+async function ensureOfficialAnnouncementFixture(token) {
+  const pluginsPayload = await apiRequest('GET', '/api/v1/admin/plugins', token);
+  const plugins = normalizeItems(pluginsPayload);
+  const official = plugins.find((item) => item?.code === 'official_announcement' || item?.plugin_code === 'official_announcement');
+  if (!official) {
+    throw new Error('fixture 前置失败：后台插件列表未返回 official_announcement，请确认内置插件 registry 已加载');
+  }
+  const shouldEnableGlobal = official.status !== 'enabled';
+  if (shouldEnableGlobal) await apiRequest('POST', '/api/v1/admin/plugins/official_announcement/enable', token);
+  const shouldUpdateGlobalConfig = !configMatchesFixture(official);
+  if (shouldUpdateGlobalConfig) {
+    await apiRequest('PUT', '/api/v1/admin/plugins/official_announcement/config', token, { config_json: officialAnnouncementConfig });
+  }
+
+  const communitiesPayload = await apiRequest('GET', '/api/v1/admin/communities', token);
+  const communities = normalizeItems(communitiesPayload);
+  const community = communities.find((item) => item?.slug === 'php') || communities.find((item) => item?.status === 1) || communities[0];
+  if (!community?.id) {
+    throw new Error('fixture 前置失败：未找到可用子站，无法启用 official_announcement 子站状态');
+  }
+  const communityPluginsPayload = await apiRequest('GET', `/api/v1/admin/communities/${community.id}/plugins`, token);
+  const communityPlugins = normalizeItems(communityPluginsPayload);
+  const communityOfficial = communityPlugins.find((item) => item?.code === 'official_announcement' || item?.plugin_code === 'official_announcement');
+  if (!communityOfficial) {
+    throw new Error(`fixture 前置失败：子站 ${community.slug || community.id} 插件列表未返回 official_announcement`);
+  }
+  const communityStatus = communityOfficial.community_status || communityOfficial.communityStatus || communityOfficial.status;
+  const shouldEnableCommunity = communityStatus !== 'enabled';
+  if (shouldEnableCommunity) await apiRequest('POST', `/api/v1/admin/communities/${community.id}/plugins/official_announcement/enable`, token);
+  const shouldUpdateCommunityConfig = !configMatchesFixture(communityOfficial);
+  if (shouldUpdateCommunityConfig) {
+    await apiRequest('PUT', `/api/v1/admin/communities/${community.id}/plugins/official_announcement/config`, token, { config_json: officialAnnouncementConfig });
+  }
+
+  return {
+    plugin_code: 'official_announcement',
+    global_status: 'enabled',
+    community_id: community.id,
+    community_slug: community.slug || '',
+    config: officialAnnouncementConfig,
+    idempotent: true,
+    changed_global_status: shouldEnableGlobal,
+    changed_global_config: shouldUpdateGlobalConfig,
+    changed_community_status: shouldEnableCommunity,
+    changed_community_config: shouldUpdateCommunityConfig,
+  };
+}
+
+async function seedSession(page, token, refreshToken, user = adminUser) {
   await page.goto(`${origin}/admin-next/login`, { waitUntil: 'domcontentloaded' });
-  await page.evaluate((currentUser) => {
-    sessionStorage.setItem('devhub_admin_token', `devhub-admin-${currentUser.id || 1}`);
-    sessionStorage.setItem('devhub_admin_refresh_token', `devhub-admin-${currentUser.id || 1}-refresh`);
+  await page.evaluate(({ accessToken, currentRefreshToken, currentUser }) => {
+    sessionStorage.setItem('devhub_admin_token', accessToken);
+    sessionStorage.setItem('devhub_admin_refresh_token', currentRefreshToken);
     sessionStorage.setItem('devhub_admin_user', JSON.stringify(currentUser));
-  }, adminUser);
+  }, { accessToken: token, currentRefreshToken: refreshToken, currentUser: user });
 }
 
 async function main() {
@@ -73,9 +196,11 @@ async function main() {
     if (msg.type() === 'error' && !text.includes('Failed to load resource')) errors.push(text);
   });
 
-  await seedSession(page);
+  const { token, refreshToken, user } = await loginAdminForFixture();
+  const officialFixture = await ensureOfficialAnnouncementFixture(token);
+  await seedSession(page, token, refreshToken, user);
 
-  const report = { origin, domains: [], legacyRoutes: [] };
+  const report = { origin, fixture: officialFixture, domains: [], legacyRoutes: [], detailDrawer: [] };
   for (const [key, route, testid, title] of domains) {
     await page.goto(`${origin}${route}`, { waitUntil: 'networkidle' });
     await page.getByTestId(testid).waitFor({ timeout: 10000 });
@@ -97,6 +222,88 @@ async function main() {
   await page.screenshot({ path: path.join(outDir, 'overview-list-1024.png'), fullPage: true });
   const overflow1024 = await page.evaluate(() => document.documentElement.scrollWidth > document.documentElement.clientWidth);
   if (overflow1024) throw new Error('插件列表 1024 宽度存在横向溢出');
+
+  async function openDetailByCode(code, label) {
+    await page.goto(`${origin}/admin-next/plugins/overview?tab=list`, { waitUntil: 'networkidle' });
+    await page.getByTestId('admin-plugins-page').waitFor({ timeout: 10000 });
+    if (code) {
+      await page.getByTestId('plugin-search').fill(code);
+      await page.waitForTimeout(500);
+    }
+    const button = page.getByTestId(`plugin-detail-${code}`);
+    if (await button.count()) {
+      await button.first().click();
+    } else if (label === 'official-announcement') {
+      throw new Error('fixture 已准备，但插件列表仍未显示 official_announcement');
+    } else {
+      await page.getByRole('button', { name: '查看详情' }).first().click();
+    }
+    await page.getByTestId('plugin-detail-drawer').waitFor({ timeout: 10000 });
+    await page.getByTestId('plugin-detail-tabs').waitFor({ timeout: 10000 });
+    await page.screenshot({ path: path.join(outDir, `${label}-detail-1024-overview.png`), fullPage: true });
+    const drawerText = await page.getByTestId('plugin-detail-drawer').innerText();
+    if (!drawerText.includes('概览')) throw new Error(`${label} 详情抽屉未显示概览 Tab`);
+    if (drawerText.includes('No Data')) throw new Error(`${label} 详情抽屉存在 No Data 英文空状态`);
+    report.detailDrawer.push({ label, code, viewport: 1024, tab: 'overview' });
+    return true;
+  }
+
+  async function clickDetailTab(name, screenshotName) {
+    await page.getByTestId('plugin-detail-drawer').getByRole('tab', { name, exact: true }).click();
+    await page.waitForTimeout(300);
+    await page.screenshot({ path: path.join(outDir, screenshotName), fullPage: true });
+  }
+
+  if (!await openDetailByCode('docs', 'normal-plugin')) throw new Error('普通插件详情未能打开');
+  await clickDetailTab('技术详情', 'normal-plugin-detail-1024-technical.png');
+  const technicalOverflow = await page.evaluate(() => document.querySelector('[data-testid="plugin-detail-drawer"]')?.scrollWidth > document.querySelector('[data-testid="plugin-detail-drawer"]')?.clientWidth);
+  if (technicalOverflow) throw new Error('技术详情在 1024 宽度下撑破详情抽屉');
+  await clickDetailTab('配置', 'normal-plugin-detail-1024-config.png');
+  const versionsButton = page.getByTestId('plugin-config-versions-open');
+  if (await versionsButton.count()) {
+    await versionsButton.first().click();
+    await page.getByTestId('plugin-config-versions-dialog').waitFor({ timeout: 10000 });
+    await page.screenshot({ path: path.join(outDir, 'normal-plugin-config-versions-1024.png'), fullPage: true });
+    const dialogOverflow = await page.evaluate(() => document.querySelector('.plugin-config-versions-dialog')?.scrollWidth > document.querySelector('.plugin-config-versions-dialog')?.clientWidth);
+    if (dialogOverflow) throw new Error('配置版本弹窗在 1024 宽度下存在横向溢出');
+    await page.keyboard.press('Escape');
+  }
+  await page.keyboard.press('Escape');
+
+  const officialOpened1024 = await openDetailByCode('official_announcement', 'official-announcement');
+  if (!officialOpened1024) throw new Error('official_announcement 详情未能打开');
+  const officialDrawerText = await page.getByTestId('plugin-detail-drawer').innerText();
+  assertTextIncludesAny(officialDrawerText, 'official_announcement 详情', ['官方公告插件']);
+  assertTextIncludesAny(officialDrawerText, 'official_announcement 详情', ['官方内置插件', '官方内置']);
+  assertTextIncludesAny(officialDrawerText, 'official_announcement 详情', ['配置 / 前端挂载 / 公告预览', '公告配置']);
+  await clickDetailTab('公告配置', 'official-announcement-detail-1024-config.png');
+  await clickDetailTab('前端挂载', 'official-announcement-detail-1024-mount.png');
+  const mountText = await page.getByTestId('plugin-detail-drawer').innerText();
+  assertTextIncludesAny(mountText, 'official_announcement 前端挂载', ['不允许远程 iframe URL', '远程 URL：否', '远程 URL']);
+  await clickDetailTab('公告预览', 'official-announcement-detail-1024-preview.png');
+  const previewFrame = page.locator('.official-announcement-preview iframe, iframe[src*="official-announcement"]').first();
+  await previewFrame.waitFor({ state: 'attached', timeout: 15000 });
+  const frameInfo = await previewFrame.evaluate((iframe) => ({
+    src: iframe.getAttribute('src') || '',
+    sandbox: iframe.getAttribute('sandbox') || '',
+    outerHTML: iframe.outerHTML,
+  }));
+  if (!frameInfo.src.includes('/plugins/official-announcement/iframe')) throw new Error(`公告预览 iframe 路由异常：${frameInfo.src}`);
+  if (/^https?:\/\//i.test(frameInfo.src)) throw new Error(`公告预览不应使用远程 iframe URL：${frameInfo.src}`);
+  if (frameInfo.sandbox !== 'allow-scripts') throw new Error(`公告预览 sandbox 异常：${frameInfo.sandbox}`);
+  for (const term of [/callback_token/i, /webhook_secret/i, /token_hash/i, /authorization/i, /secret=/i, /token=/i]) {
+    if (term.test(frameInfo.outerHTML)) throw new Error(`official_announcement iframe DOM 暴露敏感字段：${term}`);
+  }
+  report.detailDrawer.push({ label: 'official-announcement', code: 'official_announcement', forced: true, tabs: ['公告配置', '前端挂载', '公告预览'] });
+  await page.keyboard.press('Escape');
+
+  await page.setViewportSize({ width: 1366, height: 768 });
+  const officialOpened1366 = await openDetailByCode('official_announcement', 'official-announcement');
+  if (!officialOpened1366) throw new Error('official_announcement 1366 详情未能打开');
+  await page.screenshot({ path: path.join(outDir, 'official-announcement-detail-1366-overview.png'), fullPage: true });
+  const drawerOverflow1366 = await page.evaluate(() => document.querySelector('[data-testid="plugin-detail-drawer"]')?.scrollWidth > document.querySelector('[data-testid="plugin-detail-drawer"]')?.clientWidth);
+  if (drawerOverflow1366) throw new Error('详情抽屉在 1366 宽度下存在横向溢出');
+  await page.keyboard.press('Escape');
 
   for (const [route, expected] of legacyRoutes) {
     await page.goto(`${origin}${route}`, { waitUntil: 'networkidle' });

@@ -1,5 +1,5 @@
 <template>
-  <el-dialog v-model="visible" width="980px" destroy-on-close :title="title" data-testid="plugin-config-versions-dialog">
+  <el-dialog v-model="visible" width="min(94vw, 980px)" destroy-on-close :title="title" data-testid="plugin-config-versions-dialog" class="plugin-config-versions-dialog">
     <el-alert type="info" show-icon :closable="false" class="mb" title="提示：历史版本与差异会对敏感字段脱敏；回滚预览不会修改当前配置。" />
 
     <el-alert v-if="error" type="error" show-icon :closable="false" class="mb" :title="error" />
@@ -11,7 +11,7 @@
               <span class="muted">（共 {{ total }} 条）</span>
         </div>
       </template>
-      <el-table :data="items" border size="small" v-loading="loading" data-testid="plugin-config-versions-table">
+      <el-table :data="items" border size="small" v-loading="loading" empty-text="暂无配置版本" data-testid="plugin-config-versions-table">
         <el-table-column prop="version_no" label="版本号" width="110" />
         <el-table-column prop="scope" label="范围" width="110">
           <template #default="{ row }">{{ scopeLabel(row.scope) }}</template>
@@ -20,16 +20,16 @@
         <el-table-column prop="source" label="来源" width="130">
           <template #default="{ row }">{{ sourceLabel(row.source) }}</template>
         </el-table-column>
-        <el-table-column prop="operator_name" label="操作人" width="160" />
+        <el-table-column prop="operator_name" label="操作人" min-width="140" />
         <el-table-column prop="created_at" label="创建时间" width="170" />
-        <el-table-column label="变更字段" min-width="220">
+        <el-table-column label="变更字段" min-width="180">
           <template #default="{ row }">
             <div class="tag-wrap">
               <el-tag v-for="k in row.changed_keys || []" :key="k" effect="plain">{{ k }}</el-tag>
             </div>
           </template>
         </el-table-column>
-        <el-table-column label="操作" width="160" fixed="right">
+        <el-table-column label="操作" width="150" fixed="right">
           <template #default="{ row }">
             <el-button link type="primary" data-testid="plugin-config-version-detail-btn" @click="openDetail(row)">详情</el-button>
             <el-button link type="warning" data-testid="plugin-config-version-rollback-preview-btn" @click="openRollbackPreview(row)">回滚预览</el-button>
@@ -49,7 +49,7 @@
       </div>
     </el-card>
 
-    <el-drawer v-model="detailVisible" size="70%" destroy-on-close title="版本详情" data-testid="plugin-config-version-detail-drawer">
+    <el-drawer v-model="detailVisible" size="min(94vw, 760px)" destroy-on-close title="配置版本详情" data-testid="plugin-config-version-detail-drawer">
       <section class="action-panel in-drawer">
         <el-alert v-if="detailError" type="error" show-icon :closable="false" class="mb" :title="detailError" />
         <div v-if="detail" data-testid="plugin-config-version-detail">
@@ -63,19 +63,19 @@
           </el-descriptions>
 
           <el-collapse>
-            <el-collapse-item title="config_json（脱敏）" name="config">
+            <el-collapse-item title="配置 JSON（已脱敏）" name="config">
               <pre class="json-box">{{ pretty(detail.config_json || {}) }}</pre>
             </el-collapse-item>
-            <el-collapse-item title="diff（脱敏）" name="diff">
-              <el-table :data="detail.diff || []" border size="small">
-                <el-table-column prop="path" label="路径" min-width="240" />
+            <el-collapse-item title="配置差异（已脱敏）" name="diff">
+              <el-table :data="detail.diff || []" border size="small" empty-text="暂无配置差异">
+                <el-table-column prop="path" label="路径" min-width="180" />
                 <el-table-column prop="type" label="类型" width="120">
                   <template #default="{ row }">{{ diffTypeLabel(row.type) }}</template>
                 </el-table-column>
-                <el-table-column prop="before" label="变更前" min-width="240">
+                <el-table-column prop="before" label="变更前" min-width="180">
                   <template #default="{ row }"><span class="mono">{{ inline(row.before) }}</span></template>
                 </el-table-column>
-                <el-table-column prop="after" label="变更后" min-width="240">
+                <el-table-column prop="after" label="变更后" min-width="180">
                   <template #default="{ row }"><span class="mono">{{ inline(row.after) }}</span></template>
                 </el-table-column>
               </el-table>
@@ -86,7 +86,7 @@
       </section>
     </el-drawer>
 
-    <el-drawer v-model="rollbackVisible" size="70%" destroy-on-close title="回滚预览（预检）" data-testid="plugin-config-rollback-dryrun-drawer">
+    <el-drawer v-model="rollbackVisible" size="min(94vw, 760px)" destroy-on-close title="回滚预览（预检）" data-testid="plugin-config-rollback-dryrun-drawer">
       <section class="action-panel in-drawer">
         <el-alert type="info" show-icon :closable="false" class="mb" title="预检不会修改当前配置；会用当前 config_schema 校验目标版本配置。" />
         <el-alert v-if="rollbackError" type="error" show-icon :closable="false" class="mb" :title="rollbackError" />
@@ -113,15 +113,15 @@
 	            :description="rollback.suggestion || ''"
 	          />
 		          <el-alert v-else-if="rollback.schema_validation && rollback.schema_validation.valid === false" type="error" show-icon :closable="false" class="mb" title="配置模型校验失败（已阻断）" />
-		          <el-table :data="rollback.diff || []" border size="small">
-		            <el-table-column prop="path" label="路径" min-width="240" />
+			          <el-table :data="rollback.diff || []" border size="small" empty-text="暂无配置差异">
+			            <el-table-column prop="path" label="路径" min-width="180" />
 		            <el-table-column prop="type" label="类型" width="120">
                   <template #default="{ row }">{{ diffTypeLabel(row.type) }}</template>
                 </el-table-column>
-		            <el-table-column prop="before" label="变更前" min-width="240">
+			            <el-table-column prop="before" label="变更前" min-width="180">
               <template #default="{ row }"><span class="mono">{{ inline(row.before) }}</span></template>
             </el-table-column>
-	            <el-table-column prop="after" label="变更后" min-width="240">
+		            <el-table-column prop="after" label="变更后" min-width="180">
               <template #default="{ row }"><span class="mono">{{ inline(row.after) }}</span></template>
             </el-table-column>
           </el-table>
@@ -272,3 +272,59 @@ function inline(v) {
   }
 }
 </script>
+
+<style scoped>
+.card-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.muted {
+  color: #64748b;
+  font-size: 12px;
+}
+
+.tag-wrap {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+
+.mb {
+  margin-bottom: 12px;
+}
+
+.filter-actions {
+  display: flex;
+}
+
+.action-panel.in-drawer {
+  padding-bottom: 16px;
+}
+
+.mono {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 12px;
+  word-break: break-word;
+}
+
+.json-box {
+  margin: 0;
+  padding: 14px;
+  border-radius: 12px;
+  background: #0f172a;
+  color: #dbeafe;
+  max-height: 360px;
+  overflow: auto;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 12px;
+  line-height: 1.55;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+:global(.plugin-config-versions-dialog .el-dialog__body) {
+  overflow-x: hidden;
+}
+</style>

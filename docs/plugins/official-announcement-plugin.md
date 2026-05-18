@@ -63,6 +63,7 @@ v1.8.3 补充（后台详情稳定性与中文体验）：
 - 本轮只调整后台页面结构、稳定性保护和中文说明，不改变 Host + iframe + postMessage 协议。
 - v1.8.3-S1 补充：插件列表中 `official_announcement` 直接显示“官方公告插件 / 官方内置”标识，能力摘要突出“前端挂载 / 配置 / iframe 预览”，便于后台管理员从列表快速定位并进入详情；不改变官方公告插件的 Host API、iframe 路由、postMessage 协议或安全边界。
 - v1.8.3-S5 补充：插件详情抽屉将 `official_announcement` 的“公告配置 / 前端挂载 / 公告预览”作为高频入口展示；配置 Tab 直接显示公告开关、公告内容、链接文字、链接地址、是否允许关闭等摘要，前端挂载 Tab 说明首页 / 子站页 / 后台预览、iframe 路由、sandbox 与 postMessage 状态，公告预览继续复用官方内置 Host。原始配置和调试 JSON 进入“技术详情”并脱敏；不改变 Host API、iframe 路由、postMessage 协议或安全边界。
+- v1.8.3-S7 补充：浏览器 IA 回归脚本 `scripts/check-admin-plugin-ia.sh` 会在检查前通过现有后台 API 幂等准备官方公告插件 fixture，固定配置为 `enabled=true`、`message="欢迎使用 DevHub 官方公告插件"`、`link_text="查看详情"`、`link_url="/"`、`dismissible=false`，并启用 PHP 或首个可用子站。脚本强制截图插件列表、详情概览、公告配置、前端挂载、公告预览，校验 iframe 仍为仓库内置 `/plugins/official-announcement/iframe` 且 `sandbox="allow-scripts"`；本批次还修复后台预览 Host 请求 context / audit 时未带 admin Authorization 导致 iframe 不创建的问题，token 仍只在 Host 层使用，不暴露给 iframe。fixture 不包含真实 token / Secret，不开放远程 iframe URL，不执行第三方代码。
 
 ## 2. 公告插件能力设计（不涉及第三方代码执行）
 

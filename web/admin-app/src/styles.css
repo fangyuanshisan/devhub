@@ -196,8 +196,27 @@ body,
   background: #eaf2ff;
 }
 
+.tabbar-menu-trigger {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 30px;
+  margin-bottom: 3px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: #0d6bff;
+  cursor: pointer;
+}
+
+.tabbar-menu-trigger:hover,
+.tabbar-menu-trigger:focus-visible {
+  background: #eaf2ff;
+  outline: none;
+}
+
 .grid-icon {
-  margin-bottom: 8px;
   color: #0d6bff;
 }
 
