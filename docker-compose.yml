@@ -10,6 +10,7 @@ services:
     build:
       context: ./web/admin-app
       dockerfile: Dockerfile.e2e
+    user: "${DEVHUB_DOCKER_UID:-1000}:${DEVHUB_DOCKER_GID:-1000}"
     working_dir: /workspace/web/admin-app
     depends_on:
       - devhub
@@ -25,6 +26,7 @@ services:
     build:
       context: ./web/frontend-app
       dockerfile: Dockerfile.e2e
+    user: "${DEVHUB_DOCKER_UID:-1000}:${DEVHUB_DOCKER_GID:-1000}"
     working_dir: /workspace/web/frontend-app
     depends_on:
       - devhub

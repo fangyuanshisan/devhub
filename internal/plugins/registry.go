@@ -9,6 +9,7 @@ import (
 	"devhub-gin-backend/internal/plugins/aiworks"
 	"devhub-gin-backend/internal/plugins/docs"
 	"devhub-gin-backend/internal/plugins/jobs"
+	"devhub-gin-backend/internal/plugins/official_announcement"
 	"devhub-gin-backend/internal/plugins/projects"
 	"devhub-gin-backend/internal/plugins/qa"
 	"devhub-gin-backend/internal/plugins/wiki"
@@ -168,6 +169,7 @@ func Definitions() []domain.Plugin {
 		projects.Definition(),
 		jobs.Definition(),
 		aiworks.Definition(),
+		official_announcement.Definition(),
 	}
 }
 

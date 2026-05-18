@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"math"
+	"regexp"
 	"sort"
 	"strings"
 
@@ -90,8 +91,12 @@ func validateValueAgainstSchema(value any, schema map[string]any, path string) e
 		}
 		return nil
 	case "string":
-		if _, ok := value.(string); !ok {
+		str, ok := value.(string)
+		if !ok {
 			return fmt.Errorf("%s 必须是 string", path)
+		}
+		if err := validateString(str, schema, path); err != nil {
+			return err
 		}
 		return validateEnum(value, schema, path)
 	case "boolean":
@@ -164,6 +169,31 @@ func validateMinMax(num float64, schema map[string]any, path string) error {
 	if maxRaw, ok := schema["max"]; ok {
 		if max, ok := maxRaw.(float64); ok && num > max {
 			return fmt.Errorf("%s 不能大于 %v", path, max)
+		}
+	}
+	return nil
+}
+
+func validateString(str string, schema map[string]any, path string) error {
+	if minRaw, ok := schema["minLength"]; ok {
+		if min, ok := minRaw.(float64); ok && float64(len(str)) < min {
+			return fmt.Errorf("%s 长度不能小于 %d", path, int(min))
+		}
+	}
+	if maxRaw, ok := schema["maxLength"]; ok {
+		if max, ok := maxRaw.(float64); ok && float64(len(str)) > max {
+			return fmt.Errorf("%s 长度不能超过 %d", path, int(max))
+		}
+	}
+	if patRaw, ok := schema["pattern"]; ok {
+		if pat, ok := patRaw.(string); ok && pat != "" {
+			re, err := regexp.Compile(pat)
+			if err != nil {
+				return fmt.Errorf("%s pattern 配置无效", path)
+			}
+			if !re.MatchString(str) {
+				return fmt.Errorf("%s 格式不合法", path)
+			}
 		}
 	}
 	return nil

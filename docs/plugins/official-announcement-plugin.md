@@ -2,9 +2,9 @@
 
 [返回文档入口](../README.md)
 
-更新时间：2026-05-16
+更新时间：2026-05-18
 
-本文定义官方示例插件“公告插件（official_announcement）”的端到端验证方案，用于后续验证 Webhook / HTTP 插件服务协议的实现（non_blocking delivery 优先）。本轮为 Webhook 协议实现拆解与官方示例插件验证准备任务，只修改文档，未修改代码，未执行测试、构建或 E2E。
+本文定义官方示例插件“公告插件（official_announcement）”的端到端验证方案，并记录 v1.8.1 已落地的“官方插件前端挂载最小闭环”。官方公告插件用于验证 DevHub 插件系统能力，不用于执行第三方不可信代码。
 
 重要边界：
 
@@ -18,10 +18,37 @@
 
 目标：通过公告类业务（简单、可见、可配置）验证：
 
-- 菜单/页面入口（未来 iframe 挂载，当前只写设计）。
+- 菜单/页面入口（v1.8.1 已落地最小 Host + iframe 挂载）。
 - 插件配置（声明 `config_schema` 与默认配置）。
 - Hook non_blocking 投递（content.after_create 等）。
 - delivery 记录、重试队列、熔断、审计、后台治理入口。
+
+v1.8.1 已实现的前端挂载闭环：
+
+- `official_announcement` 作为内置官方插件加入 `internal/plugins`。
+- iframe 页面为仓库内置页面：`GET /plugins/official-announcement/iframe`。
+- Host API 为浏览器安全 API：
+  - `GET /api/v1/plugins/official-announcement/context`
+  - `POST /api/v1/plugins/official-announcement/audit-events`
+- 前台首页挂载：满足配置 `enabled=true` 且 `message` 非空时展示公告（Host + iframe + postMessage）。
+- 后台插件详情页挂载：仅当插件为 `official_announcement` 时显示“公告预览”Tab（Host + iframe）。
+
+重要边界（v1.8.1）：
+
+- 不允许远程 iframe URL；iframe 页面必须来自 DevHub 仓库内置路由。
+- Host API 不返回 callback token / webhook secret，不向浏览器暴露任何后端凭证。
+- 仍不执行第三方不可信代码，不做 JS 注入，不做远程动态加载。
+
+v1.8.1-S2 补充（子站页 `/c/:slug` 挂载验收口径）：
+
+- 子站页挂载通过 `GET /api/v1/plugins/official-announcement/context` 携带 `community_slug`，后端强校验子站插件启用状态。
+- Host 写审计 `POST /api/v1/plugins/official-announcement/audit-events` 支持携带 `community_slug`，子站插件 disabled 时拒绝写入，避免绕过 gating。
+
+v1.8.2 补充（通用容器/Helper 抽取）：
+
+- 前台首页、子站页 `/c/:slug`、后台插件详情页不再各自复制一套挂载脚本，而是统一复用后端内置 helper：
+  - `GET /plugins/assets/devhub-plugin-mount-host.js`
+- helper 仅对官方内置插件 allowlist 生效（第一阶段仅 `official_announcement`），不支持任意远程 iframe URL；iframe 仍固定为内置路由：`GET /plugins/official-announcement/iframe`。
 
 ## 2. 公告插件能力设计（不涉及第三方代码执行）
 
@@ -84,6 +111,13 @@
 - `frontend.header.nav`（可选）
 - `admin.sidebar.menu`（配置入口）
 - `admin.plugin.detail.tab`（投递/健康状态概览）
+
+v1.8.0 补充（前端挂载模型设计）：
+
+- 官方公告插件可作为第一个“前后台挂载”验证插件（仍不执行第三方不可信代码）：
+  - 后台：插件详情页 `admin.plugin.detail.tab` 增加“公告配置”Tab（iframe 展示配置页，读取配置使用受控通道）
+  - 前台：首页 `frontend.home.section` 挂载公告展示区（iframe 只读展示）
+- iframe/sandbox 与 postMessage 通信模型（设计口径）见：`docs/PLUGIN_FRONTEND_MOUNT_MODEL.md`。
 
 ## 4. 外部插件服务（官方模拟服务/测试桩）设计
 

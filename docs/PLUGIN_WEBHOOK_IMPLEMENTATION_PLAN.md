@@ -288,6 +288,35 @@
 5. blocking Hook 与降级策略（熔断时行为）
 6. 是否允许第三方插件使用 blocking（默认不开放或需白名单）
 
+### v1.7.9：blocking Hook 设计评估补充（不实现）
+
+结论：blocking Hook 可以进入“设计收口阶段”，但**不建议直接进入实现阶段**。外部 HTTP blocking Hook 会直接影响主流程可用性与延迟，应当以“默认关闭 + 白名单 + 短超时 + 强审计 + 明确降级”为前提。
+
+必须回答（设计要点）：
+
+1. 哪些 Hook 可以考虑 blocking：仅极少数 `before_*`（内容创建/更新/审核前的风控/合规校验）。
+2. 哪些 Hook 禁止 blocking：所有 `after_*`（通知、SEO、索引、统计等）必须 non_blocking。
+3. 默认超时：建议 2s（最大 5s，可配置）。
+4. 超时策略：按 Hook 分类明确 fail-open / fail-closed（风控类默认 fail-closed，体验增强类 fail-open）。
+5. 用户提示：blocking deny/timeout 必须返回用户可读错误，并写审计（不得泄露 secret/token）。
+6. 事务边界：blocking Hook 不应在 DB 事务内长时间等待外部 HTTP；建议在 DB 写入前完成 blocking 校验。
+7. 是否允许外部 HTTP 插件使用：默认不开放；如开放需更强信任模型。
+8. 是否仅允许官方/可信发布者：建议仅 `official/trusted`，并需要管理员显式启用。
+9. 是否需要更高 trust_level：是（至少 trusted）。
+10. 是否需要熔断降级：需要（避免外部服务抖动拖垮主流程）。
+11. 审计：blocking Hook 必须单独审计（包括 decision/latency/error）。
+12. 显式开关：必须（hook 级别/插件级别/社区级别至少一种，默认关闭）。
+13. 与重试：blocking Hook **禁止后台自动重试**（避免重复用户动作）。
+14. 性能影响：需要预算（P95/P99）与限流策略；必须可观测。
+
+最小实现前置条件（建议 v1.8.0 前完成）：
+
+- Hook 白名单/黑名单 + 默认关闭开关
+- 统一超时与降级策略
+- 事务边界明确（不会产生半事务状态）
+- 审计/可观测性（可定位是谁阻断、为何阻断、耗时）
+- 管理后台治理入口（开关/最近阻断/最近超时）
+
 ## 官方示例插件（端到端验证）关联点
 
 官方公告插件端到端验证方案见 `docs/plugins/official-announcement-plugin.md`。

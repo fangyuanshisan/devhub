@@ -2,9 +2,25 @@
 
 [返回文档入口](README.md)
 
-更新时间：2026-05-16
+更新时间：2026-05-18
 
 本文档记录当前仓库滚动测试目标、已执行验收记录和后续补测项。历史版本测试只保留必要回归，不再展开旧版本完整矩阵。
+
+## 手动测试入口
+
+Codex / Agent 默认不要在完成任务时自动跑测试、E2E 或完整验收；测试由开发者按需手动执行。完整手动入口：
+
+```bash
+./scripts/test-all.sh
+```
+
+常用变体：
+
+```bash
+./scripts/test-all.sh --quick
+./scripts/test-all.sh --go-only
+./scripts/test-all.sh --frontend-only --quiet
+```
 
 ## 测试目标定位
 
@@ -176,6 +192,193 @@ v1.7.2 插件运行模型设计任务同样为文档设计任务：主要修改�
 24. 本轮不实现 blocking Hook。
 25. 不影响 `/topics/:id` SEO。
 26. 不影响 `/c/:slug` SEO。
+
+## v1.7.8：Webhook 后台治理与官方公告插件端到端验证（端到端验收清单）
+
+说明：本节用于 v1.7.8 端到端验证。验证目标是打通 non_blocking Webhook 的治理闭环与官方公告插件（official_announcement）的验证步骤。仍不执行第三方不可信代码，仍不实现 blocking Hook。
+
+场景 1：正常投递成功
+
+1. 创建/启用 `official_announcement`（作为治理与协议验证样例；不执行第三方代码）。
+2. 创建 Webhook Secret（active）。
+3. 创建 callback token（scope：`config.read` + `audit.write`，并设置 `community_scope`）。
+4. 触发 `content.after_create`（或用现有治理入口触发一条 non_blocking delivery）。
+5. 生成 `webhook_event` 记录。
+6. 生成 `webhook_delivery` 记录。
+7. official mock receiver 验签通过并返回 2xx。
+8. delivery status=`success`。
+9. 后台 `Webhook 治理` 页可查看 Events/Deliveries。
+10. 审计存在（delivery created/success + callback accepted）。
+
+场景 2：签名失败（receiver 401）
+
+1. receiver 端使用错误 secret_ref/plaintext secret（导致验签失败）。
+2. 触发 event。
+3. receiver 返回 401。
+4. delivery status=`failed`。
+5. 不进入无限重试（401 默认不重试）。
+6. 审计存在（delivery failed / receiver 401）。
+
+场景 3：5xx 重试
+
+1. receiver 返回 500。
+2. delivery status=`retry_scheduled`。
+3. `next_retry_at` 有值。
+4. 执行 `retry-due` 后重新投递。
+5. receiver 恢复后 delivery status=`success`。
+
+场景 4：429 Retry-After
+
+1. receiver 返回 429 且带 `Retry-After`。
+2. delivery 进入 `retry_scheduled`。
+3. `next_retry_at` 按 `Retry-After` 或默认策略设置。
+4. 后续重试成功。
+
+场景 5：熔断与恢复
+
+1. receiver 连续失败达到阈值。
+2. circuit breaker status=`open`。
+3. 新 delivery 标记 `circuit_open`/`skipped`。
+4. 管理员手动恢复熔断（status=`closed`）。
+5. 恢复后投递成功。
+
+场景 6：Secret 轮换
+
+1. active Secret 投递成功。
+2. 轮换 Secret：新 secret_ref 为 active，旧为 previous。
+3. 新 delivery 使用新 secret_ref。
+4. grace window 内接收端允许 previous secret_ref。
+5. grace window 后 previous 过期（expired），不再允许验签。
+
+场景 7：Callback config.read
+
+1. token scope 包含 `config.read`。
+2. receiver 使用 callback token 调用 `GET /api/v1/plugin-callback/config?community_id=...`。
+3. 返回本插件 effective_config。
+4. 不能读取其他插件配置。
+5. callback request 有记录。
+6. 审计存在（config.read + accepted/rejected）。
+
+场景 8：Callback audit.write
+
+1. token scope 包含 `audit.write`。
+2. receiver 调用 `POST /api/v1/plugin-callback/audit-events`。
+3. action 必须以 `official_announcement.` 前缀开头，防止伪造 admin/Core 审计。
+4. callback request 有记录。
+
+场景 9：scope denied
+
+1. 创建不包含 `audit.write` 的 token。
+2. 调用 audit-events。
+3. 返回 403（SCOPE_DENIED）。
+4. callback request status=`rejected`。
+5. 审计存在（scope denied）。
+
+场景 10：plugin disabled
+
+1. 禁用 `official_announcement`。
+2. 不再投递 Webhook（disabled/soft_uninstalled 插件不投递）。
+3. callback token 调用 callback API 返回 403（PLUGIN_DISABLED）。
+4. 历史 delivery / audit 仍可查看。
+
+## v1.7.9：Webhook non_blocking 链路总验收（收口清单）
+
+说明：本节为 v1.7.9 总验收清单。目标是确认 non_blocking Webhook 链路“真实闭环可用”，并且权限、审计、敏感信息保护与 MySQL/MemoryStore 行为一致。
+
+1. non_blocking event 可以生成并持久化（`webhook_events`）。
+2. delivery 可以生成并持久化（`webhook_deliveries`）。
+3. delivery 成功可记录为 `success`。
+4. 5xx 进入 `retry_scheduled`。
+5. timeout 进入 `retry_scheduled`。
+6. 429 按 `Retry-After` 或默认策略进入 `retry_scheduled`。
+7. 4xx 默认不重试（含 400/404/422）。
+8. 401 / 403 默认不重试。
+9. 超过 `max_attempts` 进入 `retry_exhausted`。
+10. 手动重试可用（failed / retry_exhausted）。
+11. 连续失败达到阈值后 circuit breaker 进入 `open`。
+12. `open` 后暂停投递（delivery 标记 `circuit_open`/`skipped`）。
+13. `half_open` 探测成功后回到 `closed`。
+14. 管理员手动恢复熔断可用。
+15. Webhook 签名 Header 完整（Event/Delivery/Plugin/Timestamp/Signature/Alg/Idempotency/RequestID/BodySHA256/SecretRef）。
+16. `body_sha256` 参与签名（body 变化导致验签失败）。
+17. `timestamp/method/path` 参与签名（任一不一致验签失败）。
+18. Secret 创建明文只返回一次；列表/详情不返回明文/密文。
+19. Secret 轮换可用（active/previous grace window 生效；previous 可过期）。
+20. Secret 明文不进入日志/审计/delivery（含 request_headers_json）。
+21. callback token 创建明文只返回一次；列表/详情不返回明文。
+22. callback token scope 校验生效（scope 不足返回 403）。
+23. callback token community scope 校验生效（不匹配返回 403）。
+24. 插件 disabled / soft_uninstalled 后 callback token 不可用（403 PLUGIN_DISABLED）。
+25. `config.read` 只能读取本插件配置。
+26. `audit.write` 不能伪造 admin/Core action（必须以 `plugin_code.` 前缀开头）。
+27. callback request 有记录且不保存 token 明文/Authorization header。
+28. 后台治理 UI 可查看 Events/Deliveries/Circuits/Secrets/Callback Tokens/Callback Requests。
+29. 后台治理 UI 重要操作有确认（重试/熔断/secret&token 吊销等）。
+30. 官方公告插件验证路径覆盖：成功投递、签名失败、5xx 重试、429、熔断恢复、Secret 轮换、callback config.read/audit.write、scope denied、plugin disabled。
+31. 本轮仍不执行第三方代码。
+32. 本轮仍不实现 blocking Hook。
+33. 不影响 `/topics/:id` SEO。
+34. 不影响 `/c/:slug` SEO。
+
+## v1.8.0：插件前端挂载模型（文档设计验收清单）
+
+说明：v1.8.0 为“官方插件前端挂载模型与 iframe / sandbox 容器设计版”，本轮以文档设计为主，未修改代码，未执行测试、构建或 E2E。以下清单用于后续实现阶段（例如 v1.8.1）对照验收，不代表本轮已实现。
+
+1. 文档明确 slots 列表：`admin.sidebar.menu`、`admin.plugin.detail.tab`、`admin.dashboard.card`、`frontend.header.nav`、`frontend.home.section`、`frontend.topic.sidebar`、`frontend.topic.after_content`、`frontend.user.menu`、`moderator.sidebar.menu`。
+2. 文档明确插件前端扩展默认使用 iframe 容器。
+3. 文档明确 iframe 必须启用 sandbox，并给出基线策略与禁止项。
+4. 文档明确插件 iframe 与 DevHub Host 的 postMessage 通信模型（envelope、握手、上下文、受控请求/响应）。
+5. 文档明确 postMessage 必须校验 origin、plugin_code、mount_slot、request_id。
+6. 文档明确插件前端不能直接读取 DevHub token/cookie，不得绕过 Core API。
+7. 文档明确插件页面必须受 plugin global enabled/disabled/soft_uninstalled 状态控制。
+8. 文档明确插件页面必须受 community plugin enabled/disabled 状态控制（涉及 community 的 slots）。
+9. 文档明确插件页面必须受用户权限控制（admin/moderator/user）。
+10. 文档明确 `/topics/:id` 与 `/c/:slug` SEO 红线：插件前端扩展不得破坏 SEO 动态 HTML 兜底。
+11. 文档明确官方公告插件 `official_announcement` 的前后台挂载验证方案（设计）：后台配置 Tab + 前台首页区块。
+12. 文档明确哪些能力为设计中/未完成：真实挂载实现、Host 消息通道落地、配置写入通道（例如 `config.write`）等。
+
+## v1.8.1：官方公告插件前端挂载最小实现（轻量验收清单）
+
+说明：本节用于 v1.8.1 的最小闭环验收。官方公告插件为内置官方插件，iframe 页面为仓库内置页面；不支持任意远程 iframe URL，不执行第三方不可信代码。
+
+1. 前台首页在插件 enabled 且配置 `enabled=true`、`message` 非空时显示公告 Host + iframe。
+1. 子站页 `/c/:slug` 在插件全局 enabled 且子站插件 enabled 且配置 `enabled=true`、`message` 非空时显示公告 Host + iframe。
+2. 插件 disabled 时前台不显示公告。
+3. 插件 soft_uninstalled（archived）时前台不显示公告。
+4. iframe `sandbox="allow-scripts"` 生效（不默认开启 `allow-same-origin`）。
+5. iframe 路由 `GET /plugins/official-announcement/iframe` 不被 StaticFile/NoRoute fallback 吃掉。
+6. iframe 启动后会发送 `devhub.plugin.ready`，Host 返回 `devhub.plugin.context`。
+7. iframe 可通过 postMessage 请求 `config.read`，Host 返回官方公告插件公开配置（不包含敏感值）。
+8. iframe 可通过 postMessage 请求 `audit.write`，Host 写入 `official_announcement.*` 审计事件。
+9. Host API `GET /api/v1/plugins/official-announcement/context` 不返回 callback token / webhook secret / Authorization header。
+10. Host API `POST /api/v1/plugins/official-announcement/audit-events` 不允许写入非 `official_announcement.*` 的 action。
+11. 后台插件详情页对 `official_announcement` 显示“公告预览”Tab（Host + iframe）。
+12. 权限不足用户看不到或无法使用后台预览（后端同样拒绝 `area=admin`）。
+13. iframe 加载失败不影响首页主内容与 SEO。
+14. 本轮不执行第三方不可信代码、不做远程 JS 动态加载、不允许远程 iframe URL。
+15. 不影响 `/topics/:id` SEO 与 `/c/:slug` SEO。
+
+## v1.8.2：iframe / sandbox 通用容器与 postMessage Host helper（轻量验收清单）
+
+说明：本节用于 v1.8.2 的复用性验收。目标是把 v1.8.1 的 Host + iframe + postMessage 机制抽取为共享 helper，并让前台首页、`/c/:slug` 与后台插件详情复用同一套机制（第一阶段仅 allowlist 官方内置插件，不允许远程 iframe URL）。
+
+1. 前台首页通过 `/plugins/assets/devhub-plugin-mount-host.js` 挂载 `official_announcement`（不再复制大段挂载脚本）。
+2. `/c/:slug` 通过 `/plugins/assets/devhub-plugin-mount-host.js` 挂载 `official_announcement`，且携带 `data-community-slug` 参与 gating。
+3. 后台插件详情页（公告预览 Tab）通过 `PluginIframeMount` 组件复用同一 helper。
+4. iframe sandbox 仍为 `allow-scripts`（不默认开启 `allow-same-origin` 等高权限）。
+5. iframe src 仍为内置路由 `/plugins/official-announcement/iframe`（不允许远程 URL）。
+6. postMessage `ready -> context -> config.read -> config.result -> audit.write` 仍可跑通。
+7. postMessage 未知 type 被拒绝（type 白名单生效）。
+8. postMessage plugin_code / mount_id 不匹配被拒绝。
+9. context 不包含 token / callback token / webhook secret。
+10. config.read 仍只返回 `official_announcement` 的公开安全配置（不读取其他插件配置）。
+11. audit.write 仍只允许 `official_announcement.*` action，不能伪造 admin。
+12. plugin disabled / soft_uninstalled 时不挂载。
+13. community disabled（子站插件 disabled）时不挂载。
+14. iframe 加载失败不影响主页面内容与 SEO。
+15. `/c/:slug` SEO 不被破坏（title/canonical/JSON-LD/h1/主体内容仍可读）。
+16. `/topics/:id` SEO 不被破坏（title/canonical/JSON-LD/h1/主体内容仍可读）。
+17. 本轮不执行第三方代码、不做 JS 注入、不动态加载远程 JS。
 
 ## v1.5.0 收口验收（2026-05-14）
 

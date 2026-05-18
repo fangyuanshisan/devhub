@@ -76,6 +76,12 @@ const typeLabels = {
             <h2>子站推荐</h2>
             <span>来自不同社区子站的活跃内容</span>
           </div>
+          <section
+            data-devhub-plugin-mount
+            data-plugin-code="official_announcement"
+            data-area="frontend"
+            style="margin: 12px 0;"
+          ></section>
           <div class="recommend-grid" data-home-recommendations>
             <div class="empty-state">正在加载子站推荐...</div>
           </div>
@@ -110,6 +116,7 @@ const typeLabels = {
       </aside>
     </section>
   </main>
+  <script src="/plugins/assets/devhub-plugin-mount-host.js" defer></script>
   <script define:vars={{ typeLabels }}>
     (() => {
       const communityIDToSite = { 1: 'php', 2: 'go', 3: 'java', 4: 'ai', 5: 'frontend' };
@@ -141,6 +148,9 @@ const typeLabels = {
 	      };
       const renderFeature = (topic) => `<article class="featured-card"><span>${escapeHTML(typeLabels[topic.content_type] || '内容')}</span><h3><a href="/topics/${Number(topic.id)}/">${escapeHTML(topic.title)}</a></h3><p>${escapeHTML(topic.summary || String(topic.content || '').slice(0, 90))}</p></article>`;
       const getJSON = (url) => fetch(url).then((response) => response.ok ? response.json() : Promise.reject());
+
+      // v1.8.2: official plugins iframe mounts are handled by shared helper:
+      // GET /plugins/assets/devhub-plugin-mount-host.js
 
       getJSON('/api/v1/communities').then((data) => {
         const list = document.querySelector('[data-home-communities]');
@@ -176,6 +186,8 @@ const typeLabels = {
         const tags = data.items || [];
         if (cloud) cloud.innerHTML = tags.length ? tags.map((tag) => `<a href="${tag.community_slug ? `/c/${encodeURIComponent(tag.community_slug)}/tags/${encodeURIComponent(tag.slug || String(tag.name).trim().toLowerCase().replace(/\s+/g, '-'))}/` : `/tags/${encodeURIComponent(tag.slug || String(tag.name).trim().toLowerCase().replace(/\s+/g, '-'))}/`}">${escapeHTML(tag.name)}<span>${Number(tag.topic_count || tag.count || 0)}</span></a>`).join('') : '<span>暂无标签</span>';
       }).catch(() => {});
+
+      // The helper auto-mounts on DOMContentLoaded.
     })();
   </script>
 </SeoLayout>

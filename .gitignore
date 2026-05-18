@@ -49,6 +49,7 @@ web/frontend-app/test-results/
 .parcel-cache/
 .vite/
 .astro/
+.tmp/
 
 # Runtime storage (generated at runtime / E2E)
 storage/test-sig/

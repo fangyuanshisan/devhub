@@ -88,6 +88,8 @@ Webhook / HTTP 插件服务协议设计见 [Webhook / HTTP 插件服务协议（
 
 实现阶段拆解（v1.7.3 文档阶段）见 [Webhook 协议实现拆解（v1.7.3）](PLUGIN_WEBHOOK_IMPLEMENTATION_PLAN.md) 与官方示例插件验证方案（公告插件）：`docs/plugins/official-announcement-plugin.md`。两者均为任务拆解/验证方案，不代表已实现真实投递、重试队列、熔断或外部插件服务运行。
 
+前端挂载模型（v1.8.0 文档阶段）见：`docs/PLUGIN_FRONTEND_MOUNT_MODEL.md`（slots、iframe/sandbox、postMessage 设计口径）。注意：该文档仅为设计，不代表已支持第三方插件前端挂载或动态加载前端资产。
+
 ## 插件包目录结构
 
 推荐结构（示例）：

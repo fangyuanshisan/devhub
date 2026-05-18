@@ -676,8 +676,36 @@ check_static_output() {
   fi
 }
 
+fix_path_owner() {
+  local path="$1"
+  [[ -e "$path" ]] || return 0
+  if chown -R "$(id -u):$(id -g)" "$path" 2>/dev/null; then
+    return 0
+  fi
+  if command -v docker >/dev/null 2>&1; then
+    docker run --rm -v "$ROOT_DIR:/workspace" alpine:3.20 chown -R "$(id -u):$(id -g)" "/workspace/${path#${ROOT_DIR}/}" >/dev/null 2>&1 || true
+  fi
+}
+
+prepare_admin_build_output() {
+  fix_path_owner "$ADMIN_DIST_DIR"
+  fix_path_owner "$ADMIN_APP_DIR/node_modules"
+  fix_path_owner "$ADMIN_APP_DIR/test-results"
+  fix_path_owner "$ADMIN_APP_DIR/playwright-report"
+  rm -rf "$ADMIN_DIST_DIR" "$ADMIN_APP_DIR/node_modules/.vite-temp" "$ADMIN_APP_DIR/test-results" "$ADMIN_APP_DIR/playwright-report"
+}
+
+prepare_frontend_build_output() {
+  fix_path_owner "$FRONTEND_DIST_DIR"
+  fix_path_owner "$FRONTEND_APP_DIR/node_modules"
+  fix_path_owner "$FRONTEND_APP_DIR/test-results"
+  fix_path_owner "$FRONTEND_APP_DIR/playwright-report"
+  rm -rf "$FRONTEND_DIST_DIR" "$FRONTEND_APP_DIR/node_modules/.vite" "$FRONTEND_APP_DIR/node_modules/.vite-temp" "$FRONTEND_APP_DIR/test-results" "$FRONTEND_APP_DIR/playwright-report"
+}
+
 build_admin_with_local_npm() {
   log "Building Vue admin with local npm"
+  prepare_admin_build_output
   cd "$ADMIN_APP_DIR"
   if npm_install_needed "$ADMIN_APP_DIR" "Vue admin"; then
     log "Installing Vue admin dependencies from $NPM_CONFIG_REGISTRY"
@@ -690,6 +718,7 @@ build_admin_with_local_npm() {
 
 build_frontend_with_local_npm() {
   log "Building Astro frontend with local npm"
+  prepare_frontend_build_output
   cd "$FRONTEND_APP_DIR"
   if npm_install_needed "$FRONTEND_APP_DIR" "Astro frontend"; then
     log "Installing Astro frontend dependencies from $NPM_CONFIG_REGISTRY"
@@ -705,6 +734,7 @@ build_frontend_with_local_npm() {
 build_admin_with_docker_node() {
   log "Building Vue admin with Docker image: $NODE_IMAGE"
   docker_preflight
+  prepare_admin_build_output
   mkdir -p "$ADMIN_DIST_DIR"
   local install_cmd
   local did_install=0
@@ -715,6 +745,7 @@ build_admin_with_docker_node() {
     node_cmd="echo '==> Installing Vue admin dependencies from $NPM_CONFIG_REGISTRY' && $install_cmd && echo '==> Running Vue admin build' && npm run build"
   fi
   docker_cmd run --rm \
+    --user "$(id -u):$(id -g)" \
     -e NPM_CONFIG_REGISTRY="$NPM_CONFIG_REGISTRY" \
     -v "$ADMIN_APP_DIR:/app" \
     -v "$ADMIN_DIST_DIR:/admin-vue" \
@@ -729,6 +760,7 @@ build_admin_with_docker_node() {
 build_frontend_with_docker_node() {
   log "Building Astro frontend with Docker image: $NODE_IMAGE"
   docker_preflight
+  prepare_frontend_build_output
   mkdir -p "$FRONTEND_DIST_DIR"
   local install_cmd
   local did_install=0
@@ -743,6 +775,7 @@ build_frontend_with_docker_node() {
     container_frontend_api_base="http://host.docker.internal:${PORT}"
   fi
   docker_cmd run --rm \
+    --user "$(id -u):$(id -g)" \
     -e NPM_CONFIG_REGISTRY="$NPM_CONFIG_REGISTRY" \
     -e FRONTEND_API_BASE="$container_frontend_api_base" \
     -e FRONTEND_SITE_URL="$FRONTEND_SITE_URL" \

@@ -47,6 +47,22 @@ func (s *Service) WebhookDeliveriesAdmin(filter domain.WebhookDeliveryFilter) (d
 	}, nil
 }
 
+func (s *Service) WebhookEventsAdmin(filter domain.WebhookEventFilter) (domain.WebhookEventListResponse, error) {
+	items, total, err := s.repo.WebhookEvents(filter)
+	if err != nil {
+		return domain.WebhookEventListResponse{}, err
+	}
+	f := filter.Normalize()
+	return domain.WebhookEventListResponse{
+		Items: items,
+		Pagination: domain.Pagination{
+			Page:     f.Page,
+			PageSize: f.PageSize,
+			Total:    total,
+		},
+	}, nil
+}
+
 func (s *Service) WebhookCircuitBreakersAdmin(filter domain.WebhookCircuitBreakerFilter) (domain.WebhookCircuitBreakerListResponse, error) {
 	items, total, err := s.repo.WebhookCircuitBreakers(filter)
 	if err != nil {

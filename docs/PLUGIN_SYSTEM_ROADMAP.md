@@ -33,6 +33,19 @@ DevHub 的长期目标是 **Core + 插件 的开源服务底座**。Core 稳定�
 
 下一阶段建议优先级：先把 `docs/PLUGIN_RUNTIME_MODEL.md` 中的前端挂载、HTTP 插件服务协议、受控 API token 和隔离边界拆成实现任务，再推进官方示例插件验证和远程分发能力。动态 Go 加载、脚本沙箱、第三方代码执行、完整插件市场交易 / 评分 / 评论系统继续后置。
 
+补充：v1.8.0 文档阶段已新增插件前端挂载模型设计文档：
+
+- `docs/PLUGIN_FRONTEND_MOUNT_MODEL.md`：定义 slots、iframe/sandbox 基线策略与 postMessage 协议（设计口径，未实现第三方插件前端挂载）。
+
+v1.8.1 实现补充：
+
+- 已落地内置官方公告插件 `official_announcement` 的前端挂载最小闭环（Host + iframe + postMessage），用于验证前后台挂载模型（仍不执行第三方不可信代码，不支持任意远程 iframe URL）。
+
+v1.8.2 实现补充：
+
+- 抽取官方插件前端挂载共享 helper：`GET /plugins/assets/devhub-plugin-mount-host.js`，用于前台首页、`/c/:slug` 与后台插件详情复用统一挂载逻辑，降低复制风险并保持 SEO 红线不变。
+- 新增 Host 浏览器安全 API：`/api/v1/plugins/official-announcement/context`、`/api/v1/plugins/official-announcement/audit-events` 与内置 iframe 路由：`/plugins/official-announcement/iframe`。
+
 v1.7.3 任务拆解补充（文档阶段）：
 
 - 已新增 Webhook / HTTP 插件服务协议的实现阶段拆解：`docs/PLUGIN_WEBHOOK_IMPLEMENTATION_PLAN.md`（non_blocking delivery 优先，blocking Hook 明确后置）。
@@ -44,6 +57,7 @@ v1.7.3 任务拆解补充（文档阶段）：
 - v1.7.5：Webhook 重试队列与熔断机制（non_blocking）。
 - v1.7.6：Webhook 签名鉴权与 Secret 轮换（发送端签名 + Secret 管理/轮换 + 最小后台治理；仍仅 non_blocking）。
 - v1.7.7：Webhook 插件服务回调 Core API（callback token + scopes + community scope + callback request 记录与审计）。
+- v1.7.8：Webhook 后台治理与官方公告插件端到端验证（补齐 Events 视图；提供官方 mock receiver；形成端到端验证闭环）。
 
 ## v1.7.2 插件运行模型设计结论
 

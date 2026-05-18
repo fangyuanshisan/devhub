@@ -21,6 +21,67 @@
     </div>
 
     <el-tabs v-model="tab" class="page-tabs" data-testid="webhook-tabs">
+      <el-tab-pane label="Events" name="events">
+        <PluginFilterBar title="Webhook Events" tip="事件记录用于追踪投递链路，不展示敏感 payload 明文" testid="webhook-events-filter">
+          <template #actions>
+            <el-button size="small" @click="refreshEvents">刷新</el-button>
+          </template>
+          <el-input v-model="eventFilters.plugin_code" size="small" placeholder="plugin_code" style="width: 160px" />
+          <el-input v-model="eventFilters.hook_name" size="small" placeholder="hook_name" style="width: 200px" />
+          <el-select v-model="eventFilters.status" size="small" placeholder="status" style="width: 180px">
+            <el-option label="all" value="all" />
+            <el-option label="pending" value="pending" />
+            <el-option label="delivering" value="delivering" />
+            <el-option label="delivered" value="delivered" />
+            <el-option label="failed" value="failed" />
+            <el-option label="circuit_open" value="circuit_open" />
+            <el-option label="skipped" value="skipped" />
+          </el-select>
+          <el-input v-model="eventFilters.community_id" size="small" placeholder="community_id" style="width: 140px" />
+          <el-button size="small" type="primary" data-testid="webhook-events-search" @click="refreshEvents">查询</el-button>
+        </PluginFilterBar>
+
+        <PluginErrorAlert :message="eventsError" />
+
+        <el-table
+          v-loading="eventsLoading"
+          :data="events.items"
+          stripe
+          border
+          size="small"
+          data-testid="webhook-events-table"
+        >
+          <el-table-column prop="id" label="ID" width="80" />
+          <el-table-column prop="event_id" label="event_id" min-width="220" show-overflow-tooltip />
+          <el-table-column prop="plugin_code" label="plugin" width="140" />
+          <el-table-column prop="hook_name" label="hook" width="220" />
+          <el-table-column prop="community_id" label="community" width="110" />
+          <el-table-column label="status" width="160">
+            <template #default="{ row }">
+              <PluginStatusTag :value="row.status" testid="webhook-event-status" />
+            </template>
+          </el-table-column>
+          <el-table-column prop="occurred_at" label="occurred_at" width="170" />
+          <el-table-column prop="created_at" label="created_at" width="170" />
+        </el-table>
+
+        <PluginEmptyState
+          v-if="!eventsLoading && events.items.length === 0 && !eventsError"
+          description="暂无 Webhook Event 记录"
+          testid="webhook-events-empty"
+        />
+
+        <div class="pager">
+          <el-pagination
+            layout="prev, pager, next"
+            :current-page="events.pagination.page || 1"
+            :page-size="events.pagination.page_size || 20"
+            :total="events.pagination.total || 0"
+            @current-change="onEventPageChange"
+          />
+        </div>
+      </el-tab-pane>
+
       <el-tab-pane label="Deliveries" name="deliveries">
         <PluginFilterBar title="Delivery 列表" tip="状态筛选在页内 Tab/筛选区，不在侧边导航" testid="webhook-deliveries-filter">
           <template #actions>
@@ -531,6 +592,18 @@ watch(tab, async (next) => {
   await router.replace({ query: { ...route.query, tab: next } });
 });
 
+const events = ref({ items: [], pagination: { page: 1, page_size: 20, total: 0 } });
+const eventsLoading = ref(false);
+const eventsError = ref('');
+const eventFilters = ref({
+  plugin_code: String(route.query.evt_plugin_code || ''),
+  hook_name: String(route.query.evt_hook_name || ''),
+  status: String(route.query.evt_status || 'all'),
+  community_id: String(route.query.evt_community_id || ''),
+  page: Number(route.query.evt_page || 1),
+  page_size: 20,
+});
+
 const deliveries = ref({ items: [], pagination: { page: 1, page_size: 20, total: 0 } });
 const deliveriesLoading = ref(false);
 const deliveriesError = ref('');
@@ -606,6 +679,36 @@ const callbackRequestFilters = ref({
   page: Number(route.query.cbr_page || 1),
   page_size: 20,
 });
+
+async function refreshEvents() {
+  eventsLoading.value = true;
+  eventsError.value = '';
+  try {
+    const params = { ...eventFilters.value };
+    await router.replace({
+      query: {
+        ...route.query,
+        tab: tab.value,
+        evt_plugin_code: params.plugin_code,
+        evt_hook_name: params.hook_name,
+        evt_status: params.status,
+        evt_community_id: params.community_id,
+        evt_page: params.page,
+      },
+    });
+    const res = await admin.listWebhookEvents(params);
+    events.value = res;
+  } catch (e) {
+    eventsError.value = e?.message || '加载失败';
+  } finally {
+    eventsLoading.value = false;
+  }
+}
+
+function onEventPageChange(page) {
+  eventFilters.value.page = page;
+  refreshEvents();
+}
 
 function openCreateSecret() {
   createSecretForm.value = { plugin_code: secretFilters.value.plugin_code || '', target_url: '' };
@@ -877,7 +980,8 @@ function onCircuitPageChange(page) {
 }
 
 onMounted(async () => {
-  if (tab.value === 'circuits') await refreshCircuits();
+  if (tab.value === 'events') await refreshEvents();
+  else if (tab.value === 'circuits') await refreshCircuits();
   else if (tab.value === 'secrets') await refreshSecrets();
   else if (tab.value === 'callback_tokens') await refreshCallbackTokens();
   else if (tab.value === 'callback_requests') await refreshCallbackRequests();

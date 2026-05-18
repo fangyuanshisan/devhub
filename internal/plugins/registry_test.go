@@ -20,8 +20,11 @@ func TestManifestContractAndContentTypeMappings(t *testing.T) {
 			t.Fatalf("duplicated plugin code %q", def.Code)
 		}
 		seen[def.Code] = true
-		if len(def.ContentTypes) == 0 || len(def.ContentTypeDefs) == 0 {
-			t.Fatalf("%s should declare content types and definitions", def.Code)
+		// Some built-in plugins are UI/governance-only and may not own content types.
+		if len(def.ContentTypes) != 0 || len(def.ContentTypeDefs) != 0 {
+			if len(def.ContentTypes) == 0 || len(def.ContentTypeDefs) == 0 {
+				t.Fatalf("%s should declare both content_types and content_type_defs when it owns content types", def.Code)
+			}
 		}
 		if len(def.Permissions) == 0 || len(def.Menus) == 0 || len(def.Routes) == 0 {
 			t.Fatalf("%s should declare permissions, menus and routes", def.Code)
@@ -32,15 +35,17 @@ func TestManifestContractAndContentTypeMappings(t *testing.T) {
 		if def.MinCoreVersion == "" {
 			t.Fatalf("%s should declare min_core_version", def.Code)
 		}
-		for _, ct := range ContentTypeDefinitions(def.Code) {
-			if ct.Type == "" || ct.PluginCode != def.Code || ct.CreatePermission == "" {
-				t.Fatalf("%s has invalid content type definition: %#v", def.Code, ct)
-			}
-			if got := PluginCodeForContentType(ct.Type); got != def.Code {
-				t.Fatalf("content type %s mapped to %s, want %s", ct.Type, got, def.Code)
-			}
-			if resolved, ok := ContentTypeDefinitionByType(ct.Type); !ok || resolved.CreatePermission != ct.CreatePermission {
-				t.Fatalf("content type %s definition did not roundtrip: %#v ok=%v", ct.Type, resolved, ok)
+		if len(def.ContentTypes) != 0 || len(def.ContentTypeDefs) != 0 {
+			for _, ct := range ContentTypeDefinitions(def.Code) {
+				if ct.Type == "" || ct.PluginCode != def.Code || ct.CreatePermission == "" {
+					t.Fatalf("%s has invalid content type definition: %#v", def.Code, ct)
+				}
+				if got := PluginCodeForContentType(ct.Type); got != def.Code {
+					t.Fatalf("content type %s mapped to %s, want %s", ct.Type, got, def.Code)
+				}
+				if resolved, ok := ContentTypeDefinitionByType(ct.Type); !ok || resolved.CreatePermission != ct.CreatePermission {
+					t.Fatalf("content type %s definition did not roundtrip: %#v ok=%v", ct.Type, resolved, ok)
+				}
 			}
 		}
 	}

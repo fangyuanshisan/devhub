@@ -62,7 +62,7 @@ export const adminModuleGroups = {
       title: '插件包治理',
       items: [
         { key: 'install', label: '本地插件仓库', path: '/plugins/install', permission: 'plugin.read' },
-        { key: 'packageUploads', label: 'zip 上传包', path: '/plugins/packages/uploads', permission: 'plugin.read' },
+        { key: 'packageUploads', label: '上传记录', path: '/plugins/packages/uploads', permission: 'plugin.read' },
         { key: 'remotePackages', label: '远程插件包', path: '/plugins/packages/remote', permission: 'plugin.read' },
         { key: 'versions', label: '版本仓库', path: '/plugins/versions', permission: 'plugin.read' },
       ],

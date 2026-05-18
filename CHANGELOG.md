@@ -4,6 +4,16 @@
 
 ### Documentation
 
+- v1.8.0：新增插件前端挂载模型设计文档（slots + iframe/sandbox + postMessage 协议与权限/状态 gating），明确官方公告插件作为首个前后台挂载验证方向（文档设计，未修改代码、未执行测试）。
+
+### Added
+
+- v1.8.1：新增内置官方插件 `official_announcement`，落地前台首页与后台插件详情页“公告预览”Tab 的 Host + iframe（`sandbox=allow-scripts`）最小挂载闭环；新增 Host 浏览器安全 API（context + audit-events）与内置 iframe 路由（不允许远程 URL，不暴露 callback token / webhook secret，不执行第三方不可信代码）。
+- v1.8.1-S2：对子站页 `/c/:slug` 的公告挂载做 SEO 回归与收口：保持 `<title/canonical/JSON-LD/h1>` 与主体内容不变，补齐 context/audit 的 `community_slug` gating 防绕过。
+- v1.8.2：新增官方插件前端挂载共享 helper `GET /plugins/assets/devhub-plugin-mount-host.js`，用于前台首页、`/c/:slug` 与后台插件详情复用统一 Host + iframe + postMessage 挂载机制（仅 allowlist 官方内置插件；仍不允许远程 iframe URL）。
+
+### Documentation
+
 - Added v1.7.2 Webhook / HTTP plugin service protocol design (signing, replay protection, idempotency, retry, timeouts/rate limits/circuit breaker, audit, and governance planning).
 - Added v1.7.3 implementation plan for the Webhook / HTTP plugin service protocol (non-blocking delivery first, with delivery records, retry queue, circuit breaker, audit, and minimal governance UI; blocking hooks explicitly deferred).
 - Added an official example plugin plan (official announcement plugin) for end-to-end verification of non-blocking Webhook delivery without executing third-party code.
@@ -20,6 +30,8 @@
 - Webhook governance (v1.7.5): added webhook deliveries retry scheduling (`retry_scheduled`/`retry_exhausted`, `next_retry_at`, `attempt/max_attempts`) and circuit breaker (`closed/open/half_open`) with minimal admin APIs and admin UI page. Non-blocking only; no third-party plugin code execution.
 - Webhook signing & secret rotation (v1.7.6): added HMAC-SHA256 signed webhook delivery (sender-side), persisted signature metadata on deliveries (no plaintext secret), plus admin-managed webhook secrets (create/rotate/disable/enable/revoke) with one-time secret display and a minimal admin UI tab.
 - Webhook controlled Core API callback (v1.7.7): added callback tokens (bearer, one-time plaintext display, stored as `token_hash` only), minimal scope whitelist (`config.read`, `audit.write`), community scope checks, plugin callback endpoints (`/api/v1/plugin-callback/config`, `/api/v1/plugin-callback/audit-events`), callback request logs, and minimal admin UI tabs (Callback Tokens/Callback Requests).
+- Webhook governance (v1.7.8): added webhook events list API and an Events tab in the admin Webhook governance page; added an official webhook mock receiver binary for end-to-end verification (no third-party code execution).
+- Webhook governance (v1.7.9): completed non-blocking chain acceptance checklist and documented blocking-hook risk assessment (design only; still no blocking execution).
 
 ## v1.7.1 (2026-05-16)
 

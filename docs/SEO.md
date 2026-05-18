@@ -53,6 +53,18 @@ SEO 是 DevHub Core 默认内容能力的一部分。当前 Core 负责 `/topics
 - 热门标签链接
 - 发帖入口链接
 
+## v1.8.1-S2 补充：official_announcement 在子站页的挂载（不破坏 SEO）
+
+说明：`official_announcement` 作为内置官方插件，在 `/c/:slug` 子站 SEO 动态页中通过 **Host + iframe** 方式最小挂载公告展示区，用于验证前端挂载模型。
+
+约束：
+
+1. SEO 关键元素必须保留：`<title>`、`<link rel="canonical">`、JSON-LD、`<h1>` 和主体内容。
+2. 插件挂载仅在浏览器运行时执行，不改变服务端输出的核心 SEO HTML 兜底。
+3. iframe 仅允许仓库内置页面：`/plugins/official-announcement/iframe`，不允许远程 URL。
+4. iframe 使用 `sandbox="allow-scripts"`。
+5. 浏览器侧不暴露 callback token / webhook secret。
+
 禁用或归档子站返回不可用 HTML / 404，并带 `noindex,follow`；禁用或归档子站不进入 sitemap。
 
 ## 标签页源码要求

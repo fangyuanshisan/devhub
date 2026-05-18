@@ -2,11 +2,15 @@
 
 [返回文档入口](README.md)
 
-更新时间：2026-05-16
+更新时间：2026-05-18
 
 本文档只记录当前仓库真实状态、当前风险和下一步任务。历史版本能力已并入当前分支，详情见对应 Release Notes；旧版本已解决问题不再占用当前主体。
 
 ## 当前版本结论
+
+2026-05-18 补充：仓库级 Codex / Agent 约束已更新为“测试由开发者手动执行，Agent 完成任务时默认不自动跑测试或 E2E”。新增手动一键入口 `./scripts/test-all.sh`，用于需要验收时统一执行 Go 测试/构建与前后台前端检查。本轮未执行测试。
+
+2026-05-18 补充：后台“安装升级 / 本地插件仓库”页面已将“本地仓库 / 初始化插件包 / 上传 zip”收敛为页内 tab，避免左侧导航、顶部页签和页面内多块表单形成三层堆叠；左侧“zip 上传包”改名为“上传记录”以区分上传动作与上传包生命周期列表。本轮未执行测试。
 
 当前 `VERSION` 为 `v1.7.1`，代码主题是“插件包签名验签与可信发布者增强版”。文档设计阶段进入 `v1.7.2`“插件运行模型设计”：在 Core + 插件服务底座目标下，明确 Core 内置插件、外部 HTTP 服务插件、前端 iframe / sandbox 插件三类运行模式，以及受控 API、HookBus、权限隔离、审计和 manifest 运行字段边界。本轮不修改代码，不新增运行时实现。
 
@@ -31,6 +35,72 @@ Core 层职责：提供稳定、克制、通用的基础能力，包括用户账
 当前 SEO 状态：SEO 是 Core 默认内容能力之一，当前仍以 `/topics/:id`、`/c/:slug`、标签页、sitemap 和 robots 为基础；后续插件可以扩展结构化数据、sitemap、统计代码和站点验证能力，但不得破坏 Core SEO 兜底。
 
 后台插件治理入口已按“功能域分层导航”收敛：一级模块（插件）→ 二级功能域分组（概览/管理/包治理/安全/配置/运行时/日志等）→ 三级具体页面；状态筛选改为页内 Tab 并同步 URL query，不再把状态入口堆叠到左侧菜单。
+
+## v1.8.0 文档阶段：插件前端挂载模型设计
+
+说明：v1.8.0 定义为“官方插件前端挂载模型与 iframe / sandbox 容器设计版”。本轮以文档设计为主，明确插件前端扩展的主方向为 **iframe + sandbox + postMessage**，并定义挂载点（slots）、权限/状态 gating 与官方公告插件的前端验证方案（设计）。
+
+- 设计文档：`docs/PLUGIN_FRONTEND_MOUNT_MODEL.md`
+- Release Notes：`docs/releases/v1.8.0.md`
+
+本轮为文档设计任务，未修改代码，未执行测试、构建或 E2E；不实现 blocking Hook，不执行第三方不可信代码，不做远程动态加载与插件市场。
+
+## v1.8.1：官方公告插件前端挂载最小实现（实现）
+
+说明：v1.8.1 定义为“官方公告插件前端挂载最小实现版”。本轮落地 `official_announcement` 作为内置官方插件，并完成前后台 Host + iframe + postMessage 最小闭环（不执行第三方不可信代码，不允许远程 iframe URL）。
+
+本轮已完成：
+
+- 新增内置官方插件 `official_announcement`（`internal/plugins/official_announcement`）。
+- 新增内置 iframe 页面路由：`GET /plugins/official-announcement/iframe`（避免被 StaticFile/NoRoute fallback 吃掉）。
+- 新增 Host 浏览器安全 API：
+  - `GET /api/v1/plugins/official-announcement/context`：返回 browser-safe context + 公开配置（不包含 callback token / webhook secret）。
+  - `POST /api/v1/plugins/official-announcement/audit-events`：写入 `official_announcement.*` 审计事件（metadata 8KB 限制，剔除 token/secret/authorization 字段）。
+- 前台首页增加公告挂载（`frontend.home.section` 最小落地点）：满足 `enabled && message 非空` 时渲染 iframe；失败不影响首页主内容与 SEO。
+- 子站页 `/c/:slug` 增加公告挂载：Host API 携带 `community_slug`，并要求子站插件启用后才渲染 iframe；失败不影响子站主内容与 SEO。
+- 后台插件详情页增加“公告预览”Tab（仅 `official_announcement` 显示），并复用同一套 Host + iframe 机制（`area=admin` 且后端强校验权限）。
+
+本轮边界：
+
+- 仍不支持任意第三方远程 iframe URL。
+- 仍不执行第三方不可信代码，不做 JS 注入，不做远程动态加载。
+- 仍不实现 blocking Hook、不实现插件市场。
+
+本轮检查记录：
+
+- `gofmt`：已执行（仅对变更 Go 文件）。
+- `go test ./...`：通过。
+- 前台/后台构建：未在 Docker / dev.sh 环境下执行（本机执行 `npm run build` 失败，原因是当前环境命令解析为 Windows CMD/UNC 路径；需在后续验收任务使用 `dev.sh` 或 Docker 方式补齐）。
+
+## v1.8.2：iframe / sandbox 通用容器与 postMessage Host helper（实现）
+
+说明：v1.8.2 定义为“iframe / sandbox 通用容器与 postMessage SDK（Host helper）版”。本轮将 v1.8.1 中 `official_announcement` 的挂载逻辑抽取为可复用的官方插件前端挂载基础能力（第一阶段仅 allowlist 官方内置插件；仍不允许远程 iframe URL）。
+
+本轮已完成：
+
+- 新增共享 helper：`GET /plugins/assets/devhub-plugin-mount-host.js`
+  - 统一 iframe 创建、sandbox（默认 `allow-scripts`）与 postMessage 校验（origin/source/plugin_code/mount_id/type 白名单）。
+  - 统一 `config.read` / `audit.write` 的桥接调用（仍通过官方公告插件 Host API，不暴露 token/secret）。
+- 前台 Astro 首页改为复用共享 helper，减少复制的内联挂载脚本。
+- `/c/:slug` Go SEO 动态页改为复用共享 helper（仅保留最小初始化脚本），并保持 `<title/canonical/JSON-LD/h1>` 与主体内容不变。
+- 后台插件详情抽屉新增组件 `PluginIframeMount`（`web/admin-app/src/components/plugin/PluginIframeMount.vue`），公告预览 Tab 迁移为复用该组件。
+
+本轮边界：
+
+- 仍不支持任意第三方远程 iframe URL。
+- 仍不执行第三方不可信代码，不做 JS 注入，不做远程动态加载。
+- 仍不实现 blocking Hook、不实现插件市场。
+
+本轮检查记录（Docker / dev.sh，不依赖宿主机 npm/go）：
+
+- `gofmt`：已执行（仅对变更 Go 文件）。
+- `go test ./...`：通过。
+- `go build ./...`：通过。
+- `./scripts/check-frontend.sh --frontend-only --quick`：通过。
+- `./scripts/check-frontend.sh --admin-only --quick`：通过。
+- SEO 抽查：
+  - `/c/php/`：title/canonical/JSON-LD/h1 均存在。
+  - `/topics/1/`：title/canonical/JSON-LD/h1 均存在。
 
 v1.7.1 当前安全边界：远程下载只写入 `storage/plugins/staging/downloads/`，不自动安装；zip 上传只进入 staging / quarantine，不自动安装；promote 只转入本地插件仓库，不等于安装；远程索引只读展示 `index.json` 元数据；下载必须显式调用 staging API 并通过 URL / SSRF / 大小 / sha256 校验；detached signature 文件（`signature_url` 或包内 `devhub-signature.json`）下载同样遵守 HTTPS/SSRF/重定向/大小限制（默认 64KB）；compat-check / install / upgrade 默认要求验签 `verified`；后台不展示私钥、key material、敏感配置明文、`enc:v1` / `enc:v2` 密文或系统绝对路径。
 
@@ -3165,3 +3235,43 @@ v1.6.0-P1-10：v1.6 插件包上传与分发前置能力总验收。
 
 - 已执行：`gofmt`。
 - `go test ./...` / `go build` 与前端 build 需按 `docs/TESTING.md` 的最低检查要求执行并归档（当前环境缺少 node，建议通过 `./scripts/check-frontend.sh --admin-only --quick` 在容器中执行后台 build）。
+
+## 2026-05-17：v1.7.8 Webhook 后台治理与官方公告插件端到端验证
+
+已完成：
+
+- Webhook 治理入口增强：
+  - 新增 Webhook Events 列表接口：`GET /api/v1/admin/plugins/webhooks/events`
+  - 后台 `Webhook 治理` 页新增 `Events` 页内 Tab（与 Deliveries/Circuits/Secrets/Callback Tokens/Callback Requests 一致），用于追踪 event → delivery 的治理链路
+- 官方公告插件端到端验证准备：
+  - 新增官方 mock receiver：`cmd/webhook-mock-receiver`（接收 Webhook、验签、注入 500/429/401，用于验证重试/熔断/签名；不执行第三方代码）
+
+边界（保持不变）：
+
+- 仍只处理 non_blocking Webhook；不实现 blocking Hook。
+- mock receiver 不访问 DevHub 数据库；仅作为官方协议验证测试桩。
+
+本轮检查说明：
+
+- 已执行：`gofmt`、`go test ./...`、`go build ./...`。
+- 已执行：`./scripts/check-frontend.sh --admin-only --quick`（后台 build PASS）。
+
+## 2026-05-18：v1.7.9 Webhook non_blocking 链路总验收与 blocking Hook 设计评估
+
+定位：
+
+- 本轮不扩展新协议能力，主要做 **non_blocking Webhook 链路总验收收口**，并补齐 **blocking Hook 风险评估与后续拆分建议**（不实现 blocking）。
+
+已完成（验收收口与口径同步）：
+
+- 总验收清单写入 `docs/TESTING.md`（覆盖 Events/Deliveries/Retry/Circuit/Signing/Secrets/Callback Token/Callback API/Callback Requests/UI/权限边界/敏感信息保护）。
+- blocking Hook 设计评估补充写入 `docs/PLUGIN_WEBHOOK_IMPLEMENTATION_PLAN.md`（默认关闭、白名单、短超时、降级策略、事务边界与审计要求）。
+- 新增 release notes：`docs/releases/v1.7.9.md`。
+
+边界（保持不变）：
+
+- 仍不实现 blocking Hook、不执行第三方插件代码、不做动态加载、不做插件市场。
+
+本轮检查说明：
+
+- 已执行：`gofmt`、`go test ./...`、`go build`、`./scripts/check-frontend.sh --admin-only --quick`（如在对应任务执行环境中完成，以检查日志为准）。

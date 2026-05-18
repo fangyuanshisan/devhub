@@ -405,6 +405,12 @@ npm run build
 
 ## 开发检查
 
+Codex / Agent 默认不要在完成任务时自动跑测试；测试由开发者手动执行，避免拖慢日常改动。需要一键验收时运行：
+
+```bash
+./scripts/test-all.sh
+```
+
 常用检查命令：
 
 ```bash

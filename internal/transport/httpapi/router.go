@@ -33,6 +33,12 @@ func NewRouter(svc *service.Service) *gin.Engine {
 	r := gin.New()
 	r.Use(gin.Logger(), gin.Recovery(), corsMiddleware(), srv.optionalAuth())
 
+	// v1.8.1: official built-in plugin iframe pages must be routed explicitly.
+	// They should NOT be swallowed by StaticFile("/") or NoRoute frontend fallback.
+	r.GET("/plugins/official-announcement/iframe", srv.officialAnnouncementIframe)
+	// v1.8.2: shared official-plugin iframe host helper (no remote JS).
+	r.GET("/plugins/assets/devhub-plugin-mount-host.js", srv.pluginMountHostHelperJS)
+
 	api := r.Group("/api/v1")
 	{
 		api.GET("/health", srv.health)
@@ -76,6 +82,10 @@ func NewRouter(svc *service.Service) *gin.Engine {
 		api.POST("/notifications/read-all", srv.authRequired(), srv.readAllNotifications)
 		api.POST("/notifications/:id/read", srv.authRequired(), srv.readNotification)
 		api.GET("/users/me", srv.authRequired(), srv.me)
+
+		// v1.8.1: official announcement plugin host APIs (browser-safe; no secrets/tokens).
+		api.GET("/plugins/official-announcement/context", srv.officialAnnouncementContext)
+		api.POST("/plugins/official-announcement/audit-events", srv.officialAnnouncementAuditEvents)
 
 		// ===== 新增：DevHub 通用社区系统 API =====
 		api.GET("/communities", srv.listCommunities)
@@ -242,6 +252,7 @@ func NewRouter(svc *service.Service) *gin.Engine {
 			protected.GET("/plugins/webhooks/deliveries/:id", srv.requirePermission("plugin.read"), srv.adminWebhookDeliveryDetail)
 			protected.POST("/plugins/webhooks/deliveries/:id/retry", srv.requirePermission("plugin.write"), srv.retryAdminWebhookDelivery)
 			protected.POST("/plugins/webhooks/retry-due", srv.requirePermission("plugin.write"), srv.retryDueAdminWebhookDeliveries)
+			protected.GET("/plugins/webhooks/events", srv.requirePermission("plugin.read"), srv.listAdminWebhookEvents)
 			protected.GET("/plugins/webhooks/circuit-breakers", srv.requirePermission("plugin.read"), srv.listAdminWebhookCircuitBreakers)
 			protected.GET("/plugins/webhooks/circuit-breakers/:id", srv.requirePermission("plugin.read"), srv.adminWebhookCircuitBreakerDetail)
 			protected.POST("/plugins/webhooks/circuit-breakers/:id/close", srv.requirePermission("plugin.manage"), srv.closeAdminWebhookCircuitBreaker)
@@ -452,8 +463,8 @@ func NewRouter(svc *service.Service) *gin.Engine {
 	r.GET("/moderator/comments/", srv.moderatorWorkbenchPage)
 	r.GET("/moderator/audit-logs", srv.moderatorWorkbenchPage)
 	r.GET("/moderator/audit-logs/", srv.moderatorWorkbenchPage)
-	r.StaticFile("/admin-next", "./web/admin-vue/index.html")
-	r.StaticFile("/admin-next/", "./web/admin-vue/index.html")
+	r.GET("/admin-next", serveAdminIndex)
+	r.GET("/admin-next/", serveAdminIndex)
 	r.GET("/admin", func(c *gin.Context) {
 		c.Redirect(http.StatusMovedPermanently, "/admin-next")
 	})
@@ -502,7 +513,7 @@ func NewRouter(svc *service.Service) *gin.Engine {
 			return
 		}
 		if strings.HasPrefix(path, "/admin-next/") {
-			c.File("./web/admin-vue/index.html")
+			serveAdminIndex(c)
 			return
 		}
 		c.File("./web/frontend/index.html")
@@ -517,6 +528,13 @@ func serveFrontendFile(c *gin.Context, file string) {
 		return
 	}
 	c.File("./web/frontend/index.html")
+}
+
+func serveAdminIndex(c *gin.Context) {
+	c.Header("Cache-Control", "no-store, no-cache, must-revalidate, max-age=0")
+	c.Header("Pragma", "no-cache")
+	c.Header("Expires", "0")
+	c.File("./web/admin-vue/index.html")
 }
 
 func (s *Server) moderatorWorkbenchPage(c *gin.Context) {
@@ -635,6 +653,13 @@ func (s *Server) renderCommunityHTML(c *gin.Context, comm domain.Community) stri
       <div class="community-stats">%s</div>
     </section>
     <nav class="board-tabs js-board-tabs" aria-label="子站板块">%s</nav>
+    <section
+      data-devhub-plugin-mount
+      data-plugin-code="official_announcement"
+      data-area="frontend"
+      data-community-slug="%s"
+      style="margin: 12px 0;"
+    ></section>
     <section class="content-layout">
       <div>
         %s
@@ -651,12 +676,14 @@ func (s *Server) renderCommunityHTML(c *gin.Context, comm domain.Community) stri
       </aside>
     </section>
   </main>
+  <script src="/plugins/assets/devhub-plugin-mount-host.js" defer></script>
   <script>
     (() => {
       const root = document.querySelector('[data-community-hero]');
       const button = document.querySelector('[data-community-follow]');
       const message = document.querySelector('[data-community-message]');
       const id = Number(root?.dataset.communityId || 0);
+      const communitySlug = String(root?.dataset.community || '').trim();
       const token = () => localStorage.getItem('devhub_user_token') || localStorage.getItem('devhub_access_token') || '';
       const userStatus = document.querySelector('[data-user-status]');
       const moderatorEntry = document.querySelector('[data-moderator-entry]');
@@ -677,6 +704,9 @@ func (s *Server) renderCommunityHTML(c *gin.Context, comm domain.Community) stri
         }).catch(() => {});
       };
       syncUser();
+      // v1.8.2: official plugins iframe mounts are handled by shared helper:
+      // GET /plugins/assets/devhub-plugin-mount-host.js
+
       button?.addEventListener('click', () => {
         if (!id) return;
         if (!token()) {
@@ -704,7 +734,7 @@ func (s *Server) renderCommunityHTML(c *gin.Context, comm domain.Community) stri
 		esc(title), esc(description), esc(comm.SEOKeywords), esc(canonicalPath), esc(title), esc(description), esc(canonicalURL), esc(themeColor), esc(frontendStylesheetHref()), jsonLD,
 		pathEsc(comm.Slug), esc(comm.Name), queryEsc(comm.Slug), pathEsc(comm.Slug), esc(themeColor), comm.ID, esc(comm.Slug),
 		esc(comm.Name), esc(firstNonEmpty(comm.SEOTitle, comm.Name+" 技术社区")), esc(firstNonEmpty(comm.Slogan, comm.Description)),
-		pathEsc(comm.Slug), communityStatsHTML(stats), communityCategoryNavHTML(comm.Slug, categories),
+		pathEsc(comm.Slug), communityStatsHTML(stats), communityCategoryNavHTML(comm.Slug, categories), esc(comm.Slug),
 		communityTopicSectionHTML("置顶内容", pinned, comm.Slug, "暂无置顶内容。"),
 		communityTopicSectionHTML("精华内容", featured, comm.Slug, "暂无精华内容。"),
 		communityTopicSectionHTML("最新内容", latest, comm.Slug, "还没有内容，欢迎发布第一篇。"),
@@ -4322,6 +4352,29 @@ func (s *Server) optionalAuth() gin.HandlerFunc {
 		token := bearerToken(c.GetHeader("Authorization"))
 		if token != "" {
 			if user, err := s.svc.AuthUser(token); err == nil && user != nil {
+				c.Set("auth_user", *user)
+			} else if admin, err := s.svc.AuthAdmin(token); err == nil && admin != nil {
+				// Public plugin Host APIs can be used by admin previews as well as
+				// frontend mounts. Resolve admin bearer tokens here so handlers can
+				// apply their own area-specific permission checks.
+				c.Set("auth_user", *admin)
+			}
+		}
+		c.Next()
+	}
+}
+
+func (s *Server) optionalAdminAuth() gin.HandlerFunc {
+	return func(c *gin.Context) {
+		if _, ok := currentUser(c); ok {
+			c.Next()
+			return
+		}
+		token := bearerToken(c.GetHeader("Authorization"))
+		if token != "" {
+			if admin, err := s.svc.AuthAdmin(token); err == nil && admin != nil {
+				c.Set("auth_user", *admin)
+			} else if user, err := s.svc.AuthUser(token); err == nil && user != nil {
 				c.Set("auth_user", *user)
 			}
 		}

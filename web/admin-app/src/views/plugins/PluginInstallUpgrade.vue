@@ -15,7 +15,13 @@
 
     <el-alert type="info" show-icon :closable="false" class="mb" title="限制：不自动安装依赖、不远程下载、不动态加载、不执行第三方代码。" />
 
-    <el-card shadow="never" class="mb" data-testid="plugin-package-template-card">
+    <el-tabs v-model="packageTab" class="package-workspace-tabs" data-testid="plugin-package-workspace-tabs">
+      <el-tab-pane label="本地仓库" name="repository" />
+      <el-tab-pane label="初始化插件包" name="template" />
+      <el-tab-pane label="上传 zip" name="upload" />
+    </el-tabs>
+
+    <el-card v-if="packageTab === 'template'" shadow="never" class="mb" data-testid="plugin-package-template-card">
       <template #header>
         <div class="card-head">
           <strong>初始化插件包</strong>
@@ -116,7 +122,7 @@
       </el-card>
     </el-card>
 
-    <el-card shadow="never" class="mb" data-testid="plugin-package-upload-card">
+    <el-card v-if="packageTab === 'upload'" shadow="never" class="mb" data-testid="plugin-package-upload-card">
       <template #header>
         <div class="card-head">
           <strong>上传插件包 zip</strong>
@@ -224,6 +230,7 @@
       </el-card>
     </el-card>
 
+    <div v-if="packageTab === 'repository'" data-testid="plugin-package-repository-workspace">
     <div class="filter-panel mb">
       <div>
         <strong>升级目标插件</strong>
@@ -587,6 +594,7 @@
 
       <pre class="json-box compact" data-testid="plugin-package-install-preview">{{ formatJSON(packageResult.install_dry_run?.install_preview || {}) }}</pre>
     </el-card>
+    </div>
 
     <el-dialog v-model="repoDetailVisible" width="920px" destroy-on-close data-testid="plugin-package-repo-detail-dialog">
       <section class="action-panel in-drawer" data-testid="plugin-package-repo-detail-content">
@@ -958,9 +966,9 @@
 </template>
 
 <script setup>
-import { computed, onMounted, ref } from 'vue';
+import { computed, onMounted, ref, watch } from 'vue';
 import { ElMessage, ElMessageBox } from 'element-plus';
-import { useRouter } from 'vue-router';
+import { useRoute, useRouter } from 'vue-router';
 import {
   createPluginApproval,
   createPluginPackageTemplate,
@@ -983,10 +991,13 @@ import { t } from '@/i18n';
 import { pluginStatusLabel } from '@/i18n/formatters';
 
 const router = useRouter();
+const route = useRoute();
+const packageTabs = new Set(['repository', 'template', 'upload']);
 
 const items = ref([]);
 const loading = ref(false);
 const targetCode = ref('');
+const packageTab = ref(packageTabs.has(String(route.query.tab || '')) ? String(route.query.tab) : 'repository');
 
 const templateForm = ref({
   code: '',
@@ -1045,6 +1056,15 @@ const repoInstallLoading = ref(false);
 const repoInstallError = ref('');
 const repoInstallDetail = ref(null);
 const repoInstallConfirmRiskLevel = ref('');
+
+watch(packageTab, async (next) => {
+  await router.replace({ query: { ...route.query, tab: next === 'repository' ? undefined : next } });
+});
+
+watch(() => route.query.tab, (value) => {
+  const next = packageTabs.has(String(value || '')) ? String(value) : 'repository';
+  if (packageTab.value !== next) packageTab.value = next;
+});
 
 onMounted(load);
 
@@ -1112,6 +1132,7 @@ async function useUploadedPackageForDryRun() {
   const path = String(zipUploadResult.value?.package_path || '').trim();
   if (!path) return;
   packagePath.value = path;
+  packageTab.value = 'repository';
   await runPackageDryRun();
 }
 
@@ -1127,6 +1148,7 @@ async function promoteUploadedPackage() {
       packagePath.value = res.package_path;
       repoRoot.value = 'storage/plugins/packages';
     }
+    packageTab.value = 'repository';
     zipUploadResult.value = await getPluginPackageUpload(uploadId).catch(() => zipUploadResult.value);
     await scanRepository(true);
   } catch (e) {
@@ -1157,6 +1179,7 @@ async function createPackageTemplate() {
     ElMessage.success(templateResult.value?.message || '插件包模板已初始化');
     const path = String(templateResult.value?.template?.package_path || '').trim();
     if (path) packagePath.value = path;
+    packageTab.value = 'repository';
     await scanRepository(true);
   } catch (e) {
     templateResult.value = null;
@@ -1170,6 +1193,7 @@ function useTemplatePathForDryRun() {
   const path = String(templateResult.value?.template?.package_path || '').trim();
   if (!path) return;
   packagePath.value = path;
+  packageTab.value = 'repository';
   runPackageDryRun();
 }
 

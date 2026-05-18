@@ -32,11 +32,18 @@ DevHub 当前文档围绕 `v1.7.2` 插件运行模型设计与 `v1.7.3` Webhook 
 8. [插件运行模型设计](PLUGIN_RUNTIME_MODEL.md)
    - 定义 Core 内置插件、外部 HTTP 服务插件、iframe / sandbox 前端插件三种运行模式，以及前端挂载、受控 API、HookBus、隔离边界、manifest 运行字段和官方示例插件验证方向。
 
+8. [插件前端挂载模型（设计）](PLUGIN_FRONTEND_MOUNT_MODEL.md)
+   - 定义插件前端 slots、iframe/sandbox 隔离策略与 postMessage 通信协议（设计口径）；明确插件前端不能绕过 Core 权限、审计与插件生命周期状态。
+
 9. [Webhook / HTTP 插件服务协议（设计）](PLUGIN_WEBHOOK_PROTOCOL.md)
    - 定义 Core 调用外部插件服务的协议：事件类型、blocking/non_blocking、请求格式、签名鉴权、防重放、幂等与重试、超时/限流/熔断、回调 Core API 的受控模型、审计与后台治理规划。
 
 10. [Webhook 协议实现拆解（v1.7.3）](PLUGIN_WEBHOOK_IMPLEMENTATION_PLAN.md)
    - 将协议设计拆成可落地阶段：non_blocking delivery、delivery 记录、重试队列、熔断、签名与鉴权、后台治理入口；并明确 blocking Hook 后置。
+
+补充（v1.7.8 已落地）：
+
+- 官方 mock receiver：`cmd/webhook-mock-receiver/main.go`（用于端到端验签/失败注入/重试熔断验证；不执行第三方代码）
 
 11. [插件 SDK 文档](PLUGIN_SDK.md)
    - 插件声明规范、生命周期、manifest 字段、内容类型、权限、菜单、配置、Hook、migration 和安全边界。
@@ -53,6 +60,15 @@ DevHub 当前文档围绕 `v1.7.2` 插件运行模型设计与 `v1.7.3` Webhook 
 
 14. [v1.7.2 Release Notes](releases/v1.7.2.md)
    - 插件运行模型设计：Core 内置插件、外部 HTTP 服务插件、iframe / sandbox 前端插件、受控 API、HookBus、隔离边界和 manifest 运行字段设计。本轮只改文档，不新增运行时实现。
+
+14. [v1.8.0 Release Notes](releases/v1.8.0.md)
+   - 官方插件前端挂载模型与 iframe/sandbox 容器设计：slots、postMessage 协议与权限/状态 gating（文档设计，不修改代码）。
+
+15. [v1.8.1 Release Notes](releases/v1.8.1.md)
+   - 官方公告插件前端挂载最小实现：内置官方插件 + Host + iframe + postMessage 最小闭环（不执行第三方代码，不允许远程 iframe URL）。
+
+16. [v1.8.2 Release Notes](releases/v1.8.2.md)
+   - iframe / sandbox 通用容器与 postMessage Host helper：前台首页、`/c/:slug` 与后台插件详情复用统一挂载机制（仅 allowlist 官方内置插件；仍不允许远程 iframe URL）。
 
 15. [v1.7.3 Release Notes](releases/v1.7.3.md)
    - Webhook / HTTP 插件服务协议实现拆解：以 non_blocking delivery 为第一优先级，拆解 delivery 记录、重试队列、熔断、签名鉴权与后台治理入口；并准备官方公告插件端到端验证方案。本轮只改文档，不新增真实投递实现。

@@ -12,6 +12,23 @@ DevHub 当前长期目标是 **Core + 插件 的开源服务底座**。插件系
 
 完整插件系统与插件运行模型是当前最高优先级长期主线。插件运行模型的详细设计见 [插件运行模型设计](PLUGIN_RUNTIME_MODEL.md)；下一阶段完整目标、生命周期和验收标准以 [完整插件系统长期完善路线图](PLUGIN_SYSTEM_ROADMAP.md) 为准。插件市场、远程安装、在线更新、动态加载、前端插件沙箱和 HTTP 插件服务协议仍属于后续阶段路线，必须在权限、安全、审计、生命周期和 SEO 红线内推进。
 
+前端挂载模型补充（v1.8.0 文档阶段）：
+
+- 插件前端扩展的主方向：**iframe + sandbox + postMessage**（设计口径）。
+- 挂载点（slots）、iframe 隔离策略、postMessage 协议与权限/状态 gating 见：`docs/PLUGIN_FRONTEND_MOUNT_MODEL.md`。
+  - 注意：当前仅为设计，不代表第三方插件前端挂载已实现；仍不执行第三方不可信代码。
+
+v1.8.1 实现补充（官方公告插件最小挂载）：
+
+- `official_announcement` 已作为内置官方插件加入 `internal/plugins`。
+- 已落地 Host + iframe + postMessage 的最小闭环，用于验证“官方插件前端挂载模型”，但仍不支持任意第三方远程 iframe URL。
+- Host API 仅返回浏览器安全 context 与公开配置，不暴露 callback token / webhook secret。
+
+v1.8.2 实现补充（共享容器/Helper 抽取）：
+
+- 新增共享 helper：`GET /plugins/assets/devhub-plugin-mount-host.js`，用于前台首页、`/c/:slug` 与后台插件详情页复用统一挂载逻辑，减少脚本复制。
+- 第一阶段仅 allowlist 官方内置插件（当前仅接入 `official_announcement`），不支持任意远程 iframe URL，不执行第三方不可信代码。
+
 ## Core 边界
 
 Core 保持稳定、克制、通用，不承载过多垂直业务。当前 Core 层职责：
@@ -52,6 +69,7 @@ DevHub 插件运行模型拆分为三类：
 - v1.7.5：已实现 non_blocking delivery 的治理能力增强（delivery 记录、重试调度 `retry_scheduled/retry_exhausted`、circuit breaker `closed/open/half_open`、最小后台治理入口与审计）。
 - v1.7.6：已实现 DevHub → 插件服务的 HMAC-SHA256 发送端签名与 Webhook Secret 管理/轮换（active/previous grace window），并在后台 Webhook 治理页增加 Secrets Tab；仍不执行第三方插件代码，仍不实现 blocking Hook。
 - v1.7.7：已实现外部插件服务回调 Core API 的最小通道（callback token + scope 白名单 + community scope 校验 + callback request 记录与审计），并在后台 Webhook 治理页增加 Callback Tokens/Callback Requests 页内 Tabs。
+- v1.7.8：已补齐 Webhook 治理的 Events 视图（Admin API + 后台页内 Tab），并提供官方 mock receiver（`cmd/webhook-mock-receiver`）用于端到端验签/失败注入/重试熔断验证（不执行第三方代码）。
 
 当前兼容命名：
 

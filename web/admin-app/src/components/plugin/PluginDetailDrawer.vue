@@ -492,7 +492,7 @@
           </section>
         </el-tab-pane>
 
-        <el-tab-pane :label="t('plugin.tabs.config')" name="config">
+        <el-tab-pane :label="plugin.code === 'official_announcement' ? '公告配置' : t('plugin.tabs.config')" name="config">
           <el-alert
             :title="t('plugin.configCapabilityNote')"
             type="info"
@@ -523,7 +523,7 @@
                 <el-button size="small" data-testid="plugin-config-versions-open" @click="configVersionsVisible = true">版本历史</el-button>
                 <el-button size="small" @click="reloadConfig">{{ t('plugin.config.resetCurrent') }}</el-button>
                 <el-button size="small" data-testid="plugin-global-config-clear" @click="clearGlobalConfig">{{ t('common.clearObject') }}</el-button>
-                <el-button size="small" type="primary" data-testid="plugin-global-config-save" :disabled="schemaErrors.length > 0" @click="saveConfig">{{ t('common.save') }}</el-button>
+                <el-button size="small" type="primary" data-testid="plugin-global-config-save" :disabled="schemaErrors.length > 0 || !canEditPluginConfig" @click="saveConfig">{{ t('common.save') }}</el-button>
               </div>
             </div>
             <PluginConfigEditor
@@ -539,6 +539,20 @@
               </template>
             </PluginConfigEditor>
           </section>
+        </el-tab-pane>
+
+        <el-tab-pane v-if="plugin.code === 'official_announcement'" label="公告预览" name="officialAnnouncementPreview">
+          <el-alert
+            type="info"
+            show-icon
+            :closable="false"
+            class="mb"
+            title="官方公告插件（v1.8.1）：Host + iframe 最小挂载预览（不执行第三方代码）"
+          />
+          <div v-if="!canViewOfficialAnnouncement" class="empty-state">权限不足</div>
+          <div v-else class="official-announcement-preview">
+            <PluginIframeMount :key="previewRefreshKey" class="host" plugin-code="official_announcement" area="admin" />
+          </div>
         </el-tab-pane>
 
         <el-tab-pane :label="t('plugin.tabs.hooks')" name="hooks">
@@ -970,6 +984,7 @@ import { computed, reactive, ref, watch } from 'vue';
 import { ElMessage, ElMessageBox } from 'element-plus';
 import PluginConfigEditor from './PluginConfigEditor.vue';
 import PluginConfigVersionsDialog from './PluginConfigVersionsDialog.vue';
+import PluginIframeMount from './PluginIframeMount.vue';
 import { dryRunPluginExport, enablePluginFromEnablePrecheck, exportPluginPackage, getPluginUninstallImpact, getPluginUpgradeTask, listPluginPackageCompatChecks, listPluginUpgradeTasks, pluginAuditLogs, pluginHookExecutions, pluginHooks, pluginMenusPreview, pluginMigrations, pluginReadiness, pluginUpgradeImpact, retryPluginUpgradeTask, runPluginEnablePrecheck, runPluginMigrations, softUninstallPlugin, upgradePluginFromPackage, updatePluginConfig } from '@/api/admin';
 import { t } from '@/i18n';
 import { auditActionLabel, migrationStatusLabel, pluginHealthLabel, pluginStatusLabel } from '@/i18n/formatters';
@@ -1089,6 +1104,9 @@ const exportForm = reactive({
 
 const title = computed(() => `${props.plugin?.name || ''} ${t('plugin.detailTitle')}`);
 const exportPreviewFiles = computed(() => (exportPreview.value?.export_preview?.files || []).map((path) => ({ path })));
+const canViewOfficialAnnouncement = computed(() => (auth?.can ? auth.can('plugin.read') : true));
+const canEditPluginConfig = computed(() => (auth?.can ? auth.can('plugin.write') : true));
+const previewRefreshKey = ref(0);
 const canRunEnablePrecheck = computed(() => {
   const p = props.plugin;
   if (!p || !p.code) return false;
@@ -1917,9 +1935,14 @@ function clearGlobalConfig() {
 async function saveConfig() {
   const p = props.plugin;
   if (!p) return;
+  if (!canEditPluginConfig.value) {
+    ElMessage.error(t('plugin.permissionDenied'));
+    return;
+  }
   try {
     await updatePluginConfig(p.code, { config_json: editableConfig.value || {} });
     ElMessage.success(t('plugin.config.globalSaved'));
+    previewRefreshKey.value += 1;
     emit('refresh');
   } catch (e) {
     ElMessage.error(String(e?.message || e || t('common.saveFailed')));
@@ -2192,6 +2215,9 @@ async function confirmExport() {
   flex-wrap: wrap;
   gap: 8px;
   margin-top: 12px;
+}
+.official-announcement-preview .host {
+  min-height: 56px;
 }
 
 :global(.plugin-detail-drawer .el-table .row-danger td) {

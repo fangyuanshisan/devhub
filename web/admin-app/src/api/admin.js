@@ -136,6 +136,7 @@ export const listWebhookCircuitBreakers = (params) => http.get('/admin/plugins/w
 export const getWebhookCircuitBreaker = (id) => http.get(`/admin/plugins/webhooks/circuit-breakers/${id}`);
 export const closeWebhookCircuitBreaker = (id) => http.post(`/admin/plugins/webhooks/circuit-breakers/${id}/close`);
 export const openWebhookCircuitBreaker = (id) => http.post(`/admin/plugins/webhooks/circuit-breakers/${id}/open`);
+export const listWebhookEvents = (params) => http.get('/admin/plugins/webhooks/events', { params });
 // v1.7.6: webhook signing + secret rotation
 export const listWebhookSecrets = (params) => http.get('/admin/plugins/webhooks/secrets', { params });
 export const getWebhookSecret = (id) => http.get(`/admin/plugins/webhooks/secrets/${id}`);

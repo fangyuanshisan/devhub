@@ -2,7 +2,7 @@
 
 [返回文档大纲](README.md)
 
-更新时间：2026-05-10
+更新时间：2026-05-18
 
 本文档是后续 DevHub 1.x 开发任务的固定协作规则。Codex / AI Agent 接到任务后，应先阅读并遵守本文档，再阅读 `docs/README.md`、`docs/PROJECT_PROGRESS.md`、`docs/API.md`、`docs/PLUGIN_ARCHITECTURE.md`、`docs/SEO.md`、`docs/TESTING.md` 和当前版本 release 文档。旧版本 Release Notes 只作追溯依据，不作为当前必读主线。
 
@@ -95,11 +95,13 @@ PORT=8090 CMS_STORE=memory ./.devhub/devhub
 ## 开发与验收边界
 
 - 日常开发阶段只做最低必要检查，避免每个小任务都执行完整测试矩阵。
+- 默认不要在任务完成时自动跑测试、E2E 或完整验收；如用户明确要求验证，再手动执行对应脚本并回报结果。
 - 最低检查通常包括：
   - 相关文件路径存在。
   - Markdown 链接和格式基本正确。
-  - Go 代码改动后执行 `gofmt`、`go test ./...` 或至少说明无法执行原因。
-  - 前后台改动后按真实环境选择 `dev.sh` 或 Docker Node 构建，无法执行时说明原因。
+  - Go 代码改动后执行 `gofmt`，并在需要手动验收时运行 `go test ./...`。
+  - 前后台改动后按真实环境选择 `dev.sh` 或 Docker Node 构建；如不执行，说明原因并给出可手动运行的命令。
+- 一键手动测试入口使用 `./scripts/test-all.sh`。
 - 完整测试矩阵单独作为验收任务执行，详见 `docs/TESTING.md`。
 - 不要在普通文档或小补丁任务中扩展大型业务功能。
 

@@ -266,6 +266,53 @@ if [[ "${REMOVE_ORPHANS}" -eq 1 ]]; then
   RUN_OPTS+=(--remove-orphans)
 fi
 
+export DEVHUB_DOCKER_UID="${DEVHUB_DOCKER_UID:-$(id -u)}"
+export DEVHUB_DOCKER_GID="${DEVHUB_DOCKER_GID:-$(id -g)}"
+
+fix_generated_permissions() {
+  local path
+  for path in "$@"; do
+    [[ -e "$path" ]] || continue
+    if chown -R "${DEVHUB_DOCKER_UID}:${DEVHUB_DOCKER_GID}" "$path" 2>/dev/null; then
+      continue
+    fi
+    if command -v docker >/dev/null 2>&1; then
+      docker run --rm -v "${REPO_ROOT}:/workspace" alpine:3.20 chown -R "${DEVHUB_DOCKER_UID}:${DEVHUB_DOCKER_GID}" "/workspace/${path#${REPO_ROOT}/}" >/dev/null 2>&1 || true
+    fi
+  done
+}
+
+prepare_generated_dirs() {
+  local target="$1"
+  case "$target" in
+    admin)
+      fix_generated_permissions \
+        "${REPO_ROOT}/web/admin-vue" \
+        "${REPO_ROOT}/web/admin-app/node_modules" \
+        "${REPO_ROOT}/web/admin-app/test-results" \
+        "${REPO_ROOT}/web/admin-app/playwright-report"
+      rm -rf \
+        "${REPO_ROOT}/web/admin-vue" \
+        "${REPO_ROOT}/web/admin-app/node_modules/.vite-temp" \
+        "${REPO_ROOT}/web/admin-app/test-results" \
+        "${REPO_ROOT}/web/admin-app/playwright-report"
+      ;;
+    frontend)
+      fix_generated_permissions \
+        "${REPO_ROOT}/web/frontend" \
+        "${REPO_ROOT}/web/frontend-app/node_modules" \
+        "${REPO_ROOT}/web/frontend-app/test-results" \
+        "${REPO_ROOT}/web/frontend-app/playwright-report"
+      rm -rf \
+        "${REPO_ROOT}/web/frontend" \
+        "${REPO_ROOT}/web/frontend-app/node_modules/.vite" \
+        "${REPO_ROOT}/web/frontend-app/node_modules/.vite-temp" \
+        "${REPO_ROOT}/web/frontend-app/test-results" \
+        "${REPO_ROOT}/web/frontend-app/playwright-report"
+      ;;
+  esac
+}
+
 record_result() {
   local name="$1"
   local status="$2"
@@ -423,6 +470,8 @@ if [[ "${RUN_ADMIN}" -eq 1 ]]; then
   ADMIN_TITLE="后台 web/admin-app"
   ADMIN_PACKAGE="web/admin-app/package.json"
 
+  prepare_generated_dirs admin
+
   if [[ "${REBUILD}" -eq 1 ]]; then
     run_compose_build "${ADMIN_SERVICE}" "${ADMIN_TITLE}" || HAS_FAIL=1
   fi
@@ -445,6 +494,8 @@ if [[ "${RUN_FRONTEND}" -eq 1 ]]; then
   FRONTEND_SERVICE="frontend-e2e"
   FRONTEND_TITLE="前台 web/frontend-app"
   FRONTEND_PACKAGE="web/frontend-app/package.json"
+
+  prepare_generated_dirs frontend
 
   if [[ "${REBUILD}" -eq 1 ]]; then
     run_compose_build "${FRONTEND_SERVICE}" "${FRONTEND_TITLE}" || HAS_FAIL=1

@@ -2846,3 +2846,98 @@ GET /api/v1/admin/plugins/remote-indexes/:id/plugins/:code
 要求：
 
 - `action` 必须以 `plugin_code.` 前缀开头（例如 `official_announcement.received_event`），防止伪造 Core/admin 审计。
+
+## v1.8.1：官方公告插件前端挂载最小实现（实现）
+
+说明：以下接口用于 **浏览器端 Host 页面** 与 **内置 iframe 页面** 的最小闭环，不属于第三方插件服务回调通道：
+
+- 不暴露 callback token / webhook secret 给浏览器
+- iframe 页面为仓库内置页面，不允许配置任意远程 URL
+
+### Host（浏览器安全）
+
+#### `GET /api/v1/plugins/official-announcement/context`
+
+说明：返回 browser-safe context 与公开配置（不包含任何 token/secret）。用于 Host 在前台/后台挂载 iframe。
+
+查询参数：
+
+- `mount_id`（必填）
+- `area`（可选：`frontend|admin`，默认 `frontend`）
+- `community_slug`（可选；填写时会校验子站插件启用状态）
+
+权限：
+
+- `area=frontend`：允许匿名访问（仍会校验插件 enabled + 未软卸载；如带 `community_slug` 会校验子站插件启用）
+- `area=admin`：需要后台管理员身份（`token_type=admin`）且具备 `plugin.read` 或 `plugin.manage`
+
+#### `POST /api/v1/plugins/official-announcement/audit-events`
+
+说明：Host 代表当前访问者写入官方公告插件的审计事件（action 仅允许 `official_announcement.*` 前缀）。
+
+请求示例：
+
+```json
+{
+  "mount_id": "mnt_xxx",
+  "area": "frontend",
+  "request_id": "req_xxx",
+  "action": "official_announcement.rendered",
+  "metadata": { "note": "demo" }
+}
+```
+
+约束：
+
+- `action` 必须以 `official_announcement.` 前缀开头
+- `metadata` 限制大小（8KB），且会剔除包含 `token/secret/authorization` 的字段
+- 不保存 callback token / webhook secret / Authorization header
+
+### Iframe（内置页面）
+
+#### `GET /plugins/official-announcement/iframe`
+
+说明：官方公告插件的内置 iframe 页面（仅 postMessage 通信，不直接调用 Core API）。用于 v1.8.1 最小挂载验证。
+
+## v1.8.2：官方插件前端挂载共享 helper（实现）
+
+说明：以下接口用于复用 v1.8.1 的 Host + iframe + postMessage 挂载机制，减少前台/子站页/后台的脚本复制。该 helper 仍只对 **官方内置插件 allowlist** 生效（第一阶段仅 `official_announcement`），不支持任意远程 iframe URL。
+
+#### `GET /plugins/assets/devhub-plugin-mount-host.js`
+
+说明：官方插件前端挂载共享 helper（Host 侧）。用于在浏览器端统一：
+
+- iframe 创建与 `sandbox="allow-scripts"` 基线策略
+- postMessage 校验（origin/source/plugin_code/mount_id/type 白名单）
+- `config.read` / `audit.write` 桥接（仍调用官方公告插件 Host API，不暴露 token/secret）
+
+约束：
+
+- helper 为仓库内置静态资源，不从第三方域名加载。
+- helper 不暴露 callback token / webhook secret / admin token。
+- iframe URL 由 allowlist 内置映射决定，不允许前端传入任意 iframe URL。
+
+## v1.7.8：Webhook 后台治理与官方公告插件端到端验证（实现）
+
+### Webhook 治理（Admin）
+
+#### `GET /api/v1/admin/plugins/webhooks/events`
+
+权限：`plugin.read`。Webhook Event 列表（用于追踪 non_blocking delivery 链路；不展示敏感 payload 明文）。
+
+查询参数：
+
+- `plugin_code`
+- `hook_name`
+- `mode`
+- `status`（`pending|delivering|delivered|failed|circuit_open|skipped`，或 `all`）
+- `community_id`
+- `actor_type`
+- `actor_id`
+- `request_id`
+- `page`
+- `page_size`
+
+## v1.7.9：Webhook non_blocking 链路总验收与 blocking Hook 设计评估（验收/文档收口）
+
+说明：本轮不新增对外能力接口；以 `docs/TESTING.md` 与 `docs/releases/v1.7.9.md` 记录总验收结论，并在 `docs/PLUGIN_WEBHOOK_IMPLEMENTATION_PLAN.md` 补充 blocking Hook 风险评估与后续拆分建议（不实现）。
