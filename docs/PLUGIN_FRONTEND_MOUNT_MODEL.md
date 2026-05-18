@@ -11,6 +11,7 @@
 - 本文为 **v1.8.0 文档设计**，不代表当前代码已实现“第三方插件前端挂载”。  
 - DevHub 当前仍坚持运行时安全边界：**不执行第三方不可信代码**、不做远程动态加载、不做 Go plugin 动态加载。  
 - 插件前端挂载的主要方向是 **iframe + sandbox + postMessage**；插件页面不能绕过 Core 的权限、审计与插件生命周期状态。
+- v1.8.3 后台治理体验已将“前端挂载”作为插件详情三级 Tab 展示，显示 iframe 路由、sandbox、postMessage 状态和“远程 iframe URL：否 / 第三方代码执行：否”。`official_announcement` 的配置与预览入口在详情内更清晰；同时修复详情抽屉空插件状态下的运行时异常。该调整只改变后台信息展示和稳定性保护，不改变 Host + iframe + postMessage 协议。
 
 ## 1. 目标与非目标
 
@@ -330,4 +331,3 @@ slot：`frontend.home.section`
 - iframe 容器与统一 postMessage Host（消息通道、allowlist、权限联动）。
 - 插件前端对“配置写入”的受控通道（例如 `config.write`）。
 - 前端挂载的可观测性与性能预算（LCP/CLS、错误上报等）。
-

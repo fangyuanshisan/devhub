@@ -50,6 +50,19 @@ v1.8.2 补充（通用容器/Helper 抽取）：
   - `GET /plugins/assets/devhub-plugin-mount-host.js`
 - helper 仅对官方内置插件 allowlist 生效（第一阶段仅 `official_announcement`），不支持任意远程 iframe URL；iframe 仍固定为内置路由：`GET /plugins/official-announcement/iframe`。
 
+v1.8.3 补充（后台详情稳定性与中文体验）：
+
+- 插件详情抽屉中 `official_announcement` 的概览、配置、前端挂载和公告预览说明已更明确：
+  - 官方内置插件，用于验证前端挂载模型。
+  - 不执行第三方代码。
+  - iframe 只允许内置页面，不允许远程 iframe URL。
+  - 配置入口用于公告开关、公告内容、链接文字、链接地址和是否允许关闭。
+  - 前端挂载入口展示 iframe 路由、sandbox 策略、postMessage 状态。
+  - 预览入口区分前台预览 / 后台预览语义，不暴露 callback token / webhook secret。
+  - 安全提示明确“远程 iframe URL：否”“第三方代码执行：否”。
+- 本轮只调整后台页面结构、稳定性保护和中文说明，不改变 Host + iframe + postMessage 协议。
+- v1.8.3-S1 补充：插件列表中 `official_announcement` 直接显示“官方公告插件 / 官方内置”标识，能力摘要突出“前端挂载 / 配置 / iframe 预览”，便于后台管理员从列表快速定位并进入详情；不改变官方公告插件的 Host API、iframe 路由、postMessage 协议或安全边界。
+
 ## 2. 公告插件能力设计（不涉及第三方代码执行）
 
 业务能力（设计）：

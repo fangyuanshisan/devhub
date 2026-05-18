@@ -8,6 +8,12 @@
 
 ## 当前版本结论
 
+2026-05-18 补充：`v1.8.3` 定义为“后台插件治理页面稳定性与中文体验优化版”。本轮先修后台插件治理稳定性：Webhook 治理页对 Events / Deliveries / Retry / Circuit Breakers / Secrets / Callback Tokens / Callback Requests 的列表响应做安全默认值与空数组归一化，避免空数据或缺字段导致白屏；插件详情抽屉补齐 `maturityLabel` 导入，并为配置版本弹窗增加空插件保护，避免列表/概览页加载期和详情打开时报运行时异常。随后将插件左侧导航收敛为 5 个治理域：插件总览、插件包治理、Webhook 治理、可信发布者、运行记录 / 审计；旧路由仍保留并归入对应治理域。最后继续统一插件列表/详情、Webhook 治理、插件包治理、审批中心、配置密钥和官方公告插件相关中文文案、空状态、危险确认和安全边界说明；用户可见 `dry-run` 统一表述为“预检”，技术字段和测试标识仍保留原值以便排障。底层插件生命周期、Webhook 协议、Secret / Token 安全模型、Host + iframe + postMessage 协议均未改变；仍不开放远程 iframe、第三方代码执行、插件市场或 blocking Hook。本轮还修复 `scripts/check-frontend.sh` 在 Docker named volume 由 root 创建时导致 Vite / Playwright 无法写 `node_modules/.vite-temp`、`test-results`、`playwright-report` 的检查基建问题。已执行 `./scripts/check-frontend.sh --admin-only --quick` 并通过，日志目录 `.devhub/checks/20260518-194453/`；`git diff --check` 与 `bash -n scripts/check-frontend.sh` 通过。
+
+2026-05-18 补充：`v1.8.3-S1` 完成插件后台稳定性修复与 IA 第一批收敛。新增 `usePluginData` 上游过滤，避免 `null` 插件项进入概览 / 列表 / 详情渲染链路；插件详情抽屉增加有效插件兜底，依赖列表过滤空依赖和空插件项；插件列表首屏减负，健康摘要默认折叠，表格保留插件、版本、能力摘要、最近操作和操作等关键列，并将类型、状态、健康、官方内置标识合并到插件主列；`official_announcement` 在列表中显示“官方公告插件 / 官方内置”并突出前端挂载、配置、iframe 预览能力；上传包详情将原始 JSON 收进“技术详情”折叠区；可信发布者主列表改为发布者、可信级别、状态、影响范围、操作为主，`publisher_id` / `key_id` 弱化展示，技术字段保留在详情。已执行 `./scripts/check-frontend.sh --admin-only --quick` 并通过，日志目录 `.devhub/checks/20260518-214606/`。未修改 Go 后端、前台页面或 SEO 路由。
+
+2026-05-18 补充：修复 `/admin-next/plugins/operations` 操作历史页运行时错误 `Cannot read properties of undefined (reading 'items')`。原因是 `http` 拦截器已返回业务数据，但页面仍按 axios `{ data }` 结构解包；现在操作历史页统一使用响应归一化函数，兼容业务对象、axios data 包装和空列表响应，详情 / 恢复预览 / 清理残留 / 回滚预检也使用同一解包方式。已执行 `./scripts/check-frontend.sh --admin-only --quick` 并通过，日志目录 `.devhub/checks/20260518-215550/`。
+
 2026-05-18 补充：仓库级 Codex / Agent 约束已更新为“测试由开发者手动执行，Agent 完成任务时默认不自动跑测试或 E2E”。新增手动一键入口 `./scripts/test-all.sh`，用于需要验收时统一执行 Go 测试/构建与前后台前端检查。本轮未执行测试。
 
 2026-05-18 补充：后台“安装升级 / 本地插件仓库”页面已将“本地仓库 / 初始化插件包 / 上传 zip”收敛为页内 tab，避免左侧导航、顶部页签和页面内多块表单形成三层堆叠；左侧“zip 上传包”改名为“上传记录”以区分上传动作与上传包生命周期列表。本轮未执行测试。
@@ -34,7 +40,7 @@ Core 层职责：提供稳定、克制、通用的基础能力，包括用户账
 
 当前 SEO 状态：SEO 是 Core 默认内容能力之一，当前仍以 `/topics/:id`、`/c/:slug`、标签页、sitemap 和 robots 为基础；后续插件可以扩展结构化数据、sitemap、统计代码和站点验证能力，但不得破坏 Core SEO 兜底。
 
-后台插件治理入口已按“功能域分层导航”收敛：一级模块（插件）→ 二级功能域分组（概览/管理/包治理/安全/配置/运行时/日志等）→ 三级具体页面；状态筛选改为页内 Tab 并同步 URL query，不再把状态入口堆叠到左侧菜单。
+后台插件治理入口已按 5 个治理域收敛：一级模块（插件）→ 二级治理域（插件总览 / 插件包治理 / Webhook 治理 / 可信发布者 / 运行记录与审计）→ 三级具体页面或详情 Tab；状态筛选改为页内 Tab 并同步 URL query，不再把状态入口堆叠到左侧菜单。
 
 ## v1.8.0 文档阶段：插件前端挂载模型设计
 

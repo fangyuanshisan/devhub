@@ -200,7 +200,7 @@ const submitUpgradeApproval = async () => {
     package_path: selectedVersion.value.package_path,
     reason: `升级差异确认：${upgradeDiff.value.current_version} -> ${upgradeDiff.value.target_version}`,
   });
-  ElMessage.success('已提交升级审批，审批详情会保留 dry-run / diff 快照');
+  ElMessage.success('已提交升级审批，审批详情会保留预检 / 差异快照');
 };
 
 const riskType = (level) => {

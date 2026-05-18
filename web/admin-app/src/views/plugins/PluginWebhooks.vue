@@ -4,7 +4,7 @@
       <div>
         <h2>Webhook 治理</h2>
         <p class="muted">
-          v1.7.6：治理 non_blocking delivery 的重试/熔断 + HMAC 签名与 Secret 轮换，不执行第三方插件代码。
+          按事件、投递、重试、熔断、密钥和回调请求分组治理；不执行第三方插件代码，不在列表展示密钥或回调 Token 明文。
         </p>
       </div>
       <div class="page-actions">
@@ -15,29 +15,29 @@
           data-testid="webhook-retry-due"
           @click="retryDue"
         >
-          扫描重试到期 delivery
+          扫描到期重试
         </el-button>
       </div>
     </div>
 
     <el-tabs v-model="tab" class="page-tabs" data-testid="webhook-tabs">
-      <el-tab-pane label="Events" name="events">
-        <PluginFilterBar title="Webhook Events" tip="事件记录用于追踪投递链路，不展示敏感 payload 明文" testid="webhook-events-filter">
+      <el-tab-pane label="事件" name="events">
+        <PluginFilterBar title="Webhook 事件" tip="事件记录用于追踪投递链路，不展示敏感 payload 明文" testid="webhook-events-filter">
           <template #actions>
             <el-button size="small" @click="refreshEvents">刷新</el-button>
           </template>
-          <el-input v-model="eventFilters.plugin_code" size="small" placeholder="plugin_code" style="width: 160px" />
-          <el-input v-model="eventFilters.hook_name" size="small" placeholder="hook_name" style="width: 200px" />
-          <el-select v-model="eventFilters.status" size="small" placeholder="status" style="width: 180px">
-            <el-option label="all" value="all" />
-            <el-option label="pending" value="pending" />
-            <el-option label="delivering" value="delivering" />
-            <el-option label="delivered" value="delivered" />
-            <el-option label="failed" value="failed" />
-            <el-option label="circuit_open" value="circuit_open" />
-            <el-option label="skipped" value="skipped" />
+          <el-input v-model="eventFilters.plugin_code" size="small" placeholder="插件编码" style="width: 160px" />
+          <el-input v-model="eventFilters.hook_name" size="small" placeholder="Hook 名称" style="width: 200px" />
+          <el-select v-model="eventFilters.status" size="small" placeholder="状态" style="width: 180px">
+            <el-option label="全部" value="all" />
+            <el-option label="待处理" value="pending" />
+            <el-option label="投递中" value="delivering" />
+            <el-option label="已投递" value="delivered" />
+            <el-option label="失败" value="failed" />
+            <el-option label="熔断中" value="circuit_open" />
+            <el-option label="已跳过" value="skipped" />
           </el-select>
-          <el-input v-model="eventFilters.community_id" size="small" placeholder="community_id" style="width: 140px" />
+          <el-input v-model="eventFilters.community_id" size="small" placeholder="子站 ID" style="width: 140px" />
           <el-button size="small" type="primary" data-testid="webhook-events-search" @click="refreshEvents">查询</el-button>
         </PluginFilterBar>
 
@@ -45,60 +45,60 @@
 
         <el-table
           v-loading="eventsLoading"
-          :data="events.items"
+          :data="eventRows"
           stripe
           border
           size="small"
           data-testid="webhook-events-table"
         >
           <el-table-column prop="id" label="ID" width="80" />
-          <el-table-column prop="event_id" label="event_id" min-width="220" show-overflow-tooltip />
-          <el-table-column prop="plugin_code" label="plugin" width="140" />
-          <el-table-column prop="hook_name" label="hook" width="220" />
-          <el-table-column prop="community_id" label="community" width="110" />
-          <el-table-column label="status" width="160">
+          <el-table-column prop="event_id" label="事件 ID" min-width="220" show-overflow-tooltip />
+          <el-table-column prop="plugin_code" label="插件" width="140" />
+          <el-table-column prop="hook_name" label="Hook" width="220" />
+          <el-table-column prop="community_id" label="子站" width="110" />
+          <el-table-column label="状态" width="160">
             <template #default="{ row }">
               <PluginStatusTag :value="row.status" testid="webhook-event-status" />
             </template>
           </el-table-column>
-          <el-table-column prop="occurred_at" label="occurred_at" width="170" />
-          <el-table-column prop="created_at" label="created_at" width="170" />
+          <el-table-column prop="occurred_at" label="发生时间" width="170" />
+          <el-table-column prop="created_at" label="创建时间" width="170" />
         </el-table>
 
         <PluginEmptyState
-          v-if="!eventsLoading && events.items.length === 0 && !eventsError"
-          description="暂无 Webhook Event 记录"
+          v-if="!eventsLoading && eventRows.length === 0 && !eventsError"
+          description="暂无 Webhook 事件"
           testid="webhook-events-empty"
         />
 
         <div class="pager">
           <el-pagination
             layout="prev, pager, next"
-            :current-page="events.pagination.page || 1"
-            :page-size="events.pagination.page_size || 20"
-            :total="events.pagination.total || 0"
+            :current-page="eventsPage.page || 1"
+            :page-size="eventsPage.page_size || 20"
+            :total="eventsPage.total || 0"
             @current-change="onEventPageChange"
           />
         </div>
       </el-tab-pane>
 
-      <el-tab-pane label="Deliveries" name="deliveries">
-        <PluginFilterBar title="Delivery 列表" tip="状态筛选在页内 Tab/筛选区，不在侧边导航" testid="webhook-deliveries-filter">
+      <el-tab-pane label="投递记录" name="deliveries">
+        <PluginFilterBar title="投递记录" tip="记录每次 non_blocking Webhook 投递结果；重试队列请切换到“重试队列”查看。" testid="webhook-deliveries-filter">
           <template #actions>
             <el-button size="small" @click="refreshDeliveries">刷新</el-button>
           </template>
-          <el-input v-model="deliveryFilters.plugin_code" size="small" placeholder="plugin_code" style="width: 160px" />
-          <el-input v-model="deliveryFilters.hook_name" size="small" placeholder="hook_name" style="width: 200px" />
-          <el-select v-model="deliveryFilters.status" size="small" placeholder="status" style="width: 180px">
-            <el-option label="all" value="all" />
-            <el-option label="pending" value="pending" />
-            <el-option label="sending" value="sending" />
-            <el-option label="success" value="success" />
-            <el-option label="failed" value="failed" />
-            <el-option label="retry_scheduled" value="retry_scheduled" />
-            <el-option label="retry_exhausted" value="retry_exhausted" />
-            <el-option label="circuit_open" value="circuit_open" />
-            <el-option label="skipped" value="skipped" />
+          <el-input v-model="deliveryFilters.plugin_code" size="small" placeholder="插件编码" style="width: 160px" />
+          <el-input v-model="deliveryFilters.hook_name" size="small" placeholder="Hook 名称" style="width: 200px" />
+          <el-select v-model="deliveryFilters.status" size="small" placeholder="状态" style="width: 180px">
+            <el-option label="全部" value="all" />
+            <el-option label="待处理" value="pending" />
+            <el-option label="发送中" value="sending" />
+            <el-option label="成功" value="success" />
+            <el-option label="失败" value="failed" />
+            <el-option label="等待重试" value="retry_scheduled" />
+            <el-option label="重试耗尽" value="retry_exhausted" />
+            <el-option label="熔断中" value="circuit_open" />
+            <el-option label="已跳过" value="skipped" />
           </el-select>
           <el-button size="small" type="primary" data-testid="webhook-deliveries-search" @click="refreshDeliveries">查询</el-button>
         </PluginFilterBar>
@@ -107,30 +107,30 @@
 
         <el-table
           v-loading="deliveriesLoading"
-          :data="deliveries.items"
+          :data="deliveryRows"
           stripe
           border
           size="small"
           data-testid="webhook-deliveries-table"
         >
           <el-table-column prop="id" label="ID" width="80" />
-          <el-table-column prop="plugin_code" label="plugin" width="140" />
-          <el-table-column prop="hook_name" label="hook" width="220" />
-          <el-table-column label="status" width="160">
+          <el-table-column prop="plugin_code" label="插件" width="140" />
+          <el-table-column prop="hook_name" label="Hook" width="220" />
+          <el-table-column label="状态" width="160">
             <template #default="{ row }">
               <PluginStatusTag :value="row.status" testid="webhook-delivery-status" />
             </template>
           </el-table-column>
-          <el-table-column label="attempt" width="120">
+          <el-table-column label="尝试次数" width="120">
             <template #default="{ row }">
               <span data-testid="webhook-delivery-attempt">{{ row.attempt }}/{{ row.max_attempts }}</span>
             </template>
           </el-table-column>
-          <el-table-column prop="next_retry_at" label="next_retry_at" width="170" />
-          <el-table-column prop="response_status" label="resp" width="90" />
-          <el-table-column prop="retry_reason" label="reason" width="140" />
-          <el-table-column prop="error_message" label="error" min-width="220" show-overflow-tooltip />
-          <el-table-column label="actions" width="140" fixed="right">
+          <el-table-column prop="next_retry_at" label="下次重试" width="170" />
+          <el-table-column prop="response_status" label="响应" width="90" />
+          <el-table-column prop="retry_reason" label="重试原因" width="140" />
+          <el-table-column prop="error_message" label="错误信息" min-width="220" show-overflow-tooltip />
+          <el-table-column label="操作" width="140" fixed="right">
             <template #default="{ row }">
               <el-button
                 size="small"
@@ -147,33 +147,79 @@
         </el-table>
 
         <PluginEmptyState
-          v-if="!deliveriesLoading && deliveries.items.length === 0 && !deliveriesError"
-          description="暂无 delivery 记录"
+          v-if="!deliveriesLoading && deliveryRows.length === 0 && !deliveriesError"
+          description="暂无投递记录"
           testid="webhook-deliveries-empty"
         />
 
         <div class="pager">
           <el-pagination
             layout="prev, pager, next"
-            :current-page="deliveries.pagination.page || 1"
-            :page-size="deliveries.pagination.page_size || 20"
-            :total="deliveries.pagination.total || 0"
+            :current-page="deliveriesPage.page || 1"
+            :page-size="deliveriesPage.page_size || 20"
+            :total="deliveriesPage.total || 0"
             @current-change="onDeliveryPageChange"
           />
         </div>
       </el-tab-pane>
 
-      <el-tab-pane label="Circuit Breakers" name="circuits">
+      <el-tab-pane label="重试队列" name="retry">
+        <PluginFilterBar title="重试队列" tip="仅展示等待重试或重试耗尽的投递记录；扫描到期重试不会执行第三方代码。" testid="webhook-retry-filter">
+          <template #actions>
+            <el-button size="small" @click="refreshDeliveries">刷新</el-button>
+            <el-button size="small" type="primary" :loading="retryDueLoading" @click="retryDue">扫描到期重试</el-button>
+          </template>
+        </PluginFilterBar>
+
+        <PluginErrorAlert :message="deliveriesError" />
+
+        <el-table
+          v-loading="deliveriesLoading"
+          :data="retryRows"
+          stripe
+          border
+          size="small"
+          data-testid="webhook-retry-table"
+        >
+          <el-table-column prop="id" label="ID" width="80" />
+          <el-table-column prop="plugin_code" label="插件" width="140" />
+          <el-table-column prop="hook_name" label="Hook" width="220" />
+          <el-table-column label="状态" width="160">
+            <template #default="{ row }">
+              <PluginStatusTag :value="row.status" testid="webhook-retry-status" />
+            </template>
+          </el-table-column>
+          <el-table-column label="尝试次数" width="120">
+            <template #default="{ row }">{{ row.attempt }}/{{ row.max_attempts }}</template>
+          </el-table-column>
+          <el-table-column prop="next_retry_at" label="下次重试" width="170" />
+          <el-table-column prop="retry_reason" label="重试原因" min-width="180" />
+          <el-table-column prop="error_message" label="错误信息" min-width="220" show-overflow-tooltip />
+          <el-table-column label="操作" width="140" fixed="right">
+            <template #default="{ row }">
+              <el-button size="small" type="warning" plain :disabled="row.status === 'success'" @click="manualRetry(row)">手动重试</el-button>
+            </template>
+          </el-table-column>
+        </el-table>
+
+        <PluginEmptyState
+          v-if="!deliveriesLoading && retryRows.length === 0 && !deliveriesError"
+          description="暂无等待重试的投递记录"
+          testid="webhook-retry-empty"
+        />
+      </el-tab-pane>
+
+      <el-tab-pane label="熔断状态" name="circuits">
         <PluginFilterBar title="熔断状态" tip="维度：plugin_code + target_url" testid="webhook-circuits-filter">
           <template #actions>
             <el-button size="small" @click="refreshCircuits">刷新</el-button>
           </template>
-          <el-input v-model="circuitFilters.plugin_code" size="small" placeholder="plugin_code" style="width: 180px" />
-          <el-select v-model="circuitFilters.status" size="small" placeholder="status" style="width: 180px">
-            <el-option label="all" value="all" />
-            <el-option label="closed" value="closed" />
-            <el-option label="open" value="open" />
-            <el-option label="half_open" value="half_open" />
+          <el-input v-model="circuitFilters.plugin_code" size="small" placeholder="插件编码" style="width: 180px" />
+          <el-select v-model="circuitFilters.status" size="small" placeholder="状态" style="width: 180px">
+            <el-option label="全部" value="all" />
+            <el-option label="正常" value="closed" />
+            <el-option label="已熔断" value="open" />
+            <el-option label="半开探测" value="half_open" />
           </el-select>
           <el-button size="small" type="primary" data-testid="webhook-circuits-search" @click="refreshCircuits">查询</el-button>
         </PluginFilterBar>
@@ -182,24 +228,24 @@
 
         <el-table
           v-loading="circuitsLoading"
-          :data="circuits.items"
+          :data="circuitRows"
           stripe
           border
           size="small"
           data-testid="webhook-circuits-table"
         >
           <el-table-column prop="id" label="ID" width="80" />
-          <el-table-column prop="plugin_code" label="plugin" width="160" />
-          <el-table-column prop="target_url" label="target_url" min-width="260" show-overflow-tooltip />
-          <el-table-column label="status" width="140">
+          <el-table-column prop="plugin_code" label="插件" width="160" />
+          <el-table-column prop="target_url" label="目标 URL" min-width="260" show-overflow-tooltip />
+          <el-table-column label="状态" width="140">
             <template #default="{ row }">
               <PluginStatusTag :value="row.status" testid="webhook-circuit-status" />
             </template>
           </el-table-column>
-          <el-table-column prop="failure_count" label="failures" width="110" />
-          <el-table-column prop="next_probe_at" label="next_probe_at" width="170" />
-          <el-table-column prop="last_error_message" label="last_error" min-width="220" show-overflow-tooltip />
-          <el-table-column label="actions" width="220" fixed="right">
+          <el-table-column prop="failure_count" label="失败次数" width="110" />
+          <el-table-column prop="next_probe_at" label="下次探测" width="170" />
+          <el-table-column prop="last_error_message" label="最近错误" min-width="220" show-overflow-tooltip />
+          <el-table-column label="操作" width="220" fixed="right">
             <template #default="{ row }">
               <el-button
                 size="small"
@@ -225,7 +271,7 @@
         </el-table>
 
         <PluginEmptyState
-          v-if="!circuitsLoading && circuits.items.length === 0 && !circuitsError"
+          v-if="!circuitsLoading && circuitRows.length === 0 && !circuitsError"
           description="暂无熔断记录"
           testid="webhook-circuits-empty"
         />
@@ -233,31 +279,31 @@
         <div class="pager">
           <el-pagination
             layout="prev, pager, next"
-            :current-page="circuits.pagination.page || 1"
-            :page-size="circuits.pagination.page_size || 20"
-            :total="circuits.pagination.total || 0"
+            :current-page="circuitsPage.page || 1"
+            :page-size="circuitsPage.page_size || 20"
+            :total="circuitsPage.total || 0"
             @current-change="onCircuitPageChange"
           />
         </div>
       </el-tab-pane>
 
-      <el-tab-pane label="Secrets" name="secrets">
-        <PluginFilterBar title="Webhook Secrets" tip="Secret 明文只会在创建/轮换时展示一次" testid="webhook-secrets-filter">
+      <el-tab-pane label="Webhook 密钥" name="secrets">
+        <PluginFilterBar title="Webhook 密钥" tip="密钥明文只会在创建/轮换时展示一次；表格只显示 secret_ref。" testid="webhook-secrets-filter">
           <template #actions>
             <el-button size="small" @click="refreshSecrets">刷新</el-button>
             <el-button size="small" type="primary" data-testid="webhook-secret-create" @click="openCreateSecret">
-              创建 Secret
+              创建密钥
             </el-button>
           </template>
-          <el-input v-model="secretFilters.plugin_code" size="small" placeholder="plugin_code" style="width: 180px" />
-          <el-input v-model="secretFilters.secret_ref" size="small" placeholder="secret_ref" style="width: 220px" />
-          <el-select v-model="secretFilters.status" size="small" placeholder="status" style="width: 180px">
-            <el-option label="all" value="all" />
-            <el-option label="active" value="active" />
-            <el-option label="previous" value="previous" />
-            <el-option label="disabled" value="disabled" />
-            <el-option label="revoked" value="revoked" />
-            <el-option label="expired" value="expired" />
+          <el-input v-model="secretFilters.plugin_code" size="small" placeholder="插件编码" style="width: 180px" />
+          <el-input v-model="secretFilters.secret_ref" size="small" placeholder="密钥引用 secret_ref" style="width: 220px" />
+          <el-select v-model="secretFilters.status" size="small" placeholder="状态" style="width: 180px">
+            <el-option label="全部" value="all" />
+            <el-option label="启用中" value="active" />
+            <el-option label="上一版本" value="previous" />
+            <el-option label="已停用" value="disabled" />
+            <el-option label="已吊销" value="revoked" />
+            <el-option label="已过期" value="expired" />
           </el-select>
           <el-button size="small" type="primary" data-testid="webhook-secrets-search" @click="refreshSecrets">查询</el-button>
         </PluginFilterBar>
@@ -266,24 +312,24 @@
 
         <el-table
           v-loading="secretsLoading"
-          :data="secrets.items"
+          :data="secretRows"
           stripe
           border
           size="small"
           data-testid="webhook-secrets-table"
         >
           <el-table-column prop="id" label="ID" width="80" />
-          <el-table-column prop="plugin_code" label="plugin" width="160" />
-          <el-table-column prop="secret_ref" label="secret_ref" min-width="220" show-overflow-tooltip />
-          <el-table-column prop="target_url" label="target_url" min-width="260" show-overflow-tooltip />
-          <el-table-column label="status" width="140">
+          <el-table-column prop="plugin_code" label="插件" width="160" />
+          <el-table-column prop="secret_ref" label="密钥引用" min-width="220" show-overflow-tooltip />
+          <el-table-column prop="target_url" label="目标 URL" min-width="260" show-overflow-tooltip />
+          <el-table-column label="状态" width="140">
             <template #default="{ row }">
               <PluginStatusTag :value="row.status" testid="webhook-secret-status" />
             </template>
           </el-table-column>
-          <el-table-column prop="grace_until" label="grace_until" width="170" />
-          <el-table-column prop="last_used_at" label="last_used_at" width="170" />
-          <el-table-column label="actions" width="320" fixed="right">
+          <el-table-column prop="grace_until" label="宽限期至" width="170" />
+          <el-table-column prop="last_used_at" label="最近使用" width="170" />
+          <el-table-column label="操作" width="320" fixed="right">
             <template #default="{ row }">
               <el-button size="small" type="primary" plain data-testid="webhook-secret-rotate" @click="rotateSecret(row)">
                 轮换
@@ -324,39 +370,39 @@
         </el-table>
 
         <PluginEmptyState
-          v-if="!secretsLoading && secrets.items.length === 0 && !secretsError"
-          description="暂无 Webhook Secret"
+          v-if="!secretsLoading && secretRows.length === 0 && !secretsError"
+          description="暂无 Webhook 密钥"
           testid="webhook-secrets-empty"
         />
 
         <div class="pager">
           <el-pagination
             layout="prev, pager, next"
-            :current-page="secrets.pagination.page || 1"
-            :page-size="secrets.pagination.page_size || 20"
-            :total="secrets.pagination.total || 0"
+            :current-page="secretsPage.page || 1"
+            :page-size="secretsPage.page_size || 20"
+            :total="secretsPage.total || 0"
             @current-change="onSecretPageChange"
           />
         </div>
       </el-tab-pane>
 
-      <el-tab-pane label="Callback Tokens" name="callback_tokens">
-        <PluginFilterBar title="Callback Tokens" tip="Token 明文只会在创建/轮换时展示一次" testid="callback-tokens-filter">
+      <el-tab-pane label="回调 Token" name="callback_tokens">
+        <PluginFilterBar title="回调 Token" tip="回调 Token 不等于管理员权限；明文只会在创建/轮换时展示一次。" testid="callback-tokens-filter">
           <template #actions>
             <el-button size="small" @click="refreshCallbackTokens">刷新</el-button>
             <el-button size="small" type="primary" data-testid="callback-token-create" @click="openCreateCallbackToken">
-              创建 Token
+              创建回调 Token
             </el-button>
           </template>
-          <el-input v-model="callbackTokenFilters.plugin_code" size="small" placeholder="plugin_code" style="width: 180px" />
-          <el-select v-model="callbackTokenFilters.status" size="small" placeholder="status" style="width: 180px">
-            <el-option label="all" value="all" />
-            <el-option label="active" value="active" />
-            <el-option label="disabled" value="disabled" />
-            <el-option label="revoked" value="revoked" />
-            <el-option label="expired" value="expired" />
+          <el-input v-model="callbackTokenFilters.plugin_code" size="small" placeholder="插件编码" style="width: 180px" />
+          <el-select v-model="callbackTokenFilters.status" size="small" placeholder="状态" style="width: 180px">
+            <el-option label="全部" value="all" />
+            <el-option label="启用中" value="active" />
+            <el-option label="已停用" value="disabled" />
+            <el-option label="已吊销" value="revoked" />
+            <el-option label="已过期" value="expired" />
           </el-select>
-          <el-input v-model="callbackTokenFilters.scope" size="small" placeholder="scope (e.g. config.read)" style="width: 220px" />
+          <el-input v-model="callbackTokenFilters.scope" size="small" placeholder="权限范围，例如 config.read" style="width: 220px" />
           <el-button size="small" type="primary" data-testid="callback-tokens-search" @click="refreshCallbackTokens">查询</el-button>
         </PluginFilterBar>
 
@@ -364,26 +410,26 @@
 
         <el-table
           v-loading="callbackTokensLoading"
-          :data="callbackTokens.items"
+          :data="callbackTokenRows"
           stripe
           border
           size="small"
           data-testid="callback-tokens-table"
         >
           <el-table-column prop="id" label="ID" width="80" />
-          <el-table-column prop="plugin_code" label="plugin" width="160" />
-          <el-table-column prop="token_ref" label="token_ref" min-width="220" show-overflow-tooltip />
-          <el-table-column label="status" width="140">
+          <el-table-column prop="plugin_code" label="插件" width="160" />
+          <el-table-column prop="token_ref" label="Token 引用" min-width="220" show-overflow-tooltip />
+          <el-table-column label="状态" width="140">
             <template #default="{ row }">
               <PluginStatusTag :value="row.status" testid="callback-token-status" />
             </template>
           </el-table-column>
-          <el-table-column prop="expires_at" label="expires_at" width="170" />
-          <el-table-column prop="last_used_at" label="last_used_at" width="170" />
-          <el-table-column prop="last_used_ip" label="last_used_ip" width="140" />
-          <el-table-column prop="scopes_json" label="scopes" min-width="220" show-overflow-tooltip />
-          <el-table-column prop="community_scope_json" label="community_scope" min-width="220" show-overflow-tooltip />
-          <el-table-column label="actions" width="280" fixed="right">
+          <el-table-column prop="expires_at" label="过期时间" width="170" />
+          <el-table-column prop="last_used_at" label="最近使用" width="170" />
+          <el-table-column prop="last_used_ip" label="最近 IP" width="140" />
+          <el-table-column prop="scopes_json" label="权限范围" min-width="220" show-overflow-tooltip />
+          <el-table-column prop="community_scope_json" label="子站范围" min-width="220" show-overflow-tooltip />
+          <el-table-column label="操作" width="280" fixed="right">
             <template #default="{ row }">
               <el-button
                 size="small"
@@ -430,39 +476,39 @@
         </el-table>
 
         <PluginEmptyState
-          v-if="!callbackTokensLoading && callbackTokens.items.length === 0 && !callbackTokensError"
-          description="暂无 Callback Token"
+          v-if="!callbackTokensLoading && callbackTokenRows.length === 0 && !callbackTokensError"
+          description="暂无回调 Token"
           testid="callback-tokens-empty"
         />
 
         <div class="pager">
           <el-pagination
             layout="prev, pager, next"
-            :current-page="callbackTokens.pagination.page || 1"
-            :page-size="callbackTokens.pagination.page_size || 20"
-            :total="callbackTokens.pagination.total || 0"
+            :current-page="callbackTokensPage.page || 1"
+            :page-size="callbackTokensPage.page_size || 20"
+            :total="callbackTokensPage.total || 0"
             @current-change="onCallbackTokenPageChange"
           />
         </div>
 
-        <el-dialog v-model="createCallbackTokenDialogVisible" title="创建 Callback Token" width="620px">
+        <el-dialog v-model="createCallbackTokenDialogVisible" title="创建回调 Token" width="620px">
           <el-form :model="createCallbackTokenForm" label-width="120px">
-            <el-form-item label="plugin_code">
+            <el-form-item label="插件编码">
               <el-input v-model="createCallbackTokenForm.plugin_code" placeholder="official_announcement" />
             </el-form-item>
-            <el-form-item label="name">
+            <el-form-item label="名称">
               <el-input v-model="createCallbackTokenForm.name" placeholder="公告插件回调 Token" />
             </el-form-item>
-            <el-form-item label="scopes">
-              <el-select v-model="createCallbackTokenForm.scopes" multiple placeholder="选择 scopes" style="width: 100%">
+            <el-form-item label="权限范围">
+              <el-select v-model="createCallbackTokenForm.scopes" multiple placeholder="选择权限范围" style="width: 100%">
                 <el-option label="config.read" value="config.read" />
                 <el-option label="audit.write" value="audit.write" />
               </el-select>
             </el-form-item>
-            <el-form-item label="community_scope">
+            <el-form-item label="子站范围">
               <el-input v-model="createCallbackTokenForm.community_scope_text" placeholder="例如：1,2" />
             </el-form-item>
-            <el-form-item label="expires_at">
+            <el-form-item label="过期时间">
               <el-input v-model="createCallbackTokenForm.expires_at" placeholder="RFC3339，例如：2027-01-01T00:00:00Z（可选）" />
             </el-form-item>
           </el-form>
@@ -472,7 +518,7 @@
           </template>
         </el-dialog>
 
-        <el-dialog v-model="callbackTokenPlaintextDialogVisible" title="Callback Token（只展示一次）" width="560px">
+        <el-dialog v-model="callbackTokenPlaintextDialogVisible" title="回调 Token（只展示一次）" width="560px">
           <div class="muted">请立即复制保存。关闭后无法再次查看。</div>
           <el-input v-model="callbackTokenPlaintext" type="textarea" :rows="3" readonly data-testid="callback-token-plaintext" />
           <template #footer>
@@ -481,18 +527,18 @@
         </el-dialog>
       </el-tab-pane>
 
-      <el-tab-pane label="Callback Requests" name="callback_requests">
-        <PluginFilterBar title="Callback Requests" tip="插件服务回调 Core API 的请求记录（不保存 token 明文）" testid="callback-requests-filter">
+      <el-tab-pane label="回调请求" name="callback_requests">
+        <PluginFilterBar title="回调请求" tip="插件服务回调受控 Core API 的请求记录（不保存 Token 明文）" testid="callback-requests-filter">
           <template #actions>
             <el-button size="small" @click="refreshCallbackRequests">刷新</el-button>
           </template>
-          <el-input v-model="callbackRequestFilters.plugin_code" size="small" placeholder="plugin_code" style="width: 180px" />
-          <el-input v-model="callbackRequestFilters.token_ref" size="small" placeholder="token_ref" style="width: 220px" />
-          <el-select v-model="callbackRequestFilters.status" size="small" placeholder="status" style="width: 180px">
-            <el-option label="all" value="all" />
-            <el-option label="accepted" value="accepted" />
-            <el-option label="rejected" value="rejected" />
-            <el-option label="failed" value="failed" />
+          <el-input v-model="callbackRequestFilters.plugin_code" size="small" placeholder="插件编码" style="width: 180px" />
+          <el-input v-model="callbackRequestFilters.token_ref" size="small" placeholder="Token 引用 token_ref" style="width: 220px" />
+          <el-select v-model="callbackRequestFilters.status" size="small" placeholder="状态" style="width: 180px">
+            <el-option label="全部" value="all" />
+            <el-option label="已接受" value="accepted" />
+            <el-option label="已拒绝" value="rejected" />
+            <el-option label="失败" value="failed" />
           </el-select>
           <el-input v-model="callbackRequestFilters.request_id" size="small" placeholder="request_id" style="width: 220px" />
           <el-button size="small" type="primary" data-testid="callback-requests-search" @click="refreshCallbackRequests">查询</el-button>
@@ -502,56 +548,56 @@
 
         <el-table
           v-loading="callbackRequestsLoading"
-          :data="callbackRequests.items"
+          :data="callbackRequestRows"
           stripe
           border
           size="small"
           data-testid="callback-requests-table"
         >
           <el-table-column prop="id" label="ID" width="80" />
-          <el-table-column prop="created_at" label="created_at" width="170" />
-          <el-table-column prop="plugin_code" label="plugin" width="160" />
-          <el-table-column prop="token_ref" label="token_ref" min-width="220" show-overflow-tooltip />
-          <el-table-column prop="api_path" label="api_path" min-width="220" show-overflow-tooltip />
-          <el-table-column prop="method" label="method" width="90" />
-          <el-table-column prop="scope_required" label="scope" width="140" />
-          <el-table-column label="status" width="140">
+          <el-table-column prop="created_at" label="创建时间" width="170" />
+          <el-table-column prop="plugin_code" label="插件" width="160" />
+          <el-table-column prop="token_ref" label="Token 引用" min-width="220" show-overflow-tooltip />
+          <el-table-column prop="api_path" label="API 路径" min-width="220" show-overflow-tooltip />
+          <el-table-column prop="method" label="方法" width="90" />
+          <el-table-column prop="scope_required" label="权限范围" width="140" />
+          <el-table-column label="状态" width="140">
             <template #default="{ row }">
               <PluginStatusTag :value="row.status" testid="callback-request-status" />
             </template>
           </el-table-column>
-          <el-table-column prop="response_status" label="resp" width="90" />
-          <el-table-column prop="error_code" label="error_code" width="160" />
-          <el-table-column prop="error_message" label="error" min-width="240" show-overflow-tooltip />
+          <el-table-column prop="response_status" label="响应" width="90" />
+          <el-table-column prop="error_code" label="错误码" width="160" />
+          <el-table-column prop="error_message" label="错误信息" min-width="240" show-overflow-tooltip />
         </el-table>
 
         <PluginEmptyState
-          v-if="!callbackRequestsLoading && callbackRequests.items.length === 0 && !callbackRequestsError"
-          description="暂无 Callback Request 记录"
+          v-if="!callbackRequestsLoading && callbackRequestRows.length === 0 && !callbackRequestsError"
+          description="暂无回调请求"
           testid="callback-requests-empty"
         />
 
         <div class="pager">
           <el-pagination
             layout="prev, pager, next"
-            :current-page="callbackRequests.pagination.page || 1"
-            :page-size="callbackRequests.pagination.page_size || 20"
-            :total="callbackRequests.pagination.total || 0"
+            :current-page="callbackRequestsPage.page || 1"
+            :page-size="callbackRequestsPage.page_size || 20"
+            :total="callbackRequestsPage.total || 0"
             @current-change="onCallbackRequestPageChange"
           />
         </div>
       </el-tab-pane>
     </el-tabs>
 
-    <el-dialog v-model="createSecretDialogVisible" title="创建 Webhook Secret" width="560px">
+    <el-dialog v-model="createSecretDialogVisible" title="创建 Webhook 密钥" width="560px">
       <div class="muted" style="margin-bottom: 8px">
-        Secret 明文只会在创建成功后展示一次，请立即复制保存。
+        密钥明文只会在创建成功后展示一次，请立即复制保存。
       </div>
       <el-form label-width="100px">
-        <el-form-item label="plugin_code">
+        <el-form-item label="插件编码">
           <el-input v-model="createSecretForm.plugin_code" data-testid="webhook-secret-form-plugin" />
         </el-form-item>
-        <el-form-item label="target_url">
+        <el-form-item label="目标 URL">
           <el-input v-model="createSecretForm.target_url" data-testid="webhook-secret-form-target" />
         </el-form-item>
       </el-form>
@@ -563,7 +609,7 @@
       </template>
     </el-dialog>
 
-    <el-dialog v-model="secretOnceDialogVisible" title="Secret（仅展示一次）" width="640px">
+    <el-dialog v-model="secretOnceDialogVisible" title="Webhook 密钥（仅展示一次）" width="640px">
       <div class="muted" style="margin-bottom: 8px">关闭后将无法再次查看，请立即复制。</div>
       <el-input v-model="secretOnceValue" type="textarea" :rows="4" readonly data-testid="webhook-secret-once-value" />
       <template #footer>
@@ -574,7 +620,7 @@
 </template>
 
 <script setup>
-import { onMounted, ref, watch } from 'vue';
+import { computed, onMounted, ref, watch } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import * as admin from '@/api/admin';
 
@@ -680,6 +726,39 @@ const callbackRequestFilters = ref({
   page_size: 20,
 });
 
+const emptyPage = { page: 1, page_size: 20, total: 0 };
+const normalizeListResponse = (value, fallbackPageSize = 20) => {
+  const source = value && typeof value === 'object' ? value : {};
+  const items = Array.isArray(source.items) ? source.items.filter(Boolean) : [];
+  const pagination = source.pagination && typeof source.pagination === 'object' ? source.pagination : {};
+  return {
+    ...source,
+    items,
+    pagination: {
+      page: Number(pagination.page || source.page || 1),
+      page_size: Number(pagination.page_size || source.page_size || fallbackPageSize),
+      total: Number(pagination.total ?? source.total ?? items.length),
+    },
+  };
+};
+
+const listRows = (state) => Array.isArray(state.value?.items) ? state.value.items.filter(Boolean) : [];
+const listPage = (state) => state.value?.pagination || emptyPage;
+
+const eventRows = computed(() => listRows(events));
+const eventsPage = computed(() => listPage(events));
+const deliveryRows = computed(() => listRows(deliveries));
+const deliveriesPage = computed(() => listPage(deliveries));
+const circuitRows = computed(() => listRows(circuits));
+const circuitsPage = computed(() => listPage(circuits));
+const secretRows = computed(() => listRows(secrets));
+const secretsPage = computed(() => listPage(secrets));
+const callbackTokenRows = computed(() => listRows(callbackTokens));
+const callbackTokensPage = computed(() => listPage(callbackTokens));
+const callbackRequestRows = computed(() => listRows(callbackRequests));
+const callbackRequestsPage = computed(() => listPage(callbackRequests));
+const retryRows = computed(() => deliveryRows.value.filter((row) => ['retry_scheduled', 'retry_exhausted'].includes(String(row.status || '').toLowerCase())));
+
 async function refreshEvents() {
   eventsLoading.value = true;
   eventsError.value = '';
@@ -697,7 +776,7 @@ async function refreshEvents() {
       },
     });
     const res = await admin.listWebhookEvents(params);
-    events.value = res;
+    events.value = normalizeListResponse(res, eventFilters.value.page_size);
   } catch (e) {
     eventsError.value = e?.message || '加载失败';
   } finally {
@@ -740,7 +819,7 @@ async function refreshSecrets() {
     const params = { ...secretFilters.value };
     await router.replace({ query: { ...route.query, tab: tab.value, sec_plugin_code: params.plugin_code, sec_status: params.status, sec_ref: params.secret_ref, sec_page: params.page } });
     const res = await admin.listWebhookSecrets(params);
-    secrets.value = res;
+    secrets.value = normalizeListResponse(res, secretFilters.value.page_size);
   } catch (e) {
     secretsError.value = e?.message || '加载失败';
   } finally {
@@ -807,7 +886,7 @@ async function refreshCallbackTokens() {
       },
     });
     const res = await admin.listPluginCallbackTokens(params);
-    callbackTokens.value = res;
+    callbackTokens.value = normalizeListResponse(res, callbackTokenFilters.value.page_size);
   } catch (e) {
     callbackTokensError.value = e?.message || '加载失败';
   } finally {
@@ -821,7 +900,7 @@ function onCallbackTokenPageChange(page) {
 }
 
 async function rotateCallbackToken(row) {
-  await confirmDanger(`确认轮换 Callback Token #${row.id}？新 Token 明文只展示一次。`, '轮换 Token', {
+  await confirmDanger(`确认轮换回调 Token #${row.id}？新 Token 明文只展示一次，请立即保存。`, '轮换回调 Token', {
     confirmButtonText: '轮换',
     cancelButtonText: '取消',
   });
@@ -832,7 +911,7 @@ async function rotateCallbackToken(row) {
 }
 
 async function disableCallbackToken(row) {
-  await confirmDanger(`确认禁用 Callback Token #${row.id}？禁用后插件服务将无法回调 Core API。`, '禁用 Token', {
+  await confirmDanger(`确认禁用回调 Token #${row.id}？禁用后插件服务将无法回调 Core API。`, '禁用回调 Token', {
     confirmButtonText: '禁用',
     cancelButtonText: '取消',
   });
@@ -841,13 +920,13 @@ async function disableCallbackToken(row) {
 }
 
 async function enableCallbackToken(row) {
-  await confirmDanger(`确认恢复 Callback Token #${row.id}？`, '恢复 Token', { confirmButtonText: '恢复', cancelButtonText: '取消' });
+  await confirmDanger(`确认恢复回调 Token #${row.id}？`, '恢复回调 Token', { confirmButtonText: '恢复', cancelButtonText: '取消' });
   await admin.enablePluginCallbackToken(row.id);
   await refreshCallbackTokens();
 }
 
 async function revokeCallbackToken(row) {
-  await confirmDanger(`确认吊销 Callback Token #${row.id}？吊销后将立即失效且不可恢复。`, '吊销 Token', {
+  await confirmDanger(`确认吊销回调 Token #${row.id}？吊销后将立即失效且不可恢复。`, '吊销回调 Token', {
     confirmButtonText: '吊销',
     cancelButtonText: '取消',
   });
@@ -872,7 +951,7 @@ async function refreshCallbackRequests() {
       },
     });
     const res = await admin.listPluginCallbackRequests(params);
-    callbackRequests.value = res;
+    callbackRequests.value = normalizeListResponse(res, callbackRequestFilters.value.page_size);
   } catch (e) {
     callbackRequestsError.value = e?.message || '加载失败';
   } finally {
@@ -886,7 +965,7 @@ function onCallbackRequestPageChange(page) {
 }
 
 async function rotateSecret(row) {
-  await confirmDanger(`确认轮换 Secret #${row.id}？轮换后新 Secret 明文只展示一次。`, '轮换 Secret', { confirmButtonText: '轮换', cancelButtonText: '取消' });
+  await confirmDanger(`确认轮换 Webhook 密钥 #${row.id}？轮换后新密钥明文只展示一次，请立即保存。`, '轮换 Webhook 密钥', { confirmButtonText: '轮换', cancelButtonText: '取消' });
   const res = await admin.rotateWebhookSecret(row.id);
   secretOnceValue.value = res?.secret || '';
   secretOnceDialogVisible.value = true;
@@ -894,19 +973,19 @@ async function rotateSecret(row) {
 }
 
 async function disableSecret(row) {
-  await confirmDanger(`确认禁用 Secret #${row.id}？禁用后将无法用于签名发送。`, '禁用 Secret', { confirmButtonText: '禁用', cancelButtonText: '取消' });
+  await confirmDanger(`确认禁用 Webhook 密钥 #${row.id}？禁用后将无法用于签名发送。`, '禁用 Webhook 密钥', { confirmButtonText: '禁用', cancelButtonText: '取消' });
   await admin.disableWebhookSecret(row.id);
   await refreshSecrets();
 }
 
 async function enableSecret(row) {
-  await confirmDanger(`确认恢复 Secret #${row.id}？恢复后将成为 active，并可能禁用同 target_url 的其他 active。`, '恢复 Secret', { confirmButtonText: '恢复', cancelButtonText: '取消' });
+  await confirmDanger(`确认恢复 Webhook 密钥 #${row.id}？恢复后将成为启用中，并可能停用同目标 URL 的其他启用密钥。`, '恢复 Webhook 密钥', { confirmButtonText: '恢复', cancelButtonText: '取消' });
   await admin.enableWebhookSecret(row.id);
   await refreshSecrets();
 }
 
 async function revokeSecret(row) {
-  await confirmDanger(`确认吊销 Secret #${row.id}？吊销后将立即失效且不可恢复。`, '吊销 Secret', { confirmButtonText: '吊销', cancelButtonText: '取消' });
+  await confirmDanger(`确认吊销 Webhook 密钥 #${row.id}？吊销后将立即失效且不可恢复。`, '吊销 Webhook 密钥', { confirmButtonText: '吊销', cancelButtonText: '取消' });
   await admin.revokeWebhookSecret(row.id);
   await refreshSecrets();
 }
@@ -918,7 +997,7 @@ async function refreshDeliveries() {
     const params = { ...deliveryFilters.value };
     await router.replace({ query: { ...route.query, tab: tab.value, plugin_code: params.plugin_code, hook_name: params.hook_name, status: params.status, page: params.page } });
     const res = await admin.listWebhookDeliveries(params);
-    deliveries.value = res;
+    deliveries.value = normalizeListResponse(res, deliveryFilters.value.page_size);
   } catch (e) {
     deliveriesError.value = e?.message || '加载失败';
   } finally {
@@ -933,7 +1012,7 @@ async function refreshCircuits() {
     const params = { ...circuitFilters.value };
     await router.replace({ query: { ...route.query, tab: tab.value, cb_plugin_code: params.plugin_code, cb_status: params.status, cb_page: params.page } });
     const res = await admin.listWebhookCircuitBreakers(params);
-    circuits.value = res;
+    circuits.value = normalizeListResponse(res, circuitFilters.value.page_size);
   } catch (e) {
     circuitsError.value = e?.message || '加载失败';
   } finally {
@@ -942,7 +1021,7 @@ async function refreshCircuits() {
 }
 
 async function manualRetry(row) {
-  await confirmDanger(`确认重试 delivery #${row.id}？`, '手动重试', { confirmButtonText: '重试', cancelButtonText: '取消' });
+  await confirmDanger(`确认重试投递记录 #${row.id}？`, '手动重试', { confirmButtonText: '重试', cancelButtonText: '取消' });
   await admin.retryWebhookDelivery(row.id);
   await refreshDeliveries();
 }
@@ -963,7 +1042,7 @@ async function retryDue() {
   retryDueLoading.value = true;
   try {
     await admin.retryDueWebhookDeliveries({ limit: 50 });
-    if (tab.value === 'deliveries') await refreshDeliveries();
+    if (tab.value === 'deliveries' || tab.value === 'retry') await refreshDeliveries();
   } finally {
     retryDueLoading.value = false;
   }
@@ -985,7 +1064,20 @@ onMounted(async () => {
   else if (tab.value === 'secrets') await refreshSecrets();
   else if (tab.value === 'callback_tokens') await refreshCallbackTokens();
   else if (tab.value === 'callback_requests') await refreshCallbackRequests();
+  else if (tab.value === 'retry') await refreshDeliveries();
   else await refreshDeliveries();
+});
+
+watch(tab, async (next) => {
+  if (next === 'events') await refreshEvents();
+  else if (next === 'circuits') await refreshCircuits();
+  else if (next === 'secrets') await refreshSecrets();
+  else if (next === 'callback_tokens') await refreshCallbackTokens();
+  else if (next === 'callback_requests') await refreshCallbackRequests();
+  else if (next === 'retry') {
+    deliveryFilters.value.status = 'all';
+    await refreshDeliveries();
+  } else if (next === 'deliveries') await refreshDeliveries();
 });
 </script>
 

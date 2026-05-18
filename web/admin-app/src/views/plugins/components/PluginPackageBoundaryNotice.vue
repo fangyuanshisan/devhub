@@ -18,7 +18,7 @@ defineProps({
   },
   description: {
     type: String,
-    default: '远程索引只读；zip 上传只是 staging，promote 只进入本地插件仓库，安装仍需 dry-run、审批和后端校验。',
+    default: '远程索引只读；zip 上传只是暂存区文件，转入仓库只进入本地插件仓库，安装仍需预检、审批和后端校验。',
   },
 });
 </script>

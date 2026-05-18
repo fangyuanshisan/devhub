@@ -8,6 +8,10 @@
 
 ### Added
 
+- v1.8.3：优化后台插件治理页面稳定性、IA 和中文体验。修复 Webhook 治理页空数据/缺字段白屏风险与插件详情抽屉运行时异常；左侧插件导航收敛为插件总览、插件包治理、Webhook 治理、可信发布者、运行记录/审计 5 个治理域；插件详情抽屉拆出前端挂载、Webhook、Webhook 密钥、回调 Token 等三级 Tab；Webhook 治理页拆成事件、投递记录、重试队列、熔断状态、Webhook 密钥、回调 Token、回调请求；插件包治理、上传记录、远程插件包、审批中心、操作历史、配置版本历史、可信发布者和官方公告插件预览补充中文状态、按钮、空状态与安全边界说明。本轮不改变插件生命周期、Webhook 协议、Secret / Token 安全模型，不开放远程 iframe、第三方代码执行、插件市场或 blocking Hook。
+- v1.8.3-S1：完成插件后台稳定性修复与 IA 第一批收敛。过滤 null 插件项并保护详情抽屉空插件状态；插件列表首屏减负并快速标识 official_announcement；上传包详情 JSON 默认折叠到“技术详情”；可信发布者列表突出主信息并弱化 publisher_id/key_id 技术字段；后台 quick build 通过。
+- 修复 `/admin-next/plugins/operations` 操作历史页读取 `undefined.items` 的运行时错误，兼容前端 HTTP 拦截器已解包的业务响应和空列表响应。
+- 修复 `scripts/check-frontend.sh` 的 Docker named volume 权限初始化：当 `node_modules`、`test-results`、`playwright-report` 曾由 root 容器创建时，检查脚本会先修正属主，再执行后台/前台构建与 E2E，避免 Vite `.vite-temp` 或 Playwright 报告写入失败。
 - v1.8.1：新增内置官方插件 `official_announcement`，落地前台首页与后台插件详情页“公告预览”Tab 的 Host + iframe（`sandbox=allow-scripts`）最小挂载闭环；新增 Host 浏览器安全 API（context + audit-events）与内置 iframe 路由（不允许远程 URL，不暴露 callback token / webhook secret，不执行第三方不可信代码）。
 - v1.8.1-S2：对子站页 `/c/:slug` 的公告挂载做 SEO 回归与收口：保持 `<title/canonical/JSON-LD/h1>` 与主体内容不变，补齐 context/audit 的 `community_slug` gating 防绕过。
 - v1.8.2：新增官方插件前端挂载共享 helper `GET /plugins/assets/devhub-plugin-mount-host.js`，用于前台首页、`/c/:slug` 与后台插件详情复用统一 Host + iframe + postMessage 挂载机制（仅 allowlist 官方内置插件；仍不允许远程 iframe URL）。

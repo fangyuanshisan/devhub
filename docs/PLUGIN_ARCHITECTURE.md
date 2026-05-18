@@ -29,6 +29,13 @@ v1.8.2 实现补充（共享容器/Helper 抽取）：
 - 新增共享 helper：`GET /plugins/assets/devhub-plugin-mount-host.js`，用于前台首页、`/c/:slug` 与后台插件详情页复用统一挂载逻辑，减少脚本复制。
 - 第一阶段仅 allowlist 官方内置插件（当前仅接入 `official_announcement`），不支持任意远程 iframe URL，不执行第三方不可信代码。
 
+v1.8.3 后台治理稳定性、IA 与中文体验补充：
+
+- 插件后台治理按“一级插件模块 / 5 个治理域 / 详情三级 Tab”继续收口，5 个治理域为：插件总览、插件包治理、Webhook 治理、可信发布者、运行记录 / 审计。
+- Webhook 治理页补齐空数据 / 缺字段安全默认值；插件详情抽屉补齐 `maturityLabel` 依赖并避免空插件对象读取，降低白屏和运行时异常风险。
+- 插件详情抽屉新增前端挂载、Webhook、Webhook 密钥、回调 Token 等清晰分组；插件包治理、Webhook 治理、可信发布者、审批中心、上传记录、操作历史和配置版本历史补齐中文文案与状态展示。
+- 本轮只改后台页面组织和中文体验，不改变插件生命周期、Webhook 协议、Secret / Token 安全模型，不开放远程 iframe、第三方代码执行、插件市场或 blocking Hook。
+
 ## Core 边界
 
 Core 保持稳定、克制、通用，不承载过多垂直业务。当前 Core 层职责：

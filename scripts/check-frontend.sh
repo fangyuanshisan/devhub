@@ -313,6 +313,19 @@ prepare_generated_dirs() {
   esac
 }
 
+prepare_compose_workspace_permissions() {
+  local service="$1"
+  local app_dir="$2"
+
+  if ! service_exists "$service"; then
+    return 0
+  fi
+
+  "${DC[@]}" run --rm --user 0:0 "$service" sh -lc \
+    "mkdir -p '${app_dir}/node_modules' '${app_dir}/test-results' '${app_dir}/playwright-report' && chown -R '${DEVHUB_DOCKER_UID}:${DEVHUB_DOCKER_GID}' '${app_dir}/node_modules' '${app_dir}/test-results' '${app_dir}/playwright-report'" \
+    >/dev/null 2>&1 || true
+}
+
 record_result() {
   local name="$1"
   local status="$2"
@@ -471,6 +484,7 @@ if [[ "${RUN_ADMIN}" -eq 1 ]]; then
   ADMIN_PACKAGE="web/admin-app/package.json"
 
   prepare_generated_dirs admin
+  prepare_compose_workspace_permissions "${ADMIN_SERVICE}" "/workspace/web/admin-app"
 
   if [[ "${REBUILD}" -eq 1 ]]; then
     run_compose_build "${ADMIN_SERVICE}" "${ADMIN_TITLE}" || HAS_FAIL=1
@@ -496,6 +510,7 @@ if [[ "${RUN_FRONTEND}" -eq 1 ]]; then
   FRONTEND_PACKAGE="web/frontend-app/package.json"
 
   prepare_generated_dirs frontend
+  prepare_compose_workspace_permissions "${FRONTEND_SERVICE}" "/workspace/web/frontend-app"
 
   if [[ "${REBUILD}" -eq 1 ]]; then
     run_compose_build "${FRONTEND_SERVICE}" "${FRONTEND_TITLE}" || HAS_FAIL=1

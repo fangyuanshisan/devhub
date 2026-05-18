@@ -4,7 +4,7 @@
       <div>
         <h1>插件配置密钥</h1>
         <p class="desc">
-          仅展示 key_id，不展示密钥明文；支持轮换预检与受控 re-encrypt（默认不处理配置历史版本）。不支持 KMS/Vault/自动定时轮换。
+          仅展示 key_id，不展示密钥明文；支持轮换预检与受控重新加密（默认不处理配置历史版本）。不支持 KMS/Vault/自动定时轮换。
         </p>
       </div>
       <div class="actions">
@@ -40,13 +40,13 @@
     <el-card shadow="never" class="rotation-card">
       <template #header>
         <div class="card-header">
-          <span>轮换预检 / re-encrypt</span>
+          <span>轮换预检 / 重新加密</span>
         </div>
       </template>
 
       <PluginPackageBoundaryNotice
-        title="dry-run 不会修改任何配置；re-encrypt 会把可解密的旧密文转换为 enc:v2 并使用 current key。"
-        description="不执行第三方代码，不执行外部 SQL，不动态加载前端资产；页面不会展示密钥明文、密文或真实 secret，本轮不支持 KMS/Vault/自动定时轮换。"
+        title="预检不会修改任何配置；重新加密会把可解密的旧密文转换为 enc:v2 并使用当前 key。"
+        description="不执行第三方代码，不执行外部 SQL，不动态加载前端资产；页面不会展示密钥明文、密文或真实密钥，本轮不支持 KMS/Vault/自动定时轮换。"
       />
 
       <div class="form-row">
@@ -59,7 +59,7 @@
         <el-input v-model="form.community_id" placeholder="community_id（scope=community）" clearable style="width: 220px" />
         <el-switch v-model="form.include_config_versions" disabled />
         <span class="hint">include_config_versions（默认不支持）</span>
-        <el-button type="primary" :loading="dryRunLoading" data-testid="plugin-config-keys-rotation-dryrun" @click="dryRun">rotation dry-run</el-button>
+        <el-button type="primary" :loading="dryRunLoading" data-testid="plugin-config-keys-rotation-dryrun" @click="dryRun">执行轮换预检</el-button>
       </div>
 
       <div v-if="dryRunResult" class="result">
@@ -218,7 +218,7 @@ const doReencrypt = async () => {
     return;
   }
   if (!dryRunResult.value) {
-    ElMessage.warning('请先执行 dry-run');
+    ElMessage.warning('请先执行预检');
     return;
   }
   const currentKeyID = status.value?.current_key_id || dryRunResult.value.current_key_id || '';

@@ -46,6 +46,18 @@ v1.8.2 实现补充：
 - 抽取官方插件前端挂载共享 helper：`GET /plugins/assets/devhub-plugin-mount-host.js`，用于前台首页、`/c/:slug` 与后台插件详情复用统一挂载逻辑，降低复制风险并保持 SEO 红线不变。
 - 新增 Host 浏览器安全 API：`/api/v1/plugins/official-announcement/context`、`/api/v1/plugins/official-announcement/audit-events` 与内置 iframe 路由：`/plugins/official-announcement/iframe`。
 
+v1.8.3 后台治理稳定性与体验补充：
+
+- v1.8.3-S1 第一批收敛已完成：上游过滤 `null` 插件项，保护插件详情抽屉空插件状态；插件列表首屏减负并突出 `official_announcement`；上传包详情将原始 JSON 折叠到“技术详情”；可信发布者主列表降低信息密度。该批次只调整后台 UI / IA / 中文体验，不改变插件生命周期、Webhook 协议或 Secret / Token 安全模型。
+- 插件后台治理页面按“一级插件模块 / 5 个治理域 / 详情三级 Tab”继续收口，5 个治理域为：插件总览、插件包治理、Webhook 治理、可信发布者、运行记录 / 审计。
+- Webhook 治理页补齐空数据 / 缺字段安全默认值，避免 Events、Deliveries、Retry、Circuit Breakers、Secrets、Callback Tokens、Callback Requests 因 `null` 响应导致白屏。
+- 插件详情抽屉补齐运行时依赖并保护空插件状态，避免打开详情或页面初始化时出现运行时异常。
+- 插件详情抽屉将概览、配置、前端挂载、Webhook、Webhook 密钥、回调 Token、运行记录、审计日志分组展示，避免所有治理能力堆在首页。
+- Webhook 治理页拆分为事件、投递记录、重试队列、熔断状态、Webhook 密钥、回调 Token、回调请求。
+- 插件包治理页继续使用本地仓库、初始化插件包、上传 zip 页内 Tab，并明确远程索引、暂存区、预检、启用前检查、升级任务之间的安全边界。
+- 上传记录、远程插件包、审批中心、操作历史、配置版本历史/回滚预览、可信发布者等页面补齐中文字段、中文状态、中文确认弹窗和“预检”口径，技术字段值仍按原值展示以便排障。
+- 本轮只改后台信息架构与中文体验，不改插件生命周期、Webhook 协议、Secret / Token 安全模型，不开放远程 iframe、第三方代码执行、插件市场或 blocking Hook。
+
 v1.7.3 任务拆解补充（文档阶段）：
 
 - 已新增 Webhook / HTTP 插件服务协议的实现阶段拆解：`docs/PLUGIN_WEBHOOK_IMPLEMENTATION_PLAN.md`（non_blocking delivery 优先，blocking Hook 明确后置）。

@@ -1,11 +1,11 @@
 <template>
   <el-drawer v-model="visible" :title="title" size="920px" data-testid="plugin-detail-drawer" class="plugin-detail-drawer">
-    <template v-if="plugin">
+    <template v-if="safePlugin">
       <div class="drawer-content">
         <div class="hero">
         <div class="hero-left">
           <div class="hero-title">
-            <h3>{{ plugin.name }}</h3>
+            <h3>{{ safePlugin.name }}</h3>
             <el-tag :type="statusType(plugin.status)">{{ pluginStatusLabel(plugin.status) }}</el-tag>
             <el-tag :type="healthType(plugin.health?.status)">{{ pluginHealthLabel(plugin.health?.status) }}</el-tag>
             <el-tag v-if="plugin.is_system" type="primary">{{ t('plugin.system') }}</el-tag>
@@ -19,8 +19,8 @@
           </div>
         </div>
         <div class="hero-right">
-          <div class="code-pill">{{ plugin.code }}</div>
-          <div class="meta-line">{{ t('plugin.version') }}: {{ plugin.version }}</div>
+            <div class="code-pill">{{ safePlugin.code }}</div>
+          <div class="meta-line">{{ t('plugin.version') }}: {{ safePlugin.version }}</div>
         </div>
         </div>
 
@@ -70,6 +70,21 @@
             :closable="false"
             :title="t('plugin.maturityNote')"
           />
+          <el-alert
+            v-if="safePlugin.code === 'official_announcement'"
+            class="mt"
+            type="success"
+            show-icon
+            :closable="false"
+            title="官方内置插件：用于验证前端挂载模型；不执行第三方代码，iframe 只允许内置页面。"
+          />
+          <el-alert
+            class="mt"
+            type="warning"
+            show-icon
+            :closable="false"
+            title="安全边界：插件停用后会停止前端挂载和 Webhook 投递；软卸载会保留历史数据但停止新能力。"
+          />
           <section class="export-panel mt" data-testid="plugin-export-panel">
             <div>
               <h4>导出本地插件包</h4>
@@ -113,6 +128,57 @@
           </el-descriptions>
         </el-tab-pane>
 
+        <el-tab-pane :label="t('plugin.tabs.webhook')" name="webhook">
+          <el-alert
+            type="info"
+            show-icon
+            :closable="false"
+            class="mb"
+            title="Webhook 明细已拆到“插件 / Webhook 治理”，这里保留本插件的治理入口，避免详情首页堆满投递、重试和熔断表格。"
+          />
+          <el-descriptions :column="2" border class="mb">
+            <el-descriptions-item label="订阅事件">{{ (plugin.hooks || []).map((h) => h.name).join('、') || '-' }}</el-descriptions-item>
+            <el-descriptions-item label="最近 Hook 失败">{{ plugin.health?.hook_failure_count ?? 0 }}</el-descriptions-item>
+            <el-descriptions-item label="重试队列">在 Webhook 治理 / 重试队列查看</el-descriptions-item>
+            <el-descriptions-item label="熔断状态">在 Webhook 治理 / 熔断状态查看</el-descriptions-item>
+          </el-descriptions>
+          <div class="sub-toolbar">
+            <el-button type="primary" plain @click="openWebhookGovernance('deliveries')">查看投递记录</el-button>
+            <el-button plain @click="openWebhookGovernance('retry')">查看重试队列</el-button>
+            <el-button plain @click="openWebhookGovernance('circuits')">查看熔断状态</el-button>
+          </div>
+        </el-tab-pane>
+
+        <el-tab-pane :label="t('plugin.tabs.webhookSecrets')" name="webhookSecrets">
+          <el-alert
+            type="warning"
+            show-icon
+            :closable="false"
+            class="mb"
+            title="Webhook Secret 明文只在创建或轮换时展示一次；详情抽屉和列表都不展示明文。"
+          />
+          <el-descriptions :column="2" border class="mb">
+            <el-descriptions-item label="展示字段">secret_ref、状态、最近使用、轮换、禁用、吊销</el-descriptions-item>
+            <el-descriptions-item label="禁止展示">Secret 明文、Webhook Secret 明文、签名私密材料</el-descriptions-item>
+          </el-descriptions>
+          <el-button type="primary" plain @click="openWebhookGovernance('secrets')">打开 Webhook 密钥治理</el-button>
+        </el-tab-pane>
+
+        <el-tab-pane :label="t('plugin.tabs.callbackTokens')" name="callbackTokens">
+          <el-alert
+            type="warning"
+            show-icon
+            :closable="false"
+            class="mb"
+            title="Callback Token 不等于管理员权限，只能访问授权 Scope；明文只在创建或轮换时展示一次。"
+          />
+          <el-descriptions :column="2" border class="mb">
+            <el-descriptions-item label="展示字段">token_ref、权限范围、状态、最近使用、轮换、禁用、吊销</el-descriptions-item>
+            <el-descriptions-item label="禁止展示">Token 明文、管理员 Token、Webhook Secret 明文</el-descriptions-item>
+          </el-descriptions>
+          <el-button type="primary" plain @click="openWebhookGovernance('callback_tokens')">打开回调 Token 治理</el-button>
+        </el-tab-pane>
+
         <el-tab-pane :label="t('plugin.tabs.readiness')" name="readiness">
           <div class="sub-toolbar">
             <el-tag :type="readinessTagType(readinessResult?.status)" effect="plain">
@@ -142,10 +208,10 @@
           >
             <template #default>
               <div class="banner-lines">
-                <div><strong>status：</strong>{{ enablePrecheckResult.status }}</div>
-                <div><strong>can_enable：</strong>{{ enablePrecheckResult.can_enable }}</div>
-                <div v-if="(enablePrecheckResult.errors || []).length"><strong>errors：</strong>{{ (enablePrecheckResult.errors || []).join('；') }}</div>
-                <div v-if="(enablePrecheckResult.warnings || []).length"><strong>warnings：</strong>{{ (enablePrecheckResult.warnings || []).join('；') }}</div>
+                <div><strong>状态：</strong>{{ genericStatusLabel(enablePrecheckResult.status) }}</div>
+                <div><strong>允许启用：</strong>{{ enablePrecheckResult.can_enable ? '是' : '否' }}</div>
+                <div v-if="(enablePrecheckResult.errors || []).length"><strong>错误：</strong>{{ (enablePrecheckResult.errors || []).join('；') }}</div>
+                <div v-if="(enablePrecheckResult.warnings || []).length"><strong>警告：</strong>{{ (enablePrecheckResult.warnings || []).join('；') }}</div>
               <div v-if="enablePrecheckResult.id && enablePrecheckResult.can_enable">
                   <el-button type="primary" size="small" :loading="enableTaskLoading" data-testid="plugin-enable-from-precheck" @click="enableFromPrecheck">
                     {{ t('plugin.ops.enableFromPrecheck') }}
@@ -197,18 +263,18 @@
             >
               <template #default>
                 <div class="banner-lines">
-                  <div><strong>can_upgrade：</strong>{{ upgradeImpact.can_upgrade }}</div>
-                  <div><strong>old_version：</strong>{{ upgradeImpact.old_version }}</div>
-                  <div><strong>new_version：</strong>{{ upgradeImpact.new_version }}</div>
-                  <div v-if="(upgradeImpact.errors || []).length"><strong>errors：</strong>{{ (upgradeImpact.errors || []).join('；') }}</div>
-                  <div v-if="(upgradeImpact.warnings || []).length"><strong>warnings：</strong>{{ (upgradeImpact.warnings || []).join('；') }}</div>
+                  <div><strong>允许升级：</strong>{{ upgradeImpact.can_upgrade ? '是' : '否' }}</div>
+                  <div><strong>当前版本：</strong>{{ upgradeImpact.old_version }}</div>
+                  <div><strong>目标版本：</strong>{{ upgradeImpact.new_version }}</div>
+                  <div v-if="(upgradeImpact.errors || []).length"><strong>错误：</strong>{{ (upgradeImpact.errors || []).join('；') }}</div>
+                  <div v-if="(upgradeImpact.warnings || []).length"><strong>警告：</strong>{{ (upgradeImpact.warnings || []).join('；') }}</div>
                   <div v-if="upgradeImpact.manifest_diff_summary">
-                    <strong>diff_summary：</strong>
-                    added={{ upgradeImpact.manifest_diff_summary.added ?? 0 }},
-                    removed={{ upgradeImpact.manifest_diff_summary.removed ?? 0 }},
-                    changed={{ upgradeImpact.manifest_diff_summary.changed ?? 0 }},
-                    high_risk={{ upgradeImpact.manifest_diff_summary.high_risk ?? 0 }},
-                    blocked={{ upgradeImpact.manifest_diff_summary.blocked ?? 0 }}
+                    <strong>变更摘要：</strong>
+                    新增={{ upgradeImpact.manifest_diff_summary.added ?? 0 }},
+                    删除={{ upgradeImpact.manifest_diff_summary.removed ?? 0 }},
+                    修改={{ upgradeImpact.manifest_diff_summary.changed ?? 0 }},
+                    高风险={{ upgradeImpact.manifest_diff_summary.high_risk ?? 0 }},
+                    已阻断={{ upgradeImpact.manifest_diff_summary.blocked ?? 0 }}
                   </div>
                 </div>
               </template>
@@ -224,12 +290,12 @@
             >
               <template #default>
                 <div class="banner-lines">
-                  <div><strong>status：</strong>{{ upgradeResult.status }}</div>
-                  <div><strong>old_version：</strong>{{ upgradeResult.old_version }}</div>
-                  <div><strong>new_version：</strong>{{ upgradeResult.new_version }}</div>
-                  <div><strong>new_plugin_status：</strong>{{ upgradeResult.new_plugin_status || '-' }}</div>
-                  <div v-if="(upgradeResult.errors || []).length"><strong>errors：</strong>{{ (upgradeResult.errors || []).join('；') }}</div>
-                  <div v-if="(upgradeResult.warnings || []).length"><strong>warnings：</strong>{{ (upgradeResult.warnings || []).join('；') }}</div>
+                  <div><strong>状态：</strong>{{ genericStatusLabel(upgradeResult.status) }}</div>
+                  <div><strong>当前版本：</strong>{{ upgradeResult.old_version }}</div>
+                  <div><strong>目标版本：</strong>{{ upgradeResult.new_version }}</div>
+                  <div><strong>插件新状态：</strong>{{ genericStatusLabel(upgradeResult.new_plugin_status) }}</div>
+                  <div v-if="(upgradeResult.errors || []).length"><strong>错误：</strong>{{ (upgradeResult.errors || []).join('；') }}</div>
+                  <div v-if="(upgradeResult.warnings || []).length"><strong>警告：</strong>{{ (upgradeResult.warnings || []).join('；') }}</div>
                 </div>
               </template>
             </el-alert>
@@ -283,11 +349,11 @@
             >
               <template #default>
                 <div class="banner-lines">
-                  <div><strong>status：</strong>{{ softUninstallResult.status }}</div>
-                  <div><strong>previous_status：</strong>{{ softUninstallResult.previous_status || '-' }}</div>
-                  <div><strong>new_status：</strong>{{ softUninstallResult.new_status || '-' }}</div>
-                  <div v-if="(softUninstallResult.errors || []).length"><strong>errors：</strong>{{ (softUninstallResult.errors || []).join('；') }}</div>
-                  <div v-if="(softUninstallResult.warnings || []).length"><strong>warnings：</strong>{{ (softUninstallResult.warnings || []).join('；') }}</div>
+                  <div><strong>状态：</strong>{{ genericStatusLabel(softUninstallResult.status) }}</div>
+                  <div><strong>原状态：</strong>{{ genericStatusLabel(softUninstallResult.previous_status) }}</div>
+                  <div><strong>新状态：</strong>{{ genericStatusLabel(softUninstallResult.new_status) }}</div>
+                  <div v-if="(softUninstallResult.errors || []).length"><strong>错误：</strong>{{ (softUninstallResult.errors || []).join('；') }}</div>
+                  <div v-if="(softUninstallResult.warnings || []).length"><strong>警告：</strong>{{ (softUninstallResult.warnings || []).join('；') }}</div>
                 </div>
               </template>
             </el-alert>
@@ -433,14 +499,20 @@
           </el-dialog>
         </el-tab-pane>
 
-        <el-tab-pane :label="t('plugin.tabs.menus')" name="menus">
+        <el-tab-pane :label="t('plugin.tabs.frontendMount')" name="menus">
           <el-alert
             type="info"
             show-icon
             :closable="false"
-            :title="t('plugin.menuVisibilityNote')"
+            title="前端挂载受插件全局状态、子站状态和当前用户权限共同约束；当前只支持官方内置 iframe 页面，不允许远程 iframe URL。"
             class="mb"
           />
+          <el-descriptions :column="2" border class="mb">
+            <el-descriptions-item label="iframe 路由">{{ plugin.code === 'official_announcement' ? '/plugins/official-announcement/iframe' : '未声明内置 iframe' }}</el-descriptions-item>
+            <el-descriptions-item label="sandbox 策略">allow-scripts</el-descriptions-item>
+            <el-descriptions-item label="postMessage 状态">使用 Host helper 校验 plugin_code / mount_id / origin / source</el-descriptions-item>
+            <el-descriptions-item label="允许远程 URL">否</el-descriptions-item>
+          </el-descriptions>
           <el-table :data="plugin.menus || []" border stripe :empty-text="`暂无${t('plugin.tabs.menus')}`">
             <el-table-column prop="area" :label="t('field.area')" width="120" />
             <el-table-column prop="title" :label="t('field.title')" width="160" />
@@ -494,7 +566,7 @@
 
         <el-tab-pane :label="plugin.code === 'official_announcement' ? '公告配置' : t('plugin.tabs.config')" name="config">
           <el-alert
-            :title="t('plugin.configCapabilityNote')"
+            :title="plugin.code === 'official_announcement' ? '公告开关、公告内容、链接文字、链接地址和是否允许关闭通过配置管理；保存后后台预览会刷新。' : t('plugin.configCapabilityNote')"
             type="info"
             show-icon
             :closable="false"
@@ -547,7 +619,7 @@
             show-icon
             :closable="false"
             class="mb"
-            title="官方公告插件（v1.8.1）：Host + iframe 最小挂载预览（不执行第三方代码）"
+            title="官方公告插件预览复用共享 Host helper；不允许远程 iframe URL，不暴露 callback token / webhook secret。"
           />
           <div v-if="!canViewOfficialAnnouncement" class="empty-state">权限不足</div>
           <div v-else class="official-announcement-preview">
@@ -910,9 +982,10 @@
     </template>
   </el-drawer>
 
-  <PluginConfigVersionsDialog
+        <PluginConfigVersionsDialog
+    v-if="safePlugin?.code"
     v-model="configVersionsVisible"
-    :plugin-code="plugin.code"
+    :plugin-code="safePlugin.code"
     scope="global"
     :community-id="0"
   />
@@ -927,14 +1000,14 @@
         title="仅导出声明型插件包；不导出敏感配置、用户数据、运行时代码、外部 SQL，也不生成 zip 或远程发布。"
       />
       <div class="sub-toolbar">
-        <el-checkbox v-model="exportForm.include_docs">include_docs</el-checkbox>
-        <el-checkbox v-model="exportForm.include_migrations">include_migrations</el-checkbox>
-        <el-checkbox v-model="exportForm.include_publisher">include_publisher</el-checkbox>
-        <el-checkbox v-model="exportForm.include_signature_stub">include_signature_stub</el-checkbox>
+        <el-checkbox v-model="exportForm.include_docs">包含文档</el-checkbox>
+        <el-checkbox v-model="exportForm.include_migrations">包含迁移声明</el-checkbox>
+        <el-checkbox v-model="exportForm.include_publisher">包含发布者声明</el-checkbox>
+        <el-checkbox v-model="exportForm.include_signature_stub">包含签名占位文件</el-checkbox>
       </div>
-      <el-input v-model="exportForm.output_dir" class="mb" placeholder="可选 output_dir，例如 storage/plugins/exports/demo-1.0.0" data-testid="plugin-export-output-dir" />
+      <el-input v-model="exportForm.output_dir" class="mb" placeholder="可选输出目录，例如 storage/plugins/exports/demo-1.0.0" data-testid="plugin-export-output-dir" />
       <div class="sub-toolbar">
-        <el-button :loading="exportLoading" data-testid="plugin-export-dry-run" @click="dryRunExport">Dry-run</el-button>
+        <el-button :loading="exportLoading" data-testid="plugin-export-dry-run" @click="dryRunExport">导出预检</el-button>
         <el-button
           type="success"
           :loading="exportLoading"
@@ -949,7 +1022,7 @@
       <section v-if="exportPreview" class="export-result" data-testid="plugin-export-preview">
         <div class="sub-toolbar">
           <el-tag :type="exportPreview.status === 'blocked' ? 'danger' : exportPreview.status === 'warning' ? 'warning' : 'success'" effect="plain">
-            {{ exportPreview.status }}
+            {{ genericStatusLabel(exportPreview.status) }}
           </el-tag>
           <span class="mono">{{ exportPreview.export_preview?.output_dir || '-' }}</span>
         </div>
@@ -957,7 +1030,7 @@
         <el-table :data="exportPreviewFiles" border stripe size="small" data-testid="plugin-export-files">
           <el-table-column prop="path" label="将导出文件" min-width="260" />
         </el-table>
-        <el-alert v-if="(exportPreview.warnings || []).length" type="warning" show-icon :closable="false" class="mt" title="warnings">
+        <el-alert v-if="(exportPreview.warnings || []).length" type="warning" show-icon :closable="false" class="mt" title="警告">
           <ul class="result-list">
             <li v-for="(item, idx) in exportPreview.warnings" :key="`export-preview-warning-${idx}`">{{ item }}</li>
           </ul>
@@ -966,13 +1039,13 @@
       <section v-if="exportResult" class="export-result" data-testid="plugin-export-result">
         <el-alert type="success" show-icon :closable="false" class="mb" :title="exportResult.message || '导出成功'" />
         <el-descriptions :column="2" border>
-          <el-descriptions-item label="output_dir">
+          <el-descriptions-item label="输出目录">
             <span class="mono">{{ exportResult.output_dir }}</span>
             <el-button link type="primary" data-testid="plugin-export-copy-path" @click="copyText(exportResult.output_dir)">复制</el-button>
           </el-descriptions-item>
-          <el-descriptions-item label="checksums">{{ exportResult.checksum_status || '-' }}</el-descriptions-item>
-          <el-descriptions-item label="package_dry_run">{{ exportResult.package_dry_run_status || '-' }}</el-descriptions-item>
-          <el-descriptions-item label="提示">可将该目录复制到本地插件仓库并执行 dry-run 验证。</el-descriptions-item>
+          <el-descriptions-item label="校验状态">{{ genericStatusLabel(exportResult.checksum_status) }}</el-descriptions-item>
+          <el-descriptions-item label="插件包预检">{{ genericStatusLabel(exportResult.package_dry_run_status) }}</el-descriptions-item>
+          <el-descriptions-item label="提示">可将该目录复制到本地插件仓库并执行预检验证。</el-descriptions-item>
         </el-descriptions>
       </section>
     </template>
@@ -987,7 +1060,7 @@ import PluginConfigVersionsDialog from './PluginConfigVersionsDialog.vue';
 import PluginIframeMount from './PluginIframeMount.vue';
 import { dryRunPluginExport, enablePluginFromEnablePrecheck, exportPluginPackage, getPluginUninstallImpact, getPluginUpgradeTask, listPluginPackageCompatChecks, listPluginUpgradeTasks, pluginAuditLogs, pluginHookExecutions, pluginHooks, pluginMenusPreview, pluginMigrations, pluginReadiness, pluginUpgradeImpact, retryPluginUpgradeTask, runPluginEnablePrecheck, runPluginMigrations, softUninstallPlugin, upgradePluginFromPackage, updatePluginConfig } from '@/api/admin';
 import { t } from '@/i18n';
-import { auditActionLabel, migrationStatusLabel, pluginHealthLabel, pluginStatusLabel } from '@/i18n/formatters';
+import { auditActionLabel, genericStatusLabel, maturityLabel, migrationStatusLabel, pluginHealthLabel, pluginStatusLabel } from '@/i18n/formatters';
 import { useRouter } from 'vue-router';
 import { useAuthStore } from '@/stores/auth';
 
@@ -1102,7 +1175,8 @@ const exportForm = reactive({
   force: false,
 });
 
-const title = computed(() => `${props.plugin?.name || ''} ${t('plugin.detailTitle')}`);
+const safePlugin = computed(() => (props.plugin && (props.plugin.code || props.plugin.plugin_code)) ? props.plugin : null);
+const title = computed(() => safePlugin.value ? `${safePlugin.value.name || safePlugin.value.code || ''} ${t('plugin.detailTitle')}` : t('plugin.detailTitle'));
 const exportPreviewFiles = computed(() => (exportPreview.value?.export_preview?.files || []).map((path) => ({ path })));
 const canViewOfficialAnnouncement = computed(() => (auth?.can ? auth.can('plugin.read') : true));
 const canEditPluginConfig = computed(() => (auth?.can ? auth.can('plugin.write') : true));
@@ -1313,7 +1387,7 @@ function upgradeCompatLabel(it) {
   const version = String(it.version || it.Version || '').trim();
   const status = String(it.status || '').trim();
   const canInstall = Boolean(it.can_install ?? it.canInstall);
-  return `${version || '-'} / ${status || '-'} / can_install=${canInstall ? 'true' : 'false'} #${it.id}`;
+  return `${version || '-'} / ${genericStatusLabel(status) || '-'} / 允许安装=${canInstall ? '是' : '否'} #${it.id}`;
 }
 
 async function loadUpgradeCompatChecks() {
@@ -1376,9 +1450,9 @@ async function runPackageUpgrade() {
     await loadUpgradeImpact();
     const canUpgrade = Boolean(upgradeImpact.value?.can_upgrade);
     const lines = [];
-    lines.push(`plugin_code=${p.code}`);
-    if (upgradeImpact.value?.old_version) lines.push(`old_version=${upgradeImpact.value.old_version}`);
-    if (upgradeImpact.value?.new_version) lines.push(`new_version=${upgradeImpact.value.new_version}`);
+    lines.push(`插件编码：${p.code}`);
+    if (upgradeImpact.value?.old_version) lines.push(`当前版本：${upgradeImpact.value.old_version}`);
+    if (upgradeImpact.value?.new_version) lines.push(`目标版本：${upgradeImpact.value.new_version}`);
     lines.push(t('plugin.ops.packageUpgradeConfirmTip'));
     if (!canUpgrade) lines.push(t('plugin.ops.packageUpgradeBlockedTip'));
     await ElMessageBox.confirm(lines.join('\n'), t('plugin.ops.packageUpgradeConfirmTitle'), {
@@ -1422,11 +1496,11 @@ async function openUpgradeTask(id) {
     const res = await getPluginUpgradeTask(taskID);
     const lines = [];
     lines.push(`id=${res?.id}`);
-    lines.push(`status=${res?.status}`);
-    lines.push(`old_version=${res?.old_version}`);
-    lines.push(`new_version=${res?.new_version}`);
-    if ((res?.errors || []).length) lines.push(`errors=${(res.errors || []).join('；')}`);
-    if ((res?.warnings || []).length) lines.push(`warnings=${(res.warnings || []).join('；')}`);
+    lines.push(`状态：${genericStatusLabel(res?.status)}`);
+    lines.push(`当前版本：${res?.old_version}`);
+    lines.push(`目标版本：${res?.new_version}`);
+    if ((res?.errors || []).length) lines.push(`错误：${(res.errors || []).join('；')}`);
+    if ((res?.warnings || []).length) lines.push(`警告：${(res.warnings || []).join('；')}`);
     await ElMessageBox.alert(lines.join('\n'), t('plugin.ops.packageUpgradeTaskDetailTitle'), { type: 'info', confirmButtonText: t('common.close') });
   } catch (e) {
     ElMessage.error(String(e?.message || e || t('common.failed')));
@@ -1527,6 +1601,19 @@ function openPermissionRefs(row) {
   permissionRefsDialog.value = true;
 }
 
+function openWebhookGovernance(targetTab) {
+  router.push({
+    path: '/admin-next/plugins/webhooks',
+    query: {
+      tab: targetTab || 'deliveries',
+      plugin_code: props.plugin?.code || '',
+      sec_plugin_code: props.plugin?.code || '',
+      cbtk_plugin_code: props.plugin?.code || '',
+      cbr_plugin_code: props.plugin?.code || '',
+    },
+  });
+}
+
 const filteredPermissions = computed(() => {
   const q = (permQ.value || '').trim().toLowerCase();
   const list = (props.plugin?.permissions || []).map((p) => {
@@ -1620,8 +1707,8 @@ const dependencyRows = computed(() => {
     }));
   }
   const declared = Array.isArray(props.plugin?.dependencies) ? props.plugin.dependencies : [];
-  const byCode = new Map((props.plugins || []).map((item) => [item.code, item]));
-  return declared.map((dep) => {
+    const byCode = new Map((props.plugins || []).filter((item) => item && (item.code || item.plugin_code)).map((item) => [item.code || item.plugin_code, item]));
+  return declared.filter((dep) => dep && dep.code).map((dep) => {
     const plugin = byCode.get(dep.code) || {};
     const status = dependencyStatus(dep, plugin);
     return {
@@ -1993,7 +2080,7 @@ async function dryRunExport() {
     exportPreview.value = await dryRunPluginExport(p.code, exportPayload());
   } catch (e) {
     exportPreview.value = null;
-    exportError.value = formatAPIError(e, '导出 dry-run 失败');
+    exportError.value = formatAPIError(e, '导出预检失败');
   } finally {
     exportLoading.value = false;
   }

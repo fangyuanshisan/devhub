@@ -30,6 +30,8 @@ DevHub 提供默认社区能力，但长期目标不是单一社区程序，而�
 - [SEO.md](docs/SEO.md)
 - [PLUGIN_ARCHITECTURE.md](docs/PLUGIN_ARCHITECTURE.md)
 - [PLUGIN_RUNTIME_MODEL.md](docs/PLUGIN_RUNTIME_MODEL.md)
+- [docs/releases/v1.8.3.md](docs/releases/v1.8.3.md)
+- [docs/releases/v1.8.2.md](docs/releases/v1.8.2.md)
 - [docs/releases/v1.7.2.md](docs/releases/v1.7.2.md)
 - [docs/releases/v1.7.1.md](docs/releases/v1.7.1.md)
 - [docs/releases/v1.7.0.md](docs/releases/v1.7.0.md)
@@ -44,6 +46,7 @@ DevHub 提供默认社区能力，但长期目标不是单一社区程序，而�
 - Core 通用能力：用户账号、前台 / 后台认证、角色权限、子站、板块、通用内容、分类、标签、评论、搜索、通知、关注、收藏、举报、后台管理基础框架、API、审计、SEO、安全边界和插件生命周期 / 插件包治理。
 - 内置系统插件：`qa` 提供 `question`，`docs` 提供 `document`，`wiki` 提供 `wiki_page`；`projects`、`jobs`、`ai_works` 已接管 `project`、`job`、`ai_work` 的插件归属。
 - 插件扩展能力：当前支持 manifest 声明、内容类型、权限、菜单、Hook、配置 schema、插件包治理、远程索引只读镜像、staging 下载、安全预检、compat-check、安装 / 启用 / 软卸载 / 升级治理和签名验签；第三方插件运行模型仍在设计中。
+- 插件后台治理体验：当前插件列表、详情抽屉、Webhook 治理、插件包治理、上传记录、远程插件包、审批中心、操作历史、配置版本历史、可信发布者和官方公告插件预览已按功能域与页内 Tab 做中文化整理；不改变底层生命周期、Webhook 协议或 Secret / Token 安全模型。
 - 插件状态：支持全局插件状态 `plugins.status` 和子站插件状态 `community_plugins.status`；禁用插件只影响新发布、导航、菜单和管理入口，不影响历史内容详情 SEO。
 - 兼容内容类型：`article`、`news` 等仍作为 Core 兼容内容类型存在；`project`、`job`、`ai_work` 已完成插件归属迁移，但专属扩展表和完整业务闭环仍留到后续版本。
 - 内容与互动：Topic 列表、详情、发布、编辑、删除、浏览数、点赞、收藏、关注、评论、问答采纳、用户中心和通知中心。

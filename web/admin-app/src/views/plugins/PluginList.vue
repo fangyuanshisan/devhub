@@ -16,12 +16,12 @@
     <el-tabs :model-value="statusTab" class="page-tabs" data-testid="plugin-status-tabs" @tab-change="applyStatusTab">
       <el-tab-pane name="all" label="全部插件" />
       <el-tab-pane name="enabled" label="已启用" />
-      <el-tab-pane name="disabled" label="已禁用" />
+      <el-tab-pane name="disabled" label="已停用" />
       <el-tab-pane name="archived" label="回收站" />
       <el-tab-pane name="abnormal" label="异常插件" />
     </el-tabs>
 
-    <div class="stats-grid" data-testid="plugin-stats">
+    <div class="stats-grid compact" data-testid="plugin-stats">
       <button class="stat-card stat-button" type="button" @click="applyStatusTab('all')">
         <div class="stat-k">{{ t('plugin.stats.total') }}</div>
         <div class="stat-v">{{ stats.total }}</div>
@@ -102,52 +102,42 @@
 
     <el-table v-loading="loading" :data="filteredItems" border stripe data-testid="plugin-table" @selection-change="onSelectionChange">
       <el-table-column type="selection" width="48" />
-      <el-table-column :label="t('plugin.pluginColumn')" min-width="220">
+      <el-table-column :label="t('plugin.pluginColumn')" min-width="250">
         <template #default="{ row }">
           <div class="plugin-title">
-            <strong>{{ row.name }}</strong>
+            <strong>{{ displayPluginName(row) }}</strong>
             <span class="mono">{{ row.code }}</span>
           </div>
           <div class="tag-wrap">
             <el-tag v-if="row.is_system" type="info" effect="plain">{{ t('plugin.filters.onlySystem') }}</el-tag>
+            <el-tag v-if="row.code === 'official_announcement'" type="success" effect="plain">官方公告插件</el-tag>
+            <el-tag type="info" effect="plain">{{ pluginTypeLabel(row) }}</el-tag>
             <el-tag :type="statusTagType(row.status)" effect="plain">{{ pluginStatusLabel(row.status) }}</el-tag>
+            <el-tag :type="healthType(row.health?.status)" effect="plain">{{ pluginHealthLabel(row.health?.status) }}</el-tag>
           </div>
         </template>
       </el-table-column>
       <el-table-column prop="version" :label="t('plugin.version')" width="110" />
-      <el-table-column :label="t('plugin.health')" min-width="200">
-        <template #default="{ row }">
-          <el-tag :type="healthType(row.health?.status)" effect="plain">{{ pluginHealthLabel(row.health?.status) }}</el-tag>
-          <div class="muted">{{ row.health?.recent_error || row.health?.status_reason || row.status_reason || '-' }}</div>
-        </template>
-      </el-table-column>
-      <el-table-column :label="t('plugin.contentTypes')" min-width="220">
-        <template #default="{ row }">
-          <div class="tag-wrap">
-            <el-tag v-for="ct in (row.content_types || [])" :key="ct" type="info" effect="plain">{{ ct }}</el-tag>
-            <span v-if="!(row.content_types || []).length" class="muted">-</span>
-          </div>
-        </template>
-      </el-table-column>
-      <el-table-column :label="t('plugin.capabilitySummary')" min-width="230">
+      <el-table-column :label="t('plugin.capabilitySummary')" min-width="260">
         <template #default="{ row }">
           <div class="metric-line">
-            <el-tag type="info" effect="plain">{{ t('plugin.capability.permissions') }} {{ (row.permissions || []).length }}</el-tag>
-            <el-tag type="info" effect="plain">{{ t('plugin.capability.menus') }} {{ (row.menus || []).length }}</el-tag>
+            <el-tag :type="(row.menus || []).length ? 'success' : 'info'" effect="plain">{{ t('plugin.tabs.frontendMount') }} {{ (row.menus || []).length }}</el-tag>
             <el-tag :type="hasConfigSchema(row) ? 'success' : 'info'" effect="plain">{{ t('plugin.capability.schema') }} {{ hasConfigSchema(row) ? t('common.yes') : t('common.no') }}</el-tag>
-            <el-tag :type="(row.hooks || []).length ? 'success' : 'info'" effect="plain">{{ t('plugin.capability.hooks') }} {{ (row.hooks || []).length }}</el-tag>
+            <el-tag :type="(row.hooks || []).length ? 'success' : 'info'" effect="plain">Webhook {{ (row.hooks || []).length }}</el-tag>
+            <el-tag v-if="row.code === 'official_announcement'" type="success" effect="plain">iframe 预览</el-tag>
           </div>
         </template>
       </el-table-column>
-      <el-table-column :label="t('plugin.recentError')" min-width="190">
+      <el-table-column :label="t('plugin.recentOperation')" min-width="180">
         <template #default="{ row }">
-          <span class="muted">{{ row.health?.recent_error || '-' }}</span>
+          <div>{{ recentOperationText(row) }}</div>
+          <div v-if="row.health?.recent_error" class="muted">{{ row.health.recent_error }}</div>
         </template>
       </el-table-column>
-      <el-table-column :label="t('plugin.action')" fixed="right" width="190">
+      <el-table-column :label="t('plugin.action')" fixed="right" width="220">
         <template #default="{ row }">
           <div class="row-actions">
-            <el-button link type="primary" :data-testid="`plugin-detail-${row.code}`" @click="openPlugin(row)">{{ t('common.detail') }}</el-button>
+            <el-button link type="primary" :data-testid="`plugin-detail-${row.code}`" @click="openPlugin(row)">{{ t('plugin.viewDetail') }}</el-button>
             <el-button link type="primary" @click="openPlugin(row, 'config')">{{ t('plugin.config.title') }}</el-button>
             <el-dropdown trigger="click" @command="(command) => handlePluginCommand(row, command)">
               <el-button link type="info">{{ t('plugin.ops.more') }}</el-button>
@@ -159,10 +149,11 @@
                   <el-dropdown-item command="hooks">{{ t('plugin.tabs.hooks') }}</el-dropdown-item>
                   <el-dropdown-item command="migrations">{{ t('plugin.tabs.migrations') }}</el-dropdown-item>
                   <el-dropdown-item command="runtime">{{ t('plugin.tabs.runtime') }}</el-dropdown-item>
-                  <el-dropdown-item command="audit">{{ t('plugin.tabs.audit') }}</el-dropdown-item>
-                  <el-dropdown-item v-if="row.status !== 'enabled' && row.status !== 'archived'" command="enable" :data-testid="`plugin-enable-${row.code}`">{{ t('common.enable') }}</el-dropdown-item>
-                  <el-dropdown-item v-if="row.status === 'enabled'" command="disable" :data-testid="`plugin-disable-${row.code}`">{{ t('common.disable') }}</el-dropdown-item>
-                  <el-dropdown-item v-if="row.status !== 'archived'" command="archive" :data-testid="`plugin-archive-${row.code}`" divided>{{ t('common.archive') }}</el-dropdown-item>
+                  <el-dropdown-item command="audit">{{ t('plugin.viewAudit') }}</el-dropdown-item>
+                  <el-dropdown-item v-if="row.status !== 'enabled' && row.status !== 'archived'" command="enable" :data-testid="`plugin-enable-${row.code}`">启用</el-dropdown-item>
+                  <el-dropdown-item v-if="row.status === 'enabled'" command="disable" :data-testid="`plugin-disable-${row.code}`">停用</el-dropdown-item>
+                  <el-dropdown-item command="readiness">升级 / 启用检查</el-dropdown-item>
+                  <el-dropdown-item v-if="row.status !== 'archived'" command="archive" :data-testid="`plugin-archive-${row.code}`" divided>软卸载</el-dropdown-item>
                   <el-dropdown-item v-if="row.status === 'archived'" command="restore" :data-testid="`plugin-restore-${row.code}`" divided>{{ t('common.restore') }}</el-dropdown-item>
                 </el-dropdown-menu>
               </template>
@@ -258,7 +249,7 @@ const filters = reactive({
 });
 
 const selectedRows = ref([]);
-const healthPanels = ref(['health']);
+const healthPanels = ref([]);
 const drawerVisible = ref(false);
 const drawerPlugin = ref(null);
 const drawerTab = ref('overview');
@@ -381,6 +372,33 @@ function hasConfigSchema(row) {
   return row && row.config_schema && Object.keys(row.config_schema || {}).length > 0;
 }
 
+function pluginTypeLabel(row) {
+  if (row?.code === 'official_announcement') return t('plugin.type.officialBuiltin');
+  if (row?.is_system) return t('plugin.type.system');
+  const source = String(row?.source_type || row?.install_source || '').toLowerCase();
+  if (source.includes('remote')) return t('plugin.type.remote');
+  if (source.includes('local_package') || source.includes('package')) return t('plugin.type.localPackage');
+  if (source.includes('manifest')) return t('plugin.type.manifest');
+  return t('plugin.type.unknown');
+}
+
+function displayPluginName(row) {
+  if (row?.code === 'official_announcement') return '官方公告插件';
+  return row?.name || row?.code || '未命名插件';
+}
+
+function recentOperationText(row) {
+  return row?.last_operated_at || row?.updated_at || row?.enabled_at || row?.installed_at || row?.created_at || '-';
+}
+
+function firstNumber(...values) {
+  for (const value of values) {
+    const n = Number(value);
+    if (Number.isFinite(n)) return n;
+  }
+  return null;
+}
+
 function statusTagType(status) {
   if (status === 'enabled') return 'success';
   if (status === 'disabled') return 'warning';
@@ -413,6 +431,10 @@ function onSelectionChange(rows) {
 }
 
 function openPlugin(row, tab = 'overview') {
+  if (!row || !(row.code || row.plugin_code)) {
+    ElMessage.warning('当前插件数据不完整，无法打开详情');
+    return;
+  }
   drawerPlugin.value = row;
   drawerTab.value = tab;
   drawerVisible.value = true;
@@ -495,7 +517,7 @@ function openBulkDialog(mode) {
   bulkMode.value = mode;
   bulkStep.value = 'preview';
   bulkDialogVisible.value = true;
-  bulkCodes.value = (selectedRows.value || []).map((r) => r.code);
+  bulkCodes.value = (selectedRows.value || []).filter((r) => r?.code).map((r) => r.code);
   bulkPreviewRows.value = [];
   bulkResult.value = { succeeded: [], failed: [] };
   resultAuditQuery.value = null;

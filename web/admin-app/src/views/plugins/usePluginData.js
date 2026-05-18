@@ -1,6 +1,11 @@
 import { ref } from 'vue';
 import { pluginHealthSummary, plugins as fetchPlugins } from '@/api/admin';
 
+function normalizePluginList(value) {
+  const source = Array.isArray(value?.items) ? value.items : Array.isArray(value) ? value : [];
+  return source.filter((item) => item && (item.code || item.plugin_code));
+}
+
 export function usePluginData() {
   const items = ref([]);
   const healthSummary = ref({});
@@ -15,7 +20,7 @@ export function usePluginData() {
         fetchPlugins(),
         pluginHealthSummary().catch(() => null),
       ]);
-      items.value = list?.items || [];
+      items.value = normalizePluginList(list);
       healthSummary.value = health?.summary || {};
     } catch (e) {
       items.value = [];
@@ -34,4 +39,3 @@ export function usePluginData() {
     load,
   };
 }
-

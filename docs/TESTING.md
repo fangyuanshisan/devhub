@@ -22,6 +22,80 @@ Codex / Agent 默认不要在完成任务时自动跑测试、E2E 或完整验�
 ./scripts/test-all.sh --frontend-only --quiet
 ```
 
+## v1.8.3：后台插件治理页面稳定性、信息架构与中文体验验收项
+
+说明：v1.8.3 只优化后台页面稳定性、结构与中文体验，不修改插件生命周期、Webhook 协议、Secret / Token 安全模型、Host + iframe + postMessage 协议。本轮按用户要求，后台改动完成后执行后台 quick 检查。
+
+建议命令：
+
+```bash
+./scripts/check-frontend.sh --admin-only --quick
+```
+
+1. 插件管理页面不白屏。
+2. Webhook 治理页不白屏。
+3. 插件详情抽屉打开不报运行时异常。
+4. 插件详情切换不同插件不报错。
+5. 空数据场景显示中文空状态。
+6. 左侧插件导航收敛为 5 个治理域，或页面内等效分组。
+7. 插件列表页信息分组清晰。
+8. 插件详情页使用 Tab 分组。
+9. Webhook 治理能力不再全部堆在插件详情首页。
+10. 插件包治理有独立分组或 Tab。
+11. Secret / Callback Token 有独立分组或 Tab。
+12. official_announcement 配置和预览入口清晰。
+13. 主要按钮使用中文。
+14. 状态 badge 使用中文。
+15. 空状态使用中文说明。
+16. 错误提示使用中文。
+17. 危险操作有中文确认提示。
+18. Secret 明文不显示在表格。
+19. Callback Token 明文不显示在表格。
+20. 远程 iframe URL 不开放。
+21. 第三方代码执行仍未开放。
+22. 插件市场仍未开放。
+23. blocking Hook 仍未开放。
+24. 后台构建通过。
+
+### v1.8.3-S1 第一批收敛验收项
+
+1. Webhook 治理页不白屏。
+2. events / deliveries 等接口返回 null 时显示空状态。
+3. 插件详情抽屉打开不报 maturityLabel 异常。
+4. 插件列表不因 null plugin 报 code 读取异常。
+5. 插件详情切换不同插件不报错。
+6. 左侧插件导航收敛为 5 个治理域，或等效页面分组。
+7. 插件列表首屏信息密度降低。
+8. 1024 宽度下插件列表可用性改善。
+9. 插件包治理能力有统一分组。
+10. 上传包详情 JSON 默认折叠到技术详情。
+11. 可信发布者页面主信息更清晰。
+12. official_announcement 可在插件列表快速识别。
+13. official_announcement 详情保留专属说明和预览入口。
+14. 主要按钮使用中文。
+15. 状态 badge 使用中文。
+16. 空状态使用中文。
+17. 错误提示使用中文。
+18. Secret 明文不显示在表格。
+19. Callback Token 明文不显示在表格。
+20. 远程 iframe URL 不开放。
+21. 第三方代码执行仍未开放。
+22. blocking Hook 仍未开放。
+23. 后台构建通过。
+24. `/admin-next/plugins/operations` 接口响应为空对象或已解包业务对象时，不因 `undefined.items` 白屏。
+
+本轮结果记录：
+
+- `./scripts/check-frontend.sh --admin-only --quick`：通过（后台 build 成功），日志目录 `.devhub/checks/20260518-194453/`。
+- `./scripts/check-frontend.sh --admin-only --quick`：v1.8.3-S1 复跑通过（后台 build 成功），日志目录 `.devhub/checks/20260518-214606/`。
+- `./scripts/check-frontend.sh --admin-only --quick`：操作历史页响应解包修复后复跑通过（后台 build 成功），日志目录 `.devhub/checks/20260518-215550/`。
+- `git diff --check`：通过。
+- `bash -n scripts/check-frontend.sh`：通过。
+
+补充说明：首次 quick 检查因 Docker named volume 中 `web/admin-app/node_modules` 属主为 root，导致 Vite 无法写入 `node_modules/.vite-temp` 而失败；已在 `scripts/check-frontend.sh` 中增加运行前 workspace 权限初始化，复跑通过。
+
+本轮还需人工关注：上传记录、远程插件包、审批中心、操作历史、配置版本历史/回滚预览页面主要字段为中文；用户可见 `dry-run` 操作显示为“预检”，JSON key / 接口字段仍可保留原值用于排障；上传包转入本地仓库、删除上传包、操作清理、可信发布者禁用/吊销/恢复等危险动作有中文确认提示。
+
 ## 测试目标定位
 
 DevHub 当前目标是 **Core + 插件 的开源服务底座**，测试体系不再只围绕默认社区页面。测试需要覆盖 Core 基础能力、后台管理能力、插件生命周期、插件包治理、插件权限治理、插件配置治理、插件治理 UI、前台默认社区能力和 SEO 输出。
