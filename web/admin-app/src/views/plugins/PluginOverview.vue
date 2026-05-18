@@ -1,18 +1,26 @@
 <template>
   <section class="plugin-page" data-testid="plugin-overview-page">
-    <div class="plugin-page-header">
+    <div class="plugin-page-header overview-workbench-header">
       <div>
         <div class="eyebrow">插件运营</div>
         <h2>插件概览</h2>
         <p class="muted">插件后台按功能分页的全局视角入口；更多单插件细节请打开插件详情抽屉。</p>
       </div>
-      <div class="primary-actions">
+      <div class="primary-actions compact-actions">
+        <el-button type="primary" plain @click="go('/plugins/list')">插件列表</el-button>
         <el-button type="primary" plain @click="go('/plugins/install')">安装升级</el-button>
-        <el-button type="primary" plain @click="go('/plugins/content')">内容治理</el-button>
-        <el-button type="primary" plain @click="go('/plugins/dependencies')">依赖兼容</el-button>
-        <el-button type="primary" plain @click="go('/plugins/hooks')">Hook 排障</el-button>
-        <el-button type="primary" plain @click="go('/plugins/navigation')">前台入口</el-button>
-        <el-button type="primary" plain @click="go('/plugins/config')">配置中心</el-button>
+        <el-dropdown trigger="click" @command="goQuick">
+          <el-button plain>更多治理</el-button>
+          <template #dropdown>
+            <el-dropdown-menu>
+              <el-dropdown-item command="/plugins/config">配置中心</el-dropdown-item>
+              <el-dropdown-item command="/plugins/navigation">前端挂载</el-dropdown-item>
+              <el-dropdown-item command="/plugins/content">内容治理</el-dropdown-item>
+              <el-dropdown-item command="/plugins/dependencies">依赖兼容</el-dropdown-item>
+              <el-dropdown-item command="/plugins/hooks">Hook 排障</el-dropdown-item>
+            </el-dropdown-menu>
+          </template>
+        </el-dropdown>
       </div>
     </div>
 
@@ -25,7 +33,7 @@
       class="mb"
     />
 
-    <div class="stats-grid" data-testid="plugin-overview-stats">
+    <div class="stats-grid compact overview-stats" data-testid="plugin-overview-stats">
       <button class="stat-card stat-button" type="button" @click="go('/plugins/list')">
         <div class="stat-k">插件总数</div>
         <div class="stat-v">{{ stats.total }}</div>
@@ -48,10 +56,13 @@
       </button>
     </div>
 
-    <el-collapse v-model="panels" class="health-collapse">
+    <el-collapse v-model="panels" class="health-collapse overview-collapse">
       <el-collapse-item name="recent">
         <template #title>
-          <strong>最近异常</strong>
+          <div class="collapse-title">
+            <strong>最近异常</strong>
+            <span class="muted">只展示需要处理的插件</span>
+          </div>
         </template>
         <el-table v-loading="loading" :data="recentAbnormal" border stripe :empty-text="'暂无异常'" data-testid="plugin-overview-recent-abnormal">
           <el-table-column prop="name" label="插件" min-width="180">
@@ -83,7 +94,10 @@
 
       <el-collapse-item name="health">
         <template #title>
-          <strong>健康摘要</strong>
+          <div class="collapse-title">
+            <strong>健康摘要</strong>
+            <span class="muted">默认收起，需要排障时展开</span>
+          </div>
         </template>
         <div class="health-grid" data-testid="plugin-overview-health">
           <button v-for="card in healthCards" :key="card.key" class="stat-card stat-button health-card" type="button" @click="go('/plugins/list', { health: card.key })">
@@ -107,7 +121,7 @@ import { pluginHealthLabel } from '@/i18n/formatters';
 import { usePluginData } from './usePluginData';
 
 const router = useRouter();
-const panels = ref(['recent', 'health']);
+const panels = ref(['recent']);
 const drawerVisible = ref(false);
 const drawerPlugin = ref(null);
 const drawerTab = ref('overview');
@@ -134,6 +148,11 @@ const recentAbnormal = computed(() => {
 function go(path, query = null) {
   if (query) router.push({ path, query });
   else router.push(path);
+}
+
+function goQuick(path) {
+  if (!path) return;
+  go(path);
 }
 
 function openPlugin(row, tab) {
@@ -183,4 +202,3 @@ const healthCards = computed(() => {
   ];
 });
 </script>
-

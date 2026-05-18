@@ -1005,7 +1005,7 @@ const packageTabs = new Set(['repository', 'template', 'upload']);
 const items = ref([]);
 const loading = ref(false);
 const targetCode = ref('');
-const packageTab = ref(packageTabs.has(String(route.query.tab || '')) ? String(route.query.tab) : 'repository');
+const packageTab = ref(packageTabs.has(String(route.query.workspace_tab || '')) ? String(route.query.workspace_tab) : 'repository');
 
 const templateForm = ref({
   code: '',
@@ -1066,10 +1066,13 @@ const repoInstallDetail = ref(null);
 const repoInstallConfirmRiskLevel = ref('');
 
 watch(packageTab, async (next) => {
-  await router.replace({ query: { ...route.query, tab: next === 'repository' ? undefined : next } });
+  const query = { ...route.query };
+  if (next === 'repository') delete query.workspace_tab;
+  else query.workspace_tab = next;
+  await router.replace({ query });
 });
 
-watch(() => route.query.tab, (value) => {
+watch(() => route.query.workspace_tab, (value) => {
   const next = packageTabs.has(String(value || '')) ? String(value) : 'repository';
   if (packageTab.value !== next) packageTab.value = next;
 });

@@ -10,6 +10,9 @@
     <div class="plugin-filter-bar-controls">
       <slot />
     </div>
+    <div v-if="$slots.advanced" class="plugin-filter-bar-advanced">
+      <slot name="advanced" />
+    </div>
   </div>
 </template>
 
@@ -24,20 +27,20 @@ defineProps({
 <style scoped>
 .plugin-filter-bar {
   display: flex;
+  flex-direction: column;
   align-items: flex-start;
-  justify-content: space-between;
-  gap: 12px;
-  padding: 12px 14px;
+  gap: 8px;
+  padding: 10px 12px;
   margin: 12px 0;
-  border-radius: 10px;
+  border-radius: 8px;
   background: #fff;
   border: 1px solid #e9edf3;
 }
 
 .plugin-filter-bar-title {
-  min-width: 220px;
+  width: 100%;
   display: flex;
-  align-items: center;
+  align-items: flex-start;
   justify-content: space-between;
   gap: 12px;
 }
@@ -48,12 +51,41 @@ defineProps({
 }
 
 .plugin-filter-bar-controls {
-  display: flex;
-  flex: 1;
-  flex-wrap: wrap;
+  display: grid;
+  width: 100%;
+  grid-template-columns: minmax(220px, 1.5fr) repeat(4, minmax(136px, 1fr)) repeat(2, minmax(82px, 0.55fr));
   align-items: center;
-  justify-content: flex-end;
-  gap: 10px;
+  gap: 8px;
+}
+
+.plugin-filter-bar-advanced {
+  display: grid;
+  width: 100%;
+  grid-template-columns: repeat(auto-fit, minmax(160px, 220px));
+  align-items: center;
+  gap: 8px;
+  padding-top: 8px;
+  border-top: 1px dashed #e5eaf2;
+}
+
+.plugin-filter-bar-controls :deep(.el-input),
+.plugin-filter-bar-controls :deep(.el-select),
+.plugin-filter-bar-controls :deep(.el-button),
+.plugin-filter-bar-advanced :deep(.el-input),
+.plugin-filter-bar-advanced :deep(.el-select),
+.plugin-filter-bar-advanced :deep(.el-button) {
+  width: 100%;
+}
+
+@media (max-width: 1180px) {
+  .plugin-filter-bar-controls {
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 760px) {
+  .plugin-filter-bar-controls {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
 }
 </style>
-

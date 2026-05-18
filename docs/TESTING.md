@@ -2,7 +2,7 @@
 
 [返回文档入口](README.md)
 
-更新时间：2026-05-18
+更新时间：2026-05-19
 
 本文档记录当前仓库滚动测试目标、已执行验收记录和后续补测项。历史版本测试只保留必要回归，不再展开旧版本完整矩阵。
 
@@ -84,11 +84,107 @@ Codex / Agent 默认不要在完成任务时自动跑测试、E2E 或完整验�
 23. 后台构建通过。
 24. `/admin-next/plugins/operations` 接口响应为空对象或已解包业务对象时，不因 `undefined.items` 白屏。
 
+### v1.8.3-S2 二级导航收敛与三级 Tab 重组验收项
+
+1. 左侧插件导航只保留 5 个治理域。
+2. 插件总览域包含总览 / 插件列表 / 配置中心 / 前端挂载 / 内容治理 / 权限矩阵 / 开发者工具 Tab。
+3. 插件包治理域包含远程索引 / 远程包下载 / 暂存上传包 / 本地包与预检 / 依赖兼容性 / 版本升级 / 审批 Tab。
+4. Webhook 治理域包含总览 / 事件通知 / 投递记录 / 重试队列 / 熔断状态 / Webhook 密钥 / 回调 Token / 回调请求 Tab。
+5. 发布者与信任域包含发布者列表 / 公钥 / 可信级别 / 影响分析 / 密钥轮换 Tab。
+6. 运行记录 / 审计域包含操作历史 / 审计日志 / Hook 排障 / 搜索索引 / 最近错误 Tab。
+7. 旧插件路由不白屏。
+8. 旧插件路由能进入对应治理域和 Tab。
+9. 刷新页面后 Tab 状态保持。
+10. 低频入口不再直接堆在左侧导航。
+11. 同一功能不在多个治理域重复展示完整表格。
+12. Webhook 页面空数据不白屏。
+13. 插件详情抽屉不重复展示全局治理表格。
+14. 导航和 Tab 文案中文化。
+15. Secret 明文不显示。
+16. Callback Token 明文不显示。
+17. 远程 iframe URL 仍不开放。
+18. 第三方代码执行仍未开放。
+19. blocking Hook 仍未开放。
+20. 后台构建通过。
+
+### v1.8.3-S4 总览页布局与筛选体验验收项
+
+建议命令：
+
+```bash
+./scripts/check-admin-plugin-ia.sh
+./scripts/check-frontend.sh --admin-only --quick
+```
+
+说明：`check-admin-plugin-ia.sh` 是轻量插件 IA 回归脚本，用于浏览器打开 5 个治理域、截图、验证旧路由到 Tab 跳转、检查标题 / 面包屑 / 中文空状态和 1024 宽度溢出；不替代完整后台 E2E。
+
+1. 插件总览页 1366 宽度布局自然。
+2. 插件总览页 1024 宽度布局可用。
+3. 插件总览页不再出现异常左侧大块空白。
+4. 插件总览页内容不再明显偏右。
+5. 插件列表筛选区为紧凑横向筛选栏。
+6. 搜索、状态、健康、内容类型、能力、重置、刷新默认可见。
+7. 高级筛选默认折叠。
+8. 健康摘要不再占据过多首屏空间。
+9. 快捷操作位置自然。
+10. 插件列表主表格在首屏更突出。
+11. 插件详情抽屉不重复展示全局治理表格。
+12. official_announcement 配置入口清晰。
+13. official_announcement 前端挂载说明清晰。
+14. official_announcement 预览入口清晰。
+15. 旧路由与 Tab 检查有脚本或文档命令。
+16. 空状态完成第二轮中文化。
+17. 弹窗完成第二轮中文化。
+18. 按钮完成第二轮中文化。
+19. Tooltip 完成第二轮中文化。
+20. 分页完成第二轮中文化。
+21. No Data 不裸露。
+22. 20/page 不裸露。
+23. Secret 明文不显示在表格。
+24. Callback Token 明文不显示在表格。
+25. 远程 iframe URL 仍未开放。
+26. 第三方代码执行仍未开放。
+27. blocking Hook 仍未开放。
+28. admin quick 检查通过。
+
+### v1.8.3-S5 插件详情抽屉视觉 polish 与信息减负验收项
+
+1. 插件详情抽屉打开不白屏。
+2. 插件详情抽屉切换不同插件不报错。
+3. 长 Tab 可读性改善。
+4. 概览 Tab 不再平铺技术详情。
+5. 配置 Tab 只展示高频配置和配置入口。
+6. 原始配置 JSON 默认进入技术详情。
+7. 前端挂载 Tab 展示 iframe / sandbox / postMessage 摘要。
+8. Webhook Tab 只展示当前插件摘要和跳转入口。
+9. Webhook 密钥与回调 Token 收敛到安全凭据。
+10. 技术详情默认折叠。
+11. 上传包 / Manifest / config_schema 等 JSON 有中文标题。
+12. 空技术详情显示“暂无技术详情”。
+13. official_announcement 配置入口清晰。
+14. official_announcement 前端挂载说明清晰。
+15. official_announcement 预览入口清晰。
+16. Secret 明文不显示。
+17. Callback Token 明文不显示。
+18. token_hash 不显示。
+19. Authorization Header 不显示。
+20. 完整 HMAC signature 不显示。
+21. 远程 iframe URL 仍未开放。
+22. 第三方代码执行仍未开放。
+23. blocking Hook 仍未开放。
+24. admin quick 检查通过。
+
 本轮结果记录：
 
 - `./scripts/check-frontend.sh --admin-only --quick`：通过（后台 build 成功），日志目录 `.devhub/checks/20260518-194453/`。
 - `./scripts/check-frontend.sh --admin-only --quick`：v1.8.3-S1 复跑通过（后台 build 成功），日志目录 `.devhub/checks/20260518-214606/`。
 - `./scripts/check-frontend.sh --admin-only --quick`：操作历史页响应解包修复后复跑通过（后台 build 成功），日志目录 `.devhub/checks/20260518-215550/`。
+- `./scripts/check-frontend.sh --admin-only --quick`：v1.8.3-S2 复跑通过（后台 build 成功），日志目录 `.devhub/checks/20260518-221921/`。
+- `./scripts/check-frontend.sh --admin-only --quick`：插件后台筛选条 UI 修正后复跑通过（后台 build 成功），日志目录 `.devhub/checks/20260518-223539/`。
+- `./scripts/check-frontend.sh --admin-only --quick`：插件后台二级导航纠偏后复跑通过（后台 build 成功），日志目录 `.devhub/checks/20260518-225027/`。
+- `scripts/check-admin-plugin-ia.sh`：v1.8.3-S4 浏览器 IA 回归通过，截图目录 `/workspace/.devhub/screenshots/v1.8.3-s4`，覆盖 5 个治理域、旧路由到 Tab 跳转、1024 宽度和中文空状态。
+- `./scripts/check-frontend.sh --admin-only --quick`：v1.8.3-S4 复跑通过（后台 build 成功），日志目录 `.devhub/checks/20260519-002055/`。
+- `./scripts/check-frontend.sh --admin-only --quick`：v1.8.3-S5 复跑通过（后台 build 成功），日志目录 `.devhub/checks/20260519-003946/`。
 - `git diff --check`：通过。
 - `bash -n scripts/check-frontend.sh`：通过。
 

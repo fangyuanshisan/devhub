@@ -146,6 +146,7 @@ export default {
       status: '状态',
       health: '运行健康',
       contentType: '内容类型',
+      capability: '能力',
       system: '系统插件',
       schema: '配置模型',
       onlySystem: '仅系统插件',

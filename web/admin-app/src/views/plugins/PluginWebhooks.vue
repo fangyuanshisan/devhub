@@ -21,7 +21,29 @@
     </div>
 
     <el-tabs v-model="tab" class="page-tabs" data-testid="webhook-tabs">
-      <el-tab-pane label="事件" name="events">
+      <el-tab-pane label="Webhook 总览" name="overview">
+        <div class="webhook-overview-grid">
+          <el-card shadow="never">
+            <template #header>治理边界</template>
+            <ul class="overview-list">
+              <li>Webhook 仅做事件投递、重试、熔断和回调治理，不执行第三方插件代码。</li>
+              <li>Webhook 密钥用于 DevHub 向插件服务签名投递，明文只展示一次。</li>
+              <li>回调 Token 只允许访问授权 Scope，不等于管理员权限。</li>
+            </ul>
+          </el-card>
+          <el-card shadow="never">
+            <template #header>常用入口</template>
+            <div class="overview-actions">
+              <el-button size="small" type="primary" plain @click="tab = 'events'">事件通知</el-button>
+              <el-button size="small" type="primary" plain @click="tab = 'deliveries'">投递记录</el-button>
+              <el-button size="small" type="primary" plain @click="tab = 'secrets'">Webhook 密钥</el-button>
+              <el-button size="small" type="primary" plain @click="tab = 'callback_tokens'">回调 Token</el-button>
+            </div>
+          </el-card>
+        </div>
+      </el-tab-pane>
+
+      <el-tab-pane label="事件通知" name="events">
         <PluginFilterBar title="Webhook 事件" tip="事件记录用于追踪投递链路，不展示敏感 payload 明文" testid="webhook-events-filter">
           <template #actions>
             <el-button size="small" @click="refreshEvents">刷新</el-button>
@@ -633,7 +655,7 @@ import { confirmDanger } from './components/useDangerConfirm';
 const route = useRoute();
 const router = useRouter();
 
-const tab = ref(String(route.query.tab || 'deliveries'));
+const tab = ref(String(route.query.tab || 'overview'));
 watch(tab, async (next) => {
   await router.replace({ query: { ...route.query, tab: next } });
 });
@@ -1059,6 +1081,7 @@ function onCircuitPageChange(page) {
 }
 
 onMounted(async () => {
+  if (tab.value === 'overview') return;
   if (tab.value === 'events') await refreshEvents();
   else if (tab.value === 'circuits') await refreshCircuits();
   else if (tab.value === 'secrets') await refreshSecrets();
@@ -1069,6 +1092,7 @@ onMounted(async () => {
 });
 
 watch(tab, async (next) => {
+  if (next === 'overview') return;
   if (next === 'events') await refreshEvents();
   else if (next === 'circuits') await refreshCircuits();
   else if (next === 'secrets') await refreshSecrets();
@@ -1109,5 +1133,25 @@ watch(tab, async (next) => {
   display: flex;
   justify-content: flex-end;
   margin-top: 12px;
+}
+
+.webhook-overview-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+  gap: 12px;
+  margin-top: 8px;
+}
+
+.overview-list {
+  margin: 0;
+  padding-left: 18px;
+  color: #4b5563;
+  line-height: 1.8;
+}
+
+.overview-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
 }
 </style>

@@ -23,40 +23,54 @@ export const menuRoutes = [
   { path: '/system', name: 'system', component: () => import('@/views/System.vue'), meta: { title: '系统设置', short: '系统', icon: 'Setting', permission: 'setting.read', keepAlive: true, moduleKey: 'system', navGroupKey: 'settings', navPageKey: 'system' } },
 ];
 
+const withTab = (path, tab) => (to) => ({ path, query: { ...to.query, tab } });
+const withPackageInstallTab = (to) => {
+  const query = { ...to.query, tab: 'install' };
+  if (to.query.tab) query.workspace_tab = to.query.tab;
+  return { path: '/plugins/packages', query };
+};
+
 export const pluginRoutes = [
-  { path: '/plugins/overview', name: 'pluginsOverview', component: () => import('@/views/plugins/PluginOverview.vue'), meta: { title: '插件概览', permission: 'plugin.read', subNavGroup: 'plugins', subNavKey: 'overview', moduleKey: 'plugins', navGroupKey: 'overview', navPageKey: 'overview' } },
-  { path: '/plugins/list', name: 'pluginsList', component: () => import('@/views/plugins/PluginList.vue'), meta: { title: '插件列表', permission: 'plugin.read', subNavGroup: 'plugins', subNavKey: 'list', moduleKey: 'plugins', navGroupKey: 'manage', navPageKey: 'list' } },
-  { path: '/plugins/content', name: 'pluginsContent', component: () => import('@/views/plugins/PluginContentHub.vue'), meta: { title: '内容治理', permission: 'plugin.read', subNavGroup: 'plugins', subNavKey: 'content', moduleKey: 'plugins', navGroupKey: 'manage', navPageKey: 'content' } },
-  { path: '/plugins/install', name: 'pluginsInstall', component: () => import('@/views/plugins/PluginInstallUpgrade.vue'), meta: { title: '本地插件仓库', permission: 'plugin.read', subNavGroup: 'plugins', subNavKey: 'install', moduleKey: 'plugins', navGroupKey: 'packages', navPageKey: 'install' } },
-  { path: '/plugins/packages', redirect: '/plugins/install' },
-  { path: '/plugins/packages/local', redirect: '/plugins/install' },
-  { path: '/plugins/packages/install', redirect: '/plugins/install' },
-  { path: '/plugins/packages/export', redirect: '/plugins/install' },
-  { path: '/plugins/packages/uploads', name: 'pluginPackageUploads', component: () => import('@/views/plugins/PluginPackageUploads.vue'), meta: { title: 'zip 上传包', permission: 'plugin.read', subNavGroup: 'plugins', subNavKey: 'packageUploads', moduleKey: 'plugins', navGroupKey: 'packages', navPageKey: 'packageUploads' } },
-  { path: '/plugins/packages/remote', name: 'pluginRemotePackages', component: () => import('@/views/plugins/PluginRemotePackages.vue'), meta: { title: '远程插件包', permission: 'plugin.read', subNavGroup: 'plugins', subNavKey: 'remotePackages', moduleKey: 'plugins', navGroupKey: 'packages', navPageKey: 'remotePackages' } },
-  { path: '/plugins/versions', name: 'pluginVersions', component: () => import('@/views/plugins/PluginVersions.vue'), meta: { title: '版本仓库', permission: 'plugin.read', subNavGroup: 'plugins', subNavKey: 'versions', moduleKey: 'plugins', navGroupKey: 'packages', navPageKey: 'versions' } },
-  { path: '/plugins/upgrade-diff', redirect: '/plugins/versions' },
-  { path: '/plugins/operations', name: 'pluginOperations', component: () => import('@/views/plugins/PluginOperations.vue'), meta: { title: '操作历史', permission: 'plugin.read', subNavGroup: 'plugins', subNavKey: 'operations', moduleKey: 'plugins', navGroupKey: 'logs', navPageKey: 'operations' } },
-  { path: '/plugins/trusted-publishers', name: 'pluginTrustedPublishers', component: () => import('@/views/plugins/PluginTrustedPublishers.vue'), meta: { title: '可信发布者', permission: 'plugin.read', subNavGroup: 'plugins', subNavKey: 'trustedPublishers', moduleKey: 'plugins', navGroupKey: 'security', navPageKey: 'trustedPublishers' } },
-  { path: '/plugins/config-keys', name: 'pluginConfigKeys', component: () => import('@/views/plugins/PluginConfigKeys.vue'), meta: { title: '密钥轮换', permission: 'plugin.manage', subNavGroup: 'plugins', subNavKey: 'configKeys', moduleKey: 'plugins', navGroupKey: 'security', navPageKey: 'configKeys' } },
-  { path: '/plugins/security', redirect: '/plugins/config-keys' },
-  { path: '/plugins/approvals', name: 'pluginsApprovals', component: () => import('@/views/plugins/PluginApprovals.vue'), meta: { title: '安装 / 升级审批', permission: 'plugin.read', subNavGroup: 'plugins', subNavKey: 'approvals', moduleKey: 'plugins', navGroupKey: 'logs', navPageKey: 'approvals' } },
-  { path: '/plugins/config', name: 'pluginsConfig', component: () => import('@/views/plugins/PluginConfigHub.vue'), meta: { title: '配置中心', permission: 'plugin.read', subNavGroup: 'plugins', subNavKey: 'config', moduleKey: 'plugins', navGroupKey: 'config', navPageKey: 'config' } },
-  { path: '/plugins/dependencies', name: 'pluginsDependencies', component: () => import('@/views/plugins/PluginDependencies.vue'), meta: { title: '依赖 / 兼容性', permission: 'plugin.read', subNavGroup: 'plugins', subNavKey: 'dependencies', moduleKey: 'plugins', navGroupKey: 'security', navPageKey: 'dependencies' } },
-  { path: '/plugins/hooks', name: 'pluginsHooks', component: () => import('@/views/plugins/PluginHooks.vue'), meta: { title: 'Hook 排障', permission: 'plugin.read', subNavGroup: 'plugins', subNavKey: 'hooks', moduleKey: 'plugins', navGroupKey: 'runtime', navPageKey: 'hooks' } },
-  { path: '/plugins/webhooks', name: 'pluginsWebhooks', component: () => import('@/views/plugins/PluginWebhooks.vue'), meta: { title: 'Webhook 治理', permission: 'plugin.read', subNavGroup: 'plugins', subNavKey: 'webhooks', moduleKey: 'plugins', navGroupKey: 'runtime', navPageKey: 'webhooks' } },
-  { path: '/plugins/events', name: 'pluginsEvents', component: () => import('@/views/plugins/PluginEvents.vue'), meta: { title: '事件通知', permission: 'plugin.read', subNavGroup: 'plugins', subNavKey: 'events', moduleKey: 'plugins', navGroupKey: 'runtime', navPageKey: 'events' } },
-  { path: '/plugins/search-index', name: 'pluginsSearchIndex', component: () => import('@/views/plugins/PluginSearchIndex.vue'), meta: { title: '搜索索引', permission: 'plugin.read', subNavGroup: 'plugins', subNavKey: 'searchIndex', moduleKey: 'plugins', navGroupKey: 'runtime', navPageKey: 'searchIndex' } },
-  { path: '/plugins/navigation', name: 'pluginsNavigation', component: () => import('@/views/plugins/PluginNavigation.vue'), meta: { title: '前台入口', permission: 'plugin.read', subNavGroup: 'plugins', subNavKey: 'navigation', moduleKey: 'plugins', navGroupKey: 'runtime', navPageKey: 'navigation' } },
-  { path: '/plugins/permissions', name: 'pluginsPermissions', component: () => import('@/views/plugins/PluginPermissions.vue'), meta: { title: '权限矩阵', permission: 'plugin.read', subNavGroup: 'plugins', subNavKey: 'permissions', moduleKey: 'plugins', navGroupKey: 'manage', navPageKey: 'permissions' } },
-  { path: '/plugins/audit', name: 'pluginsAudit', component: () => import('@/views/plugins/PluginAudit.vue'), meta: { title: '审计', permission: 'plugin.read', subNavGroup: 'plugins', subNavKey: 'audit', moduleKey: 'plugins', navGroupKey: 'logs', navPageKey: 'audit' } },
-  { path: '/plugins/remote-indexes', name: 'pluginRemoteIndexes', component: () => import('@/views/plugins/PluginRemoteIndexes.vue'), meta: { title: '远程索引', permission: 'plugin.read', subNavGroup: 'plugins', subNavKey: 'remoteIndexes', moduleKey: 'plugins', navGroupKey: 'market', navPageKey: 'remoteIndexes' } },
-  { path: '/plugins/developer', name: 'pluginsDeveloper', component: () => import('@/views/plugins/PluginDeveloper.vue'), meta: { title: '开发者工具', permission: 'plugin.read', subNavGroup: 'plugins', subNavKey: 'developer', moduleKey: 'plugins', navGroupKey: 'market', navPageKey: 'developer' } },
+  { path: '/plugins/overview', name: 'pluginsOverview', component: () => import('@/views/plugins/PluginOverviewDomain.vue'), meta: { title: '插件总览', permission: 'plugin.read', subNavGroup: 'plugins', subNavKey: 'overview', moduleKey: 'plugins', navGroupKey: 'governance', navPageKey: 'overview' } },
+  { path: '/plugins/packages', name: 'pluginsPackages', component: () => import('@/views/plugins/PluginPackagesDomain.vue'), meta: { title: '插件包治理', permission: 'plugin.read', subNavGroup: 'plugins', subNavKey: 'packages', moduleKey: 'plugins', navGroupKey: 'governance', navPageKey: 'packages' } },
+  { path: '/plugins/webhooks', name: 'pluginsWebhooks', component: () => import('@/views/plugins/PluginWebhooks.vue'), meta: { title: 'Webhook 治理', permission: 'plugin.read', subNavGroup: 'plugins', subNavKey: 'webhooks', moduleKey: 'plugins', navGroupKey: 'governance', navPageKey: 'webhooks' } },
+  { path: '/plugins/publishers', name: 'pluginsPublishers', component: () => import('@/views/plugins/PluginPublishersDomain.vue'), meta: { title: '发布者与信任', permission: 'plugin.read', subNavGroup: 'plugins', subNavKey: 'publishers', moduleKey: 'plugins', navGroupKey: 'governance', navPageKey: 'publishers' } },
+  { path: '/plugins/runtime', name: 'pluginsRuntime', component: () => import('@/views/plugins/PluginRuntimeDomain.vue'), meta: { title: '运行记录 / 审计', permission: 'plugin.read', subNavGroup: 'plugins', subNavKey: 'runtime', moduleKey: 'plugins', navGroupKey: 'governance', navPageKey: 'runtime' } },
+
+  { path: '/plugins/list', redirect: withTab('/plugins/overview', 'list') },
+  { path: '/plugins/content', redirect: withTab('/plugins/overview', 'content') },
+  { path: '/plugins/config', redirect: withTab('/plugins/overview', 'config') },
+  { path: '/plugins/navigation', redirect: withTab('/plugins/overview', 'navigation') },
+  { path: '/plugins/permissions', redirect: withTab('/plugins/overview', 'permissions') },
+  { path: '/plugins/developer', redirect: withTab('/plugins/overview', 'developer') },
+
+  { path: '/plugins/install', redirect: withPackageInstallTab },
+  { path: '/plugins/packages/local', redirect: withPackageInstallTab },
+  { path: '/plugins/packages/install', redirect: withPackageInstallTab },
+  { path: '/plugins/packages/export', redirect: withPackageInstallTab },
+  { path: '/plugins/packages/uploads', redirect: withTab('/plugins/packages', 'uploads') },
+  { path: '/plugins/packages/remote', redirect: withTab('/plugins/packages', 'remote-packages') },
+  { path: '/plugins/versions', redirect: withTab('/plugins/packages', 'versions') },
+  { path: '/plugins/upgrade-diff', redirect: withTab('/plugins/packages', 'versions') },
+  { path: '/plugins/remote-indexes', redirect: withTab('/plugins/packages', 'remote-indexes') },
+  { path: '/plugins/dependencies', redirect: withTab('/plugins/packages', 'dependencies') },
+  { path: '/plugins/approvals', redirect: withTab('/plugins/packages', 'approvals') },
+
+  { path: '/plugins/events', redirect: withTab('/plugins/webhooks', 'events') },
+
+  { path: '/plugins/trusted-publishers', redirect: withTab('/plugins/publishers', 'list') },
+  { path: '/plugins/config-keys', redirect: withTab('/plugins/publishers', 'config-keys') },
+  { path: '/plugins/security', redirect: withTab('/plugins/publishers', 'config-keys') },
+
+  { path: '/plugins/operations', redirect: withTab('/plugins/runtime', 'operations') },
+  { path: '/plugins/audit', redirect: withTab('/plugins/runtime', 'audit') },
+  { path: '/plugins/hooks', redirect: withTab('/plugins/runtime', 'hooks') },
+  { path: '/plugins/search-index', redirect: withTab('/plugins/runtime', 'search-index') },
 
   // legacy compat routes
   { path: '/plugins/governance', redirect: '/plugins/overview' },
-  { path: '/plugins/manifest', redirect: '/plugins/install' },
-  { path: '/plugins/diagnostics', redirect: '/plugins/hooks' },
+  { path: '/plugins/manifest', redirect: withPackageInstallTab },
+  { path: '/plugins/diagnostics', redirect: withTab('/plugins/runtime', 'hooks') },
 ];
 
 const router = createRouter({

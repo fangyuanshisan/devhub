@@ -2,7 +2,7 @@
 
 [返回文档入口](README.md)
 
-更新时间：2026-05-18
+更新时间：2026-05-19
 
 本文档只记录当前仓库真实状态、当前风险和下一步任务。历史版本能力已并入当前分支，详情见对应 Release Notes；旧版本已解决问题不再占用当前主体。
 
@@ -13,6 +13,16 @@
 2026-05-18 补充：`v1.8.3-S1` 完成插件后台稳定性修复与 IA 第一批收敛。新增 `usePluginData` 上游过滤，避免 `null` 插件项进入概览 / 列表 / 详情渲染链路；插件详情抽屉增加有效插件兜底，依赖列表过滤空依赖和空插件项；插件列表首屏减负，健康摘要默认折叠，表格保留插件、版本、能力摘要、最近操作和操作等关键列，并将类型、状态、健康、官方内置标识合并到插件主列；`official_announcement` 在列表中显示“官方公告插件 / 官方内置”并突出前端挂载、配置、iframe 预览能力；上传包详情将原始 JSON 收进“技术详情”折叠区；可信发布者主列表改为发布者、可信级别、状态、影响范围、操作为主，`publisher_id` / `key_id` 弱化展示，技术字段保留在详情。已执行 `./scripts/check-frontend.sh --admin-only --quick` 并通过，日志目录 `.devhub/checks/20260518-214606/`。未修改 Go 后端、前台页面或 SEO 路由。
 
 2026-05-18 补充：修复 `/admin-next/plugins/operations` 操作历史页运行时错误 `Cannot read properties of undefined (reading 'items')`。原因是 `http` 拦截器已返回业务数据，但页面仍按 axios `{ data }` 结构解包；现在操作历史页统一使用响应归一化函数，兼容业务对象、axios data 包装和空列表响应，详情 / 恢复预览 / 清理残留 / 回滚预检也使用同一解包方式。已执行 `./scripts/check-frontend.sh --admin-only --quick` 并通过，日志目录 `.devhub/checks/20260518-215550/`。
+
+2026-05-18 补充：`v1.8.3-S2` 完成后台插件二级导航收敛与三级 Tab 重组。左侧插件导航只保留插件总览、插件包治理、Webhook 治理、发布者与信任、运行记录 / 审计 5 个治理域；原插件列表、配置中心、前端挂载、内容治理、权限矩阵、开发者工具、本地包与预检、暂存上传包、远程包下载、版本升级、远程索引、依赖兼容性、安装审批、事件通知、可信发布者、密钥轮换、操作历史、审计日志、Hook 排障、搜索索引等入口沉到对应页面内 Tab。旧插件路由保留 redirect 到新治理域和 `?tab=`，刷新后 Tab 状态保持；`PluginInstallUpgrade` 内部工作区 Tab 改用 `workspace_tab`，避免抢占治理域 Tab query。已执行 `./scripts/check-frontend.sh --admin-only --quick` 并通过，日志目录 `.devhub/checks/20260518-221921/`。本轮未修改 Go 后端、前台页面、SEO 路由、插件生命周期、Webhook 协议、Secret / Token 安全模型，也未开放远程 iframe、第三方代码执行或 blocking Hook。
+
+2026-05-18 补充：根据页面截图反馈，修正插件后台公共筛选条布局。`PluginFilterBar` 从左右两栏改为上方标题说明、下方响应式网格筛选控件，按钮与筛选条件同行，避免宽屏下输入框拉成长条、按钮掉到右下角。已执行 `./scripts/check-frontend.sh --admin-only --quick` 并通过，日志目录 `.devhub/checks/20260518-223539/`。
+
+2026-05-18 补充：根据二级导航反馈，保留插件模块左侧二级导航，并将插件导航改为“插件管理”分组下直接展示 5 个治理域入口，而不是 5 个单项分组或顶部横向域导航。这样左侧区域承载真实二级导航，页面内 Tab 继续作为三级导航。已执行 `./scripts/check-frontend.sh --admin-only --quick` 并通过，日志目录 `.devhub/checks/20260518-225027/`。
+
+2026-05-18 补充：`v1.8.3-S4` 完成插件后台总览页布局修正与筛选体验优化。插件页内容区改为自适应宽度，修正 1366 宽度下左侧异常留白和内容偏右；插件总览首屏压缩快捷操作、降低统计卡高度、健康摘要默认折叠，保留最近异常作为排障入口；插件列表筛选区改为紧凑横向筛选栏，搜索、状态、健康、内容类型、能力、重置、刷新默认可见，系统插件 / 配置模型等低频条件沉到默认折叠的高级筛选；批量操作仅选中插件后显示。`official_announcement` 详情抽屉补充公告配置、前端挂载、公告预览快捷入口。新增 `scripts/check-admin-plugin-ia.sh` 作为轻量插件 IA 回归脚本，已通过浏览器打开 5 个治理域并验证旧路由到 Tab 跳转、1024 宽度、中文空状态；截图目录 `/workspace/.devhub/screenshots/v1.8.3-s4`。已执行 `./scripts/check-frontend.sh --admin-only --quick` 并通过，日志目录 `.devhub/checks/20260519-002055/`。本轮只改后台 UI、脚本和文档，不改 API、插件逻辑、Webhook 协议、Secret / Token 安全模型，也未开放远程 iframe、第三方代码执行或 blocking Hook。
+
+2026-05-19 补充：`v1.8.3-S5` 完成插件详情抽屉视觉 polish 与信息减负。详情抽屉可见 Tab 收敛为概览、配置、前端挂载、Webhook、安全凭据、运行记录、审计日志、技术详情；Webhook 密钥和回调 Token 合并到“安全凭据”，低频依赖、权限、路由、Hook 声明、配置模型、生效配置快照等 JSON 收纳到默认折叠的“技术详情”，并对 token / secret / authorization / signature / token_hash / hmac 等字段做脱敏展示。配置 Tab 改为生效配置摘要 + 编辑入口，不再平铺原始 JSON；前端挂载 Tab 补充 iframe 路由、sandbox、postMessage、远程 URL、第三方代码执行和凭据暴露边界；Webhook Tab 保持当前插件摘要 + 跳转入口，不复制全局治理表格；运行记录和审计日志补充到“运行记录 / 审计”治理域的跳转。`official_announcement` 的公告配置、前端挂载、公告预览入口更直观。本轮只改后台 UI 和文档，不改 API、插件逻辑、Webhook 协议、Secret / Token 安全模型，也未开放远程 iframe、第三方代码执行或 blocking Hook。已执行 `./scripts/check-frontend.sh --admin-only --quick` 并通过，日志目录 `.devhub/checks/20260519-003946/`。
 
 2026-05-18 补充：仓库级 Codex / Agent 约束已更新为“测试由开发者手动执行，Agent 完成任务时默认不自动跑测试或 E2E”。新增手动一键入口 `./scripts/test-all.sh`，用于需要验收时统一执行 Go 测试/构建与前后台前端检查。本轮未执行测试。
 

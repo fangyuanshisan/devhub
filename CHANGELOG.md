@@ -10,6 +10,11 @@
 
 - v1.8.3：优化后台插件治理页面稳定性、IA 和中文体验。修复 Webhook 治理页空数据/缺字段白屏风险与插件详情抽屉运行时异常；左侧插件导航收敛为插件总览、插件包治理、Webhook 治理、可信发布者、运行记录/审计 5 个治理域；插件详情抽屉拆出前端挂载、Webhook、Webhook 密钥、回调 Token 等三级 Tab；Webhook 治理页拆成事件、投递记录、重试队列、熔断状态、Webhook 密钥、回调 Token、回调请求；插件包治理、上传记录、远程插件包、审批中心、操作历史、配置版本历史、可信发布者和官方公告插件预览补充中文状态、按钮、空状态与安全边界说明。本轮不改变插件生命周期、Webhook 协议、Secret / Token 安全模型，不开放远程 iframe、第三方代码执行、插件市场或 blocking Hook。
 - v1.8.3-S1：完成插件后台稳定性修复与 IA 第一批收敛。过滤 null 插件项并保护详情抽屉空插件状态；插件列表首屏减负并快速标识 official_announcement；上传包详情 JSON 默认折叠到“技术详情”；可信发布者列表突出主信息并弱化 publisher_id/key_id 技术字段；后台 quick build 通过。
+- v1.8.3-S2：完成插件后台二级导航收敛与三级 Tab 重组。左侧插件导航只保留 5 个治理域，原 20+ 入口沉到页内 Tab；旧路由兼容跳转到新治理域和 `?tab=`；Webhook 治理新增总览 Tab；后台 quick build 通过。
+- v1.8.3-S4：修正插件后台总览页左侧异常留白和内容偏右；插件列表筛选区改为紧凑横向筛选栏，高级筛选默认折叠；健康摘要和批量操作减少首屏占用；official_announcement 详情入口更直观；新增 `scripts/check-admin-plugin-ia.sh` 用于轻量回归 5 个治理域和旧路由 Tab。
+- v1.8.3-S5：优化插件详情抽屉视觉层级与信息密度。可见 Tab 收敛为概览、配置、前端挂载、Webhook、安全凭据、运行记录、审计日志、技术详情；Webhook 密钥和回调 Token 合并为安全凭据，原始配置和声明 JSON 默认进入技术详情并脱敏，official_announcement 配置/挂载/预览入口更直观；后台 quick build 通过。
+- 优化插件后台公共筛选条布局：标题说明置顶、筛选控件网格排布、按钮与条件同行，改善宽屏下控件过长和按钮位置松散的问题。
+- 调整插件模块二级导航呈现：保留左侧二级导航栏，在“插件管理”分组下直接展示 5 个治理域，页内 Tab 继续作为三级导航。
 - 修复 `/admin-next/plugins/operations` 操作历史页读取 `undefined.items` 的运行时错误，兼容前端 HTTP 拦截器已解包的业务响应和空列表响应。
 - 修复 `scripts/check-frontend.sh` 的 Docker named volume 权限初始化：当 `node_modules`、`test-results`、`playwright-report` 曾由 root 容器创建时，检查脚本会先修正属主，再执行后台/前台构建与 E2E，避免 Vite `.vite-temp` 或 Playwright 报告写入失败。
 - v1.8.1：新增内置官方插件 `official_announcement`，落地前台首页与后台插件详情页“公告预览”Tab 的 Host + iframe（`sandbox=allow-scripts`）最小挂载闭环；新增 Host 浏览器安全 API（context + audit-events）与内置 iframe 路由（不允许远程 URL，不暴露 callback token / webhook secret，不执行第三方不可信代码）。

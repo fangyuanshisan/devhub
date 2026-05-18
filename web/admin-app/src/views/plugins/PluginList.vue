@@ -1,6 +1,6 @@
 <template>
   <section class="plugin-page" data-testid="admin-plugins-page">
-    <div class="plugin-page-header">
+    <div class="plugin-page-header compact-header">
       <div>
         <div class="eyebrow">{{ t('plugin.pageEyebrow') }}</div>
         <h2>{{ t('plugin.title') }}</h2>
@@ -21,7 +21,7 @@
       <el-tab-pane name="abnormal" label="异常插件" />
     </el-tabs>
 
-    <div class="stats-grid compact" data-testid="plugin-stats">
+    <div class="stats-grid compact compact-stats" data-testid="plugin-stats">
       <button class="stat-card stat-button" type="button" @click="applyStatusTab('all')">
         <div class="stat-k">{{ t('plugin.stats.total') }}</div>
         <div class="stat-v">{{ stats.total }}</div>
@@ -44,10 +44,13 @@
       </button>
     </div>
 
-    <el-collapse v-model="healthPanels" class="health-collapse">
+    <el-collapse v-model="healthPanels" class="health-collapse compact-collapse">
       <el-collapse-item name="health">
         <template #title>
-          <strong>{{ t('plugin.healthOverview') }}</strong>
+          <div class="collapse-title">
+            <strong>{{ t('plugin.healthOverview') }}</strong>
+            <span class="muted">默认收起，需要排障时展开</span>
+          </div>
         </template>
         <div class="health-grid" data-testid="plugin-health-summary">
           <button v-for="card in healthCards" :key="card.key" class="stat-card stat-button health-card" type="button" @click="applyHealth(card.key)">
@@ -76,6 +79,21 @@
       <el-select v-model="filters.contentType" :placeholder="t('plugin.contentType')" clearable filterable>
         <el-option v-for="ct in allContentTypes" :key="ct" :label="ct" :value="ct" />
       </el-select>
+      <el-select v-model="filters.capability" :placeholder="t('plugin.filters.capability')" clearable>
+        <el-option :label="t('common.all')" value="all" />
+        <el-option :label="t('plugin.tabs.frontendMount')" value="menus" />
+        <el-option label="Webhook" value="hooks" />
+        <el-option :label="t('plugin.filters.hasSchema')" value="schema" />
+        <el-option :label="t('plugin.capability.permissions')" value="permissions" />
+      </el-select>
+      <el-button data-testid="plugin-filter-reset" @click="resetFilters">{{ t('common.reset') }}</el-button>
+      <el-button type="primary" data-testid="plugin-filter-refresh" @click="load">{{ t('common.refresh') }}</el-button>
+      <template #actions>
+        <el-button link type="primary" data-testid="plugin-filter-advanced-toggle" @click="advancedFiltersOpen = !advancedFiltersOpen">
+          {{ advancedFiltersOpen ? '收起高级筛选' : '展开高级筛选' }}
+        </el-button>
+      </template>
+      <template v-if="advancedFiltersOpen" #advanced>
       <el-select v-model="filters.system" :placeholder="t('plugin.system')" clearable>
         <el-option :label="t('common.all')" value="all" />
         <el-option :label="t('plugin.filters.onlySystem')" value="yes" />
@@ -86,13 +104,12 @@
         <el-option :label="t('plugin.filters.hasSchema')" value="yes" />
         <el-option :label="t('plugin.filters.noSchema')" value="no" />
       </el-select>
-      <el-button data-testid="plugin-filter-reset" @click="resetFilters">{{ t('common.reset') }}</el-button>
-      <el-button type="primary" data-testid="plugin-filter-refresh" @click="load">{{ t('common.refresh') }}</el-button>
+      </template>
     </PluginFilterBar>
 
     <PluginEmptyState v-if="!loading && !error && !filteredItems.length" testid="plugin-empty-state" description="暂无符合条件的插件" />
 
-    <div class="batch-panel" data-testid="plugin-batch-panel">
+    <div v-if="selectedRows.length" class="batch-panel" data-testid="plugin-batch-panel">
       <span class="muted">{{ t('common.selected') }} {{ selectedRows.length }} {{ t('common.selectedItems') }}</span>
       <div class="batch-actions">
         <el-button type="warning" plain :disabled="!selectedRows.length" data-testid="plugin-bulk-archive" @click="openBulkDialog('archive')">{{ t('plugin.ops.bulkArchive') }}</el-button>
@@ -244,12 +261,14 @@ const filters = reactive({
   status: 'all',
   health: 'all',
   contentType: '',
+  capability: 'all',
   system: 'all',
   hasSchema: 'all',
 });
 
 const selectedRows = ref([]);
 const healthPanels = ref([]);
+const advancedFiltersOpen = ref(false);
 const drawerVisible = ref(false);
 const drawerPlugin = ref(null);
 const drawerTab = ref('overview');
@@ -322,6 +341,12 @@ const filteredItems = computed(() => {
     if (filters.contentType) {
       const types = p.content_types || [];
       if (!types.includes(filters.contentType)) return false;
+    }
+    if (filters.capability && filters.capability !== 'all') {
+      if (filters.capability === 'menus' && !(p.menus || []).length) return false;
+      if (filters.capability === 'hooks' && !(p.hooks || []).length) return false;
+      if (filters.capability === 'schema' && !hasConfigSchema(p)) return false;
+      if (filters.capability === 'permissions' && !(p.permissions || []).length) return false;
     }
     if (filters.system && filters.system !== 'all') {
       if (filters.system === 'yes' && !p.is_system) return false;
@@ -422,6 +447,7 @@ function resetFilters() {
   filters.status = 'all';
   filters.health = 'all';
   filters.contentType = '';
+  filters.capability = 'all';
   filters.system = 'all';
   filters.hasSchema = 'all';
 }

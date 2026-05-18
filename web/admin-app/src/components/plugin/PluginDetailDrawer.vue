@@ -8,6 +8,7 @@
             <h3>{{ safePlugin.name }}</h3>
             <el-tag :type="statusType(plugin.status)">{{ pluginStatusLabel(plugin.status) }}</el-tag>
             <el-tag :type="healthType(plugin.health?.status)">{{ pluginHealthLabel(plugin.health?.status) }}</el-tag>
+            <el-tag v-if="safePlugin.code === 'official_announcement'" type="success" effect="plain">官方公告插件</el-tag>
             <el-tag v-if="plugin.is_system" type="primary">{{ t('plugin.system') }}</el-tag>
           </div>
           <p class="hero-desc">{{ plugin.description || t('plugin.noDescription') }}</p>
@@ -16,6 +17,7 @@
             <el-tag type="info" effect="plain">{{ t('plugin.capability.permissions') }} {{ (plugin.permissions || []).length }}</el-tag>
             <el-tag type="info" effect="plain">{{ t('plugin.capability.menus') }} {{ (plugin.menus || []).length }}</el-tag>
             <el-tag :type="(plugin.hooks || []).length ? 'success' : 'info'" effect="plain">{{ t('plugin.capability.hooks') }} {{ (plugin.hooks || []).length }}</el-tag>
+            <el-tag v-if="safePlugin.code === 'official_announcement'" type="success" effect="plain">配置 / 前端挂载 / 公告预览</el-tag>
           </div>
         </div>
         <div class="hero-right">
@@ -43,6 +45,7 @@
 
         <el-tabs v-model="tab" class="tabs" data-testid="plugin-detail-tabs">
         <el-tab-pane :label="t('plugin.tabs.overview')" name="overview">
+          <p class="tab-note">这里只展示插件身份、状态、能力和风险；原始 JSON 与调试字段已收纳到“技术详情”。</p>
           <el-descriptions :column="2" border>
             <el-descriptions-item :label="t('field.name')">{{ plugin.name }}</el-descriptions-item>
             <el-descriptions-item :label="t('field.plugin_code')">{{ plugin.code }}</el-descriptions-item>
@@ -62,6 +65,10 @@
             <el-descriptions-item :label="t('plugin.lifecycle.archivedAt')">{{ plugin.archived_at || '-' }}</el-descriptions-item>
             <el-descriptions-item :label="t('plugin.lifecycle.statusReason')" :span="2">{{ plugin.status_reason || '-' }}</el-descriptions-item>
             <el-descriptions-item :label="t('plugin.contentTypes')" :span="2">{{ (plugin.content_types || []).join(', ') || '-' }}</el-descriptions-item>
+            <el-descriptions-item label="是否执行第三方代码">否</el-descriptions-item>
+            <el-descriptions-item label="允许远程 iframe URL">否</el-descriptions-item>
+            <el-descriptions-item label="Webhook 能力">{{ (plugin.hooks || []).length ? '已声明' : '未声明' }}</el-descriptions-item>
+            <el-descriptions-item label="回调 Token">仅在 Webhook 治理中管理，不在详情抽屉展示明文</el-descriptions-item>
           </el-descriptions>
           <el-alert
             class="mt"
@@ -76,8 +83,17 @@
             type="success"
             show-icon
             :closable="false"
-            title="官方内置插件：用于验证前端挂载模型；不执行第三方代码，iframe 只允许内置页面。"
-          />
+          >
+            <template #title>官方公告插件：配置、前端挂载和公告预览入口已在详情内聚合。</template>
+            <template #default>
+              <div class="official-quick-links">
+                <el-button size="small" type="success" plain @click="tab = 'config'">公告配置</el-button>
+                <el-button size="small" type="success" plain @click="tab = 'menus'">前端挂载</el-button>
+                <el-button size="small" type="success" plain @click="tab = 'officialAnnouncementPreview'">公告预览</el-button>
+                <span>官方内置插件，用于验证前端挂载模型；iframe 只允许内置页面，不执行第三方代码，不暴露 callback token / webhook secret。</span>
+              </div>
+            </template>
+          </el-alert>
           <el-alert
             class="mt"
             type="warning"
@@ -85,7 +101,7 @@
             :closable="false"
             title="安全边界：插件停用后会停止前端挂载和 Webhook 投递；软卸载会保留历史数据但停止新能力。"
           />
-          <section class="export-panel mt" data-testid="plugin-export-panel">
+          <section v-if="showLegacyTechnicalTabs" class="export-panel mt" data-testid="plugin-export-panel">
             <div>
               <h4>导出本地插件包</h4>
               <p>导出声明型插件包：manifest、README、config.example.json、checksums，不包含敏感配置、用户数据、运行时代码或外部 SQL。</p>
@@ -94,7 +110,8 @@
           </section>
         </el-tab-pane>
 
-        <el-tab-pane :label="t('plugin.tabs.runtime')" name="runtime">
+        <el-tab-pane label="运行记录" name="runtime">
+          <p class="tab-note">展示当前插件运行健康摘要、最近异常和排障入口；完整操作历史请进入“运行记录 / 审计”治理域。</p>
           <el-alert
             type="info"
             show-icon
@@ -126,9 +143,15 @@
             <el-descriptions-item :label="t('plugin.recentError')" :span="2">{{ plugin.health?.recent_error || '-' }}</el-descriptions-item>
             <el-descriptions-item :label="t('plugin.runtime.statusReason')" :span="2">{{ plugin.health?.status_reason || '-' }}</el-descriptions-item>
           </el-descriptions>
+          <div class="sub-toolbar mt">
+            <el-button type="primary" plain @click="openRuntimeGovernance('operations')">查看操作历史</el-button>
+            <el-button plain @click="openRuntimeGovernance('hooks')">查看 Hook 排障</el-button>
+            <el-button plain @click="openRuntimeGovernance('audit')">查看审计日志</el-button>
+          </div>
         </el-tab-pane>
 
         <el-tab-pane :label="t('plugin.tabs.webhook')" name="webhook">
+          <p class="tab-note">这里只展示当前插件的 Webhook 摘要和跳转入口，不复制全局投递、重试和熔断表格。</p>
           <el-alert
             type="info"
             show-icon
@@ -149,22 +172,28 @@
           </div>
         </el-tab-pane>
 
-        <el-tab-pane :label="t('plugin.tabs.webhookSecrets')" name="webhookSecrets">
+        <el-tab-pane label="安全凭据" name="webhookSecrets">
+          <p class="tab-note">Webhook 密钥和回调 Token 统一在这里说明；明文只在创建或轮换时展示一次。</p>
           <el-alert
             type="warning"
             show-icon
             :closable="false"
             class="mb"
-            title="Webhook Secret 明文只在创建或轮换时展示一次；详情抽屉和列表都不展示明文。"
+            title="详情抽屉只展示凭据引用和治理入口，不展示 Secret 明文、Token 明文、Token 哈希、Authorization Header 或完整 HMAC signature。"
           />
           <el-descriptions :column="2" border class="mb">
-            <el-descriptions-item label="展示字段">secret_ref、状态、最近使用、轮换、禁用、吊销</el-descriptions-item>
-            <el-descriptions-item label="禁止展示">Secret 明文、Webhook Secret 明文、签名私密材料</el-descriptions-item>
+            <el-descriptions-item label="Webhook 密钥">用于 DevHub 向插件服务签名投递；展示 secret_ref、状态、最近使用、轮换、禁用、吊销。</el-descriptions-item>
+            <el-descriptions-item label="回调 Token">用于插件服务调用 DevHub 受控 Core API；展示 token_ref、权限范围、状态、最近使用、轮换、禁用、吊销。</el-descriptions-item>
+            <el-descriptions-item label="明文展示规则">只在创建或轮换时展示一次，请立即保存。</el-descriptions-item>
+            <el-descriptions-item label="禁止展示">Secret 明文、Token 明文、Token 哈希、Authorization Header、完整 HMAC signature。</el-descriptions-item>
           </el-descriptions>
-          <el-button type="primary" plain @click="openWebhookGovernance('secrets')">打开 Webhook 密钥治理</el-button>
+          <div class="sub-toolbar">
+            <el-button type="primary" plain @click="openWebhookGovernance('secrets')">打开 Webhook 密钥治理</el-button>
+            <el-button plain @click="openWebhookGovernance('callback_tokens')">打开回调 Token 治理</el-button>
+          </div>
         </el-tab-pane>
 
-        <el-tab-pane :label="t('plugin.tabs.callbackTokens')" name="callbackTokens">
+        <el-tab-pane v-if="showLegacyTechnicalTabs" :label="t('plugin.tabs.callbackTokens')" name="callbackTokens">
           <el-alert
             type="warning"
             show-icon
@@ -179,7 +208,7 @@
           <el-button type="primary" plain @click="openWebhookGovernance('callback_tokens')">打开回调 Token 治理</el-button>
         </el-tab-pane>
 
-        <el-tab-pane :label="t('plugin.tabs.readiness')" name="readiness">
+        <el-tab-pane v-if="showLegacyTechnicalTabs" :label="t('plugin.tabs.readiness')" name="readiness">
           <div class="sub-toolbar">
             <el-tag :type="readinessTagType(readinessResult?.status)" effect="plain">
               {{ t('plugin.readiness.overall') }}：{{ readinessStatusLabel(readinessResult?.status) }}
@@ -378,7 +407,7 @@
           </el-table>
         </el-tab-pane>
 
-        <el-tab-pane :label="t('plugin.tabs.dependencies')" name="dependencies">
+        <el-tab-pane v-if="showLegacyTechnicalTabs" :label="t('plugin.tabs.dependencies')" name="dependencies">
           <el-alert
             type="info"
             show-icon
@@ -425,7 +454,7 @@
           </el-table>
         </el-tab-pane>
 
-        <el-tab-pane :label="t('plugin.tabs.contentTypes')" name="contentTypes">
+        <el-tab-pane v-if="showLegacyTechnicalTabs" :label="t('plugin.tabs.contentTypes')" name="contentTypes">
           <el-table :data="plugin.content_type_definitions || []" border stripe :empty-text="`暂无${t('plugin.tabs.contentTypes')}`">
             <el-table-column prop="type" :label="t('field.type')" width="140" />
             <el-table-column prop="name" :label="t('field.name')" width="140" />
@@ -445,7 +474,7 @@
           </el-table>
         </el-tab-pane>
 
-        <el-tab-pane :label="t('plugin.tabs.permissions')" name="permissions">
+        <el-tab-pane v-if="showLegacyTechnicalTabs" :label="t('plugin.tabs.permissions')" name="permissions">
           <div class="sub-toolbar">
             <el-input v-model="permQ" :placeholder="t('plugin.permissionsSearchPlaceholder')" clearable style="max-width: 320px" />
             <el-checkbox v-model="permOnlyMissing" class="ml">{{ t('plugin.permissionsOnlyMissing') }}</el-checkbox>
@@ -500,6 +529,7 @@
         </el-tab-pane>
 
         <el-tab-pane :label="t('plugin.tabs.frontendMount')" name="menus">
+          <p class="tab-note">说明插件前端如何挂载，以及 iframe、sandbox、postMessage 的安全边界。</p>
           <el-alert
             type="info"
             show-icon
@@ -512,7 +542,14 @@
             <el-descriptions-item label="sandbox 策略">allow-scripts</el-descriptions-item>
             <el-descriptions-item label="postMessage 状态">使用 Host helper 校验 plugin_code / mount_id / origin / source</el-descriptions-item>
             <el-descriptions-item label="允许远程 URL">否</el-descriptions-item>
+            <el-descriptions-item label="执行第三方代码">否</el-descriptions-item>
+            <el-descriptions-item label="暴露凭据">否，不暴露 callback token / webhook secret</el-descriptions-item>
+            <el-descriptions-item label="挂载位置">{{ plugin.code === 'official_announcement' ? '首页 / 子站页 / 后台预览' : '按声明菜单和权限判断' }}</el-descriptions-item>
           </el-descriptions>
+          <div v-if="plugin.code === 'official_announcement'" class="sub-toolbar">
+            <el-button type="success" plain @click="tab = 'officialAnnouncementPreview'">预览公告</el-button>
+            <el-button plain @click="loadMenuPreview">重新加载挂载状态</el-button>
+          </div>
           <el-table :data="plugin.menus || []" border stripe :empty-text="`暂无${t('plugin.tabs.menus')}`">
             <el-table-column prop="area" :label="t('field.area')" width="120" />
             <el-table-column prop="title" :label="t('field.title')" width="160" />
@@ -565,6 +602,7 @@
         </el-tab-pane>
 
         <el-tab-pane :label="plugin.code === 'official_announcement' ? '公告配置' : t('plugin.tabs.config')" name="config">
+          <p class="tab-note">配置区只保留生效摘要和编辑入口；配置模型、原始配置和调试 JSON 已移入“技术详情”。</p>
           <el-alert
             :title="plugin.code === 'official_announcement' ? '公告开关、公告内容、链接文字、链接地址和是否允许关闭通过配置管理；保存后后台预览会刷新。' : t('plugin.configCapabilityNote')"
             type="info"
@@ -573,14 +611,30 @@
             class="mb"
           />
 
-          <el-collapse v-model="configPanels">
-            <el-collapse-item name="schema" :title="t('plugin.config.schema')">
-              <pre class="json-box">{{ formatJSON(plugin.config_schema || {}) }}</pre>
-            </el-collapse-item>
-            <el-collapse-item name="resolved" :title="t('plugin.config.resolvedPanel')">
-              <pre class="json-box">{{ formatJSON(plugin.resolved_config || {}) }}</pre>
-            </el-collapse-item>
-          </el-collapse>
+          <section class="summary-grid mb">
+            <div class="summary-card">
+              <span>配置来源</span>
+              <strong>{{ configSourceLabel }}</strong>
+              <small>全局配置、默认值和子站覆盖共同决定生效配置。</small>
+            </div>
+            <div class="summary-card">
+              <span>生效字段</span>
+              <strong>{{ configEffectiveCount }}</strong>
+              <small>原始配置 JSON 已移入技术详情。</small>
+            </div>
+            <div class="summary-card">
+              <span>配置模型</span>
+              <strong>{{ configSchemaCount ? `${configSchemaCount} 项` : '未声明' }}</strong>
+              <small>{{ schemaErrors.length ? '存在校验错误' : '当前校验正常' }}</small>
+            </div>
+          </section>
+
+          <section v-if="plugin.code === 'official_announcement'" class="official-config-grid mb">
+            <div v-for="row in officialAnnouncementConfigRows" :key="row.label" class="official-config-item">
+              <span>{{ row.label }}</span>
+              <strong>{{ row.value }}</strong>
+            </div>
+          </section>
 
           <section class="config-card" data-testid="plugin-global-config-panel">
             <div class="config-card-header">
@@ -614,6 +668,7 @@
         </el-tab-pane>
 
         <el-tab-pane v-if="plugin.code === 'official_announcement'" label="公告预览" name="officialAnnouncementPreview">
+          <p class="tab-note">后台预览复用官方 iframe Host，不允许远程 iframe URL，也不暴露管理员 Token、回调 Token 或 Webhook 密钥。</p>
           <el-alert
             type="info"
             show-icon
@@ -627,7 +682,7 @@
           </div>
         </el-tab-pane>
 
-        <el-tab-pane :label="t('plugin.tabs.hooks')" name="hooks">
+        <el-tab-pane v-if="showLegacyTechnicalTabs" :label="t('plugin.tabs.hooks')" name="hooks">
           <el-alert
             type="info"
             show-icon
@@ -825,7 +880,7 @@
                   <pre class="mono pre">{{ hookExecTarget.error_message || '-' }}</pre>
                 </el-descriptions-item>
                 <el-descriptions-item :label="t('plugin.hook.metadata')" :span="2">
-                  <pre class="mono pre">{{ formatJSON(jsonValue(hookExecTarget.metadata_json)) }}</pre>
+                  <pre class="mono pre">{{ formatJSON(redactSensitive(jsonValue(hookExecTarget.metadata_json))) }}</pre>
                 </el-descriptions-item>
               </el-descriptions>
 
@@ -837,7 +892,7 @@
           </el-drawer>
         </el-tab-pane>
 
-        <el-tab-pane :label="t('plugin.tabs.migrations')" name="migrations">
+        <el-tab-pane v-if="showLegacyTechnicalTabs" :label="t('plugin.tabs.migrations')" name="migrations">
           <el-alert
             type="info"
             show-icon
@@ -885,7 +940,7 @@
           </el-table>
         </el-tab-pane>
 
-        <el-tab-pane :label="t('plugin.tabs.routes')" name="routes">
+        <el-tab-pane v-if="showLegacyTechnicalTabs" :label="t('plugin.tabs.routes')" name="routes">
           <el-table :data="plugin.routes || []" border stripe :empty-text="`暂无${t('plugin.tabs.routes')}`">
             <el-table-column prop="area" :label="t('field.area')" width="120" />
             <el-table-column prop="method" :label="t('field.method')" width="110" />
@@ -895,6 +950,7 @@
         </el-tab-pane>
 
         <el-tab-pane :label="t('plugin.tabs.audit')" name="audit">
+          <p class="tab-note">展示当前插件最近审计摘要；完整审计追踪请进入“运行记录 / 审计”治理域。</p>
           <el-alert
             type="info"
             show-icon
@@ -961,9 +1017,9 @@
               <template #default="{ row }">
                 <details>
                   <summary class="muted">{{ t('common.view') }}{{ t('plugin.audit.diff') }} / {{ t('plugin.audit.metadata') }}</summary>
-                  <pre class="json-box compact">{{ formatJSON(jsonValue(row.old_value)) }}</pre>
-                  <pre class="json-box compact">{{ formatJSON(jsonValue(row.new_value)) }}</pre>
-                  <pre class="json-box compact">{{ formatJSON(jsonValue(row.metadata_json)) }}</pre>
+                  <pre class="json-box compact">{{ formatJSON(redactSensitive(jsonValue(row.old_value))) }}</pre>
+                  <pre class="json-box compact">{{ formatJSON(redactSensitive(jsonValue(row.new_value))) }}</pre>
+                  <pre class="json-box compact">{{ formatJSON(redactSensitive(jsonValue(row.metadata_json))) }}</pre>
                 </details>
               </template>
             </el-table-column>
@@ -976,6 +1032,27 @@
             :total="auditTotal"
             @change="loadAudit"
           />
+          <div class="sub-toolbar mt">
+            <el-button type="primary" plain @click="openRuntimeGovernance('audit')">查看完整审计日志</el-button>
+          </div>
+        </el-tab-pane>
+
+        <el-tab-pane label="技术详情" name="technical">
+          <p class="tab-note">低频技术字段、原始声明和 JSON 默认折叠，仅用于排障；敏感字段会脱敏显示。</p>
+          <section class="export-panel mb" data-testid="plugin-export-panel">
+            <div>
+              <h4>导出本地插件包</h4>
+              <p>导出声明型插件包：manifest、README、config.example.json、checksums，不包含敏感配置、用户数据、运行时代码或外部 SQL。</p>
+            </div>
+            <el-button type="primary" plain data-testid="plugin-export-open" @click="openExportDialog">导出本地插件包</el-button>
+          </section>
+
+          <el-empty v-if="!technicalDetailBlocks.length" description="暂无技术详情" />
+          <el-collapse v-else v-model="technicalPanels" class="technical-collapse">
+            <el-collapse-item v-for="block in technicalDetailBlocks" :key="block.name" :name="block.name" :title="block.title">
+              <pre class="json-box">{{ formatJSON(block.value) }}</pre>
+            </el-collapse-item>
+          </el-collapse>
         </el-tab-pane>
         </el-tabs>
       </div>
@@ -1095,7 +1172,7 @@ const selectedPermission = ref(null);
 const selectedPermissionRefs = ref([]);
 const schemaErrors = ref([]);
 const configVersionsVisible = ref(false);
-const configPanels = ref([]);
+const technicalPanels = ref([]);
 const editableConfig = ref({});
 const auditLoading = ref(false);
 const auditRows = ref([]);
@@ -1180,6 +1257,7 @@ const title = computed(() => safePlugin.value ? `${safePlugin.value.name || safe
 const exportPreviewFiles = computed(() => (exportPreview.value?.export_preview?.files || []).map((path) => ({ path })));
 const canViewOfficialAnnouncement = computed(() => (auth?.can ? auth.can('plugin.read') : true));
 const canEditPluginConfig = computed(() => (auth?.can ? auth.can('plugin.write') : true));
+const showLegacyTechnicalTabs = false;
 const previewRefreshKey = ref(0);
 const canRunEnablePrecheck = computed(() => {
   const p = props.plugin;
@@ -1212,9 +1290,10 @@ const canRunPackageUpgrade = computed(() => {
 watch(
   () => props.plugin,
   (p) => {
-    tab.value = props.initialTab || 'overview';
+    tab.value = normalizeDetailTab(props.initialTab || 'overview', p);
     permQ.value = '';
     schemaErrors.value = [];
+    technicalPanels.value = [];
     editableConfig.value = jsonValue(p?.config_json);
     // Reset audit query state for new plugin target.
     auditQ.action = '';
@@ -1243,6 +1322,7 @@ watch(
     upgradeResult.value = null;
     upgradeTasks.value = [];
     upgradeTasksTotal.value = 0;
+    if (visible.value && tab.value === 'runtime') loadHooks();
     if (visible.value && tab.value === 'hooks') loadHooks();
     if (visible.value && tab.value === 'migrations') loadMigrations();
     if (visible.value && tab.value === 'readiness') {
@@ -1258,22 +1338,40 @@ watch(
   (t) => {
     if (!visible.value) return;
     if (!t) return;
-    tab.value = t;
-    if (t === 'audit') loadAudit();
-    if (t === 'hooks') loadHooks();
-    if (t === 'migrations') loadMigrations();
-    if (t === 'readiness') loadReadiness();
+    const nextTab = normalizeDetailTab(t, props.plugin);
+    tab.value = nextTab;
+    if (nextTab === 'audit') loadAudit();
+    if (nextTab === 'runtime' || nextTab === 'hooks') loadHooks();
+    if (nextTab === 'migrations') loadMigrations();
+    if (nextTab === 'readiness') loadReadiness();
   },
 );
 
 watch(tab, (t) => {
   if (!visible.value) return;
   if (t === 'audit') loadAudit();
-  if (t === 'hooks') loadHooks();
+  if (t === 'runtime' || t === 'hooks') loadHooks();
   if (t === 'migrations') loadMigrations();
   if (t === 'readiness') loadReadiness();
   if (t === 'menus') loadMenuPreview();
 });
+
+function normalizeDetailTab(value, plugin = props.plugin) {
+  const name = String(value || 'overview');
+  const code = plugin?.code || plugin?.plugin_code || '';
+  if (name === 'officialAnnouncementPreview' && code !== 'official_announcement') return 'overview';
+  const map = {
+    callbackTokens: 'webhookSecrets',
+    readiness: 'technical',
+    dependencies: 'technical',
+    contentTypes: 'technical',
+    permissions: 'technical',
+    hooks: 'runtime',
+    migrations: 'technical',
+    routes: 'technical',
+  };
+  return map[name] || name;
+}
 
 function readinessTagType(status) {
   if (status === 'pass') return 'success';
@@ -1612,6 +1710,105 @@ function openWebhookGovernance(targetTab) {
       cbr_plugin_code: props.plugin?.code || '',
     },
   });
+}
+
+function openRuntimeGovernance(targetTab) {
+  router.push({
+    path: '/admin-next/plugins/runtime',
+    query: {
+      tab: targetTab || 'operations',
+      plugin_code: props.plugin?.code || '',
+    },
+  });
+}
+
+const effectiveConfig = computed(() => {
+  const resolved = props.plugin?.resolved_config;
+  if (resolved && typeof resolved === 'object' && !Array.isArray(resolved)) {
+    return resolved.effective && typeof resolved.effective === 'object' ? resolved.effective : resolved;
+  }
+  return {};
+});
+
+const defaultConfig = computed(() => {
+  const resolved = props.plugin?.resolved_config;
+  return resolved && typeof resolved === 'object' && resolved.default && typeof resolved.default === 'object' ? resolved.default : {};
+});
+
+const configEffectiveCount = computed(() => Object.keys(effectiveConfig.value || {}).length);
+const configSchemaCount = computed(() => {
+  const schema = props.plugin?.config_schema;
+  if (!schema || typeof schema !== 'object') return 0;
+  if (schema.properties && typeof schema.properties === 'object') return Object.keys(schema.properties).length;
+  return Object.keys(schema).length;
+});
+
+const configSourceLabel = computed(() => {
+  const hasGlobal = Object.keys(jsonValue(props.plugin?.config_json) || {}).length > 0;
+  const hasDefault = Object.keys(defaultConfig.value || {}).length > 0;
+  if (hasGlobal && hasDefault) return '全局配置 + 默认值';
+  if (hasGlobal) return '全局配置';
+  if (hasDefault) return '默认值';
+  return '未配置';
+});
+
+const officialAnnouncementConfigRows = computed(() => {
+  const cfg = effectiveConfig.value || {};
+  const pick = (...keys) => {
+    for (const key of keys) {
+      if (cfg[key] !== undefined && cfg[key] !== null && cfg[key] !== '') return cfg[key];
+    }
+    return '-';
+  };
+  const yesNo = (value) => {
+    if (value === true) return '是';
+    if (value === false) return '否';
+    if (String(value).toLowerCase() === 'true') return '是';
+    if (String(value).toLowerCase() === 'false') return '否';
+    return '-';
+  };
+  return [
+    { label: '公告开关', value: yesNo(pick('enabled', 'is_enabled')) },
+    { label: '公告内容', value: String(pick('message', 'content', 'title')) },
+    { label: '链接文字', value: String(pick('link_text', 'linkLabel', 'cta_text')) },
+    { label: '链接地址', value: String(pick('link_url', 'url', 'href')) },
+    { label: '是否允许关闭', value: yesNo(pick('dismissible', 'allow_close', 'closable')) },
+  ];
+});
+
+const technicalDetailBlocks = computed(() => {
+  const p = props.plugin || {};
+  const blocks = [
+    { name: 'config_schema', title: '原始配置模型（config_schema）', value: p.config_schema },
+    { name: 'resolved_config', title: '生效配置快照（resolved_config）', value: p.resolved_config },
+    { name: 'config_json', title: '当前配置 JSON', value: jsonValue(p.config_json) },
+    { name: 'content_types', title: '内容类型声明', value: p.content_type_definitions || p.content_types },
+    { name: 'permissions', title: '权限声明', value: p.permissions },
+    { name: 'frontend_mounts', title: '前端挂载声明', value: { menus: p.menus || [], routes: p.routes || [] } },
+    { name: 'webhook_hooks', title: 'Webhook / Hook 声明', value: p.hooks },
+    { name: 'dependencies', title: '依赖声明', value: dependencyRows.value },
+    { name: 'health', title: '运行健康原始摘要', value: p.health },
+  ];
+  return blocks
+    .map((block) => ({ ...block, value: redactSensitive(block.value) }))
+    .filter((block) => hasTechnicalValue(block.value));
+});
+
+function hasTechnicalValue(value) {
+  if (Array.isArray(value)) return value.length > 0;
+  if (value && typeof value === 'object') return Object.keys(value).length > 0;
+  return value !== undefined && value !== null && value !== '';
+}
+
+function redactSensitive(value) {
+  const sensitive = ['secret', 'token', 'authorization', 'signature', 'token_hash', 'hmac'];
+  if (Array.isArray(value)) return value.map((item) => redactSensitive(item));
+  if (!value || typeof value !== 'object') return value;
+  return Object.fromEntries(Object.entries(value).map(([key, val]) => {
+    const lower = String(key).toLowerCase();
+    if (sensitive.some((word) => lower.includes(word))) return [key, '[已脱敏]'];
+    return [key, redactSensitive(val)];
+  }));
 }
 
 const filteredPermissions = computed(() => {
@@ -2163,12 +2360,31 @@ async function confirmExport() {
 .tabs {
   margin-top: 16px;
 }
+.tabs :deep(.el-tabs__nav-scroll) {
+  overflow-x: auto;
+  scrollbar-width: thin;
+}
+.tabs :deep(.el-tabs__item) {
+  height: 36px;
+  padding: 0 12px;
+  font-size: 13px;
+}
 .tabs :deep(.el-tabs__content) {
   min-height: 420px;
   padding-top: 4px;
 }
 .tabs :deep(.el-tab-pane) {
   min-height: 360px;
+}
+.tab-note {
+  margin: 0 0 12px;
+  padding: 10px 12px;
+  border: 1px solid #dbeafe;
+  border-radius: 10px;
+  background: #f8fbff;
+  color: #475569;
+  font-size: 13px;
+  line-height: 1.55;
 }
 .sub-toolbar {
   display: flex;
@@ -2246,6 +2462,50 @@ async function confirmExport() {
   gap: 8px;
   min-width: 320px;
 }
+.summary-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+}
+.summary-card,
+.official-config-item {
+  padding: 12px;
+  border: 1px solid #e2e8f0;
+  border-radius: 10px;
+  background: #fff;
+}
+.summary-card span,
+.official-config-item span {
+  display: block;
+  color: #64748b;
+  font-size: 12px;
+}
+.summary-card strong,
+.official-config-item strong {
+  display: block;
+  margin-top: 4px;
+  color: #0f172a;
+  font-size: 18px;
+  word-break: break-word;
+}
+.summary-card small {
+  display: block;
+  margin-top: 6px;
+  color: #94a3b8;
+  line-height: 1.45;
+}
+.official-config-grid {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: 10px;
+}
+.official-config-item strong {
+  font-size: 14px;
+}
+.technical-collapse :deep(.el-collapse-item__header) {
+  padding: 0 12px;
+  font-weight: 600;
+}
 .export-panel {
   display: flex;
   justify-content: space-between;
@@ -2303,8 +2563,31 @@ async function confirmExport() {
   gap: 8px;
   margin-top: 12px;
 }
+.official-quick-links {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  line-height: 1.5;
+}
 .official-announcement-preview .host {
   min-height: 56px;
+}
+
+@media (max-width: 900px) {
+  .summary-grid,
+  .official-config-grid {
+    grid-template-columns: 1fr;
+  }
+  .config-card-header,
+  .export-panel {
+    flex-direction: column;
+    align-items: stretch;
+  }
+  .config-card-tools {
+    min-width: 0;
+    justify-content: flex-start;
+  }
 }
 
 :global(.plugin-detail-drawer .el-table .row-danger td) {

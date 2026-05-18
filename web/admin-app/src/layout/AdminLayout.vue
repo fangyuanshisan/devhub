@@ -37,7 +37,7 @@
           <el-icon class="fold-icon"><Fold /></el-icon>
           <el-breadcrumb separator="/" class="breadcrumb" data-testid="admin-breadcrumb">
             <el-breadcrumb-item v-if="activeModule" data-testid="breadcrumb-module">{{ activeModule.title }}</el-breadcrumb-item>
-            <el-breadcrumb-item v-if="activeNavGroup" data-testid="breadcrumb-group">{{ activeNavGroup.title }}</el-breadcrumb-item>
+            <el-breadcrumb-item v-if="showGroupBreadcrumb" data-testid="breadcrumb-group">{{ activeNavGroup.title }}</el-breadcrumb-item>
             <el-breadcrumb-item v-if="activeNavPage" data-testid="breadcrumb-page">{{ activeNavPage.label }}</el-breadcrumb-item>
             <el-breadcrumb-item v-if="showLeafBreadcrumb" data-testid="breadcrumb-leaf">{{ currentPageTitle }}</el-breadcrumb-item>
           </el-breadcrumb>
@@ -135,6 +135,7 @@ const activeNavGroupKey = computed(() => {
 });
 const activeNavGroup = computed(() => activeGroups.value.find((g) => g.key === activeNavGroupKey.value) || null);
 const activeNavPage = computed(() => activeNavGroup.value?.items?.find((item) => item.key === activeNavPageKey.value) || null);
+const showGroupBreadcrumb = computed(() => activeModuleKey.value !== 'plugins' && !!activeNavGroup.value);
 
 const currentPageTitle = computed(() => {
   const title = route.meta?.breadcrumbTitle || route.meta?.title || activeNavPage.value?.label || '控制台';

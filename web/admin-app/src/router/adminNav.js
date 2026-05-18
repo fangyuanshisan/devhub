@@ -42,55 +42,14 @@ export const adminModuleGroups = {
   ],
   plugins: [
     {
-      key: 'overview',
-      title: '插件总览',
+      key: 'governance',
+      title: '插件管理',
       items: [
-        { key: 'overview', label: '总览', path: '/plugins/overview', permission: 'plugin.read' },
-        { key: 'list', label: '插件列表', path: '/plugins/list', permission: 'plugin.read' },
-        { key: 'config', label: '配置中心', path: '/plugins/config', permission: 'plugin.read' },
-        { key: 'navigation', label: '前端挂载', path: '/plugins/navigation', permission: 'plugin.read' },
-      ],
-    },
-    {
-      key: 'packages',
-      title: '插件包治理',
-      items: [
-        { key: 'install', label: '本地包与预检', path: '/plugins/install', permission: 'plugin.read' },
-        { key: 'packageUploads', label: '暂存上传包', path: '/plugins/packages/uploads', permission: 'plugin.read' },
-        { key: 'remotePackages', label: '远程包下载', path: '/plugins/packages/remote', permission: 'plugin.read' },
-        { key: 'versions', label: '版本与升级', path: '/plugins/versions', permission: 'plugin.read' },
-        { key: 'remoteIndexes', label: '远程索引', path: '/plugins/remote-indexes', permission: 'plugin.read' },
-      ],
-    },
-    {
-      key: 'webhook',
-      title: 'Webhook 治理',
-      items: [
-        { key: 'webhooks', label: 'Webhook 总览', path: '/plugins/webhooks', permission: 'plugin.read' },
-        { key: 'events', label: '事件通知', path: '/plugins/events', permission: 'plugin.read' },
-      ],
-    },
-    {
-      key: 'publishers',
-      title: '可信发布者',
-      items: [
-        { key: 'trustedPublishers', label: '发布者列表', path: '/plugins/trusted-publishers', permission: 'plugin.read' },
-        { key: 'dependencies', label: '依赖 / 兼容性', path: '/plugins/dependencies', permission: 'plugin.read' },
-        { key: 'configKeys', label: '密钥轮换', path: '/plugins/config-keys', permission: 'plugin.manage' },
-      ],
-    },
-    {
-      key: 'logs',
-      title: '运行记录 / 审计',
-      items: [
-        { key: 'operations', label: '操作历史', path: '/plugins/operations', permission: 'plugin.read' },
-        { key: 'approvals', label: '安装 / 升级审批', path: '/plugins/approvals', permission: 'plugin.read' },
-        { key: 'audit', label: '审计日志', path: '/plugins/audit', permission: 'plugin.read' },
-        { key: 'hooks', label: 'Hook 排障', path: '/plugins/hooks', permission: 'plugin.read' },
-        { key: 'searchIndex', label: '搜索索引', path: '/plugins/search-index', permission: 'plugin.read' },
-        { key: 'content', label: '内容治理', path: '/plugins/content', permission: 'plugin.read' },
-        { key: 'permissions', label: '权限矩阵', path: '/plugins/permissions', permission: 'plugin.read' },
-        { key: 'developer', label: '开发者工具', path: '/plugins/developer', permission: 'plugin.read' },
+        { key: 'overview', label: '插件总览', path: '/plugins/overview', permission: 'plugin.read' },
+        { key: 'packages', label: '插件包治理', path: '/plugins/packages', permission: 'plugin.read' },
+        { key: 'webhooks', label: 'Webhook 治理', path: '/plugins/webhooks', permission: 'plugin.read' },
+        { key: 'publishers', label: '发布者与信任', path: '/plugins/publishers', permission: 'plugin.read' },
+        { key: 'runtime', label: '运行记录 / 审计', path: '/plugins/runtime', permission: 'plugin.read' },
       ],
     },
   ],

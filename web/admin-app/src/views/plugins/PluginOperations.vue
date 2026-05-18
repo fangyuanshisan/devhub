@@ -28,7 +28,7 @@
     </el-card>
 
     <el-card shadow="never">
-      <el-table :data="items" v-loading="loading" data-testid="plugin-operations-table">
+      <el-table :data="items" v-loading="loading" empty-text="暂无操作记录" data-testid="plugin-operations-table">
         <el-table-column prop="operation_id" label="操作 ID" min-width="220" />
         <el-table-column prop="operation_type" label="类型" width="110">
           <template #default="{ row }">{{ operationTypeLabel(row.operation_type) }}</template>

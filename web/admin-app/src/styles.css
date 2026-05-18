@@ -1,7 +1,7 @@
 html,
 body,
 #app {
-  min-width: 1280px;
+  min-width: 1024px;
   min-height: 100vh;
   margin: 0;
   background: #eef1f5;
@@ -203,7 +203,7 @@ body,
 
 .main {
   height: calc(100vh - 88px);
-  padding: 12px 14px;
+  padding: 12px;
   overflow: auto;
   background: #eef1f5;
 }
@@ -296,8 +296,9 @@ body,
 
 /* ===== plugins pages (admin-next/plugins/*) ===== */
 .plugin-page {
-  max-width: 1320px;
-  margin: 0 auto;
+  width: 100%;
+  max-width: none;
+  margin: 0;
   padding: 4px 0 24px;
 }
 
@@ -314,14 +315,21 @@ body,
   box-shadow: 0 1px 0 rgba(17, 24, 39, 0.04);
 }
 
+.plugin-page-header.compact-header,
+.plugin-page-header.overview-workbench-header {
+  align-items: center;
+  margin-bottom: 10px;
+  padding: 12px 16px;
+}
+
 .plugin-page-header h2 {
   margin: 0;
-  font-size: 22px;
+  font-size: 20px;
   letter-spacing: 0.2px;
 }
 
 .plugin-page-header p {
-  margin: 8px 0 0;
+  margin: 6px 0 0;
   max-width: 820px;
 }
 
@@ -340,11 +348,22 @@ body,
   gap: 10px;
 }
 
+.primary-actions.compact-actions {
+  justify-content: flex-end;
+  gap: 8px;
+}
+
 .stats-grid {
   display: grid;
   grid-template-columns: repeat(5, minmax(0, 1fr));
   gap: 12px;
   margin-bottom: 14px;
+}
+
+.stats-grid.compact,
+.stats-grid.overview-stats {
+  gap: 10px;
+  margin-bottom: 10px;
 }
 
 .health-grid {
@@ -370,6 +389,12 @@ body,
   transition: box-shadow 160ms ease, transform 160ms ease, border-color 160ms ease;
 }
 
+.stats-grid.compact .stat-button,
+.stats-grid.overview-stats .stat-button {
+  min-height: 78px;
+  padding: 12px;
+}
+
 .stat-button:hover {
   border-color: #d7e2f3;
   box-shadow: 0 10px 22px rgba(15, 23, 42, 0.08);
@@ -388,9 +413,9 @@ body,
 }
 
 .stat-v {
-  margin-top: 10px;
+  margin-top: 6px;
   color: #111827;
-  font-size: 30px;
+  font-size: 28px;
   font-weight: 800;
   line-height: 1.1;
 }
@@ -403,18 +428,35 @@ body,
 }
 
 .health-collapse {
-  margin-bottom: 14px;
+  margin-bottom: 10px;
   border: 0;
   border-radius: 12px;
   background: #fff;
   overflow: hidden;
 }
 
+.health-collapse.compact-collapse,
+.health-collapse.overview-collapse {
+  margin-bottom: 10px;
+}
+
 .health-collapse .el-collapse-item__header {
-  height: 48px;
+  height: 42px;
   padding: 0 14px;
   border-bottom: 1px solid #edf0f5;
   font-size: 14px;
+}
+
+.collapse-title {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  min-width: 0;
+}
+
+.collapse-title .muted {
+  font-size: 12px;
+  font-weight: 400;
 }
 
 .health-collapse .el-collapse-item__wrap {
@@ -518,12 +560,27 @@ body,
   justify-content: space-between;
   gap: 10px;
   flex-wrap: wrap;
-  margin: 14px 0;
+  margin: 10px 0;
   padding: 12px 14px;
   border: 1px solid #edf0f5;
   border-radius: 12px;
   background: #fff;
   box-shadow: 0 1px 0 rgba(17, 24, 39, 0.04);
+}
+
+@media (max-width: 1180px) {
+  .plugin-page-header {
+    align-items: flex-start;
+  }
+
+  .stats-grid,
+  .health-grid {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+
+  .plugin-page .el-table .el-table__fixed-right {
+    box-shadow: -4px 0 10px rgba(15, 23, 42, 0.06);
+  }
 }
 
 .action-panel.in-drawer {
