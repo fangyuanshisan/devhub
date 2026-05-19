@@ -88,6 +88,13 @@ v1.8.3-S11 实现边界：
 - health check 只做 `GET {endpoint_url}{health_check_path}` 探活，并记录 `hook_executions(service_type=external_service)`；不会执行插件包脚本、不会加载远程代码、不会开放 blocking Hook。
 - external_service token 与 Webhook Secret、Callback Token 分离管理，列表 / 详情 / 执行记录 / 审计不回显明文。
 
+v1.8.3-S14 external_service Hook 声明边界：
+
+- `hooks[]` 可声明 `service_type=external_service`、`mode=non_blocking`、`path`、`method=POST`、`timeout_ms`、`retry_enabled`、`max_attempts`、`failure_policy`、`enabled`。
+- external_service Hook `path` 必须是相对路径，实际投递地址为 `{endpoint_url}{path}`；manifest 不能通过 Hook path 覆盖域名。
+- external_service Hook 仍不支持 `blocking`；投递失败不阻断主业务流程。
+- 投递过程只做受控 HTTP Webhook，不执行插件包脚本、不加载远程代码、不开放远程 iframe。
+
 完整设计见 [插件运行模型设计](PLUGIN_RUNTIME_MODEL.md)。
 
 Webhook / HTTP 插件服务协议设计见 [Webhook / HTTP 插件服务协议（设计）](PLUGIN_WEBHOOK_PROTOCOL.md)。
@@ -139,6 +146,18 @@ DevHub 插件包数据库迁移规范统一为 `migrations/`：
 - install / upgrade 真实流程仍会服务端复跑 dry-run，并且只基于 `migrations/` 计划和 manifest 声明做治理记录；不会执行根目录 SQL 或第三方 SQL。
 - 后续版本可考虑把根目录 `001_schema.sql` 从 warning 升级为 error；本轮先保留兼容 warning。
 - v1.8.3-S12 进一步收口 upload -> promote -> install：promote 只把包转入 `storage/plugins/packages/` 本地仓库；install 只能从本地仓库包发起，且必须携带当前 install dry-run 计划凭证 `dry_run_id`。upload/staging 阶段的 dry-run 只用于预检，不可直接替代 install dry-run。
+- v1.8.3-S13 增加真实 zip fixture 验收：`scripts/build-plugin-package-fixtures.sh` 可生成 valid / blocked / deprecated schema 三类插件包，后台 E2E 会真实上传 zip、promote、重新 install dry-run 并安装。valid 包只使用 `migrations/001_init.sql`；blocked 包包含危险脚本用于验证不可 promote；deprecated 包验证根目录 `001_schema.sql` 只 warning、不进入标准 migration plan、不执行。
+- v1.8.3-S15 增加真实声明型插件业务闭环 fixture：同一脚本可生成 `devhub-fixture-links-plugin*.zip`，插件编码为 `official_links*`，中文名为“声明型友情链接插件”。该包声明 `friend_link*` content_type、`official_links*.link.create/manage`、`official_links*.config.manage`、`official_links*.menu.view` 权限、后台 / 前台菜单、`enabled/title/max_links/display_position` 配置 Schema 和 `migrations/001_init.sql` 最小业务表。该 fixture 用于验证 upload -> precheck -> promote -> local repository -> install dry-run -> install -> enable -> community enable -> 菜单 / 内容类型 / 权限矩阵 / 配置 / 阻断的完整链路；仍不包含 package scripts、远程代码、远程 iframe、根目录 `001_schema.sql` 或第三方可执行资产。
+
+S13 fixture 使用：
+
+```bash
+./scripts/build-plugin-package-fixtures.sh --suffix smoke
+docker compose run --rm admin-e2e npx playwright test tests/e2e/plugin-package-real-fixtures.spec.js
+docker compose run --rm admin-e2e npx playwright test tests/e2e/plugin-declarative-install-use.spec.js
+```
+
+生成物位于 `scripts/fixtures/plugin-packages/dist/`，源码目录 `generated-src/` 和 zip 产物均为可重复生成的测试产物，不作为正式插件发布物提交。
 
 ### 后台中文状态与异常提示
 

@@ -366,6 +366,8 @@ func (s *Service) dispatchHook(event pluginregistry.HookEvent) error {
 		event.Ctx.ActorType = actorTypeFromActor(event.Ctx.Actor)
 	}
 
+	s.enqueueExternalServiceHookDeliveries(event)
+
 	if !s.shouldRunHook(event) {
 		return nil
 	}

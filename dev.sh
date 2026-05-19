@@ -632,9 +632,9 @@ is_devhub_running() {
   local url="http://127.0.0.1:${port}/api/v1/health"
   local body=""
   if command -v curl >/dev/null 2>&1; then
-    body="$(curl -fsS --max-time 2 "$url" 2>/dev/null || true)"
+    body="$(curl --noproxy 127.0.0.1,localhost -fsS --max-time 2 "$url" 2>/dev/null || true)"
   elif command -v wget >/dev/null 2>&1; then
-    body="$(wget -qO- --timeout=2 "$url" 2>/dev/null || true)"
+    body="$(NO_PROXY=127.0.0.1,localhost no_proxy=127.0.0.1,localhost wget -qO- --timeout=2 "$url" 2>/dev/null || true)"
   fi
   [[ "$body" == *'"ok":true'* || "$body" == *'"data_source"'* || "$body" == *'"database"'* ]]
 }
@@ -861,9 +861,9 @@ api_get() {
   local base
   base="$(api_base_for_build)"
   if command -v curl >/dev/null 2>&1; then
-    curl -fsS --max-time 5 "${base}${path}"
+    curl --noproxy 127.0.0.1,localhost -fsS --max-time 5 "${base}${path}"
   elif command -v wget >/dev/null 2>&1; then
-    wget -qO- --timeout=5 "${base}${path}"
+    NO_PROXY=127.0.0.1,localhost no_proxy=127.0.0.1,localhost wget -qO- --timeout=5 "${base}${path}"
   else
     die "curl or wget is required for API readiness checks."
   fi

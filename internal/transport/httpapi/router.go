@@ -6901,6 +6901,8 @@ func firstQuery(c *gin.Context, keys ...string) string {
 func (s *Server) createPostToTopicRequest(req domain.CreatePostRequest) (domain.CreateTopicRequest, error) {
 	req.Site = strings.TrimSpace(req.Site)
 	req.Board = strings.TrimSpace(req.Board)
+	req.ContentType = pluginregistry.NormalizeContentType(req.ContentType)
+	req.PluginCode = strings.TrimSpace(req.PluginCode)
 	if req.Site == "" || req.Site == "portal" {
 		return domain.CreateTopicRequest{}, fmt.Errorf("请选择具体子站")
 	}
@@ -6913,6 +6915,12 @@ func (s *Server) createPostToTopicRequest(req domain.CreatePostRequest) (domain.
 	}
 	categoryID := categoryIDByBoard(communityID, req.Board)
 	contentType := adminContentTypeByBoard(req.Board)
+	if req.CategoryID > 0 {
+		categoryID = req.CategoryID
+	}
+	if req.ContentType != "" {
+		contentType = req.ContentType
+	}
 	return domain.CreateTopicRequest{
 		UserID:        currentDemoUserID(),
 		CommunityID:   communityID,
@@ -6920,6 +6928,7 @@ func (s *Server) createPostToTopicRequest(req domain.CreatePostRequest) (domain.
 		CategoryID:    categoryID,
 		Title:         req.Title,
 		ContentType:   contentType,
+		PluginCode:    req.PluginCode,
 		Summary:       req.Summary,
 		Content:       req.Content,
 		Tags:          req.Tags,

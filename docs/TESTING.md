@@ -177,6 +177,94 @@ bash -n dev.sh
 24. external_service 不改变 Secret / Callback Token 安全模型。
 25. blocking Hook 仍未开放。
 
+### v1.8.3-S14 external_service non-blocking Webhook 投递闭环验收项
+
+后端新增覆盖：`internal/service/plugin_external_service_test.go` 的 `TestExternalServiceNonBlockingHookDeliverySuccess`、`TestExternalServiceNonBlockingHookRetryWarningAndSkipped`、`TestExternalServiceManifestRejectsBlockingHook`。
+
+1. external_service Hook 可以声明 `non_blocking`。
+2. external_service Hook 不支持 `blocking`，manifest 校验会拒绝。
+3. 触发 Hook 时主业务流程不等待远端响应。
+4. Hook 触发后创建 `hook_execution`。
+5. `hook_execution pending -> running -> success` 可记录。
+6. 2xx 返回 `success`。
+7. timeout 返回 `timeout`。
+8. 5xx 进入 `retry_scheduled`。
+9. 429 按策略进入 `retry_scheduled`。
+10. 4xx 默认不重试。
+11. 401 / 403 默认不重试。
+12. 超过 `max_attempts` 后 `retry_exhausted`。
+13. `failure_policy=warn` 达阈值后 `health=warning`。
+14. `failure_policy=error` 达阈值后 `health=error`。
+15. 成功后 health 可恢复 `healthy`。
+16. 插件 disabled 时 `execution=skipped`。
+17. 插件 archived 时 `execution=skipped`。
+18. external_service disabled 时 `execution=skipped`。
+19. 子站 disabled 时 `execution=skipped`。
+20. `auth_type=none` 可投递。
+21. `auth_type=bearer` 可投递但 token 不记录。
+22. `hook_execution` 不记录 token 明文。
+23. `hook_execution` 不记录 Authorization Header。
+24. 后台能通过 Hook 执行记录查看 `external_service` 投递结果。
+25. 后台能查看 health warning / error。
+26. 投递失败不导致后台白屏。
+27. 不执行第三方代码。
+28. 不开放动态加载。
+29. blocking Hook 仍未开放。
+30. 不改变 Secret / Callback Token 安全模型。
+
+### v1.8.3-S15 真实声明型插件“安装到使用”闭环验收项
+
+真实 fixture：`scripts/build-plugin-package-fixtures.sh` 生成 `devhub-fixture-links-plugin*.zip`，插件编码为 `official_links*`，content_type 为 `friend_link*`。
+
+建议命令：
+
+```bash
+./scripts/build-plugin-package-fixtures.sh --suffix smoke
+go test ./internal/transport/httpapi -run TestAdminPostCreateSupportsDeclarativePluginContentType -count=1
+go build -o .devhub/devhub .
+docker compose up -d --force-recreate devhub
+docker compose run --rm admin-e2e npx playwright test tests/e2e/plugin-declarative-install-use.spec.js
+```
+
+验收项：
+
+1. 真实声明型插件包可生成。
+2. 真实声明型插件包可上传。
+3. precheck 可识别 manifest。
+4. precheck 可识别 `migrations/`。
+5. precheck 可识别 menus。
+6. precheck 可识别 content_types。
+7. precheck 可识别 permissions。
+8. precheck 可识别 config_schema。
+9. promote 后进入本地仓库。
+10. install 前必须重新 dry-run。
+11. dry-run 不执行 SQL。
+12. install 只基于 `migrations/`。
+13. install 不执行 package scripts。
+14. install 成功后 PluginRegistry reload。
+15. 插件可全局启用。
+16. 插件可子站启用。
+17. 插件菜单 enabled 后可见。
+18. 插件菜单 disabled 后隐藏或不可用。
+19. content_type enabled 后可用。
+20. content_type disabled 后不可新建。
+21. 板块不允许 content_type 时发布失败。
+22. 权限不足时发布失败。
+23. 权限矩阵显示插件权限。
+24. 配置可读取。
+25. 配置可保存。
+26. 配置保存后 ResolvedConfig 更新。
+27. 前端 / 后台挂载声明可见。
+28. 子站 disabled 后插件能力不可用。
+29. 全局 disabled 后插件能力不可用。
+30. archived 后插件新能力停止。
+31. archived 后历史内容可查看。
+32. 历史审计可查看。
+33. 不执行第三方代码。
+34. 不开放动态加载。
+35. 不开放远程 iframe。
+36. blocking Hook 仍未开放。
+
 ### v1.8.3-S1 第一批收敛验收项
 
 1. Webhook 治理页不白屏。
@@ -2389,6 +2477,75 @@ skipped / flaky / TODO 结论：
 - `go test ./...`：通过。
 - `go build ./...`：通过。
 - `./scripts/check-frontend.sh --admin-only --quick`：通过，日志目录 `.devhub/checks/20260519-095725/`。
+
+### v1.8.3-S13 真实插件包验收 S12 链路
+
+fixture 生成脚本：
+
+```bash
+./scripts/build-plugin-package-fixtures.sh --suffix smoke
+```
+
+生成物：
+
+- `devhub-fixture-valid-plugin{suffix}.zip`：可通过链路的真实 zip，包含 `manifest.json`、`checksums.json`、`README.md`、`config.example.json`、`migrations/001_init.sql`，不包含 package scripts。
+- `devhub-fixture-blocked-plugin{suffix}.zip`：包含危险 `scripts/install.sh`，用于验证 blocked / failed 包不可 promote，脚本不会被执行。
+- `devhub-fixture-deprecated-schema-plugin{suffix}.zip`：包含根目录 `001_schema.sql` 和 `migrations/001_init.sql`，用于验证 deprecated warning 与根目录 schema 不执行。
+
+真实链路 E2E：
+
+```bash
+docker compose run --rm admin-e2e npx playwright test tests/e2e/plugin-package-real-fixtures.spec.js
+```
+
+验收项：
+
+1. valid fixture 插件包可生成。
+2. blocked fixture 插件包可生成。
+3. deprecated schema fixture 插件包可生成。
+4. valid 包可上传到暂存区。
+5. blocked 包可上传到暂存区。
+6. blocked 包 precheck 后状态为 blocked / failed。
+7. blocked 包 promote 被后端拒绝。
+8. blocked 包不会进入本地仓库。
+9. valid 包 precheck 后状态为 passed / warning。
+10. valid 包 promote 成功。
+11. promote 后本地仓库出现对应包。
+12. promote 不执行 SQL。
+13. promote 不安装插件。
+14. promote 不启用插件。
+15. promote 不执行第三方代码。
+16. upload 暂存包不能直接 install。
+17. 本地仓库包未 install dry-run 时不能 install。
+18. install dry-run 输出 migration plan。
+19. install dry-run 不执行 SQL。
+20. install dry-run 绑定 package_id / checksum / plugin_code / version。
+21. dry-run 过期或不匹配时 install 被拒绝。
+22. install 只执行 migrations/。
+23. install 不执行根目录 001_schema.sql。
+24. install 不执行 package scripts。
+25. install 成功后 PluginRegistry reload。
+26. install 失败不污染 registry。
+27. 相关操作写审计。
+28. 后台 blocked 状态显示中文阻断原因。
+29. 后台未 dry-run 时禁用 install 按钮。
+30. 不执行第三方代码。
+31. 不开放动态加载。
+32. 不改变 Webhook 协议。
+33. 不改变 Secret / Token 安全模型。
+
+当前说明：S13 E2E 使用真实 Admin API 上传 zip、执行 promote / dry-run / install，并打开后台“暂存上传包”和“本地包与预检”页面做可见性 smoke；该检查不替代全量后台 E2E。
+
+本轮执行结果：
+
+- `bash -n scripts/build-plugin-package-fixtures.sh`：通过。
+- `bash -n dev.sh`：通过。
+- `./scripts/build-plugin-package-fixtures.sh --suffix check`：通过，生成 valid / blocked / deprecated schema 三类真实 zip。
+- `docker compose run --rm admin-e2e npx playwright test tests/e2e/plugin-package-real-fixtures.spec.js`：通过，1 个真实链路 E2E 通过。
+- `go test ./...`：通过。
+- `go build -o .devhub/devhub .`：通过。
+- `git diff --check`：通过。
+- `./scripts/check-frontend.sh --admin-only --quick`：通过，日志目录 `.devhub/checks/20260519-120918/`。
 
 ### 本轮执行命令与结果（v1.7.1）
 

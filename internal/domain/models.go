@@ -95,6 +95,12 @@ type HookDefinition struct {
 	Name             string `json:"name"`
 	Description      string `json:"description,omitempty"`
 	Mode             string `json:"mode,omitempty"`
+	ServiceType      string `json:"service_type,omitempty"`
+	Path             string `json:"path,omitempty"`
+	Method           string `json:"method,omitempty"`
+	RetryEnabled     bool   `json:"retry_enabled,omitempty"`
+	MaxAttempts      int    `json:"max_attempts,omitempty"`
+	Enabled          *bool  `json:"enabled,omitempty"`
 	Blocking         bool   `json:"blocking"`
 	Critical         bool   `json:"critical"`
 	FailurePolicy    string `json:"failure_policy,omitempty"`
@@ -633,6 +639,9 @@ type PageResponse struct {
 type CreatePostRequest struct {
 	Site        string   `json:"site" binding:"required"`
 	Board       string   `json:"board" binding:"required"`
+	CategoryID  int64    `json:"category_id,omitempty"`
+	ContentType string   `json:"content_type,omitempty"`
+	PluginCode  string   `json:"plugin_code,omitempty"`
 	Title       string   `json:"title" binding:"required"`
 	Summary     string   `json:"summary"`
 	Content     string   `json:"content" binding:"required"`

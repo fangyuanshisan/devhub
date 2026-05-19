@@ -1,9 +1,12 @@
 package service
 
 import (
+	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
+	"time"
 
 	"devhub-gin-backend/internal/domain"
 	pluginregistry "devhub-gin-backend/internal/plugins"
@@ -120,5 +123,287 @@ func TestExternalServiceValidationAndDisabledPluginSkipped(t *testing.T) {
 	}
 	if rows[0].Status != "skipped" {
 		t.Fatalf("expected skipped execution status, got %#v", rows[0])
+	}
+}
+
+func TestExternalServiceNonBlockingHookDeliverySuccess(t *testing.T) {
+	repo := store.NewMemoryStore()
+	svc := New(repo)
+	categoryID := installExternalServiceFixturePlugin(t, svc, "fixture_ext_success", "fixture_ext_success.note", "fixture_ext_success.note.create", []domain.HookDefinition{
+		{
+			Name:          pluginregistry.HookAfterCreateContent,
+			Mode:          string(pluginregistry.HookNonBlocking),
+			ServiceType:   "external_service",
+			Path:          "/hooks/content.after_create",
+			Method:        "POST",
+			TimeoutMS:     800,
+			RetryEnabled:  true,
+			MaxAttempts:   2,
+			FailurePolicy: "warn",
+		},
+	})
+	received := make(chan *http.Request, 1)
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Header.Get("Authorization") != "" {
+			t.Fatalf("auth_type=none should not send Authorization header")
+		}
+		if r.Header.Get("X-DevHub-Delivery-Mode") != string(pluginregistry.HookNonBlocking) {
+			t.Fatalf("unexpected delivery mode header: %q", r.Header.Get("X-DevHub-Delivery-Mode"))
+		}
+		received <- r.Clone(r.Context())
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte("ok"))
+	}))
+	defer server.Close()
+
+	enabled := true
+	if _, err := svc.UpdatePluginExternalServiceConfig(PluginExternalServiceOperator{Name: "tester"}, "fixture_ext_success", domain.PluginExternalServiceUpdateRequest{
+		EndpointURL:      server.URL,
+		HealthCheckPath:  "/health",
+		TimeoutMS:        800,
+		FailurePolicy:    "warn",
+		AuthType:         "none",
+		Enabled:          &enabled,
+		WarningThreshold: 1,
+		ErrorThreshold:   2,
+	}); err != nil {
+		t.Fatalf("save external_service config: %v", err)
+	}
+
+	started := time.Now()
+	topic, err := svc.CreateTopic(domain.CreateTopicRequest{
+		UserID:       1,
+		CommunityID:  1,
+		CategoryID:   categoryID,
+		Title:        "external service delivery",
+		ContentType:  "fixture_ext_success.note",
+		Content:      "hello",
+		ActorContext: domain.ActorContext{UserID: 1, Permissions: []string{"fixture_ext_success.note.create"}},
+	})
+	if err != nil {
+		t.Fatalf("create topic: %v", err)
+	}
+	if topic == nil || topic.ID == 0 {
+		t.Fatal("expected topic to be created")
+	}
+	if elapsed := time.Since(started); elapsed > 500*time.Millisecond {
+		t.Fatalf("non-blocking hook should not wait for remote endpoint, elapsed=%s", elapsed)
+	}
+	select {
+	case req := <-received:
+		if req.URL.Path != "/hooks/content.after_create" {
+			t.Fatalf("unexpected request path: %s", req.URL.Path)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("expected external_service hook delivery")
+	}
+	rows := waitExternalServiceExecutions(t, repo, "fixture_ext_success", func(rows []domain.HookExecution) bool {
+		for _, row := range rows {
+			if row.Status == "success" {
+				return true
+			}
+		}
+		return false
+	})
+	assertNoSensitiveExecutionData(t, rows)
+	cfg, _ := repo.PluginExternalServiceConfig("fixture_ext_success")
+	if cfg.LastHealthStatus != "healthy" || cfg.FailureCount != 0 {
+		t.Fatalf("expected healthy external_service after success, got %#v", cfg)
+	}
+}
+
+func TestExternalServiceNonBlockingHookRetryWarningAndSkipped(t *testing.T) {
+	repo := store.NewMemoryStore()
+	svc := New(repo)
+	categoryID := installExternalServiceFixturePlugin(t, svc, "fixture_ext_retry", "fixture_ext_retry.note", "fixture_ext_retry.note.create", []domain.HookDefinition{
+		{
+			Name:          pluginregistry.HookAfterCreateContent,
+			Mode:          string(pluginregistry.HookNonBlocking),
+			ServiceType:   "external_service",
+			Path:          "/hooks/content.after_create",
+			Method:        "POST",
+			TimeoutMS:     800,
+			RetryEnabled:  true,
+			MaxAttempts:   2,
+			FailurePolicy: "error",
+		},
+	})
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		http.Error(w, "temporary failure", http.StatusInternalServerError)
+	}))
+	defer server.Close()
+
+	enabled := true
+	if _, err := svc.UpdatePluginExternalServiceConfig(PluginExternalServiceOperator{Name: "tester"}, "fixture_ext_retry", domain.PluginExternalServiceUpdateRequest{
+		EndpointURL:      server.URL,
+		TimeoutMS:        800,
+		FailurePolicy:    "error",
+		AuthType:         "none",
+		Enabled:          &enabled,
+		WarningThreshold: 1,
+		ErrorThreshold:   2,
+	}); err != nil {
+		t.Fatalf("save external_service config: %v", err)
+	}
+	if _, err := svc.CreateTopic(domain.CreateTopicRequest{
+		UserID:       1,
+		CommunityID:  1,
+		CategoryID:   categoryID,
+		Title:        "external service retry",
+		ContentType:  "fixture_ext_retry.note",
+		Content:      "hello",
+		ActorContext: domain.ActorContext{UserID: 1, Permissions: []string{"fixture_ext_retry.note.create"}},
+	}); err != nil {
+		t.Fatalf("create topic: %v", err)
+	}
+	rows := waitExternalServiceExecutions(t, repo, "fixture_ext_retry", func(rows []domain.HookExecution) bool {
+		return hasHookExecutionStatus(rows, "retry_scheduled") && hasHookExecutionStatus(rows, "retry_exhausted")
+	})
+	assertNoSensitiveExecutionData(t, rows)
+	cfg, _ := repo.PluginExternalServiceConfig("fixture_ext_retry")
+	if cfg.LastHealthStatus != "error" {
+		t.Fatalf("expected health error after exhausted retries, got %#v", cfg)
+	}
+
+	if _, err := svc.SetPluginStatus("fixture_ext_retry", pluginregistry.StatusDisabled); err != nil {
+		t.Fatalf("disable fixture plugin: %v", err)
+	}
+	if err := svc.DispatchHook(pluginregistry.HookEvent{
+		Name: pluginregistry.HookAfterCreateContent,
+		Mode: pluginregistry.HookNonBlocking,
+		Ctx: pluginregistry.HookContext{
+			PluginCode:  "fixture_ext_retry",
+			ContentType: "fixture_ext_retry.note",
+			CommunityID: 1,
+			ContentID:   99,
+			ActorType:   pluginregistry.HookActorSystem,
+		},
+	}); err != nil {
+		t.Fatalf("dispatch disabled hook: %v", err)
+	}
+	rows = waitExternalServiceExecutions(t, repo, "fixture_ext_retry", func(rows []domain.HookExecution) bool {
+		for _, row := range rows {
+			if row.Status == "skipped" && row.ErrorCode == "PLUGIN_DISABLED" {
+				return true
+			}
+		}
+		return false
+	})
+	assertNoSensitiveExecutionData(t, rows)
+}
+
+func TestExternalServiceManifestRejectsBlockingHook(t *testing.T) {
+	repo := store.NewMemoryStore()
+	svc := New(repo)
+	raw := []byte(`{
+		"code": "fixture_ext_invalid",
+		"name": "Invalid External Service",
+		"version": "1.0.0",
+		"content_types": [],
+		"permissions": [],
+		"hooks": [
+			{"name": "AfterCreateContent", "mode": "blocking", "service_type": "external_service", "path": "/hooks/content.after_create", "method": "POST", "failure_policy": "warn"}
+		]
+	}`)
+	validation, err := svc.ValidatePluginManifestJSON(raw)
+	if err != nil {
+		t.Fatalf("validate manifest: %v", err)
+	}
+	if validation.Valid {
+		t.Fatalf("expected external_service blocking Hook to be rejected: %#v", validation)
+	}
+	found := false
+	for _, msg := range validation.Errors {
+		if strings.Contains(msg, "只支持 non_blocking") {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatalf("expected non_blocking validation error, got %#v", validation.Errors)
+	}
+}
+
+func installExternalServiceFixturePlugin(t *testing.T, svc *Service, code, contentType, permission string, hooks []domain.HookDefinition) int64 {
+	t.Helper()
+	manifest := domain.PluginManifest{
+		Code:        code,
+		Name:        code,
+		Version:     "1.0.0",
+		Description: "external_service non-blocking fixture",
+		ContentTypes: []string{
+			contentType,
+		},
+		ContentTypeDefs: []domain.ContentTypeDefinition{
+			{Type: contentType, Name: contentType, PluginCode: code, CreatePermission: permission, AllowComment: true},
+		},
+		Permissions: []domain.PermissionDefinition{
+			{PluginCode: code, Code: permission, Name: "创建测试内容", Scope: "community"},
+		},
+		Hooks:      hooks,
+		Migrations: []domain.PluginMigrationDefinition{},
+	}
+	raw, err := json.Marshal(manifest)
+	if err != nil {
+		t.Fatalf("marshal fixture manifest: %v", err)
+	}
+	if _, validation, err := svc.InstallPluginManifest(raw); err != nil {
+		t.Fatalf("install fixture manifest: %v validation=%#v", err, validation)
+	}
+	if _, err := svc.SetPluginStatus(code, pluginregistry.StatusEnabled); err != nil {
+		t.Fatalf("enable fixture plugin: %v", err)
+	}
+	if _, err := svc.SetCommunityPluginStatus(1, code, pluginregistry.StatusEnabled); err != nil {
+		t.Fatalf("enable fixture community plugin: %v", err)
+	}
+	category, err := svc.CreateCategory(1, domain.CategoryRequest{
+		Name:                code,
+		Slug:                code,
+		ContentType:         contentType,
+		PluginCode:          code,
+		AllowedContentTypes: []string{contentType},
+	})
+	if err != nil {
+		t.Fatalf("create fixture category: %v", err)
+	}
+	return category.ID
+}
+
+func waitExternalServiceExecutions(t *testing.T, repo *store.MemoryStore, pluginCode string, ok func([]domain.HookExecution) bool) []domain.HookExecution {
+	t.Helper()
+	var rows []domain.HookExecution
+	deadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) {
+		items, _, err := repo.HookExecutionsByFilter(domain.HookExecutionFilter{PluginCode: pluginCode, ServiceType: "external_service", Page: 1, PageSize: 100})
+		if err != nil {
+			t.Fatalf("query hook executions: %v", err)
+		}
+		rows = items
+		if ok(items) {
+			return items
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+	t.Fatalf("timed out waiting for external_service executions, got %#v", rows)
+	return rows
+}
+
+func hasHookExecutionStatus(rows []domain.HookExecution, status string) bool {
+	for _, row := range rows {
+		if row.Status == status {
+			return true
+		}
+	}
+	return false
+}
+
+func assertNoSensitiveExecutionData(t *testing.T, rows []domain.HookExecution) {
+	t.Helper()
+	for _, row := range rows {
+		raw := strings.ToLower(row.Metadata + row.ErrorMessage + row.ResponseBodyExcerpt)
+		for _, forbidden := range []string{"authorization", "bearer ", "webhook secret", "callback token"} {
+			if strings.Contains(raw, forbidden) {
+				t.Fatalf("hook_execution leaked sensitive marker %q in %#v", forbidden, row)
+			}
+		}
 	}
 }

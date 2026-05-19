@@ -57,6 +57,20 @@ Webhook / HTTP 插件服务是 DevHub 第三方插件运行模型的推荐方向
 - 状态联动：插件 disabled / archived / soft_uninstalled 时不调用 endpoint，只写 skipped 记录；子站相关 Hook 后续接入时也必须遵守 community enabled gating。
 - token 边界：external_service token 只用于 DevHub 调用外部服务；Webhook Secret 用于 DevHub → 插件服务签名；Callback Token 用于插件服务 → DevHub Core 回调。三者不能混用，均不得在列表、详情、日志、审计或执行记录中回显明文。
 
+### 2.0.1 external_service non-blocking 投递闭环（v1.8.3-S14 已实现）
+
+当前 external_service 可作为声明型插件的非阻塞 Webhook 投递目标：
+
+- Hook 声明：`hooks[]` 支持 `service_type=external_service`、`mode=non_blocking`、`path`、`method=POST`、`timeout_ms`、`retry_enabled`、`max_attempts`、`failure_policy`、`enabled`。
+- 禁止项：`mode=blocking` 会被 manifest 校验拒绝；Hook `path` 必须是相对路径，不能覆盖 `endpoint_url` 域名；仍不执行第三方代码、不开放动态加载、不开放远程 iframe。
+- 投递流程：业务事件触发后先写 `hook_executions(status=pending, service_type=external_service)`，随后后台异步 `POST {endpoint_url}{hook.path}`；主业务流程立即继续，不等待外部服务响应。
+- 请求头：`X-DevHub-Plugin-Code`、`X-DevHub-Hook-Name`、`X-DevHub-Execution-ID`、`X-DevHub-Event-ID`、`X-DevHub-Request-ID`、`X-DevHub-Idempotency-Key`、`X-DevHub-Timestamp`、`X-DevHub-Delivery-Mode: non_blocking`。
+- Payload：`schema_version=1`，包含 `plugin_code`、`hook_name`、`event_id`、`execution_id`、`resource_type`、`resource_id`、`community_id`、`actor`、`occurred_at` 与最小事件数据；不发送 Secret、Callback Token、external_service token 或敏感配置。
+- 状态机：`pending -> running -> success|failed|timeout|retry_scheduled|retry_exhausted|skipped`；2xx 为 success，timeout/5xx/429 可重试，4xx 默认不重试。
+- 健康联动：投递失败按 `ignore|warn|error|disable_hook` 更新 failure_count 和 healthy / warning / error；成功恢复 healthy 并清零 failure_count；`disable_hook` 达到 error 后后续投递记录 skipped。
+- 生命周期 gating：插件 disabled / archived / soft_uninstalled、external_service disabled、子站 disabled、endpoint/token 缺失时不调用 endpoint，并记录 skipped / failed 原因。
+- 可见性：后台通过 `hook_executions(service_type=external_service)` 查看执行记录和 health before/after；记录中不保存 token 明文、Authorization Header、Webhook Secret、Callback Token 或完整敏感 payload。
+
 ### 2.1 Plugin Service
 
 表示一个外部插件服务（未来可落库/配置，但本轮不实现）。

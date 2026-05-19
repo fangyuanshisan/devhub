@@ -1,0 +1,9 @@
+{
+  "algorithm": "sha256",
+  "files": [
+    { "path": "README.md", "sha256": "b8305fcf74ef8f8baeac7de55ab63236c438805787eebed0994948402284c1f0" },
+    { "path": "config.example.json", "sha256": "9dbf3e889c6033893424d7e756f79f6d3ee43b45dd73a22e3e99475238e318dd" },
+    { "path": "manifest.json", "sha256": "51243117c750fe54a299035fd5f575e710925f32d5e492f553497c756a778866" },
+    { "path": "migrations/001_init.sql", "sha256": "7d9a6d292327e25100ff7c85ff2c3ae5d86e50c069fb666b4f15cd9cdbc0f35e" }
+  ]
+}

@@ -36,8 +36,9 @@ var (
 		HookAfterPluginEnabled:    true,
 		HookAfterPluginDisabled:   true,
 	}
-	manifestFailurePolicies = map[string]bool{"": true, "block": true, "log": true, "retry_later": true}
+	manifestFailurePolicies = map[string]bool{"": true, "block": true, "log": true, "retry_later": true, "ignore": true, "warn": true, "error": true, "disable_hook": true}
 	manifestHookModes       = map[string]bool{"": true, string(HookBlocking): true, string(HookNonBlocking): true}
+	manifestHookMethods     = map[string]bool{"": true, "POST": true}
 )
 
 // DecodePluginManifestJSON accepts DevHub's manifest wire format. It supports
@@ -211,6 +212,11 @@ func NormalizeManifest(manifest domain.PluginManifest) domain.PluginManifest {
 	}
 	for i := range manifest.Hooks {
 		manifest.Hooks[i].PluginCode = firstNonBlank(manifest.Hooks[i].PluginCode, manifest.Code)
+		manifest.Hooks[i].Mode = strings.TrimSpace(manifest.Hooks[i].Mode)
+		manifest.Hooks[i].ServiceType = strings.TrimSpace(manifest.Hooks[i].ServiceType)
+		manifest.Hooks[i].Path = strings.TrimSpace(manifest.Hooks[i].Path)
+		manifest.Hooks[i].Method = strings.ToUpper(strings.TrimSpace(manifest.Hooks[i].Method))
+		manifest.Hooks[i].FailurePolicy = strings.TrimSpace(manifest.Hooks[i].FailurePolicy)
 	}
 	for i := range manifest.Migrations {
 		manifest.Migrations[i].PluginCode = firstNonBlank(manifest.Migrations[i].PluginCode, manifest.Code)
@@ -366,6 +372,23 @@ func ValidatePluginManifest(manifest domain.PluginManifest, existing []domain.Pl
 		}
 		if hook.TimeoutMS < 0 || hook.TimeoutMS > 30000 {
 			addError("Hook timeout_ms 必须在 0-30000 范围内")
+		}
+		if strings.TrimSpace(hook.ServiceType) == "external_service" {
+			if hook.Mode != string(HookNonBlocking) {
+				addError("external_service Hook 只支持 non_blocking：%s", hook.Name)
+			}
+			if strings.TrimSpace(hook.Path) == "" {
+				addError("external_service Hook path 不能为空：%s", hook.Name)
+			}
+			if strings.Contains(hook.Path, "://") || strings.Contains(hook.Path, "\\") || strings.Contains(hook.Path, "..") || !strings.HasPrefix(hook.Path, "/") {
+				addError("external_service Hook path 必须是相对路径且以 / 开头：%s", hook.Name)
+			}
+			if !manifestHookMethods[hook.Method] {
+				addError("external_service Hook method 第一版仅支持 POST：%s", hook.Name)
+			}
+			if hook.MaxAttempts < 0 || hook.MaxAttempts > 5 {
+				addError("external_service Hook max_attempts 必须在 0-5 范围内：%s", hook.Name)
+			}
 		}
 	}
 	if schema, ok := manifest.ConfigSchema.(map[string]any); ok {

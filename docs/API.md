@@ -1031,6 +1031,7 @@ v1.7.2 插件运行模型设计补充：外部 HTTP 插件服务接口（如 `GE
 - 行为与边界：
   - 不能直接从 upload / staging / quarantine 路径安装；必须先 promote 到本地插件仓库。
   - upload 阶段 dry-run 不能替代 install dry-run；`dry_run_id` 过期、缺失或与当前包 checksum / manifest / migration plan 不一致时拒绝安装。
+  - v1.8.3-S13 已用真实 zip fixture 通过后台 API 验证：blocked 上传包 promote 会被后端拒绝；本地仓库包缺少 `dry_run_id` 或 `dry_run_id` 与当前包不匹配时 install 会被拒绝；valid 包安装前必须重新 dry-run。
   - 只写入 manifest 声明、默认配置、迁移 pending 记录与审计；不执行第三方代码、不执行外部 raw SQL、不动态加载前端资产。
   - install 只基于 `migrations/` 计划；根目录 `001_schema.sql` 不执行。
   - 安装成功后插件状态固定为 `disabled`（不自动启用）。
@@ -1345,7 +1346,7 @@ Core 兼容：`min_core_version` 缺失为 warning；`min_core_version` 高于�
 
 ### v1.8.3-S11 external_service 运行时预备 API
 
-说明：本节描述 **已实现** 的 external_service 运行时预备接口。它用于声明型插件配置外部 HTTP 服务、执行受控 health check，并将结果写入 `hook_executions`。本能力不是第三方代码执行，不开放动态加载，不改变 Webhook Secret / Callback Token 安全模型，也不实现 blocking Hook。
+说明：本节描述 **已实现** 的 external_service 运行时接口。它用于声明型插件配置外部 HTTP 服务、执行受控 health check，并在 v1.8.3-S14 起支持 external_service 声明的 **non-blocking** Hook 异步投递。该能力不是第三方代码执行，不开放动态加载，不改变 Webhook Secret / Callback Token 安全模型，也不实现 blocking Hook。
 
 密钥边界：
 
@@ -1353,6 +1354,42 @@ Core 兼容：`min_core_version` 缺失为 warning；`min_core_version` 高于�
 - Webhook Secret：DevHub 向插件服务投递 Webhook 时做 HMAC 签名使用。
 - Callback Token：插件服务回调 DevHub Core API 时使用。
 - 三者不能混用；列表、详情、审计、日志和 `hook_executions` 均不返回 token 明文、Authorization Header、Webhook Secret 明文或 Callback Token 明文。
+
+#### external_service non-blocking Hook 声明
+
+manifest 中 `hooks[]` 可声明 external_service 投递目标：
+
+```json
+{
+  "name": "AfterCreateContent",
+  "mode": "non_blocking",
+  "service_type": "external_service",
+  "path": "/hooks/content.after_create",
+  "method": "POST",
+  "timeout_ms": 3000,
+  "retry_enabled": true,
+  "max_attempts": 3,
+  "failure_policy": "warn",
+  "enabled": true
+}
+```
+
+约束：
+
+- `service_type=external_service` 时 `mode` 只能是 `non_blocking`；blocking Hook 仍未实现。
+- `path` 必须是以 `/` 开头的相对路径，不能覆盖 `endpoint_url` 的域名。
+- 第一版仅支持 `POST`。
+- `failure_policy` 支持 `ignore|warn|error|disable_hook`。
+- `max_attempts` 上限为 `5`。
+
+投递行为：
+
+- 触发 Hook 时先写入 `hook_executions(service_type=external_service,status=pending)`，随后异步 `POST {endpoint_url}{hook.path}`；主业务流程不会等待远端响应。
+- 请求头包含 `X-DevHub-Plugin-Code`、`X-DevHub-Hook-Name`、`X-DevHub-Execution-ID`、`X-DevHub-Event-ID`、`X-DevHub-Request-ID`、`X-DevHub-Idempotency-Key`、`X-DevHub-Timestamp`、`X-DevHub-Delivery-Mode: non_blocking`。
+- `auth_type=bearer` 时只在实际 HTTP 请求中使用 Authorization Header，不写入 `hook_executions`、日志、审计或 API 响应。
+- timeout、5xx 和 429 可重试；4xx、401/403、token 缺失 / 无法解密、endpoint 非法不重试。
+- 插件 disabled / archived / soft_uninstalled、external_service disabled、子站 disabled 时不调用 endpoint，只记录 `skipped` 和原因。
+- 结果可通过 `GET /api/v1/admin/plugins/:code/hooks/executions?service_type=external_service` 查询；本轮未新增手动 retry API。
 
 #### `GET /api/v1/admin/plugins/:code/external-service`
 
@@ -1744,6 +1781,7 @@ Core 兼容：`min_core_version` 缺失为 warning；`min_core_version` 高于�
 - 基础权限：`post.create`，作为历史后台内容创建兼容权限。
 - 动态权限：接口会先将请求转换为 Topic 创建请求，归一 `content_type` 并推断 `plugin_code`，再叠加校验真实内容类型对应的插件 create 权限。
 - 写入链路：内部调用 `Service.CreateTopic`，继续执行全局插件状态、子站插件状态、板块绑定、`allowed_content_types` 和发布权限码校验。
+- v1.8.3-S15 补充：后台声明型插件验收和治理入口可显式传入 `category_id`、`content_type`、`plugin_code`，用于创建 manifest 声明的内容类型。后端不会信任前端展示状态，仍会重新校验当前插件全局 enabled、子站 enabled、目标板块绑定、`allowed_content_types` 和该 content_type 对应的插件 create 权限；写入的 `topics.plugin_code` 以 Service 层校验结果为准，避免非内置声明型 content_type 被回退为 `core`。
 
 动态 create 权限：
 
@@ -1763,6 +1801,9 @@ Core 兼容：`min_core_version` 缺失为 warning；`min_core_version` 高于�
 - `400 {"error":"插件全局未启用"}`
 - `400 {"error":"当前子站未启用该插件"}`
 - `400 {"error":"内容类型与板块不匹配"}`
+- `400 {"code":"plugin_disabled","message":"插件不可用，无法发布该内容类型",...}`
+- `400 {"code":"plugin_community_disabled","message":"当前子站未启用该插件，无法发布该内容类型",...}`
+- `400 {"code":"plugin_category_not_supported","message":"当前板块不支持该内容类型",...}`
 
 说明：`admin/posts` 是后台兼容入口，不是绕过插件体系的独立写入口。`post.create` 只是第一层兼容基础权限，真实内容类型权限由插件权限码决定。
 

@@ -57,6 +57,7 @@ storage/plugins/uploads/
 storage/plugins/staging/
 storage/plugins/quarantine/
 storage/plugins/packages/e2e_*/
+storage/plugins/packages/fixture_valid_plugin_*/
 storage/plugins/exports/*
 
 # Download / Windows metadata
