@@ -4,7 +4,7 @@ DevHub 是一个 **Core + 插件** 的开源服务底座。Core 提供账号、�
 
 DevHub 提供默认社区能力，但长期目标不是单一社区程序，而是面向社区、内容站、知识库、内部工具平台和垂直业务系统等场景的可扩展服务底座。插件系统是 DevHub 长期架构的核心组成部分，不是附属功能。
 
-当前文档设计阶段：`v1.7.2`，主题为“插件运行模型设计”。当前仓库 `VERSION` 仍以实际文件为准。
+当前版本口径：`v1.8.3`，主题为“后台插件治理稳定性、声明型插件业务闭环与 external_service non-blocking Webhook 收口”。当前仓库 `VERSION` 为最终版本来源。
 
 当前只维护两个入口：
 
@@ -58,20 +58,19 @@ DevHub 提供默认社区能力，但长期目标不是单一社区程序，而�
 
 DevHub 当前定位为 **Core + 插件 的开源服务底座**。Core 保持稳定、克制和通用，不承载过多垂直业务；插件扩展业务能力，但不能绕过 Core 的权限、安全、审计和生命周期治理。
 
-当前 `v1.7.2` 文档重点是插件运行模型设计。已落地能力主要集中在插件包治理、生命周期、安全检查、签名验签、后台治理和远程索引只读能力；完整第三方插件运行模型（前端挂载、后端隔离运行、HTTP 插件服务协议、iframe/sandbox、受控 API 调用）仍未实现，详见 [插件运行模型设计](docs/PLUGIN_RUNTIME_MODEL.md)。
+当前 `v1.8.3` 重点是后台插件治理稳定性、中文体验、声明型插件从安装到使用的真实闭环、插件包 upload -> promote -> install 验收、PluginRegistry 运行态刷新，以及 external_service non-blocking Webhook 投递闭环。完整第三方代码执行、远程动态加载、远程 iframe、插件市场和 blocking Hook 仍未开放，详见 [插件系统路线图](docs/PLUGIN_SYSTEM_ROADMAP.md) 与 [v1.8.3 Release Notes](docs/releases/v1.8.3.md)。
 
-当前设计范围和限制以 [v1.7.2 Release Notes](docs/releases/v1.7.2.md) 为准，长期滚动状态见 [项目进度](docs/PROJECT_PROGRESS.md)。
+当前范围和限制以 [v1.8.3 Release Notes](docs/releases/v1.8.3.md) 为准，长期滚动状态见 [项目进度](docs/PROJECT_PROGRESS.md)。
 
 历史版本说明见 `docs/README.md` 的“历史版本归档”。
 
 ## Roadmap
 
-- P0：远程插件包下载到 staging 与下载安全校验，只下载不安装、不运行、不动态加载。
-- P1：插件运行模型设计，明确第三方插件的前端、后端、Hook、权限、配置、API 调用和安全隔离模型。
-- P2：前端插件挂载模型，定义后台菜单、前台 slots、配置页面、iframe / sandbox / postMessage 等隔离边界。
-- P3：HTTP 插件服务协议，定义后端插件服务以独立 HTTP 服务运行，DevHub 通过 HookBus 和受控 API 与插件通信。
-- P4：官方示例插件验证，例如公告、友情链接、SEO 扩展或统计代码插件。
-- P5：插件分发与插件生态，在插件包治理、运行模型和官方插件验证后推进远程分发、插件市场和第三方生态。
+- P0：持续收口真实插件包与声明型插件“安装到使用”闭环，确保 upload、precheck、promote、本地仓库、install dry-run、install、enable、community enable、菜单、content_type、权限、配置和阻断规则可验收。
+- P1：继续完善后台插件治理中文体验、状态提示、审计、运行记录和真实 fixture 回归，避免只靠 mock 数据判断插件能力。
+- P2：收口 external_service non-blocking Webhook、health warning / error、retry、skipped 和 token 不泄露边界。
+- P3：继续沉淀官方声明型插件样例，例如公告、友情链接、SEO 扩展或统计代码插件。
+- P4：在插件包治理、运行模型和官方插件验证稳定后，再推进远程分发、插件市场和第三方生态。
 
 ## 目录结构
 

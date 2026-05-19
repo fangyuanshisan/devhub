@@ -8,6 +8,8 @@
 
 ## 当前版本结论
 
+2026-05-19 补充：完成当前版本口径统一到 `v1.8.3`。`VERSION` 已从 `v1.7.1` 更新为 `v1.8.3`；README、docs/README、AGENT_RULES、PROJECT_PROGRESS、PLUGIN_ARCHITECTURE、PLUGIN_SYSTEM_ROADMAP、PLUGIN_PACKAGE、PLUGIN_WEBHOOK_IMPLEMENTATION_PLAN、v1.8.3 release notes 和 CHANGELOG 已同步把“当前版本 / 当前主线 / 当前范围”统一到 v1.8.3。历史 v1.7.x / v1.8.0-v1.8.2 release notes 和追溯章节保留为历史背景，不再作为当前任务口径。本轮只改版本声明和文档，不改业务逻辑；按仓库手动测试规则，未执行测试或构建，手动验证入口仍为 `./scripts/test-all.sh`。
+
 2026-05-19 补充：`v1.8.3-S15` 完成真实声明型插件“安装到使用”完整业务闭环验收。`scripts/build-plugin-package-fixtures.sh` 新增 `devhub-fixture-links-plugin*.zip`，生成 `official_links*` / “声明型友情链接插件”真实包，包内包含 `manifest.json`、`migrations/001_init.sql`、`README.md`、`config.example.json` 和 `checksums.json`，声明 `friend_link*` content_type、4 个 `official_links*.link/config/menu` 权限、后台 / 前台菜单、配置 Schema 和最小业务表 migration；不包含 package scripts、远程代码、Go/Node/PHP 可执行资产、远程 iframe 或根目录 `001_schema.sql`。新增后台 E2E `plugin-declarative-install-use.spec.js` 用真实 Admin API 跑通 upload -> precheck -> promote -> local repository -> install dry-run -> install -> PluginRegistry reload -> enable -> community enable -> 菜单可见 -> content_type 创建 -> 权限矩阵可见 -> 配置读写 -> disabled / archived 阻断 -> 历史内容可读。后台兼容创建入口 `POST /api/v1/admin/posts` 现在可在 admin 场景显式携带 `category_id/content_type/plugin_code`，继续走 `Service.CreateTopic` 的全局插件、子站插件、板块绑定、allowed_content_types 和插件 create 权限校验，避免声明型 content_type 在创建链路被回退到内置 `core` 映射；公开前台创建仍清空测试权限覆盖，不开放绕过权限入口。本轮仍不执行第三方代码、不开放动态加载、不开放远程 iframe、不实现 blocking Hook，不改变 Webhook 协议或 Secret / Token 安全模型。已执行 `gofmt`、定向 Go 单测、fixture 生成脚本、真实声明型插件 E2E 并通过；完整 Go / 后台 quick 检查结果见 release notes。
 
 2026-05-19 补充：`v1.8.3-S14` 完成 `external_service` non-blocking Webhook 投递闭环。声明型插件 Hook 声明新增 `service_type=external_service`、`path`、`method`、`retry_enabled`、`max_attempts`、`enabled` 等治理字段，manifest 校验强制 external_service Hook 只能使用 `mode=non_blocking`、相对路径和第一版 `POST`，blocking Hook 仍未开放。HookBus 触发后会先创建 `hook_executions(service_type=external_service)` 的 `pending` 记录，再异步向 `{endpoint_url}{hook.path}` 投递 JSON payload，主业务流程不等待远端响应；投递支持 `timeout_ms`、`auth_type=none|bearer`、失败重试、`retry_scheduled/retry_exhausted/skipped` 状态、`request_body_sha256`、`execution_id/event_id/idempotency_key` 追踪和健康状态 before/after metadata。连续失败按 `failure_policy=ignore|warn|error|disable_hook` 更新 external_service healthy / warning / error，成功后恢复 healthy 并清零 failure_count；插件 disabled / archived / soft_uninstalled、external_service disabled、子站 disabled、endpoint/token 缺失时不调用 endpoint，只记录 skipped / failed 原因。后台沿用既有 Hook 执行记录接口和详情抽屉 external_service 执行记录入口展示投递结果。token 明文、Authorization Header、Webhook Secret、Callback Token 和敏感 payload 不进入执行记录、日志或审计。本轮不执行第三方代码、不开放动态加载、不开放远程 iframe、不实现 blocking Hook，不改变 Webhook Secret / Callback Token 安全模型。
@@ -50,7 +52,7 @@
 
 2026-05-18 补充：后台“安装升级 / 本地插件仓库”页面已将“本地仓库 / 初始化插件包 / 上传 zip”收敛为页内 tab，避免左侧导航、顶部页签和页面内多块表单形成三层堆叠；左侧“zip 上传包”改名为“上传记录”以区分上传动作与上传包生命周期列表。本轮未执行测试。
 
-当前 `VERSION` 为 `v1.7.1`，代码主题是“插件包签名验签与可信发布者增强版”。文档设计阶段进入 `v1.7.2`“插件运行模型设计”：在 Core + 插件服务底座目标下，明确 Core 内置插件、外部 HTTP 服务插件、前端 iframe / sandbox 插件三类运行模式，以及受控 API、HookBus、权限隔离、审计和 manifest 运行字段边界。本轮不修改代码，不新增运行时实现。
+当前 `VERSION` 为 `v1.8.3`，当前主线是“后台插件治理稳定性与中文体验优化版”。代码和文档重点已从早期插件包签名验签 / 运行模型设计，推进到真实插件包验收、声明型插件“安装到使用”闭环、PluginRegistry reload 运行态刷新、external_service non-blocking Webhook、后台插件治理中文提示和安全边界收口。旧 `v1.7.x` 段落保留为历史背景，不再作为当前任务口径。
 
 补充：`v1.7.3` 定义为“Webhook / HTTP 插件服务协议实现拆解与官方示例插件验证准备版”。本仓库已新增/更新对应文档（实现阶段拆解 + 官方公告插件验证方案），但 **v1.7.3 仍是文档与任务拆解阶段**：未实现真实 Webhook 投递、重试队列、熔断或插件回调 Core API token；不执行第三方代码、不做动态加载。
 

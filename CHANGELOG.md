@@ -4,6 +4,7 @@
 
 ### Documentation
 
+- 当前版本口径统一到 `v1.8.3`：`VERSION` 从 `v1.7.1` 更新为 `v1.8.3`，README、docs/README、AGENT_RULES、PROJECT_PROGRESS、PLUGIN_ARCHITECTURE、PLUGIN_SYSTEM_ROADMAP、PLUGIN_PACKAGE、PLUGIN_WEBHOOK_IMPLEMENTATION_PLAN 和 v1.8.3 release notes 已同步当前主线说明；历史 v1.7.x 文档保留为追溯背景。
 - v1.8.0：新增插件前端挂载模型设计文档（slots + iframe/sandbox + postMessage 协议与权限/状态 gating），明确官方公告插件作为首个前后台挂载验证方向（文档设计，未修改代码、未执行测试）。
 
 ### Added

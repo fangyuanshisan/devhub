@@ -114,8 +114,8 @@ PORT=8090 CMS_STORE=memory ./.devhub/devhub
 
 ## 当前 1.x 版本方向
 
-- 当前版本线：`v1.7.x`，主题是远程插件包治理、签名验签、可信发布者和插件运行模型前置设计。
+- 当前版本线：`v1.8.3`，主题是后台插件治理稳定性、中文体验、声明型插件业务闭环、插件包真实验收与 external_service non-blocking Webhook 收口。
 - 当前最高优先级长期主线：完成 Core + 插件服务底座。Core 提供稳定基础能力，业务能力逐步通过插件声明、状态、权限、菜单、配置、Hook、migration、受控 API、SEO、通知、搜索和测试矩阵扩展；下一阶段完整目标以 `docs/PLUGIN_SYSTEM_ROADMAP.md` 为准。
-- 当前 P0/P1 目标：继续收口插件包治理、安全校验、签名验签、可信发布者、远程索引、版本仓库、失败恢复、配置密钥轮换、后台治理 UI，并设计第三方插件运行模型、前端挂载模型和 HTTP 插件服务协议。
+- 当前 P0/P1 目标：继续收口声明型插件“安装到使用”闭环、插件包 upload -> promote -> install 真实验收、运行态刷新、后台治理中文体验和 external_service non-blocking Webhook；第三方代码执行、远程动态加载、远程 iframe、插件市场和 blocking Hook 仍未开放。
 - 历史版本能力已并入当前分支；需要追溯时再阅读对应 Release Notes。
 - 下一步以 `docs/PROJECT_PROGRESS.md` 的“当前未完成 / 风险 / 下一步”为准，不要从旧 Roadmap 推断当前任务。

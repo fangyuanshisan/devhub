@@ -10,7 +10,7 @@
 
 DevHub 的长期目标是 **Core + 插件 的开源服务底座**。Core 稳定化、插件扩展点、插件治理、插件运行模型和插件生态是后续开发主线；默认社区能力是 Core 基础能力之一，不是项目唯一边界。
 
-`VERSION` 当前为 `v1.7.1`；文档设计阶段进入 `v1.7.2` 插件运行模型设计。代码能力已进入远程插件包治理与安装安全增强阶段；在 `v1.7.0` 下载→预检→compat-check→安装→enable-precheck→enable→软卸载→升级的基础上，`v1.7.1` 进一步补齐 detached signature（`devhub-signature.json`）的 Ed25519 验签并强联动到 compat-check / install / upgrade。远程包仍不执行第三方代码或外部 SQL。
+`VERSION` 当前为 `v1.8.3`；当前实现已从早期插件包治理 / 签名验签 / 运行模型设计推进到后台插件治理稳定性、声明型插件真实业务闭环、插件包真实 zip 验收、PluginRegistry reload、external_service non-blocking Webhook 和中文状态提示收口。远程包、声明型插件和 external_service 仍不执行第三方代码、不开放动态加载、不开放远程 iframe、不做 blocking Hook。
 
 当前实现快照：
 
@@ -120,7 +120,7 @@ v1.8.3-S11 实现补充：
 
 ## 历史收尾：v1.3.5 插件治理体验与安装升级向导
 
-本节保留为 v1.3.5 草案与阶段目标追溯；当前版本线以 `v1.7.0` 的验收记录与 `docs/PROJECT_PROGRESS.md` 为准。
+本节保留为 v1.3.5 草案与阶段目标追溯；当前版本线以 `v1.8.3` 的验收记录与 `docs/PROJECT_PROGRESS.md` 为准。
 
 P0 目标状态：
 

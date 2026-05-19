@@ -908,7 +908,7 @@ sha256 规则：
 
 检查规则：
 
-- Core：`compatible_core_version` 必须存在，当前 Core 来自 `VERSION`。支持 `1.7.0`、`>=1.7.0`、`>=1.7.0 <2.0.0`、`^1.7.0`、`~1.7.0`；不支持复杂预发布标签、`||` 或 npm 全量 semver。
+- Core：`compatible_core_version` 必须存在，当前 Core 来自 `VERSION`（当前口径为 `v1.8.3`）。支持 `1.8.3`、`>=1.8.3`、`>=1.8.3 <2.0.0`、`^1.8.3`、`~1.8.3`；不支持复杂预发布标签、`||` 或 npm 全量 semver。
 - 依赖：`dependencies` 支持字符串数组、对象数组和 `{ "plugins": [...] }`。required 依赖缺失或版本不满足会阻断；optional 依赖缺失只 warning；不会自动下载、安装或启用依赖。
 - `plugin_code` / `content_type`：不能抢占内置插件、已安装插件或现有内容类型；同一 manifest 内重复声明会失败。
 - 权限：权限码必须以 `plugin_code.` 开头，禁止声明 `core.*`、`admin.*`、`system.*` 或其他插件前缀；scope 仅允许 `global/community/channel/content`。

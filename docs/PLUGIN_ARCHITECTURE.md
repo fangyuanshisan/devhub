@@ -165,9 +165,9 @@ MySQL 专项补充：2026-05-11 已完成 MySQLStore 与老库升级专项验证
 
 本节是当前架构文档中的阶段摘要；更完整的目标流程、治理能力、后台能力、运行时能力、审计能力和 E2E 要求见 [完整插件系统长期完善路线图](PLUGIN_SYSTEM_ROADMAP.md)。
 
-当前 `VERSION` 为 `v1.7.1`，主题是“插件包签名验签与可信发布者增强版”。在 `v1.7.0` 远程插件包治理 P0 链路（下载到 staging → 预检 → compat-check → 安装 → enable-precheck → enable → 软卸载 → 升级）基础上，`v1.7.1` 补齐 detached signature（`devhub-signature.json`）的 Ed25519 真实验签，并将验签结果强联动到 compat-check / install / upgrade（默认阻断 unsigned）。
+当前 `VERSION` 为 `v1.8.3`，主题是“后台插件治理稳定性与中文体验优化版”。在 v1.7 插件包治理和签名验签基础上，当前主线已推进到声明型插件安装到使用闭环、真实插件包 upload -> promote -> install 验收、PluginRegistry reload 运行态刷新、external_service non-blocking Webhook、后台插件治理 IA / 中文提示和安全边界收口。
 
-下一阶段继续围绕 `v1.7.x` Core + 插件服务底座增强：优先完善可信发布者治理、远程索引文件签名、插件运行模型设计、前端插件挂载模型、HTTP 插件服务协议和官方示例插件验证；仍不引入动态执行环境。
+下一阶段继续围绕 `v1.8.3` Core + 插件服务底座增强：优先完善真实官方插件样例、声明型 content_type / 权限 / 菜单业务闭环、external_service 投递治理、后台插件治理回归和远程分发前置校验；仍不引入动态执行环境、第三方代码执行、远程 iframe、插件市场或 blocking Hook。
 
 P0：插件平台收口
 
