@@ -4,12 +4,12 @@
       <div>
         <p class="eyebrow">插件管理</p>
         <h2>运行记录 / 审计</h2>
-        <p class="muted">集中承接操作历史、审计日志、Hook 排障、搜索索引和最近错误，用于排障和追踪。</p>
+        <p class="muted">只做排障和追踪，默认展示最近错误、操作历史和审计日志；Hook 排障、搜索索引和技术 trace 收进高级排障。</p>
       </div>
     </div>
 
     <el-tabs v-model="activeTab" class="plugin-domain-tabs" data-testid="plugin-runtime-domain-tabs">
-      <el-tab-pane v-for="item in tabs" :key="item.name" :label="item.label" :name="item.name" />
+      <el-tab-pane v-for="item in visibleTabs" :key="item.name" :label="item.label" :name="item.name" />
     </el-tabs>
 
     <component :is="activeComponent" />
@@ -18,7 +18,7 @@
 
 <script setup>
 import { computed, defineAsyncComponent, h, ref, watch } from 'vue';
-import { ElAlert, ElCard, ElDescriptions, ElDescriptionsItem, ElText } from 'element-plus';
+import { ElAlert, ElButton, ElCard, ElDescriptions, ElDescriptionsItem, ElText } from 'element-plus';
 import { useRoute, useRouter } from 'vue-router';
 
 const route = useRoute();
@@ -43,6 +43,31 @@ function RecentErrorsGuidance() {
   ]);
 }
 
+function AdvancedRuntimeGuidance() {
+  const go = (tab, label) => h(ElButton, {
+    plain: true,
+    type: 'primary',
+    onClick: () => router.push({ path: '/plugins/runtime', query: { ...route.query, tab } }),
+  }, () => label);
+  return h(ElCard, { shadow: 'never', class: 'domain-note-card' }, () => [
+    h('h3', { class: 'note-title' }, '高级排障'),
+    h(ElText, { type: 'info' }, () => '低频排障入口不再默认铺开；需要定位 Hook、索引或 request_id 时再进入对应工具。'),
+    h('div', { class: 'next-actions' }, [
+      go('hooks', 'Hook 排障'),
+      go('search-index', '搜索索引'),
+      go('audit', '审计日志'),
+      go('operations', '操作历史'),
+    ]),
+    h(ElAlert, {
+      class: 'note-alert',
+      type: 'info',
+      showIcon: true,
+      closable: false,
+      title: '原始 metadata、request_id 和技术 trace 默认折叠，仅用于排障。',
+    }),
+  ]);
+}
+
 const tabLoading = () => h('div', { class: 'tab-state' }, [
   h(ElText, { type: 'info' }, () => '正在加载运行记录 / 审计内容...'),
 ]);
@@ -61,14 +86,16 @@ const lazyTab = (loader) => defineAsyncComponent({
   timeout: 20000,
 });
 
-const defaultTab = 'operations';
+const defaultTab = 'errors';
 const tabs = [
+  { name: 'errors', label: '最近错误', component: RecentErrorsGuidance },
   { name: 'operations', label: '操作历史', component: lazyTab(() => import('./PluginOperations.vue')) },
   { name: 'audit', label: '审计日志', component: lazyTab(() => import('./PluginAudit.vue')) },
+  { name: 'advanced', label: '高级排障', component: AdvancedRuntimeGuidance },
   { name: 'hooks', label: 'Hook 排障', component: lazyTab(() => import('./PluginHooks.vue')) },
   { name: 'search-index', label: '搜索索引', component: lazyTab(() => import('./PluginSearchIndex.vue')) },
-  { name: 'errors', label: '最近错误', component: RecentErrorsGuidance },
 ];
+const visibleTabs = tabs.filter((item) => ['errors', 'operations', 'audit', 'advanced'].includes(item.name));
 const tabNames = new Set(tabs.map((item) => item.name));
 const normalizeTab = (value) => (tabNames.has(String(value || '')) ? String(value) : defaultTab);
 
@@ -135,5 +162,12 @@ watch(() => route.query.tab, (value) => {
 .note-alert,
 .note-descriptions {
   margin-top: 12px;
+}
+
+.next-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin: 12px 0;
 }
 </style>

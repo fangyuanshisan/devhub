@@ -4,7 +4,7 @@
       <div>
         <h2>Webhook 治理</h2>
         <p class="muted">
-          按事件、投递、重试、熔断、密钥和回调请求分组治理；不执行第三方插件代码，不在列表展示密钥或回调 Token 明文。
+          默认聚焦投递是否成功、失败在哪里、是否需要重试或熔断恢复；密钥、Token 和回调请求收进高级治理。
         </p>
       </div>
       <div class="page-actions">
@@ -21,91 +21,43 @@
     </div>
 
     <el-tabs v-model="tab" class="page-tabs" data-testid="webhook-tabs">
-      <el-tab-pane label="Webhook 总览" name="overview">
+      <el-tab-pane label="总览" name="overview">
         <div class="webhook-overview-grid">
           <el-card shadow="never">
-            <template #header>治理边界</template>
+            <template #header>投递概况</template>
+            <div class="webhook-stat-grid">
+              <button class="webhook-stat" type="button" @click="tab = 'deliveries'">
+                <span>投递记录</span>
+                <strong>{{ deliveryRows.length }}</strong>
+              </button>
+              <button class="webhook-stat" type="button" @click="tab = 'exceptions'">
+                <span>等待重试</span>
+                <strong>{{ retryRows.length }}</strong>
+              </button>
+              <button class="webhook-stat" type="button" @click="tab = 'exceptions'">
+                <span>熔断中</span>
+                <strong>{{ openCircuitCount }}</strong>
+              </button>
+            </div>
             <ul class="overview-list">
-              <li>Webhook 仅做事件投递、重试、熔断和回调治理，不执行第三方插件代码。</li>
-              <li>Webhook 密钥用于 DevHub 向插件服务签名投递，明文只展示一次。</li>
-              <li>回调 Token 只允许访问授权 Scope，不等于管理员权限。</li>
+              <li>Webhook 只做 non-blocking 投递、重试、熔断和回调治理，不执行第三方插件代码。</li>
+              <li>失败先看“异常处理”，再进入高级治理检查密钥、Token 或回调请求。</li>
+              <li>Secret、Callback Token 和 external_service token 明文不会进入列表或执行记录。</li>
             </ul>
           </el-card>
           <el-card shadow="never">
-            <template #header>常用入口</template>
+            <template #header>下一步操作</template>
             <div class="overview-actions">
-              <el-button size="small" type="primary" plain @click="tab = 'events'">事件通知</el-button>
-              <el-button size="small" type="primary" plain @click="tab = 'deliveries'">投递记录</el-button>
-              <el-button size="small" type="primary" plain @click="tab = 'secrets'">Webhook 密钥</el-button>
-              <el-button size="small" type="primary" plain @click="tab = 'callback_tokens'">回调 Token</el-button>
+              <el-button size="small" type="primary" plain @click="tab = 'deliveries'">查看投递记录</el-button>
+              <el-button size="small" type="warning" plain @click="tab = 'exceptions'">处理异常</el-button>
+              <el-button size="small" type="primary" plain @click="tab = 'advanced'">高级治理</el-button>
             </div>
           </el-card>
         </div>
       </el-tab-pane>
 
-      <el-tab-pane label="事件通知" name="events">
-        <PluginFilterBar title="Webhook 事件" tip="事件记录用于追踪投递链路，不展示敏感 payload 明文" testid="webhook-events-filter">
-          <template #actions>
-            <el-button size="small" @click="refreshEvents">刷新</el-button>
-          </template>
-          <el-input v-model="eventFilters.plugin_code" size="small" placeholder="插件编码" style="width: 160px" />
-          <el-input v-model="eventFilters.hook_name" size="small" placeholder="Hook 名称" style="width: 200px" />
-          <el-select v-model="eventFilters.status" size="small" placeholder="状态" style="width: 180px">
-            <el-option label="全部" value="all" />
-            <el-option label="待处理" value="pending" />
-            <el-option label="投递中" value="delivering" />
-            <el-option label="已投递" value="delivered" />
-            <el-option label="失败" value="failed" />
-            <el-option label="熔断中" value="circuit_open" />
-            <el-option label="已跳过" value="skipped" />
-          </el-select>
-          <el-input v-model="eventFilters.community_id" size="small" placeholder="子站 ID" style="width: 140px" />
-          <el-button size="small" type="primary" data-testid="webhook-events-search" @click="refreshEvents">查询</el-button>
-        </PluginFilterBar>
-
-        <PluginErrorAlert :message="eventsError" />
-
-        <el-table
-          v-loading="eventsLoading"
-          :data="eventRows"
-          stripe
-          border
-          size="small"
-          data-testid="webhook-events-table"
-        >
-          <el-table-column prop="id" label="ID" width="80" />
-          <el-table-column prop="event_id" label="事件 ID" min-width="220" show-overflow-tooltip />
-          <el-table-column prop="plugin_code" label="插件" width="140" />
-          <el-table-column prop="hook_name" label="Hook" width="220" />
-          <el-table-column prop="community_id" label="子站" width="110" />
-          <el-table-column label="状态" width="160">
-            <template #default="{ row }">
-              <PluginStatusTag :value="row.status" testid="webhook-event-status" />
-            </template>
-          </el-table-column>
-          <el-table-column prop="occurred_at" label="发生时间" width="170" />
-          <el-table-column prop="created_at" label="创建时间" width="170" />
-        </el-table>
-
-        <PluginEmptyState
-          v-if="!eventsLoading && eventRows.length === 0 && !eventsError"
-          description="暂无 Webhook 事件"
-          testid="webhook-events-empty"
-        />
-
-        <div class="pager">
-          <el-pagination
-            layout="prev, pager, next"
-            :current-page="eventsPage.page || 1"
-            :page-size="eventsPage.page_size || 20"
-            :total="eventsPage.total || 0"
-            @current-change="onEventPageChange"
-          />
-        </div>
-      </el-tab-pane>
-
       <el-tab-pane label="投递记录" name="deliveries">
-        <PluginFilterBar title="投递记录" tip="记录每次 non_blocking Webhook 投递结果；重试队列请切换到“重试队列”查看。" testid="webhook-deliveries-filter">
+        <PluginFilterBar title="投递记录" tip="记录每次 non_blocking Webhook 投递结果；异常记录会汇总到“异常处理”。" testid="webhook-deliveries-filter">
           <template #actions>
             <el-button size="small" @click="refreshDeliveries">刷新</el-button>
           </template>
@@ -185,15 +137,24 @@
         </div>
       </el-tab-pane>
 
-      <el-tab-pane label="重试队列" name="retry">
-        <PluginFilterBar title="重试队列" tip="仅展示等待重试或重试耗尽的投递记录；扫描到期重试不会执行第三方代码。" testid="webhook-retry-filter">
-          <template #actions>
-            <el-button size="small" @click="refreshDeliveries">刷新</el-button>
-            <el-button size="small" type="primary" :loading="retryDueLoading" @click="retryDue">扫描到期重试</el-button>
-          </template>
-        </PluginFilterBar>
+      <el-tab-pane label="异常处理" name="exceptions">
+        <div class="webhook-overview-grid">
+          <el-card shadow="never">
+            <template #header>需要处理</template>
+            <ul class="overview-list">
+              <li>等待重试：检查远端服务是否恢复，必要时手动重试。</li>
+              <li>熔断中：确认目标服务和签名配置，恢复后手动关闭熔断。</li>
+              <li>认证失败：进入高级治理检查 Webhook 密钥或回调 Token。</li>
+            </ul>
+            <div class="overview-actions">
+              <el-button size="small" type="primary" :loading="retryDueLoading" @click="retryDue">扫描到期重试</el-button>
+              <el-button size="small" plain @click="tab = 'secrets'">检查 Webhook 密钥</el-button>
+              <el-button size="small" plain @click="tab = 'callback_tokens'">检查回调 Token</el-button>
+            </div>
+          </el-card>
+        </div>
 
-        <PluginErrorAlert :message="deliveriesError" />
+        <PluginErrorAlert :message="deliveriesError || circuitsError" />
 
         <el-table
           v-loading="deliveriesLoading"
@@ -229,34 +190,16 @@
           description="暂无等待重试的投递记录"
           testid="webhook-retry-empty"
         />
-      </el-tab-pane>
-
-      <el-tab-pane label="熔断状态" name="circuits">
-        <PluginFilterBar title="熔断状态" tip="维度：plugin_code + target_url" testid="webhook-circuits-filter">
-          <template #actions>
-            <el-button size="small" @click="refreshCircuits">刷新</el-button>
-          </template>
-          <el-input v-model="circuitFilters.plugin_code" size="small" placeholder="插件编码" style="width: 180px" />
-          <el-select v-model="circuitFilters.status" size="small" placeholder="状态" style="width: 180px">
-            <el-option label="全部" value="all" />
-            <el-option label="正常" value="closed" />
-            <el-option label="已熔断" value="open" />
-            <el-option label="半开探测" value="half_open" />
-          </el-select>
-          <el-button size="small" type="primary" data-testid="webhook-circuits-search" @click="refreshCircuits">查询</el-button>
-        </PluginFilterBar>
-
-        <PluginErrorAlert :message="circuitsError" />
 
         <el-table
           v-loading="circuitsLoading"
-          :data="circuitRows"
+          :data="openCircuitRows"
           stripe
           border
           size="small"
+          class="mt"
           data-testid="webhook-circuits-table"
         >
-          <el-table-column prop="id" label="ID" width="80" />
           <el-table-column prop="plugin_code" label="插件" width="160" />
           <el-table-column prop="target_url" label="目标 URL" min-width="260" show-overflow-tooltip />
           <el-table-column label="状态" width="140">
@@ -265,46 +208,96 @@
             </template>
           </el-table-column>
           <el-table-column prop="failure_count" label="失败次数" width="110" />
-          <el-table-column prop="next_probe_at" label="下次探测" width="170" />
           <el-table-column prop="last_error_message" label="最近错误" min-width="220" show-overflow-tooltip />
           <el-table-column label="操作" width="220" fixed="right">
             <template #default="{ row }">
-              <el-button
-                size="small"
-                type="success"
-                plain
-                data-testid="webhook-circuit-close"
-                :disabled="row.status === 'closed'"
-                @click="closeCircuit(row)"
-              >
-                手动恢复
-              </el-button>
-              <el-button
-                size="small"
-                type="danger"
-                plain
-                data-testid="webhook-circuit-open"
-                @click="openCircuit(row)"
-              >
-                手动熔断
-              </el-button>
+              <el-button size="small" type="success" plain :disabled="row.status === 'closed'" @click="closeCircuit(row)">手动恢复</el-button>
+              <el-button size="small" type="danger" plain @click="openCircuit(row)">手动熔断</el-button>
             </template>
           </el-table-column>
         </el-table>
+      </el-tab-pane>
+
+      <el-tab-pane label="高级治理" name="advanced">
+        <div class="webhook-overview-grid">
+          <el-card shadow="never">
+            <template #header>低频治理入口</template>
+            <p class="muted">事件、密钥、Token、回调请求和原始技术字段仍可访问，但不再默认占据 Webhook 主视图。</p>
+            <div class="overview-actions">
+              <el-button size="small" type="primary" plain @click="tab = 'events'">事件通知</el-button>
+              <el-button size="small" type="primary" plain @click="tab = 'secrets'">Webhook 密钥</el-button>
+              <el-button size="small" type="primary" plain @click="tab = 'callback_tokens'">回调 Token</el-button>
+              <el-button size="small" type="primary" plain @click="tab = 'callback_requests'">回调请求</el-button>
+              <el-button size="small" type="primary" plain @click="tab = 'circuits'">熔断状态</el-button>
+            </div>
+            <el-alert
+              class="mt"
+              type="warning"
+              show-icon
+              :closable="false"
+              title="高级治理不会展示 Secret、Token、Authorization Header 或敏感 payload 明文。"
+            />
+          </el-card>
+        </div>
+      </el-tab-pane>
+
+      <el-tab-pane label="事件通知" name="events">
+        <PluginFilterBar title="Webhook 事件" tip="事件记录用于追踪投递链路，不展示敏感 payload 明文" testid="webhook-events-filter">
+          <template #actions>
+            <el-button size="small" @click="refreshEvents">刷新</el-button>
+          </template>
+          <el-input v-model="eventFilters.plugin_code" size="small" placeholder="插件编码" style="width: 160px" />
+          <el-input v-model="eventFilters.hook_name" size="small" placeholder="Hook 名称" style="width: 200px" />
+          <el-select v-model="eventFilters.status" size="small" placeholder="状态" style="width: 180px">
+            <el-option label="全部" value="all" />
+            <el-option label="待处理" value="pending" />
+            <el-option label="投递中" value="delivering" />
+            <el-option label="已投递" value="delivered" />
+            <el-option label="失败" value="failed" />
+            <el-option label="熔断中" value="circuit_open" />
+            <el-option label="已跳过" value="skipped" />
+          </el-select>
+          <el-input v-model="eventFilters.community_id" size="small" placeholder="子站 ID" style="width: 140px" />
+          <el-button size="small" type="primary" data-testid="webhook-events-search" @click="refreshEvents">查询</el-button>
+        </PluginFilterBar>
+
+        <PluginErrorAlert :message="eventsError" />
+
+        <el-table
+          v-loading="eventsLoading"
+          :data="eventRows"
+          stripe
+          border
+          size="small"
+          data-testid="webhook-events-table"
+        >
+          <el-table-column prop="id" label="ID" width="80" />
+          <el-table-column prop="event_id" label="事件 ID" min-width="220" show-overflow-tooltip />
+          <el-table-column prop="plugin_code" label="插件" width="140" />
+          <el-table-column prop="hook_name" label="Hook" width="220" />
+          <el-table-column prop="community_id" label="子站" width="110" />
+          <el-table-column label="状态" width="160">
+            <template #default="{ row }">
+              <PluginStatusTag :value="row.status" testid="webhook-event-status" />
+            </template>
+          </el-table-column>
+          <el-table-column prop="occurred_at" label="发生时间" width="170" />
+          <el-table-column prop="created_at" label="创建时间" width="170" />
+        </el-table>
 
         <PluginEmptyState
-          v-if="!circuitsLoading && circuitRows.length === 0 && !circuitsError"
-          description="暂无熔断记录"
-          testid="webhook-circuits-empty"
+          v-if="!eventsLoading && eventRows.length === 0 && !eventsError"
+          description="暂无 Webhook 事件"
+          testid="webhook-events-empty"
         />
 
         <div class="pager">
           <el-pagination
             layout="prev, pager, next"
-            :current-page="circuitsPage.page || 1"
-            :page-size="circuitsPage.page_size || 20"
-            :total="circuitsPage.total || 0"
-            @current-change="onCircuitPageChange"
+            :current-page="eventsPage.page || 1"
+            :page-size="eventsPage.page_size || 20"
+            :total="eventsPage.total || 0"
+            @current-change="onEventPageChange"
           />
         </div>
       </el-tab-pane>
@@ -773,6 +766,8 @@ const deliveryRows = computed(() => listRows(deliveries));
 const deliveriesPage = computed(() => listPage(deliveries));
 const circuitRows = computed(() => listRows(circuits));
 const circuitsPage = computed(() => listPage(circuits));
+const openCircuitRows = computed(() => circuitRows.value.filter((row) => ['open', 'half_open', 'circuit_open'].includes(String(row.status || '').toLowerCase())));
+const openCircuitCount = computed(() => openCircuitRows.value.length);
 const secretRows = computed(() => listRows(secrets));
 const secretsPage = computed(() => listPage(secrets));
 const callbackTokenRows = computed(() => listRows(callbackTokens));
@@ -1080,19 +1075,43 @@ function onCircuitPageChange(page) {
   refreshCircuits();
 }
 
+const normalizeMainTab = (value) => {
+  const name = String(value || 'overview');
+  if (name === 'retry' || name === 'circuits') return 'exceptions';
+  return name;
+};
+
 onMounted(async () => {
-  if (tab.value === 'overview') return;
+  tab.value = normalizeMainTab(tab.value);
+  if (tab.value === 'overview') {
+    await refreshDeliveries();
+    await refreshCircuits();
+    return;
+  }
   if (tab.value === 'events') await refreshEvents();
   else if (tab.value === 'circuits') await refreshCircuits();
   else if (tab.value === 'secrets') await refreshSecrets();
   else if (tab.value === 'callback_tokens') await refreshCallbackTokens();
   else if (tab.value === 'callback_requests') await refreshCallbackRequests();
   else if (tab.value === 'retry') await refreshDeliveries();
+  else if (tab.value === 'exceptions') {
+    await refreshDeliveries();
+    await refreshCircuits();
+  }
   else await refreshDeliveries();
 });
 
 watch(tab, async (next) => {
-  if (next === 'overview') return;
+  const normalized = normalizeMainTab(next);
+  if (normalized !== next) {
+    tab.value = normalized;
+    return;
+  }
+  if (next === 'overview') {
+    await refreshDeliveries();
+    await refreshCircuits();
+    return;
+  }
   if (next === 'events') await refreshEvents();
   else if (next === 'circuits') await refreshCircuits();
   else if (next === 'secrets') await refreshSecrets();
@@ -1102,6 +1121,11 @@ watch(tab, async (next) => {
     deliveryFilters.value.status = 'all';
     await refreshDeliveries();
   } else if (next === 'deliveries') await refreshDeliveries();
+  else if (next === 'exceptions') {
+    deliveryFilters.value.status = 'all';
+    await refreshDeliveries();
+    await refreshCircuits();
+  }
 });
 </script>
 
@@ -1153,5 +1177,39 @@ watch(tab, async (next) => {
   display: flex;
   flex-wrap: wrap;
   gap: 8px;
+}
+
+.webhook-stat-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
+  gap: 8px;
+  margin-bottom: 12px;
+}
+
+.webhook-stat {
+  border: 1px solid #e5e7eb;
+  border-radius: 8px;
+  background: #fff;
+  padding: 10px;
+  text-align: left;
+  cursor: pointer;
+}
+
+.webhook-stat span {
+  display: block;
+  color: #64748b;
+  font-size: 12px;
+}
+
+.webhook-stat strong {
+  display: block;
+  margin-top: 4px;
+  color: #0f172a;
+  font-size: 22px;
+  line-height: 28px;
+}
+
+.mt {
+  margin-top: 12px;
 }
 </style>

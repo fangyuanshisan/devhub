@@ -86,6 +86,43 @@ bash -n dev.sh
 23. blocking Hook 仍未开放。
 24. 后台构建通过。
 
+### v1.8.3-S16 后台插件治理复杂度继续压缩验收项
+
+建议命令：
+
+```bash
+./scripts/check-admin-plugin-ia.sh
+./scripts/check-frontend.sh --admin-only --quick
+```
+
+1. 左侧仍只保留 5 个插件治理域。
+2. 插件总览默认视图不过载，只突出概览、插件列表、待处理事项和快捷操作。
+3. 插件包治理呈现为流程型工作台，而不是多个平级 Tab 堆叠。
+4. 插件包治理能清楚提示执行预检、转入本地仓库、执行安装 dry-run、开始安装和查看阻断原因。
+5. Webhook 治理默认聚焦总览、投递记录、异常处理、重试和熔断。
+6. Webhook 密钥、回调 Token、回调请求和原始 JSON 进入高级治理或技术详情。
+7. 发布者与信任默认弱化 `key_id` / `publisher_id` 等技术字段。
+8. 运行记录 / 审计只作为排障和追踪入口，不承担日常治理入口。
+9. 插件详情抽屉默认 Tab 数减少，默认只展示当前插件摘要。
+10. 插件详情里的 Webhook、权限、content_type、external_service 只展示摘要和跳转入口。
+11. 完整治理操作跳转到对应治理域。
+12. 技术详情默认折叠。
+13. JSON 原始数据默认折叠。
+14. 每个异常状态都有下一步操作提示。
+15. 1366 宽度下 5 个治理域布局自然。
+16. 1024 宽度下 5 个治理域可用。
+17. 详情抽屉 1024 宽度下可用。
+18. `official_announcement` 详情仍清晰，配置、挂载、预览入口可识别。
+19. 真实声明型 fixture 插件详情可用，如当前环境已有 fixture。
+20. Secret 明文不显示。
+21. Callback Token 明文不显示。
+22. external_service token 明文不显示。
+23. token_hash、Authorization Header、完整 HMAC signature 不显示。
+24. 远程 iframe URL 仍未开放。
+25. 第三方代码执行仍未开放。
+26. blocking Hook 仍未开放。
+27. 后台 quick 检查通过。
+
 ### v1.8.3-S9 PluginRegistry reload 运行态刷新验收项
 
 1. 插件安装成功后 registry reload。

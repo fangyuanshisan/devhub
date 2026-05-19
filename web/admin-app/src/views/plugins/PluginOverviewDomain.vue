@@ -4,12 +4,12 @@
       <div>
         <p class="eyebrow">插件管理</p>
         <h2>插件总览</h2>
-        <p class="muted">统一查看插件状态、配置、前端挂载、内容治理、权限矩阵和开发者工具；低频入口收进页内 Tab。</p>
+        <p class="muted">默认聚焦插件状态、待处理事项和下一步操作；内容治理、权限矩阵和开发者工具收进高级治理。</p>
       </div>
     </div>
 
     <el-tabs v-model="activeTab" class="plugin-domain-tabs" data-testid="plugin-overview-domain-tabs">
-      <el-tab-pane v-for="item in tabs" :key="item.name" :label="item.label" :name="item.name" />
+      <el-tab-pane v-for="item in visibleTabs" :key="item.name" :label="item.label" :name="item.name" />
     </el-tabs>
 
     <component :is="activeComponent" />
@@ -18,7 +18,7 @@
 
 <script setup>
 import { computed, defineAsyncComponent, h, ref, watch } from 'vue';
-import { ElAlert, ElSkeleton } from 'element-plus';
+import { ElAlert, ElButton, ElCard, ElDescriptions, ElDescriptionsItem, ElSkeleton } from 'element-plus';
 import { useRoute, useRouter } from 'vue-router';
 
 const route = useRoute();
@@ -43,16 +43,41 @@ const lazyTab = (loader) => defineAsyncComponent({
   timeout: 20000,
 });
 
+function AdvancedGovernance() {
+  const go = (tab, label) => h(ElButton, {
+    plain: true,
+    type: 'primary',
+    onClick: () => router.push({ path: '/plugins/overview', query: { ...route.query, tab } }),
+  }, () => label);
+  return h(ElCard, { shadow: 'never', class: 'domain-note-card' }, () => [
+    h('h3', { class: 'note-title' }, '高级治理'),
+    h('p', { class: 'muted' }, '低频能力仍可访问，但不再默认铺在插件总览首页。完整治理请进入对应功能区，插件详情只保留当前插件摘要。'),
+    h('div', { class: 'next-actions' }, [
+      go('config', '配置中心'),
+      go('navigation', '前端挂载'),
+      go('content', '内容治理'),
+      go('permissions', '权限矩阵'),
+      go('developer', '开发者工具'),
+    ]),
+    h(ElDescriptions, { column: 1, border: true, class: 'note-descriptions' }, () => [
+      h(ElDescriptionsItem, { label: '日常入口' }, () => '优先使用“总览”和“插件列表”处理启停、配置、异常和详情。'),
+      h(ElDescriptionsItem, { label: '技术内容' }, () => '原始声明、权限引用、前端挂载明细和开发工具归入高级治理或插件详情技术详情。'),
+    ]),
+  ]);
+}
+
 const defaultTab = 'overview';
 const tabs = [
   { name: 'overview', label: '总览', component: lazyTab(() => import('./PluginOverview.vue')) },
   { name: 'list', label: '插件列表', component: lazyTab(() => import('./PluginList.vue')) },
+  { name: 'advanced', label: '高级治理', component: AdvancedGovernance },
   { name: 'config', label: '配置中心', component: lazyTab(() => import('./PluginConfigHub.vue')) },
   { name: 'navigation', label: '前端挂载', component: lazyTab(() => import('./PluginNavigation.vue')) },
   { name: 'content', label: '内容治理', component: lazyTab(() => import('./PluginContentHub.vue')) },
   { name: 'permissions', label: '权限矩阵', component: lazyTab(() => import('./PluginPermissions.vue')) },
   { name: 'developer', label: '开发者工具', component: lazyTab(() => import('./PluginDeveloper.vue')) },
 ];
+const visibleTabs = tabs.filter((item) => ['overview', 'list', 'advanced'].includes(item.name));
 const tabNames = new Set(tabs.map((item) => item.name));
 const normalizeTab = (value) => (tabNames.has(String(value || '')) ? String(value) : defaultTab);
 
@@ -107,6 +132,26 @@ watch(() => route.query.tab, (value) => {
 }
 
 .tab-state {
+  margin-top: 12px;
+}
+
+.domain-note-card {
+  margin-top: 8px;
+}
+
+.note-title {
+  margin: 0 0 8px;
+  font-size: 16px;
+}
+
+.next-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin: 12px 0;
+}
+
+.note-descriptions {
   margin-top: 12px;
 }
 </style>

@@ -277,7 +277,7 @@ async function main() {
   assertTextIncludesAny(officialDrawerText, 'official_announcement 详情', ['官方内置插件', '官方内置']);
   assertTextIncludesAny(officialDrawerText, 'official_announcement 详情', ['配置 / 前端挂载 / 公告预览', '公告配置']);
   await clickDetailTab('公告配置', 'official-announcement-detail-1024-config.png');
-  await clickDetailTab('前端挂载', 'official-announcement-detail-1024-mount.png');
+  await clickDetailTab('能力', 'official-announcement-detail-1024-mount.png');
   const mountText = await page.getByTestId('plugin-detail-drawer').innerText();
   assertTextIncludesAny(mountText, 'official_announcement 前端挂载', ['不允许远程 iframe URL', '远程 URL：否', '远程 URL']);
   await clickDetailTab('公告预览', 'official-announcement-detail-1024-preview.png');

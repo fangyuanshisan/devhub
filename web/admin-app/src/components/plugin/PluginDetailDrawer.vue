@@ -88,7 +88,7 @@
             <template #default>
               <div class="official-quick-links">
                 <el-button size="small" type="success" plain @click="tab = 'config'">公告配置</el-button>
-                <el-button size="small" type="success" plain @click="tab = 'menus'">前端挂载</el-button>
+                <el-button size="small" type="success" plain @click="tab = 'capabilities'">前端挂载</el-button>
                 <el-button size="small" type="success" plain @click="tab = 'officialAnnouncementPreview'">公告预览</el-button>
                 <span>官方内置插件，用于验证前端挂载模型；iframe 只允许内置页面，不执行第三方代码，不暴露 callback token / webhook secret。</span>
               </div>
@@ -108,6 +108,59 @@
             </div>
             <el-button type="primary" plain data-testid="plugin-export-open" @click="openExportDialog">导出本地插件包</el-button>
           </section>
+        </el-tab-pane>
+
+        <el-tab-pane label="能力" name="capabilities" lazy>
+          <p class="tab-note">汇总当前插件声明能力；完整治理请跳转到对应治理域，详情抽屉不再复制全局表格。</p>
+          <section class="summary-grid mb">
+            <div class="summary-card">
+              <span>菜单</span>
+              <strong>{{ (plugin.menus || []).length }}</strong>
+              <small>按插件状态、子站状态和权限控制可见性。</small>
+            </div>
+            <div class="summary-card">
+              <span>内容类型</span>
+              <strong>{{ (plugin.content_types || []).length }}</strong>
+              <small>新建内容受板块、权限和子站启用约束。</small>
+            </div>
+            <div class="summary-card">
+              <span>权限</span>
+              <strong>{{ (plugin.permissions || []).length }}</strong>
+              <small>完整矩阵在插件总览 / 高级治理查看。</small>
+            </div>
+            <div class="summary-card">
+              <span>Webhook / 外部服务</span>
+              <strong>{{ (plugin.hooks || []).length }} / {{ externalServiceConfigured ? '已配置' : '未配置' }}</strong>
+              <small>投递、重试和熔断进入 Webhook 治理。</small>
+            </div>
+          </section>
+          <el-alert
+            type="info"
+            show-icon
+            :closable="false"
+            class="mb"
+            title="插件停用、归档或子站停用后，菜单、前端挂载、content_type、Webhook 和 external_service 新能力都会停止。"
+          />
+          <el-alert
+            v-if="safePlugin.code === 'official_announcement'"
+            type="success"
+            show-icon
+            :closable="false"
+            class="mb"
+            title="official_announcement 前端挂载使用 DevHub 内置 iframe、sandbox=allow-scripts 和 postMessage；不允许远程 iframe URL，不暴露 callback token / webhook secret。"
+          />
+          <el-table :data="plugin.menus || []" border stripe :empty-text="`暂无${t('plugin.tabs.menus')}`">
+            <el-table-column prop="area" :label="t('field.area')" width="120" />
+            <el-table-column prop="title" :label="t('field.title')" width="160" />
+            <el-table-column prop="path" :label="t('field.path')" min-width="220" />
+            <el-table-column prop="permission" :label="t('field.permission')" min-width="200" />
+          </el-table>
+          <div class="sub-toolbar mt">
+            <el-button type="primary" plain @click="openOverviewGovernance('permissions')">查看权限矩阵</el-button>
+            <el-button plain @click="openOverviewGovernance('content')">查看内容治理</el-button>
+            <el-button plain @click="openWebhookGovernance('deliveries')">查看 Webhook 治理</el-button>
+            <el-button plain @click="openRuntimeGovernance('errors')">查看运行问题</el-button>
+          </div>
         </el-tab-pane>
 
         <el-tab-pane label="运行记录" name="runtime" lazy>
@@ -180,7 +233,7 @@
           </div>
         </el-tab-pane>
 
-        <el-tab-pane :label="t('plugin.tabs.webhook')" name="webhook" lazy>
+        <el-tab-pane v-if="showLegacyTechnicalTabs" :label="t('plugin.tabs.webhook')" name="webhook" lazy>
           <p class="tab-note">这里只展示当前插件的 Webhook 摘要和跳转入口，不复制全局投递、重试和熔断表格。</p>
           <el-alert
             type="info"
@@ -209,7 +262,7 @@
           </div>
         </el-tab-pane>
 
-        <el-tab-pane label="安全凭据" name="webhookSecrets" lazy>
+        <el-tab-pane v-if="showLegacyTechnicalTabs" label="安全凭据" name="webhookSecrets" lazy>
           <p class="tab-note">Webhook 密钥和回调 Token 统一在这里说明；明文只在创建或轮换时展示一次。</p>
           <el-alert
             type="warning"
@@ -565,7 +618,7 @@
           </el-dialog>
         </el-tab-pane>
 
-        <el-tab-pane :label="t('plugin.tabs.frontendMount')" name="menus" lazy>
+        <el-tab-pane v-if="showLegacyTechnicalTabs" :label="t('plugin.tabs.frontendMount')" name="menus" lazy>
           <p class="tab-note">说明插件前端如何挂载，以及 iframe、sandbox、postMessage 的安全边界。</p>
           <el-alert
             type="info"
@@ -994,7 +1047,7 @@
           </el-table>
         </el-tab-pane>
 
-        <el-tab-pane :label="t('plugin.tabs.audit')" name="audit" lazy>
+        <el-tab-pane v-if="showLegacyTechnicalTabs" :label="t('plugin.tabs.audit')" name="audit" lazy>
           <p class="tab-note">展示当前插件最近审计摘要；完整审计追踪请进入“运行记录 / 审计”治理域。</p>
           <el-alert
             type="info"
@@ -1427,6 +1480,11 @@ watch(
 
 watch(tab, (t) => {
   if (!visible.value) return;
+  const nextTab = normalizeDetailTab(t, props.plugin);
+  if (nextTab !== t) {
+    tab.value = nextTab;
+    return;
+  }
   if (t === 'audit') loadAudit();
   if (t === 'runtime' || t === 'hooks') loadHooks();
   if (t === 'migrations') loadMigrations();
@@ -1439,7 +1497,11 @@ function normalizeDetailTab(value, plugin = props.plugin) {
   const code = plugin?.code || plugin?.plugin_code || '';
   if (name === 'officialAnnouncementPreview' && code !== 'official_announcement') return 'overview';
   const map = {
-    callbackTokens: 'webhookSecrets',
+    callbackTokens: 'capabilities',
+    webhook: 'capabilities',
+    webhookSecrets: 'capabilities',
+    menus: 'capabilities',
+    audit: 'runtime',
     readiness: 'technical',
     dependencies: 'technical',
     contentTypes: 'technical',
@@ -1786,6 +1848,16 @@ function openWebhookGovernance(targetTab) {
       sec_plugin_code: props.plugin?.code || '',
       cbtk_plugin_code: props.plugin?.code || '',
       cbr_plugin_code: props.plugin?.code || '',
+    },
+  });
+}
+
+function openOverviewGovernance(targetTab) {
+  router.push({
+    path: '/admin-next/plugins/overview',
+    query: {
+      tab: targetTab || 'list',
+      plugin_code: props.plugin?.code || '',
     },
   });
 }
