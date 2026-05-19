@@ -1,4 +1,9 @@
 import { t } from './index';
+import {
+  pluginRiskText,
+  pluginStatusText,
+  pluginTagType,
+} from '@/modules/plugins/statusText';
 
 export function textOrDash(value) {
   return value == null || value === '' ? '-' : String(value);
@@ -6,12 +11,12 @@ export function textOrDash(value) {
 
 export function pluginStatusLabel(status) {
   const key = String(status || 'unknown');
-  return STATUS_LABELS[key] || t(`plugin.${camelKey(key)}`) || key;
+  return pluginStatusText(key, t(`plugin.${camelKey(key)}`) || key);
 }
 
 export function pluginHealthLabel(status) {
   const key = String(status || 'unknown');
-  return STATUS_LABELS[key] || t(`plugin.healthText.${key}`) || key;
+  return pluginStatusText(key, t(`plugin.healthText.${key}`) || key);
 }
 
 export function capabilityLabel(key) {
@@ -28,7 +33,7 @@ export function auditActionLabel(action) {
 
 export function contentStatusLabel(status) {
   const key = String(status || '');
-  return STATUS_LABELS[key] || t(`plugin.content.status.${key}`) || key || '-';
+  return pluginStatusText(key, t(`plugin.content.status.${key}`) || key || '-');
 }
 
 export function maturityLabel(plugin) {
@@ -38,11 +43,7 @@ export function maturityLabel(plugin) {
 }
 
 export function statusTagType(status) {
-  if (status === 'enabled' || status === 'success' || status === 'ok' || status === 'valid' || status === 'healthy') return 'success';
-  if (status === 'disabled' || status === 'archived') return 'info';
-  if (status === 'warning' || status === 'pending' || status === 'running' || status === 'migration_pending' || status === 'hook_warning') return 'warning';
-  if (status === 'failed' || status === 'invalid' || status === 'error' || status === 'migration_failed' || status === 'config_invalid' || status === 'dependency_missing' || status === 'hook_error') return 'danger';
-  return 'info';
+  return pluginTagType(status);
 }
 
 export function migrationStatusLabel(status) {
@@ -51,12 +52,12 @@ export function migrationStatusLabel(status) {
 
 export function genericStatusLabel(status) {
   const key = String(status || '').toLowerCase();
-  return STATUS_LABELS[key] || status || '-';
+  return pluginStatusText(key, status || '-');
 }
 
 export function packageRiskLabel(level) {
   const key = String(level || '').toLowerCase();
-  return RISK_LABELS[key] || level || '-';
+  return pluginRiskText(key, level || '-');
 }
 
 export function trustLevelLabel(level) {

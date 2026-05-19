@@ -22,6 +22,35 @@ Codex / Agent 默认不要在完成任务时自动跑测试、E2E 或完整验�
 ./scripts/test-all.sh --frontend-only --quiet
 ```
 
+## 后台插件中心中文状态和异常提示统一验收项
+
+说明：本轮只覆盖后台插件模块中文状态、按钮、错误提示、风险提示和异常原因收口，不引入完整 i18n 框架，不改变英文枚举真实值或 API `code` 字段。
+
+建议命令：
+
+```bash
+go test ./...
+go build -o .devhub/devhub .
+bash -n dev.sh
+./scripts/check-frontend.sh --admin-only --quick
+# 插件治理相关 E2E：按当前环境执行 web/admin-app 中 plugin*.spec.js 或 check-frontend 的 admin E2E 子集。
+```
+
+验收项：
+
+1. 插件列表、详情抽屉、配置中心、内容治理、权限矩阵、运行记录、Webhook 治理中不裸露 `enabled/disabled/archived` 等核心英文状态。
+2. 插件包 upload / scan / promote / install / dry-run 的风险、阻断码和错误原因显示中文。
+3. `risk_blocked/manifest_invalid/checksum_failed/dangerous_file/signature_invalid/publisher_unknown/core_incompatible` 等插件包原因可显示中文。
+4. 健康状态、readiness、Hook、外部服务和依赖原因显示中文。
+5. 审批、归档、禁用、恢复、安装、promote、重新扫描、健康检查等操作按钮和确认提示使用中文并说明影响。
+6. 后端插件接口保留 `code`，同时继续返回或可映射中文 `message/suggestion`。
+7. 前端 HTTP 错误提示优先显示中文 message；仅有 code 时使用插件映射兜底，并保留“错误码”用于排障。
+8. 同一状态在列表、详情、toast、审计、健康页中展示口径一致。
+9. 技术字段名如 `plugin_code`、`publisher_id`、`key_id`、`token_ref`、`secret_ref`、`manifest` 可保留，但用户操作文案必须中文化。
+10. 不展示 token 明文、Secret 明文、Authorization Header、完整 HMAC signature 或敏感配置。
+11. 不执行第三方代码，不开放动态加载，不开放远程 iframe，不做 blocking Hook。
+12. 现有 E2E 不因文案调整退化；测试断言不依赖脆弱英文枚举文案。
+
 ## v1.8.3：后台插件治理页面稳定性、信息架构与中文体验验收项
 
 说明：v1.8.3 只优化后台页面稳定性、结构与中文体验，不修改插件生命周期、Webhook 协议、Secret / Token 安全模型、Host + iframe + postMessage 协议。本轮按用户要求，后台改动完成后执行后台 quick 检查。
@@ -57,6 +86,97 @@ Codex / Agent 默认不要在完成任务时自动跑测试、E2E 或完整验�
 23. blocking Hook 仍未开放。
 24. 后台构建通过。
 
+### v1.8.3-S9 PluginRegistry reload 运行态刷新验收项
+
+1. 插件安装成功后 registry reload。
+2. 插件安装失败或回滚后 registry 不污染。
+3. 插件升级成功后 registry reload。
+4. 插件升级失败或回滚后 registry 保持旧状态。
+5. 插件启用后 IsPluginEnabled 立即生效。
+6. 插件停用后 IsPluginEnabled 立即失效。
+7. 插件软卸载 / 归档后前端挂载停止。
+8. 插件软卸载 / 归档后 Webhook 投递停止。
+9. 子站插件启用后 IsPluginEnabledForCommunity 立即生效。
+10. 子站插件停用后 IsPluginEnabledForCommunity 立即失效。
+11. 插件全局配置保存后 ResolvedConfig 更新。
+12. 插件子站配置保存后 ResolvedConfig 更新。
+13. 配置保存失败不刷新脏状态。
+14. reload 失败保留旧 registry 快照。
+15. reload 失败有日志 / 审计。
+16. disabled 插件 callback token 不可用。
+17. disabled 插件不前端挂载。
+18. disabled 插件不 Webhook 投递。
+19. official_announcement 配置修改后 Host context 能读到新配置。
+20. `/c/:slug` community disabled 后公告不显示。
+21. reload 不执行第三方代码。
+22. reload 不开放动态加载。
+23. reload 不改变 Webhook 协议。
+24. reload 不改变 Secret / Token 安全模型。
+
+### v1.8.3-S10 声明型插件可用闭环验收项
+
+后端新增覆盖：`internal/service/plugin_manifest_test.go` 的 `TestDeclarativePluginManifestCapabilitiesClosedLoop`。
+
+1. 插件声明菜单能被 Registry / 运行态插件列表识别。
+2. 插件 enabled 后菜单可见。
+3. 插件 disabled 后菜单隐藏或不可用。
+4. 插件 archived / soft_uninstalled 后菜单隐藏或不可用。
+5. 插件声明 content_type 能被 Registry / Service 识别。
+6. 插件 enabled 后 content_type 可用于创建内容。
+7. 插件 disabled 后 content_type 不能新建内容。
+8. 插件 archived 后 content_type 不能新建内容。
+9. 板块不允许的 content_type 不能发布。
+10. 权限不足不能发布插件 content_type。
+11. 插件声明权限能进入权限矩阵。
+12. 插件权限按 plugin_code 分组展示。
+13. 权限不足时菜单隐藏或 API 拒绝。
+14. 子站 enabled 后插件能力可用。
+15. 子站 disabled 后插件能力不可用。
+16. 全局 disabled 时子站 enabled 也不可用。
+17. disabled 插件不前端挂载。
+18. disabled 插件不 Webhook 投递。
+19. disabled 插件 callback token 不可用。
+20. archived 插件不前端挂载。
+21. archived 插件不 Webhook 投递。
+22. archived 插件 callback token 不可用。
+23. 历史内容仍可查看。
+24. 历史审计仍可查看。
+25. Registry reload 后声明能力状态立即生效。
+26. 不执行第三方代码。
+27. 不开放动态加载。
+28. 不改变 Webhook 协议。
+29. 不改变 Secret / Token 安全模型。
+
+### v1.8.3-S11 external_service Webhook 运行时预备验收项
+
+后端新增覆盖：`internal/service/plugin_external_service_test.go` 的 `TestExternalServiceHealthCheckWarningAndRecovery`、`TestExternalServiceValidationAndDisabledPluginSkipped`。
+
+1. external_service endpoint 可以配置。
+2. external_service timeout_ms 可以配置。
+3. external_service failure_policy 可以配置。
+4. external_service auth_type=none 可用。
+5. external_service auth_type=bearer 可配置但 token 不回显。
+6. 非法 endpoint 被拒绝。
+7. `javascript:` / `data:` / `file:` / `ftp:` endpoint 被拒绝。
+8. health check 成功后状态 healthy。
+9. health check 失败后 failure_count 增加。
+10. 达到 warning_threshold 后状态 warning。
+11. 达到 error_threshold 后状态 error。
+12. 成功恢复后状态 healthy。
+13. hook_execution 成功记录可查看。
+14. hook_execution 失败记录可查看。
+15. hook_execution 不记录 token 明文。
+16. hook_execution 不记录 Authorization Header。
+17. disabled 插件 external_service skipped。
+18. archived 插件 external_service skipped。
+19. 子站 disabled 时 external_service 不执行子站 Hook（本轮 health check 层不绕过插件/子站 gating；完整子站 Hook 触发仍待后续远程 Hook 投递实现）。
+20. 后台插件详情显示 health warning / error。
+21. external_service 不执行第三方代码。
+22. external_service 不开放动态加载。
+23. external_service 不改变 Webhook 协议。
+24. external_service 不改变 Secret / Callback Token 安全模型。
+25. blocking Hook 仍未开放。
+
 ### v1.8.3-S1 第一批收敛验收项
 
 1. Webhook 治理页不白屏。
@@ -83,6 +203,27 @@ Codex / Agent 默认不要在完成任务时自动跑测试、E2E 或完整验�
 22. blocking Hook 仍未开放。
 23. 后台构建通过。
 24. `/admin-next/plugins/operations` 接口响应为空对象或已解包业务对象时，不因 `undefined.items` 白屏。
+
+### v1.8.3-S8 插件包 migrations 规范收口验收项
+
+1. 插件包 migrations/ 被识别为唯一标准迁移目录。
+2. migrations/ 下 SQL 按文件名排序。
+3. 根目录 001_schema.sql 不再执行。
+4. 根目录 001_schema.sql 出现时给出 deprecated warning。
+5. 插件模板不再生成根目录 001_schema.sql。
+6. 示例插件包使用 migrations/ 或明确无迁移。
+7. dry-run 不执行 SQL。
+8. dry-run 不修改数据库。
+9. dry-run 不写插件安装状态。
+10. dry-run 输出 migration plan。
+11. dry-run 输出 deprecated warning。
+12. install 执行只基于 migrations/。
+13. upgrade 执行只基于 migrations/。
+14. 根目录其他 .sql 文件不执行。
+15. 不执行插件包脚本。
+16. 不执行第三方代码。
+17. 不改变 Webhook 协议。
+18. 不改变 Secret / Token 安全模型。
 
 ### v1.8.3-S2 二级导航收敛与三级 Tab 重组验收项
 
@@ -2206,6 +2347,48 @@ skipped / flaky / TODO 结论：
 13. 验签结果会写入 `plugin_package_signatures`（或等效记录）。
 14. 验签操作与 publisher 变更写入审计（admin_logs）。
 15. 整个验签链路不执行插件代码、不运行 package scripts、不加载 Go plugin，不影响 /topics/:id 与 /c/:slug SEO。
+
+### v1.8.3-S12 插件包 upload -> promote -> install 验收闭环
+
+后端新增覆盖：`internal/service/plugin_package_install_test.go` 的本地仓库安装 / dry-run 计划校验回归；`internal/service/plugin_package_upload_test.go` 的 promote 后进入本地仓库与安装 dry-run 回归。
+
+1. 上传包可进入暂存区。
+2. 上传包预检可生成 passed / warning / blocked。
+3. blocked 上传包不能 promote。
+4. failed 上传包不能 promote。
+5. promote 接口后端强校验 blocked 状态。
+6. promote 成功后生成本地仓库记录。
+7. promote 成功后记录 source_upload_id。
+8. promote 不执行 SQL。
+9. promote 不安装插件。
+10. promote 不启用插件。
+11. promote 不执行第三方代码。
+12. upload 暂存包不能直接 install。
+13. 本地仓库包 install 前必须重新 dry-run。
+14. 无 dry-run plan 时 install 被拒绝。
+15. dry-run 过期时 install 被拒绝。
+16. dry-run checksum 与当前包不一致时 install 被拒绝。
+17. install dry-run 不执行 SQL。
+18. install dry-run 输出 migration plan。
+19. install 只执行 migrations/ 计划。
+20. install 不执行根目录 001_schema.sql。
+21. install 不执行 package scripts。
+22. install 成功后触发 PluginRegistry reload。
+23. install 失败不污染 registry。
+24. 相关操作写审计。
+25. 后台 blocked 状态显示中文阻断原因。
+26. 后台未 dry-run 时禁用 install 按钮。
+27. 不执行第三方代码。
+28. 不开放动态加载。
+29. 不改变 Webhook 协议。
+30. 不改变 Secret / Token 安全模型。
+
+本轮执行结果：
+
+- `gofmt`：已执行。
+- `go test ./...`：通过。
+- `go build ./...`：通过。
+- `./scripts/check-frontend.sh --admin-only --quick`：通过，日志目录 `.devhub/checks/20260519-095725/`。
 
 ### 本轮执行命令与结果（v1.7.1）
 

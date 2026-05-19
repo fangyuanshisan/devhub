@@ -12,8 +12,9 @@ import (
 
 // InstallPluginPackage installs a plugin from a local package directory.
 //
-// It always re-runs dry-run (scan/checksum/risk/manifest validate/install preview) server-side,
-// and it never executes plugin code / SQL / frontend assets.
+// It only accepts packages from the local repository, requires a fresh install
+// dry-run token, always re-runs dry-run server-side, and never executes plugin
+// code / package scripts / raw SQL / frontend assets.
 //
 // The installed plugin status is always disabled.
 func (s *Service) InstallPluginPackage(operator PluginOperationOperator, req domain.PluginPackageInstallRequest) (domain.PluginPackageInstallResponse, error) {
@@ -23,10 +24,19 @@ func (s *Service) InstallPluginPackage(operator PluginOperationOperator, req dom
 			WithStatus(400).
 			WithSuggestion("请提供 path，例如 storage/plugins/packages/demo_notice。")
 	}
+	if !strings.HasPrefix(filepath.ToSlash(path), pluginPackagePromoteRoot+"/") {
+		return domain.PluginPackageInstallResponse{}, domain.NewPluginError("plugin_package_install_source_invalid", "该包尚未提升到本地仓库，不能安装").
+			WithStatus(400).
+			WithDetail("path", path).
+			WithSuggestion("请先通过上传包 promote 将插件包转入 storage/plugins/packages/，再执行安装 dry-run 和安装。")
+	}
 
 	// Always re-run dry-run on backend; do not trust previous UI results.
 	dry, err := s.DryRunPluginPackage(path)
 	if err != nil {
+		return domain.PluginPackageInstallResponse{}, err
+	}
+	if err := s.verifyPluginPackageInstallDryRunID(dry, req.DryRunID); err != nil {
 		return domain.PluginPackageInstallResponse{}, err
 	}
 
@@ -173,6 +183,7 @@ func (s *Service) InstallPluginPackage(operator PluginOperationOperator, req dom
 			"signature":           dry.Signature,
 			"manifest_validation": dry.ManifestValidation,
 			"install_dry_run":     dry.InstallDryRun,
+			"migration_plan":      dry.MigrationPlan,
 			"risk_report":         dry.RiskReport,
 			"status":              dry.Status,
 			"blocked_code":        dry.BlockedCode,
@@ -216,6 +227,25 @@ func (s *Service) InstallPluginPackage(operator PluginOperationOperator, req dom
 			WithDetail("plugin_code", code).
 			WithDetail("operation_id", snapshot.OperationID).
 			WithSuggestion("请到“系统插件 -> 操作历史”查看失败详情，并按恢复预览执行 cleanup。")
+	}
+	if rerr := s.refreshPluginRegistry(pluginRegistryRefreshEvent{
+		Trigger:    "after_install",
+		PluginCode: plugin.Code,
+		ActorType:  "admin_user",
+		ActorID:    operator.ID,
+		ActorName:  firstNonEmpty(operator.Name, "system"),
+		NewVersion: plugin.Version,
+		Status:     plugin.Status,
+	}); rerr != nil {
+		snapshot.Status = domain.PluginOperationStatusFailed
+		snapshot.ErrorCode = "plugin_registry_reload_failed"
+		snapshot.ErrorMessage = rerr.Error()
+		_, _ = s.repo.SavePluginOperationSnapshot(snapshot)
+		return domain.PluginPackageInstallResponse{}, domain.NewPluginError("plugin_registry_reload_failed", "插件已安装，但运行态刷新失败").
+			WithStatus(500).
+			WithDetail("plugin_code", code).
+			WithDetail("operation_id", snapshot.OperationID).
+			WithSuggestion("请查看审计日志后重试运行态刷新。")
 	}
 
 	createdMigrations := len(validation.NormalizedManifest.Migrations)

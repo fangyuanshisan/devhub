@@ -7,6 +7,7 @@ import (
 	"os"
 	"sort"
 	"strings"
+	"sync"
 	"time"
 
 	"devhub-gin-backend/internal/domain"
@@ -121,6 +122,8 @@ type Repository interface {
 	HookExecutions(pluginCode string, limit int) ([]domain.HookExecution, error)
 	HookStats(pluginCode string) ([]domain.HookStats, error)
 	HookExecutionsByFilter(filter domain.HookExecutionFilter) ([]domain.HookExecution, int, error)
+	PluginExternalServiceConfig(pluginCode string) (domain.PluginExternalServiceConfig, bool)
+	SavePluginExternalServiceConfig(record domain.PluginExternalServiceConfig) (domain.PluginExternalServiceConfig, error)
 
 	// ===== Webhook governance (v1.7.4+ / v1.7.5) =====
 	AppendWebhookEvent(record domain.WebhookEvent) (domain.WebhookEvent, error)
@@ -279,15 +282,24 @@ type Repository interface {
 
 // Service 封装业务入口，向 HTTP 层提供稳定的调用接口。
 type Service struct {
-	repo  Repository
-	hooks *pluginregistry.HookBus
+	repo                       Repository
+	hooks                      *pluginregistry.HookBus
+	packageDryRunSecret        string
+	pluginRuntimeMu            sync.Mutex
+	pluginRuntimeSnapshotMu    sync.RWMutex
+	pluginRuntimePlugins       []domain.Plugin
+	pluginRuntimePluginsByCode map[string]domain.Plugin
+	pluginRuntimeCommunities   map[int64][]domain.Plugin
+	pluginRuntimeErr           func(pluginRegistryRefreshEvent) error
 }
 
 // New 创建业务服务实例。
 func New(repo Repository) *Service {
 	bus := pluginregistry.NewHookBus()
 	pluginregistry.RegisterBuiltinHookHandlers(bus)
-	return &Service{repo: repo, hooks: bus}
+	svc := &Service{repo: repo, hooks: bus, packageDryRunSecret: randomHex(16)}
+	_ = svc.refreshPluginRegistry(pluginRegistryRefreshEvent{Trigger: "startup", ActorType: "system", ActorName: "system"})
+	return svc
 }
 
 // DispatchHook exposes HookBus dispatch for platform-governance actions (enable/disable/config/etc).
@@ -814,7 +826,21 @@ func (s *Service) ValidatePluginManifestJSON(raw []byte) (domain.PluginManifestV
 // InstallPluginManifest installs the safe manifest + configuration plugin
 // metadata. It never executes plugin code or raw SQL.
 func (s *Service) InstallPluginManifest(raw []byte) (domain.Plugin, domain.PluginManifestValidationResult, error) {
-	return s.installPluginManifestInternal(raw, "", "")
+	plugin, validation, err := s.installPluginManifestInternal(raw, "", "")
+	if err != nil {
+		return plugin, validation, err
+	}
+	if rerr := s.refreshPluginRegistry(pluginRegistryRefreshEvent{
+		Trigger:    "after_install",
+		PluginCode: plugin.Code,
+		ActorType:  "system",
+		ActorName:  "system",
+		NewVersion: plugin.Version,
+		Status:     plugin.Status,
+	}); rerr != nil {
+		return plugin, validation, rerr
+	}
+	return plugin, validation, nil
 }
 
 func (s *Service) installPluginManifestInternal(raw []byte, sourceType string, packageManifestChecksum string) (domain.Plugin, domain.PluginManifestValidationResult, error) {
@@ -1100,6 +1126,18 @@ func (s *Service) upgradePluginManifestWithOperation(operator PluginOperationOpe
 	snapshot.ErrorCode = ""
 	snapshot.ErrorMessage = ""
 	_, _ = s.repo.SavePluginOperationSnapshot(snapshot)
+	if rerr := s.refreshPluginRegistry(pluginRegistryRefreshEvent{
+		Trigger:    "after_upgrade",
+		PluginCode: saved.Code,
+		ActorType:  firstNonEmpty("admin_user", "system"),
+		ActorID:    operator.ID,
+		ActorName:  firstNonEmpty(operator.Name, "system"),
+		OldVersion: current.Version,
+		NewVersion: saved.Version,
+		Status:     saved.Status,
+	}); rerr != nil {
+		return domain.PluginUpgradeResult{}, rerr
+	}
 	return domain.PluginUpgradeResult{
 		Plugin:                    saved,
 		PluginUpgradeDryRunResult: preview,
@@ -1202,7 +1240,30 @@ func (s *Service) SetPluginStatus(code, status string) (domain.Plugin, error) {
 			return domain.Plugin{}, err
 		}
 	}
-	return s.repo.SetPluginStatus(code, status)
+	plugin, err := s.repo.SetPluginStatus(code, status)
+	if err != nil {
+		return domain.Plugin{}, err
+	}
+	trigger := "after_status_change"
+	switch status {
+	case pluginregistry.StatusEnabled:
+		trigger = "after_enable"
+	case pluginregistry.StatusDisabled:
+		trigger = "after_disable"
+	case pluginregistry.StatusArchived:
+		trigger = "after_archive"
+	}
+	if rerr := s.refreshPluginRegistry(pluginRegistryRefreshEvent{
+		Trigger:    trigger,
+		PluginCode: plugin.Code,
+		ActorType:  "system",
+		ActorName:  "system",
+		NewVersion: plugin.Version,
+		Status:     plugin.Status,
+	}); rerr != nil {
+		return domain.Plugin{}, rerr
+	}
+	return plugin, nil
 }
 
 // ArchivePlugin soft-uninstalls a plugin from runtime creation paths while
@@ -1216,7 +1277,7 @@ func (s *Service) ArchivePlugin(code string) (domain.Plugin, error) {
 	if plugin.Status == pluginregistry.StatusArchived {
 		return plugin, nil
 	}
-	return s.repo.SetPluginStatus(code, pluginregistry.StatusArchived)
+	return s.SetPluginStatus(code, pluginregistry.StatusArchived)
 }
 
 // RestorePlugin brings an archived plugin back to an installed/disabled state.
@@ -1227,7 +1288,7 @@ func (s *Service) RestorePlugin(code string) (domain.Plugin, error) {
 	if err := s.validatePluginRestoreReadiness(code); err != nil {
 		return domain.Plugin{}, err
 	}
-	return s.repo.SetPluginStatus(code, pluginregistry.StatusDisabled)
+	return s.SetPluginStatus(code, pluginregistry.StatusDisabled)
 }
 
 func (s *Service) validatePluginEnableReadiness(code string) error {
@@ -1319,7 +1380,21 @@ func (s *Service) SetPluginConfig(code, configJSON string) (domain.Plugin, error
 	if err != nil {
 		return domain.Plugin{}, err
 	}
-	return s.repo.SetPluginConfig(code, res.EncryptedJSON)
+	updated, err := s.repo.SetPluginConfig(code, res.EncryptedJSON)
+	if err != nil {
+		return domain.Plugin{}, err
+	}
+	if rerr := s.refreshPluginRegistry(pluginRegistryRefreshEvent{
+		Trigger:    "after_config_change",
+		PluginCode: updated.Code,
+		ActorType:  "system",
+		ActorName:  "system",
+		NewVersion: updated.Version,
+		Status:     updated.Status,
+	}); rerr != nil {
+		return domain.Plugin{}, rerr
+	}
+	return updated, nil
 }
 
 func (s *Service) PluginImpact(code string) (domain.PluginImpact, error) {
@@ -1597,6 +1672,32 @@ func (s *Service) PluginHealth(code string) (domain.PluginHealth, error) {
 		}
 	}
 
+	if cfg, ok := s.repo.PluginExternalServiceConfig(code); ok {
+		health.ExternalServiceStatus = cfg.Status
+		health.ExternalServiceHealthStatus = cfg.LastHealthStatus
+		health.ExternalServiceEndpoint = cfg.EndpointURL
+		health.ExternalServiceCheckedAt = cfg.LastCheckedAt
+		health.ExternalServiceLastSuccessAt = cfg.LastSuccessAt
+		health.ExternalServiceLastFailureAt = cfg.LastFailureAt
+		health.ExternalServiceFailureCount = cfg.FailureCount
+		health.ExternalServiceRecentError = cfg.LastErrorMessage
+		if strings.TrimSpace(cfg.LastHealthStatus) != "" && health.Status == "healthy" && !disabled {
+			switch strings.TrimSpace(cfg.LastHealthStatus) {
+			case "warning":
+				health.Status = "warning"
+				health.SuggestedAction = "查看 external_service 健康检查"
+				health.StatusReason = "外部服务存在健康警告"
+			case "error":
+				health.Status = "error"
+				health.SuggestedAction = "查看 external_service 健康检查"
+				health.StatusReason = "外部服务存在健康异常"
+			}
+		}
+		if health.RecentError == "" && cfg.LastErrorMessage != "" {
+			health.RecentError = cfg.LastErrorMessage
+		}
+	}
+
 	dependencyChecks, dependencySummary := pluginregistry.ResolvePluginDependencies(plugin.PluginManifest, s.repo.Plugins())
 	if dependencySummary.Blocking > 0 {
 		for _, dep := range dependencyChecks {
@@ -1857,7 +1958,39 @@ func (s *Service) AdminRoles() []domain.AdminRole { return s.repo.AdminRoles() }
 
 // AdminPermissions 返回后台权限点列表。
 func (s *Service) AdminPermissions() []domain.AdminPermission {
-	return s.repo.AdminPermissions()
+	items := append([]domain.AdminPermission(nil), s.repo.AdminPermissions()...)
+	seen := map[string]bool{}
+	for _, item := range items {
+		seen[strings.TrimSpace(item.Code)] = true
+	}
+	for _, plugin := range s.Plugins() {
+		if strings.TrimSpace(plugin.Code) == "" || len(plugin.Permissions) == 0 {
+			continue
+		}
+		perms := make([]string, 0, len(plugin.Permissions))
+		for _, perm := range plugin.Permissions {
+			code := strings.TrimSpace(perm.Code)
+			if code != "" {
+				perms = append(perms, code)
+			}
+		}
+		if len(perms) == 0 {
+			continue
+		}
+		sort.Strings(perms)
+		moduleCode := "plugin." + plugin.Code
+		if seen[moduleCode] {
+			continue
+		}
+		seen[moduleCode] = true
+		items = append(items, domain.AdminPermission{
+			Code:   moduleCode,
+			Module: "插件权限 / " + firstNonEmpty(plugin.Name, plugin.Code),
+			Name:   plugin.Code,
+			Ops:    perms,
+		})
+	}
+	return items
 }
 
 // AdminComments 返回后台评论审核列表。
@@ -2069,8 +2202,27 @@ func (s *Service) CreateTopic(req domain.CreateTopicRequest) (*domain.Topic, err
 func (s *Service) UpdateTopic(id int64, req domain.UpdateTopicRequest) (*domain.Topic, error) {
 	before, _ := s.repo.TopicByID(id, false)
 	pluginCode := ""
+	communityID := int64(0)
+	categoryID := int64(0)
 	if before != nil {
 		pluginCode = before.PluginCode
+		communityID = before.CommunityID
+		categoryID = before.CategoryID
+	}
+	if req.CommunityID != nil {
+		communityID = *req.CommunityID
+	}
+	if req.CategoryID != nil {
+		categoryID = *req.CategoryID
+	}
+	if req.ContentType != nil && strings.TrimSpace(*req.ContentType) != "" {
+		normalizedType, resolvedPluginCode, err := s.ValidateTopicPluginAccess(communityID, categoryID, *req.ContentType)
+		if err != nil {
+			return nil, err
+		}
+		req.ContentType = &normalizedType
+		req.PluginCode = &resolvedPluginCode
+		pluginCode = resolvedPluginCode
 	}
 	if err := s.dispatchHook(pluginregistry.HookEvent{
 		Name: pluginregistry.HookBeforeUpdateContent,

@@ -304,6 +304,9 @@ func NewRouter(svc *service.Service) *gin.Engine {
 			protected.GET("/plugins/:code/impact", srv.requirePermission("plugin.read"), srv.adminPluginImpact)
 			protected.GET("/plugins/:code/hooks", srv.requirePermission("plugin.read"), srv.adminPluginHooks)
 			protected.GET("/plugins/:code/hooks/executions", srv.requirePermission("plugin.read"), srv.adminPluginHookExecutions)
+			protected.GET("/plugins/:code/external-service", srv.requirePermission("plugin.read"), srv.adminPluginExternalService)
+			protected.PUT("/plugins/:code/external-service", srv.requirePermission("plugin.manage"), srv.updateAdminPluginExternalService)
+			protected.POST("/plugins/:code/external-service/health-check", srv.requirePermission("plugin.manage"), srv.checkAdminPluginExternalServiceHealth)
 			protected.POST("/plugins/:code/hooks/:name/e2e-fail", srv.requirePermission("plugin.write"), srv.injectFailedAdminPluginHookForTest)
 			protected.GET("/plugins/:code/audit-logs", srv.requirePermission("plugin.read"), srv.adminPluginAuditLogs)
 			protected.GET("/plugins/:code/migrations", srv.requirePermission("plugin.read"), srv.adminPluginMigrations)
@@ -2150,6 +2153,62 @@ func (s *Server) adminPluginHealth(c *gin.Context) {
 	c.JSON(http.StatusOK, health)
 }
 
+func (s *Server) adminPluginExternalService(c *gin.Context) {
+	code := strings.TrimSpace(c.Param("code"))
+	if _, ok := s.svc.PluginByCode(code); !ok {
+		failAPIError(c, domain.NewPluginError("plugin_not_found", "插件不存在").WithStatus(http.StatusNotFound).WithDetail("plugin_code", code))
+		return
+	}
+	cfg, ok := s.svc.PluginExternalServiceConfig(code)
+	if !ok {
+		c.JSON(http.StatusOK, gin.H{"config": nil, "configured": false})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"config": cfg, "configured": true})
+}
+
+func (s *Server) updateAdminPluginExternalService(c *gin.Context) {
+	code := strings.TrimSpace(c.Param("code"))
+	var req domain.PluginExternalServiceUpdateRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		failAPIError(c, domain.NewPluginError("plugin_external_service_invalid", "external_service 请求参数不合法").WithStatus(http.StatusBadRequest))
+		return
+	}
+	operator := pluginExternalServiceOperator(c)
+	cfg, err := s.svc.UpdatePluginExternalServiceConfig(operator, code, req)
+	if err != nil {
+		failAPIError(c, err)
+		return
+	}
+	c.JSON(http.StatusOK, cfg)
+}
+
+func (s *Server) checkAdminPluginExternalServiceHealth(c *gin.Context) {
+	code := strings.TrimSpace(c.Param("code"))
+	resp, err := s.svc.RunPluginExternalServiceHealthCheck(pluginExternalServiceOperator(c), code)
+	if err != nil {
+		failAPIError(c, err)
+		return
+	}
+	c.JSON(http.StatusOK, resp)
+}
+
+func pluginExternalServiceOperator(c *gin.Context) service.PluginExternalServiceOperator {
+	operator := service.PluginExternalServiceOperator{Name: auditActor(c)}
+	if adminCtx, ok := currentAdminContext(c); ok {
+		operator.ID = adminCtx.CurrentUser.ID
+		if adminCtx.CurrentUser.Username != "" {
+			operator.Name = adminCtx.CurrentUser.Username
+		} else if adminCtx.CurrentUser.Nickname != "" {
+			operator.Name = adminCtx.CurrentUser.Nickname
+		}
+	}
+	if strings.TrimSpace(operator.Name) == "" {
+		operator.Name = "system"
+	}
+	return operator
+}
+
 func (s *Server) adminPluginReadiness(c *gin.Context) {
 	code := strings.TrimSpace(c.Param("code"))
 	action := strings.TrimSpace(c.DefaultQuery("action", "enable"))
@@ -2422,6 +2481,7 @@ func (s *Server) adminPluginHookExecutions(c *gin.Context) {
 	filter := domain.HookExecutionFilter{
 		PluginCode:  code,
 		HookName:    strings.TrimSpace(c.Query("hook_name")),
+		ServiceType: strings.TrimSpace(c.Query("service_type")),
 		Mode:        strings.TrimSpace(c.Query("mode")),
 		ContentType: strings.TrimSpace(c.Query("content_type")),
 		ContentID:   int64Query(c, "content_id", 0),

@@ -54,6 +54,12 @@ v1.8.3 后台治理稳定性与体验补充：
 - v1.8.3-S5 已完成插件详情抽屉视觉 polish 与信息减负：详情抽屉可见 Tab 收敛为概览、配置、前端挂载、Webhook、安全凭据、运行记录、审计日志、技术详情；Webhook 密钥和回调 Token 合并到安全凭据；原始配置、声明 JSON、低频技术字段收纳到默认折叠的技术详情并脱敏展示。该批次只改后台 UI 和文档，不改变 API、插件生命周期、Webhook 协议或 Secret / Token 安全模型。
 - v1.8.3-S6 已完成插件详情抽屉性能拆包与视觉回归：配置版本弹窗、技术详情和 JSON 编辑器按需加载，低频 Tab 使用懒渲染；1024 宽度下普通插件详情、配置 Tab、技术详情和配置版本弹窗已截图回归。剩余大 chunk 主要来自后台主入口、内容页和按需 `json-editor-vue`。
 - v1.8.3-S7 已完成 `official_announcement` 浏览器回归固定 fixture：`scripts/check-admin-plugin-ia.sh` 通过后台登录和现有插件配置 / 启用 API 幂等准备官方公告插件，确保插件列表、详情概览、公告配置、前端挂载和公告预览从条件覆盖变为强制覆盖；同时修复 admin area Host context / audit 请求鉴权，token 只用于 Host 请求，不进入 iframe。fixture 不写入真实 token / Secret，不改变 Host + iframe + postMessage 协议或安全边界。
+- v1.8.3-S8 已完成插件包 migrations 规范收口：插件包 dry-run / 预检 / 安装 / 升级只读取 `migrations/` 下的 `.sql` 文件并生成只读 migration plan；根目录 `001_schema.sql` 已降级为 deprecated warning，新模板 / 示例统一生成 `migrations/001_init.sql`，dry-run 不执行 SQL、不修改数据库。
+- v1.8.3-S9 已完成 PluginRegistry reload 运行态刷新收口：Service 层新增统一刷新入口和运行态快照，安装、升级、启停、软卸载 / 归档、恢复、全局配置变更、子站启停、子站配置变更以及配置轮换后统一刷新；reload 成功后原子替换快照，失败时保留旧快照并写审计，不执行第三方代码、不开放动态加载、不改变 Webhook 协议或 Secret / Token 安全模型。
+- v1.8.3-S10 已完成声明型插件可用闭环：manifest 安装插件的菜单、content_type、权限和配置声明进入运行态；子站启停、发布校验、权限矩阵和归档阻断均可识别声明型插件。disabled / archived / 子站 disabled 会停止新能力，历史内容和审计继续可查；仍不执行第三方代码、不开放动态加载、不改变 Webhook 协议或 Secret / Token 安全模型。
+- v1.8.3-S11 已完成 external_service Webhook 运行时预备：新增外部服务配置、endpoint / timeout / failure_policy / auth_type 校验、Bearer token 加密保存与 token_ref、受控 health check、`hook_executions(service_type=external_service)` 记录、warning / error 健康状态联动以及后台详情抽屉展示。disabled / archived 插件不会调用 endpoint，只记录 skipped；本轮仍不执行第三方代码、不开放动态加载、不做 blocking Hook。
+- v1.8.3-S12 继续收口插件包 upload -> promote -> install：blocked / failed 上传包不可 promote；promote 只转入本地仓库；install 只能从本地仓库包执行，并且必须携带当前 install dry-run 计划凭证 `dry_run_id`。install 前服务端会再次 dry-run 并校验 path / plugin_code / version / manifest checksum / checksum status / migration plan hash 是否与当前包一致，upload/staging 阶段旧结果不可直接复用。
+- 后台插件中心中文状态和异常提示已完成收口：状态、风险、阻断原因、Hook / 健康原因、操作名和建议文案集中在 `web/admin-app/src/modules/plugins/statusText.js`，插件列表、详情、插件包治理、上传记录、promote/install、远程索引、版本升级、配置密钥等页面复用同一口径。英文枚举和 API code 继续作为稳定机器字段，不改变业务逻辑或 API 兼容性。
 - 插件后台治理页面按“一级插件模块 / 5 个治理域 / 详情三级 Tab”继续收口，5 个治理域为：插件总览、插件包治理、Webhook 治理、可信发布者、运行记录 / 审计。
 - Webhook 治理页补齐空数据 / 缺字段安全默认值，避免 Events、Deliveries、Retry、Circuit Breakers、Secrets、Callback Tokens、Callback Requests 因 `null` 响应导致白屏。
 - 插件详情抽屉补齐运行时依赖并保护空插件状态，避免打开详情或页面初始化时出现运行时异常。
@@ -102,6 +108,12 @@ v1.7.6 实现补充：
 - 已实现 DevHub → 插件服务的 HMAC-SHA256 发送端签名（包含 `timestamp/method/path/body_sha256` signing string）。
 - 已实现 Webhook Secret 管理与轮换窗口（active/previous + grace period），Secret 明文只在创建/轮换响应中展示一次。
 - 已提供后台最小治理入口：插件 → 运行时治理 → Webhook 治理（新增 Secrets Tab），并提供对应 Admin API（`/api/v1/admin/plugins/webhooks/secrets*`）。
+
+v1.8.3-S11 实现补充：
+
+- 已实现 external_service 运行时预备配置与探活：`/api/v1/admin/plugins/:code/external-service` 管理 endpoint / timeout / failure_policy / auth_type / token_ref，`/health-check` 执行受控 HTTP GET 探活。
+- external_service token 与 Webhook Secret、Callback Token 明确区分：external_service token 用于 DevHub 调用外部服务；Webhook Secret 用于 DevHub → 插件服务签名；Callback Token 用于插件服务 → DevHub Core 回调。三者均不在列表、详情、执行记录、日志或审计中回显明文。
+- health check 结果统一进入 `hook_executions(service_type=external_service)`，并联动插件健康摘要；仍不代表远程 Hook 投递、远程代码执行或 blocking Hook 已开放。
 
 ## 历史收尾：v1.3.5 插件治理体验与安装升级向导
 

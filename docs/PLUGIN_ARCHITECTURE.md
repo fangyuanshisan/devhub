@@ -35,6 +35,10 @@ v1.8.3 后台治理稳定性、IA 与中文体验补充：
 - Webhook 治理页补齐空数据 / 缺字段安全默认值；插件详情抽屉补齐 `maturityLabel` 依赖并避免空插件对象读取，降低白屏和运行时异常风险。
 - 插件详情抽屉新增前端挂载、Webhook、Webhook 密钥、回调 Token 等清晰分组；插件包治理、Webhook 治理、可信发布者、审批中心、上传记录、操作历史和配置版本历史补齐中文文案与状态展示。
 - 本轮只改后台页面组织和中文体验，不改变插件生命周期、Webhook 协议、Secret / Token 安全模型，不开放远程 iframe、第三方代码执行、插件市场或 blocking Hook。
+- v1.8.3-S9 已完成 PluginRegistry reload 运行态刷新收口：Service 层新增统一刷新入口和运行态快照，安装、升级、启停、软卸载 / 归档、恢复、全局配置保存、子站启停、子站配置保存与配置轮换后统一刷新；reload 成功时原子替换快照，失败时保留旧快照并写审计。刷新只处理可信元数据，不执行第三方代码、不开放动态加载、不改变 Webhook 协议或 Secret / Token 安全模型。
+- v1.8.3-S10 已完成声明型插件可用闭环：manifest 声明的菜单、content_type、权限和 config_schema 能进入运行态插件列表、子站启用链路、后台权限矩阵和发布校验；全局 disabled、子站 disabled、archived / soft_uninstalled 会阻断新能力，历史内容仍可读。该闭环仍只处理可信声明元数据，不执行第三方代码、不开放动态加载、不改变 Webhook 协议或 Secret / Token 安全模型。
+- v1.8.3-S11 已完成 external_service Webhook 运行时预备：声明型插件可保存外部服务 endpoint / timeout / failure_policy / auth_type / token_ref 配置，执行受控 HTTP health check，并将结果写入 `hook_executions(service_type=external_service)` 与插件健康摘要。该能力只做探活、状态和排障记录，不执行第三方插件代码、不开放动态加载、不改变 Webhook Secret / Callback Token 安全模型，也不实现 blocking Hook。
+- 后台插件中心中文状态和异常提示已收口到插件模块映射：前端集中维护 `web/admin-app/src/modules/plugins/statusText.js`，用于状态 badge、风险标签、插件包阻断原因、Hook / 健康原因、操作名、错误建议和旧接口 code 兜底展示。后端仍以英文枚举和 `APIError.code` 作为稳定机器字段，前端展示中文 `message` / 映射文案；不引入全站 i18n，不改变插件业务状态值或 API 兼容性。
 
 ## Core 边界
 
@@ -93,7 +97,7 @@ MySQL 专项补充：2026-05-11 已完成 MySQLStore 与老库升级专项验证
 
 当前定位：
 
-- DevHub 当前是内置系统插件平台，并开始支持安全的 manifest + 配置型插件安装预备形态：插件通过代码 registry 或 manifest 声明接入，由 Core 负责状态、权限、菜单、配置、Hook 元信息、发布校验和后台治理分发。
+- DevHub 当前是内置系统插件平台，并支持安全的 manifest + 配置型声明插件闭环：插件通过代码 registry 或 manifest 声明接入，由 Core 负责状态、权限、菜单、配置、content_type、Hook 元信息、发布校验、子站启用和后台治理分发。
 - 当前不是第三方插件市场；已支持管理员 zip 插件包上传到安全沙箱、远程包 staging 下载、安全预检、compat-check、安装 / 启用 / 软卸载 / 升级治理和 detached signature 验签，但不支持远程自动安装、在线更新、Go 动态插件加载或执行第三方本地代码。
 - 当前真实表名仍是 `topics` / `categories`；`contents` / `channels` 是架构概念或长期目标命名，不能在本阶段强行改表。
 

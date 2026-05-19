@@ -165,8 +165,35 @@ func TestPromotePluginPackageUpload_OKAndTargetExists(t *testing.T) {
 	if promoted.PackagePath != "storage/plugins/packages/demo_notice_upload_promote" {
 		t.Fatalf("unexpected package path: %q", promoted.PackagePath)
 	}
+	record, ok := svc.repo.PluginPackageUploadByUploadID(res.UploadID)
+	if !ok {
+		t.Fatalf("expected upload record")
+	}
+	if record.Status != domain.PluginPackageUploadStatusPromoted || record.PromotedPath != promoted.PackagePath {
+		t.Fatalf("expected promoted upload record, got %#v", record)
+	}
 	if _, err := os.Stat(filepath.Join(target, "manifest.json")); err != nil {
 		t.Fatalf("expected promoted manifest: %v", err)
+	}
+	installDry, err := svc.DryRunPluginPackage(promoted.PackagePath)
+	if err != nil {
+		t.Fatalf("install dry-run from local repository: %v", err)
+	}
+	if installDry.DryRunID == "" || strings.HasPrefix(installDry.Package.Path, "storage/plugins/staging/") {
+		t.Fatalf("expected local repository install dry-run id, got %#v", installDry)
+	}
+	repoList, err := svc.ListPluginPackages("", PluginPackageRepositoryFilter{Keyword: "demo_notice_upload_promote", Page: 1, PageSize: 20})
+	if err != nil {
+		t.Fatalf("ListPluginPackages: %v", err)
+	}
+	if repoList.Pagination.Total == 0 {
+		t.Fatalf("expected promoted package in local repository list")
+	}
+	if got := repoList.Items[0].SourceUploadID; got != res.UploadID {
+		t.Fatalf("expected source upload id %q, got %q in %#v", res.UploadID, got, repoList.Items[0])
+	}
+	if repoList.Items[0].PromotedAt == "" {
+		t.Fatalf("expected promoted_at in local repository item: %#v", repoList.Items[0])
 	}
 	if _, err := svc.PromotePluginPackageUpload(res.UploadID, false); apiCodeForUpload(err) != "plugin_package_promote_target_exists" {
 		t.Fatalf("expected target exists, got %v", err)

@@ -55,6 +55,7 @@ func (s *Service) ListPluginPackages(root string, filter PluginPackageRepository
 
 	all := make([]domain.PluginPackageRepositoryListItem, 0, len(items))
 	summary := domain.PluginPackageRepositorySummary{}
+	promotedUploads := s.promotedPackageUploadIndex()
 
 	for _, it := range items {
 		manifestPath := filepath.Join(it.AbsPath, "manifest.json")
@@ -69,6 +70,10 @@ func (s *Service) ListPluginPackages(root string, filter PluginPackageRepository
 			SignatureFound: fileExists(filepath.Join(it.AbsPath, "signature.json")),
 			PublisherFound: fileExists(filepath.Join(it.AbsPath, "publisher.json")),
 			UpdatedAt:      it.UpdatedAt.Unix(),
+		}
+		if upload, ok := promotedUploads[filepath.ToSlash(it.CleanPath)]; ok {
+			row.SourceUploadID = upload.UploadID
+			row.PromotedAt = upload.UpdatedAt
 		}
 
 		if !row.ManifestFound {
@@ -175,6 +180,31 @@ func (s *Service) ListPluginPackages(root string, filter PluginPackageRepository
 		},
 		Summary: summary,
 	}, nil
+}
+
+func (s *Service) promotedPackageUploadIndex() map[string]domain.PluginPackageUploadRecord {
+	out := map[string]domain.PluginPackageUploadRecord{}
+	for page := 1; ; page++ {
+		rows, total, err := s.repo.PluginPackageUploads(domain.PluginPackageUploadFilter{
+			Status:   domain.PluginPackageUploadStatusPromoted,
+			Page:     page,
+			PageSize: 100,
+		})
+		if err != nil {
+			return nil
+		}
+		for _, row := range rows {
+			path := filepath.ToSlash(strings.TrimSpace(row.PromotedPath))
+			if path == "" {
+				continue
+			}
+			out[path] = row
+		}
+		if len(out) >= total || len(rows) == 0 {
+			break
+		}
+	}
+	return out
 }
 
 func (s *Service) GetPluginPackageDetail(path string) (domain.PluginPackageDryRunResult, error) {

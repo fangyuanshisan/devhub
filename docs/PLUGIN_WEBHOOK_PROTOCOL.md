@@ -13,6 +13,7 @@
 - v1.7.6 已实现 DevHub 发送端 HMAC-SHA256 签名与 Webhook Secret 管理/轮换（仅治理与签名，不执行第三方代码）。
 - v1.7.7 已实现“插件服务回调 Core API”的最小通道：callback token（Bearer）+ scope 白名单 + community scope 校验 + callback request 记录与审计（不等于完整插件 SDK/运行时）。
 - v1.7.8 已补齐 Webhook 后台治理的 Events 视图（Admin API + UI Tab），并提供仓库内官方 mock receiver（`cmd/webhook-mock-receiver`）用于端到端验签/失败注入/重试熔断验证（不执行第三方代码）。
+- v1.8.3-S11 已实现 external_service 运行时预备：管理员可配置插件外部服务 endpoint / timeout / failure_policy / auth_type / token_ref，DevHub 可执行受控 health check，并将结果写入 `hook_executions(service_type=external_service)` 与插件健康摘要。该能力只做 HTTP 探活和治理记录，不执行第三方代码、不开放动态加载、不实现 blocking Hook。
 
 重要边界：
 
@@ -43,6 +44,18 @@ Webhook / HTTP 插件服务是 DevHub 第三方插件运行模型的推荐方向
 4. 可隔离：插件服务故障不能拖垮 Core；non_blocking 默认不影响主流程；blocking 必须短超时且谨慎使用。
 
 ## 2. 协议对象（设计）
+
+### 2.0 当前 external_service 运行时预备（v1.8.3-S11 已实现）
+
+当前实现不是完整远程 Hook 投递，只提供外部服务配置、受控健康检查和执行记录：
+
+- 配置：`plugin_external_services` 保存 `plugin_code`、`service_type=external_service`、`endpoint_url`、`health_check_path`、`timeout_ms`、`failure_policy`、`auth_type`、`token_ref`、加密 token、健康状态、最近检查时间和失败计数。
+- endpoint 校验：只允许 HTTPS；本地开发允许 `http://localhost` / `http://127.0.0.1` / `http://[::1]`；拒绝 `javascript:`、`data:`、`file:`、`ftp:`。
+- health check：`GET {endpoint_url}{health_check_path}`，默认 `/health`，必须有 timeout；2xx 为 healthy，3xx 记为 warning，4xx/5xx/timeout/DNS/TLS/连接错误记为 failure。
+- 执行记录：每次 health check 写入 `hook_executions`，`service_type=external_service`、`hook_name=external_service.health_check`，保存响应状态、响应摘要、错误码、耗时和健康状态前后变化。
+- 失败策略：`ignore` 只记录；`warn` 达到 warning 阈值进入 warning；`error` 达到 warning / error 阈值进入 warning / error；成功后 failure_count 清零。
+- 状态联动：插件 disabled / archived / soft_uninstalled 时不调用 endpoint，只写 skipped 记录；子站相关 Hook 后续接入时也必须遵守 community enabled gating。
+- token 边界：external_service token 只用于 DevHub 调用外部服务；Webhook Secret 用于 DevHub → 插件服务签名；Callback Token 用于插件服务 → DevHub Core 回调。三者不能混用，均不得在列表、详情、日志、审计或执行记录中回显明文。
 
 ### 2.1 Plugin Service
 

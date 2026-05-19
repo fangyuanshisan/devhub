@@ -7,17 +7,63 @@ import (
 	pluginregistry "devhub-gin-backend/internal/plugins"
 )
 
+func attachExternalServiceConfig(plugin domain.Plugin, repo Repository) domain.Plugin {
+	if repo == nil || strings.TrimSpace(plugin.Code) == "" {
+		return plugin
+	}
+	if cfg, ok := repo.PluginExternalServiceConfig(plugin.Code); ok {
+		plugin.ExternalServiceConfig = &cfg
+	}
+	return plugin
+}
+
 // Plugins 返回系统插件注册信息与运行状态。
-func (s *Service) Plugins() []domain.Plugin { return s.repo.Plugins() }
+func (s *Service) Plugins() []domain.Plugin {
+	if items, ok := s.runtimePluginsSnapshot(); ok {
+		out := make([]domain.Plugin, 0, len(items))
+		for _, item := range items {
+			out = append(out, attachExternalServiceConfig(item, s.repo))
+		}
+		return out
+	}
+	items := s.repo.Plugins()
+	out := make([]domain.Plugin, 0, len(items))
+	for _, item := range items {
+		out = append(out, attachExternalServiceConfig(item, s.repo))
+	}
+	return out
+}
 
 // PluginByCode 按插件唯一标识获取插件。
 func (s *Service) PluginByCode(code string) (domain.Plugin, bool) {
-	return s.repo.PluginByCode(code)
+	if plugin, ok := s.runtimePluginByCodeSnapshot(code); ok {
+		return attachExternalServiceConfig(plugin, s.repo), true
+	}
+	plugin, ok := s.repo.PluginByCode(code)
+	if !ok {
+		return domain.Plugin{}, false
+	}
+	return attachExternalServiceConfig(plugin, s.repo), true
 }
 
 // CommunityPlugins returns plugin list with community runtime state overlay.
 func (s *Service) CommunityPlugins(communityID int64) ([]domain.Plugin, error) {
-	return s.repo.CommunityPlugins(communityID)
+	if items, ok := s.runtimeCommunityPluginsSnapshot(communityID); ok {
+		out := make([]domain.Plugin, 0, len(items))
+		for _, item := range items {
+			out = append(out, attachExternalServiceConfig(item, s.repo))
+		}
+		return out, nil
+	}
+	items, err := s.repo.CommunityPlugins(communityID)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]domain.Plugin, 0, len(items))
+	for _, item := range items {
+		out = append(out, attachExternalServiceConfig(item, s.repo))
+	}
+	return out, nil
 }
 
 // SetCommunityPluginStatus updates per-community plugin enablement.
@@ -27,7 +73,28 @@ func (s *Service) SetCommunityPluginStatus(communityID int64, code, status strin
 			return domain.Plugin{}, err
 		}
 	}
-	return s.repo.SetCommunityPluginStatus(communityID, code, status)
+	plugin, err := s.repo.SetCommunityPluginStatus(communityID, code, status)
+	if err != nil {
+		return domain.Plugin{}, err
+	}
+	trigger := "after_community_change"
+	if strings.TrimSpace(status) == pluginregistry.StatusEnabled {
+		trigger = "after_community_enable"
+	} else if strings.TrimSpace(status) == pluginregistry.StatusDisabled {
+		trigger = "after_community_disable"
+	}
+	if rerr := s.refreshPluginRegistry(pluginRegistryRefreshEvent{
+		Trigger:     trigger,
+		PluginCode:  plugin.Code,
+		CommunityID: communityID,
+		ActorType:   "system",
+		ActorName:   "system",
+		NewVersion:  plugin.Version,
+		Status:      plugin.Status,
+	}); rerr != nil {
+		return domain.Plugin{}, rerr
+	}
+	return plugin, nil
 }
 
 // SetCommunityPluginConfig updates per-community plugin config blob.
@@ -53,7 +120,22 @@ func (s *Service) SetCommunityPluginConfig(communityID int64, code, configJSON s
 	if err != nil {
 		return domain.Plugin{}, err
 	}
-	return s.repo.SetCommunityPluginConfig(communityID, code, res.EncryptedJSON)
+	plugin, err := s.repo.SetCommunityPluginConfig(communityID, code, res.EncryptedJSON)
+	if err != nil {
+		return domain.Plugin{}, err
+	}
+	if rerr := s.refreshPluginRegistry(pluginRegistryRefreshEvent{
+		Trigger:     "after_config_change",
+		PluginCode:  plugin.Code,
+		CommunityID: communityID,
+		ActorType:   "system",
+		ActorName:   "system",
+		NewVersion:  plugin.Version,
+		Status:      plugin.Status,
+	}); rerr != nil {
+		return domain.Plugin{}, rerr
+	}
+	return plugin, nil
 }
 
 // ReorderCommunityPlugins updates per-community plugin sort order.
@@ -68,7 +150,7 @@ func (s *Service) IsPluginEnabled(pluginCode string) bool {
 	if pluginCode == "" || pluginCode == pluginregistry.CoreCode {
 		return true
 	}
-	plugin, ok := s.repo.PluginByCode(pluginCode)
+	plugin, ok := s.PluginByCode(pluginCode)
 	return ok && plugin.Status == pluginregistry.StatusEnabled
 }
 
@@ -79,7 +161,7 @@ func (s *Service) IsPluginEnabledForCommunity(communityID int64, pluginCode stri
 	if pluginCode == "" || pluginCode == pluginregistry.CoreCode {
 		return true
 	}
-	items, err := s.repo.CommunityPlugins(communityID)
+	items, err := s.CommunityPlugins(communityID)
 	if err != nil {
 		return false
 	}
@@ -93,7 +175,7 @@ func (s *Service) IsPluginEnabledForCommunity(communityID int64, pluginCode stri
 
 // ListEnabledPluginsForCommunity returns plugins enabled for a community.
 func (s *Service) ListEnabledPluginsForCommunity(communityID int64) ([]domain.Plugin, error) {
-	items, err := s.repo.CommunityPlugins(communityID)
+	items, err := s.CommunityPlugins(communityID)
 	if err != nil {
 		return nil, err
 	}

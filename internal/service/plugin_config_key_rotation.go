@@ -232,6 +232,15 @@ func (s *Service) PluginConfigKeyRotationReencrypt(req domain.PluginConfigKeyRot
 				if _, err := s.repo.SetPluginConfig(code, afterJSON); err != nil {
 					return domain.PluginConfigKeyRotationReencryptResponse{}, domain.NewPluginError("plugin_config_rotation_reencrypt_failed", "写入插件配置失败").WithStatus(500).WithDetail("plugin_code", code)
 				}
+				if err := s.refreshPluginRegistry(pluginRegistryRefreshEvent{
+					Trigger:    "after_config_change",
+					PluginCode: code,
+					ActorType:  "admin_user",
+					ActorID:    operator.ID,
+					ActorName:  firstNonEmpty(operator.Name, "system"),
+				}); err != nil {
+					return domain.PluginConfigKeyRotationReencryptResponse{}, domain.NewPluginError("plugin_registry_reload_failed", "插件配置已轮换，但运行态刷新失败").WithStatus(500).WithDetail("plugin_code", code)
+				}
 				// Record a new config version for traceability (ciphertext changes).
 				_, _, _ = s.RecordPluginConfigVersion(code, domain.PluginConfigScopeGlobal, 0, before.ConfigJSON, afterJSON, "key_rotation", operator)
 				updated++
@@ -255,6 +264,17 @@ func (s *Service) PluginConfigKeyRotationReencrypt(req domain.PluginConfigKeyRot
 			if changed {
 				if _, err := s.repo.SetCommunityPluginConfig(cid, code, afterJSON); err != nil {
 					return domain.PluginConfigKeyRotationReencryptResponse{}, domain.NewPluginError("plugin_config_rotation_reencrypt_failed", "写入子站插件配置失败").WithStatus(500).
+						WithDetail("plugin_code", code).WithDetail("community_id", cid)
+				}
+				if err := s.refreshPluginRegistry(pluginRegistryRefreshEvent{
+					Trigger:     "after_config_change",
+					PluginCode:  code,
+					CommunityID: cid,
+					ActorType:   "admin_user",
+					ActorID:     operator.ID,
+					ActorName:   firstNonEmpty(operator.Name, "system"),
+				}); err != nil {
+					return domain.PluginConfigKeyRotationReencryptResponse{}, domain.NewPluginError("plugin_registry_reload_failed", "子站插件配置已轮换，但运行态刷新失败").WithStatus(500).
 						WithDetail("plugin_code", code).WithDetail("community_id", cid)
 				}
 				_, _, _ = s.RecordPluginConfigVersion(code, domain.PluginConfigScopeCommunity, cid, before.ConfigJSON, afterJSON, "key_rotation", operator)

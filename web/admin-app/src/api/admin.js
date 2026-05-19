@@ -123,6 +123,9 @@ export const updatePluginConfig = (code, payload) => http.put(`/admin/plugins/${
 export const pluginImpact = (code) => http.get(`/admin/plugins/${code}/impact`);
 export const pluginHooks = (code) => http.get(`/admin/plugins/${code}/hooks`);
 export const pluginHookExecutions = (code, params) => http.get(`/admin/plugins/${code}/hooks/executions`, { params });
+export const getPluginExternalService = (code) => http.get(`/admin/plugins/${encodeURIComponent(code)}/external-service`);
+export const updatePluginExternalService = (code, payload) => http.put(`/admin/plugins/${encodeURIComponent(code)}/external-service`, payload);
+export const runPluginExternalServiceHealthCheck = (code) => http.post(`/admin/plugins/${encodeURIComponent(code)}/external-service/health-check`);
 export const pluginAuditLogs = (code, params) => http.get(`/admin/plugins/${code}/audit-logs`, { params });
 export const pluginMigrations = (code) => http.get(`/admin/plugins/${code}/migrations`);
 export const runPluginMigrations = (code) => http.post(`/admin/plugins/${code}/migrations/run`);

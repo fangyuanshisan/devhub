@@ -97,7 +97,7 @@
 		                {{ genericStatusLabel(rollback.status) }}
 		              </el-tag>
 		            </el-descriptions-item>
-		            <el-descriptions-item label="阻断码">{{ rollback.blocked_code || '-' }}</el-descriptions-item>
+		            <el-descriptions-item label="阻断原因">{{ pluginReasonText(rollback.blocked_code) }}</el-descriptions-item>
 		            <el-descriptions-item label="插件编码">{{ rollback.plugin_code }}</el-descriptions-item>
 		            <el-descriptions-item label="范围">{{ scopeLabel(rollback.scope) }}</el-descriptions-item>
 		            <el-descriptions-item label="目标版本">{{ rollback.target_version?.version_no }}</el-descriptions-item>
@@ -109,7 +109,7 @@
 	            show-icon
 	            :closable="false"
 	            class="mb"
-	            :title="`回滚预览被阻断：${rollback.blocked_code || 'blocked'}`"
+	            :title="`回滚预览被阻断：${pluginReasonText(rollback.blocked_code)}`"
 	            :description="rollback.suggestion || ''"
 	          />
 		          <el-alert v-else-if="rollback.schema_validation && rollback.schema_validation.valid === false" type="error" show-icon :closable="false" class="mb" title="配置模型校验失败（已阻断）" />
@@ -136,6 +136,7 @@
 import { computed, ref, watch } from 'vue';
 import { listPluginConfigVersions, getPluginConfigVersionDetail, dryRunPluginConfigRollback, listCommunityPluginConfigVersions, getCommunityPluginConfigVersionDetail, dryRunCommunityPluginConfigRollback } from '@/api/admin';
 import { genericStatusLabel } from '@/i18n/formatters';
+import { pluginReasonText } from '@/modules/plugins/statusText';
 
 const props = defineProps({
   modelValue: { type: Boolean, default: false },

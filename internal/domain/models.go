@@ -236,27 +236,34 @@ type PluginMigration struct {
 
 // HookExecution represents one built-in plugin HookBus handler execution.
 type HookExecution struct {
-	ID           int64  `json:"id"`
-	HookName     string `json:"hook_name"`
-	PluginCode   string `json:"plugin_code"`
-	Mode         string `json:"mode"`
-	ContentType  string `json:"content_type,omitempty"`
-	ContentID    int64  `json:"content_id,omitempty"`
-	CommunityID  int64  `json:"community_id,omitempty"`
-	CategoryID   int64  `json:"category_id,omitempty"`
-	ActorType    string `json:"actor_type,omitempty"`
-	ActorID      int64  `json:"actor_id,omitempty"`
-	UserID       int64  `json:"user_id,omitempty"`
-	AdminUserID  int64  `json:"admin_user_id,omitempty"`
-	RequestID    string `json:"request_id,omitempty"`
-	StartedAt    string `json:"started_at,omitempty"`
-	FinishedAt   string `json:"finished_at,omitempty"`
-	DurationMS   int    `json:"duration_ms"`
-	Success      bool   `json:"success"`
-	ErrorMessage string `json:"error_message,omitempty"`
-	Blocking     bool   `json:"blocking"`
-	Metadata     string `json:"metadata_json,omitempty"`
-	CreatedAt    string `json:"created_at,omitempty"`
+	ID                  int64  `json:"id"`
+	HookName            string `json:"hook_name"`
+	PluginCode          string `json:"plugin_code"`
+	ServiceType         string `json:"service_type,omitempty"`
+	EndpointURL         string `json:"endpoint_url,omitempty"`
+	Mode                string `json:"mode"`
+	ContentType         string `json:"content_type,omitempty"`
+	ContentID           int64  `json:"content_id,omitempty"`
+	CommunityID         int64  `json:"community_id,omitempty"`
+	CategoryID          int64  `json:"category_id,omitempty"`
+	ActorType           string `json:"actor_type,omitempty"`
+	ActorID             int64  `json:"actor_id,omitempty"`
+	UserID              int64  `json:"user_id,omitempty"`
+	AdminUserID         int64  `json:"admin_user_id,omitempty"`
+	RequestID           string `json:"request_id,omitempty"`
+	StartedAt           string `json:"started_at,omitempty"`
+	FinishedAt          string `json:"finished_at,omitempty"`
+	DurationMS          int    `json:"duration_ms"`
+	Success             bool   `json:"success"`
+	ErrorMessage        string `json:"error_message,omitempty"`
+	Blocking            bool   `json:"blocking"`
+	Status              string `json:"status,omitempty"`
+	ResponseStatus      int    `json:"response_status,omitempty"`
+	ResponseBodyExcerpt string `json:"response_body_excerpt,omitempty"`
+	RequestBodySHA256   string `json:"request_body_sha256,omitempty"`
+	ErrorCode           string `json:"error_code,omitempty"`
+	Metadata            string `json:"metadata_json,omitempty"`
+	CreatedAt           string `json:"created_at,omitempty"`
 }
 
 // HookStats summarizes HookBus execution observability for a plugin hook.
@@ -275,48 +282,57 @@ type HookStats struct {
 
 // PluginHealth summarizes the runtime governance health of a plugin.
 type PluginHealth struct {
-	Status                 string `json:"status"`
-	ConfigStatus           string `json:"config_status"`
-	MigrationStatus        string `json:"migration_status"`
-	HookStatus             string `json:"hook_status"`
-	DependencyStatus       string `json:"dependency_status"`
-	RecentError            string `json:"recent_error,omitempty"`
-	SuggestedAction        string `json:"suggested_action,omitempty"`
-	StatusReason           string `json:"status_reason,omitempty"`
-	PendingMigrationsCount int    `json:"pending_migrations_count"`
-	FailedMigrationsCount  int    `json:"failed_migrations_count"`
-	HookFailureCount       int    `json:"hook_failure_count"`
-	LastHookError          string `json:"last_hook_error,omitempty"`
-	UpdatedAt              string `json:"updated_at,omitempty"`
+	Status                       string `json:"status"`
+	ConfigStatus                 string `json:"config_status"`
+	MigrationStatus              string `json:"migration_status"`
+	HookStatus                   string `json:"hook_status"`
+	DependencyStatus             string `json:"dependency_status"`
+	ExternalServiceStatus        string `json:"external_service_status,omitempty"`
+	ExternalServiceHealthStatus  string `json:"external_service_health_status,omitempty"`
+	ExternalServiceEndpoint      string `json:"external_service_endpoint,omitempty"`
+	ExternalServiceCheckedAt     string `json:"external_service_checked_at,omitempty"`
+	ExternalServiceLastSuccessAt string `json:"external_service_last_success_at,omitempty"`
+	ExternalServiceLastFailureAt string `json:"external_service_last_failure_at,omitempty"`
+	ExternalServiceFailureCount  int    `json:"external_service_failure_count,omitempty"`
+	ExternalServiceRecentError   string `json:"external_service_recent_error,omitempty"`
+	RecentError                  string `json:"recent_error,omitempty"`
+	SuggestedAction              string `json:"suggested_action,omitempty"`
+	StatusReason                 string `json:"status_reason,omitempty"`
+	PendingMigrationsCount       int    `json:"pending_migrations_count"`
+	FailedMigrationsCount        int    `json:"failed_migrations_count"`
+	HookFailureCount             int    `json:"hook_failure_count"`
+	LastHookError                string `json:"last_hook_error,omitempty"`
+	UpdatedAt                    string `json:"updated_at,omitempty"`
 }
 
 // Plugin 描述系统插件的注册与运行状态。
 type Plugin struct {
 	PluginManifest
-	Status                string                  `json:"status"`
-	GlobalStatus          string                  `json:"global_status,omitempty"`
-	CommunityStatus       string                  `json:"community_status,omitempty"`
-	InstallStatus         string                  `json:"install_status,omitempty"`
-	RuntimeStatus         string                  `json:"runtime_status,omitempty"`
-	HealthStatus          string                  `json:"health_status,omitempty"`
-	LifecycleStatus       string                  `json:"lifecycle_status,omitempty"`
-	StatusReason          string                  `json:"status_reason,omitempty"`
-	InstalledAt           string                  `json:"installed_at,omitempty"`
-	ArchivedAt            string                  `json:"archived_at,omitempty"`
-	LastHealthCheckAt     string                  `json:"last_health_check_at,omitempty"`
-	SourceType            string                  `json:"source_type,omitempty"`
-	ManifestJSON          string                  `json:"manifest_json,omitempty"`
-	ManifestChecksum      string                  `json:"manifest_checksum,omitempty"`
-	PackageChecksum       string                  `json:"package_checksum,omitempty"`
-	CompatibleCoreVersion string                  `json:"compatible_core_version,omitempty"`
-	SortOrder             int                     `json:"sort_order,omitempty"`
-	ConfigJSON            string                  `json:"config_json,omitempty"`
-	ResolvedConfig        any                     `json:"resolved_config,omitempty"`
-	Health                *PluginHealth           `json:"health,omitempty"`
-	DependencyChecks      []PluginDependencyCheck `json:"dependency_checks,omitempty"`
-	DependencySummary     PluginDependencySummary `json:"dependency_summary,omitempty"`
-	CreatedAt             string                  `json:"created_at,omitempty"`
-	UpdatedAt             string                  `json:"updated_at,omitempty"`
+	Status                string                       `json:"status"`
+	GlobalStatus          string                       `json:"global_status,omitempty"`
+	CommunityStatus       string                       `json:"community_status,omitempty"`
+	InstallStatus         string                       `json:"install_status,omitempty"`
+	RuntimeStatus         string                       `json:"runtime_status,omitempty"`
+	HealthStatus          string                       `json:"health_status,omitempty"`
+	LifecycleStatus       string                       `json:"lifecycle_status,omitempty"`
+	StatusReason          string                       `json:"status_reason,omitempty"`
+	InstalledAt           string                       `json:"installed_at,omitempty"`
+	ArchivedAt            string                       `json:"archived_at,omitempty"`
+	LastHealthCheckAt     string                       `json:"last_health_check_at,omitempty"`
+	SourceType            string                       `json:"source_type,omitempty"`
+	ManifestJSON          string                       `json:"manifest_json,omitempty"`
+	ManifestChecksum      string                       `json:"manifest_checksum,omitempty"`
+	PackageChecksum       string                       `json:"package_checksum,omitempty"`
+	CompatibleCoreVersion string                       `json:"compatible_core_version,omitempty"`
+	SortOrder             int                          `json:"sort_order,omitempty"`
+	ConfigJSON            string                       `json:"config_json,omitempty"`
+	ResolvedConfig        any                          `json:"resolved_config,omitempty"`
+	ExternalServiceConfig *PluginExternalServiceConfig `json:"external_service_config,omitempty"`
+	Health                *PluginHealth                `json:"health,omitempty"`
+	DependencyChecks      []PluginDependencyCheck      `json:"dependency_checks,omitempty"`
+	DependencySummary     PluginDependencySummary      `json:"dependency_summary,omitempty"`
+	CreatedAt             string                       `json:"created_at,omitempty"`
+	UpdatedAt             string                       `json:"updated_at,omitempty"`
 }
 
 // PluginManifestValidationResult is returned by manifest validation and dry-run APIs.

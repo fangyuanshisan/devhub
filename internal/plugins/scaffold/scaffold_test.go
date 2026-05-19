@@ -55,6 +55,9 @@ func TestGenerateDemoPlugin(t *testing.T) {
 			t.Fatalf("expected generated file %s: %v", name, err)
 		}
 	}
+	if _, err := os.Stat(filepath.Join(result.Dir, "001_schema.sql")); !os.IsNotExist(err) {
+		t.Fatalf("scaffold must not generate deprecated root 001_schema.sql, stat err=%v", err)
+	}
 }
 
 func TestGenerateRejectsInvalidCode(t *testing.T) {

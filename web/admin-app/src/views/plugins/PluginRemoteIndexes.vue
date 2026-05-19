@@ -29,8 +29,8 @@
         </el-form-item>
         <el-form-item label="状态">
           <el-select v-model="sourceFilters.status" clearable placeholder="全部" style="width: 140px">
-            <el-option label="enabled" value="enabled" />
-            <el-option label="disabled" value="disabled" />
+            <el-option label="已启用" value="enabled" />
+            <el-option label="已禁用" value="disabled" />
           </el-select>
         </el-form-item>
         <el-form-item>
@@ -44,7 +44,7 @@
       <template #header>
         <div class="card-header">
           <span>索引源列表</span>
-          <span class="muted">enabled {{ summary.enabled || 0 }} / disabled {{ summary.disabled || 0 }} / failed {{ summary.failed || 0 }}</span>
+          <span class="muted">已启用 {{ summary.enabled || 0 }} / 已禁用 {{ summary.disabled || 0 }} / 失败 {{ summary.failed || 0 }}</span>
         </div>
       </template>
       <el-table v-loading="loadingSources" :data="sources" border data-testid="remote-index-list" empty-text="暂无远程索引源">
@@ -54,10 +54,12 @@
           <template #default="{ row }"><code>{{ row.index_url }}</code></template>
         </el-table-column>
         <el-table-column label="状态" width="110">
-          <template #default="{ row }"><el-tag :type="row.status === 'enabled' ? 'success' : 'info'">{{ row.status }}</el-tag></template>
+          <template #default="{ row }"><el-tag :type="statusType(row.status)">{{ pluginStatusText(row.status) }}</el-tag></template>
         </el-table-column>
-        <el-table-column prop="last_fetch_status" label="fetch" width="120" />
-        <el-table-column prop="last_fetch_at" label="last_fetch_at" width="170" />
+        <el-table-column label="拉取状态" width="120">
+          <template #default="{ row }">{{ pluginStatusText(row.last_fetch_status) }}</template>
+        </el-table-column>
+        <el-table-column prop="last_fetch_at" label="最近拉取" width="170" />
         <el-table-column label="操作" width="330" fixed="right">
           <template #default="{ row }">
             <el-button link type="primary" data-testid="remote-index-fetch" @click="fetchIndex(row)">拉取</el-button>
@@ -81,18 +83,20 @@
       <el-table v-loading="loadingPlugins" :data="plugins" border data-testid="remote-plugin-list" empty-text="暂无远程插件，请先拉取索引">
         <el-table-column prop="code" label="code" min-width="140" />
         <el-table-column prop="name" label="名称" min-width="160" />
-        <el-table-column prop="latest_version" label="latest" width="110" />
-        <el-table-column prop="publisher_id" label="publisher" min-width="150" />
-        <el-table-column label="trust" width="120">
-          <template #default="{ row }"><el-tag :type="trustType(row.publisher_trust_status)">{{ row.publisher_trust_status }}</el-tag></template>
+        <el-table-column prop="latest_version" label="最新版本" width="110" />
+        <el-table-column prop="publisher_id" label="发布者" min-width="150" />
+        <el-table-column label="信任状态" width="120">
+          <template #default="{ row }"><el-tag :type="trustType(row.publisher_trust_status)">{{ trustLevelLabel(row.publisher_trust_status) }}</el-tag></template>
         </el-table-column>
-        <el-table-column prop="version_status" label="本地状态" width="150" />
+        <el-table-column label="本地状态" width="150">
+          <template #default="{ row }">{{ pluginStatusText(row.version_status) }}</template>
+        </el-table-column>
         <el-table-column label="Core" width="130">
-          <template #default="{ row }"><el-tag :type="row.core_compatibility?.status === 'incompatible' ? 'danger' : 'success'">{{ row.core_compatibility?.status }}</el-tag></template>
+          <template #default="{ row }"><el-tag :type="statusType(row.core_compatibility?.status)">{{ pluginStatusText(row.core_compatibility?.status) }}</el-tag></template>
         </el-table-column>
         <el-table-column label="风险" min-width="220">
           <template #default="{ row }">
-            <el-tag :type="riskType(row.risk_level)">{{ row.risk_level }}</el-tag>
+            <el-tag :type="riskType(row.risk_level)">{{ pluginRiskText(row.risk_level) }}</el-tag>
             <span class="muted risk-text">{{ row.risk_summary }}</span>
           </template>
         </el-table-column>
@@ -123,8 +127,8 @@
         </el-form-item>
         <el-form-item label="状态">
           <el-select v-model="form.status" style="width: 180px">
-            <el-option label="enabled" value="enabled" />
-            <el-option label="disabled" value="disabled" />
+            <el-option label="已启用" value="enabled" />
+            <el-option label="已禁用" value="disabled" />
           </el-select>
         </el-form-item>
         <el-alert type="info" show-icon :closable="false" title="URL 只允许 http/https；生产建议 HTTPS；localhost、内网、file:// 会被服务端拦截以防 SSRF。" />
@@ -141,8 +145,8 @@
         <el-descriptions :column="2" border>
           <el-descriptions-item label="code">{{ pluginDetail.plugin.code }}</el-descriptions-item>
           <el-descriptions-item label="name">{{ pluginDetail.plugin.name }}</el-descriptions-item>
-          <el-descriptions-item label="latest">{{ pluginDetail.plugin.latest_version }}</el-descriptions-item>
-          <el-descriptions-item label="installed">{{ pluginDetail.installed ? pluginDetail.local_version : 'not_installed' }}</el-descriptions-item>
+          <el-descriptions-item label="最新版本">{{ pluginDetail.plugin.latest_version }}</el-descriptions-item>
+          <el-descriptions-item label="本地安装">{{ pluginDetail.installed ? pluginDetail.local_version : pluginStatusText('not_installed') }}</el-descriptions-item>
           <el-descriptions-item label="description" :span="2">{{ pluginDetail.plugin.description }}</el-descriptions-item>
         </el-descriptions>
         <h3>版本元数据</h3>
@@ -152,17 +156,17 @@
             <template #default="{ row }"><code>{{ row.package_url }}</code></template>
           </el-table-column>
           <el-table-column prop="package_sha256" label="package_sha256" min-width="190" />
-          <el-table-column prop="publisher_id" label="publisher" min-width="140" />
-          <el-table-column label="trust" width="110">
-            <template #default="{ row }"><el-tag :type="trustType(row.publisher_trust_status)">{{ row.publisher_trust_status }}</el-tag></template>
+          <el-table-column prop="publisher_id" label="发布者" min-width="140" />
+          <el-table-column label="信任状态" width="110">
+            <template #default="{ row }"><el-tag :type="trustType(row.publisher_trust_status)">{{ trustLevelLabel(row.publisher_trust_status) }}</el-tag></template>
           </el-table-column>
-          <el-table-column label="verification" width="130">
-            <template #default>{{ 'metadata_only' }}</template>
+          <el-table-column label="验签状态" width="130">
+            <template #default>{{ pluginStatusText('metadata_only') }}</template>
           </el-table-column>
           <el-table-column label="风险" min-width="180">
             <template #default="{ row }">
-              <el-tag :type="riskType(row.risk_level)">{{ row.risk_level }}</el-tag>
-              <div v-for="item in row.risk_items || []" :key="item.code" class="risk-item">{{ item.code }}：{{ item.message }}</div>
+              <el-tag :type="riskType(row.risk_level)">{{ pluginRiskText(row.risk_level) }}</el-tag>
+              <div v-for="item in row.risk_items || []" :key="item.code" class="risk-item">{{ pluginReasonText(item.code) }}：{{ item.message }}</div>
             </template>
           </el-table-column>
         </el-table>
@@ -174,6 +178,8 @@
 <script setup>
 import { onMounted, reactive, ref } from 'vue';
 import { ElMessage, ElMessageBox } from 'element-plus';
+import { pluginMessageText, pluginReasonText, pluginRiskText, pluginStatusText, pluginTagType } from '@/modules/plugins/statusText';
+import { trustLevelLabel } from '@/i18n/formatters';
 import {
   createPluginRemoteIndex,
   deletePluginRemoteIndex,
@@ -204,7 +210,7 @@ const form = reactive({ source_id: '', name: '', index_url: '', homepage: '', de
 
 const errorMessage = (err, fallback) => {
   const data = err?.response?.data || {};
-  return [data.code, data.message || data.error || fallback, data.suggestion].filter(Boolean).join(' ｜ ');
+  return pluginMessageText(data, fallback);
 };
 
 const loadSources = async () => {
@@ -323,6 +329,8 @@ const trustType = (status) => {
   if (status === 'blocked' || status === 'revoked') return 'danger';
   return 'warning';
 };
+
+const statusType = (status) => pluginTagType(status);
 
 const riskType = (risk) => {
   if (risk === 'blocked' || risk === 'high') return 'danger';

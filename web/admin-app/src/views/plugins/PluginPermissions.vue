@@ -32,7 +32,7 @@
       <el-table-column label="操作" width="160">
         <template #default="{ row }">
           <el-button link type="primary" @click="openPlugin(row, 'permissions')">查看矩阵</el-button>
-          <el-button link type="primary" @click="openPlugin(row, 'readiness')">Readiness</el-button>
+          <el-button link type="primary" @click="openPlugin(row, 'readiness')">启用检查</el-button>
         </template>
       </el-table-column>
     </el-table>
@@ -67,4 +67,3 @@ function openByCode(code, tab = 'permissions') {
   openPlugin(target, tab);
 }
 </script>
-

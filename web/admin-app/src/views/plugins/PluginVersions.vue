@@ -20,10 +20,10 @@
     <div class="filter-panel mb" data-testid="plugin-versions-filters">
       <el-input v-model="filters.keyword" clearable placeholder="搜索插件 code / 名称 / 版本" @keyup.enter="load" />
       <el-select v-model="filters.source" clearable placeholder="来源">
-        <el-option label="installed" value="installed" />
-        <el-option label="local_package" value="local_package" />
-        <el-option label="uploaded_package" value="uploaded_package" />
-        <el-option label="remote_index" value="remote_index" />
+        <el-option label="已安装" value="installed" />
+        <el-option label="本地插件包" value="local_package" />
+        <el-option label="上传包" value="uploaded_package" />
+        <el-option label="远程索引" value="remote_index" />
       </el-select>
       <el-button type="primary" @click="load">查询</el-button>
     </div>
@@ -41,7 +41,7 @@
         <el-table-column prop="latest_remote_version" label="最新远程版本" width="140" />
         <el-table-column label="来源" min-width="160">
           <template #default="{ row }">
-            <el-tag v-for="src in row.sources || []" :key="src" class="mr-xs" size="small" effect="plain">{{ src }}</el-tag>
+            <el-tag v-for="src in row.sources || []" :key="src" class="mr-xs" size="small" effect="plain">{{ sourceLabel(src) }}</el-tag>
           </template>
         </el-table-column>
         <el-table-column label="升级" width="120">
@@ -63,13 +63,17 @@
         <p class="muted">当前安装版本：{{ detail.installed_version || '-' }}</p>
         <el-table :data="detail.versions || []" size="small" stripe>
           <el-table-column prop="version" label="版本" width="120" />
-          <el-table-column prop="source" label="来源" width="150" />
-          <el-table-column prop="status" label="状态" width="130" />
+          <el-table-column label="来源" width="150">
+            <template #default="{ row }">{{ sourceLabel(row.source) }}</template>
+          </el-table-column>
+          <el-table-column label="状态" width="130">
+            <template #default="{ row }">{{ pluginStatusText(row.status) }}</template>
+          </el-table-column>
           <el-table-column label="风险 / 签名" min-width="220">
             <template #default="{ row }">
-              <el-tag :type="riskType(row.risk_level)" size="small" effect="plain">{{ row.risk_level || 'low' }}</el-tag>
-              <el-tag class="ml-xs" size="small" effect="plain">{{ row.signature_status || '-' }}</el-tag>
-              <el-tag class="ml-xs" size="small" effect="plain">{{ row.trust_status || '-' }}</el-tag>
+              <el-tag :type="riskType(row.risk_level)" size="small" effect="plain">{{ pluginRiskText(row.risk_level || 'low') }}</el-tag>
+              <el-tag class="ml-xs" size="small" effect="plain">{{ pluginStatusText(row.signature_status) }}</el-tag>
+              <el-tag class="ml-xs" size="small" effect="plain">{{ trustLevelLabel(row.trust_status) }}</el-tag>
             </template>
           </el-table-column>
           <el-table-column prop="package_path" label="路径 / 来源" min-width="260">
@@ -101,16 +105,16 @@
         <div class="diff-head">
           <div>
             <h3>{{ upgradeDiff.plugin_code }}：{{ upgradeDiff.current_version }} → {{ upgradeDiff.target_version }}</h3>
-            <p class="muted">来源：{{ upgradeDiff.source }}；不会自动升级，不执行第三方代码 / SQL / 前端资产。</p>
+            <p class="muted">来源：{{ sourceLabel(upgradeDiff.source) }}；不会自动升级，不执行第三方代码 / SQL / 前端资产。</p>
           </div>
-          <el-tag :type="riskType(upgradeDiff.risk_report?.level)" size="large">{{ upgradeDiff.status }}</el-tag>
+          <el-tag :type="riskType(upgradeDiff.risk_report?.level)" size="large">{{ pluginStatusText(upgradeDiff.status) }}</el-tag>
         </div>
         <el-descriptions :column="5" border class="mb">
-          <el-descriptions-item label="added">{{ upgradeDiff.summary?.added || 0 }}</el-descriptions-item>
-          <el-descriptions-item label="removed">{{ upgradeDiff.summary?.removed || 0 }}</el-descriptions-item>
-          <el-descriptions-item label="changed">{{ upgradeDiff.summary?.changed || 0 }}</el-descriptions-item>
-          <el-descriptions-item label="high_risk">{{ upgradeDiff.summary?.high_risk || 0 }}</el-descriptions-item>
-          <el-descriptions-item label="blocked">{{ upgradeDiff.summary?.blocked || 0 }}</el-descriptions-item>
+          <el-descriptions-item label="新增">{{ upgradeDiff.summary?.added || 0 }}</el-descriptions-item>
+          <el-descriptions-item label="移除">{{ upgradeDiff.summary?.removed || 0 }}</el-descriptions-item>
+          <el-descriptions-item label="变更">{{ upgradeDiff.summary?.changed || 0 }}</el-descriptions-item>
+          <el-descriptions-item label="高风险">{{ upgradeDiff.summary?.high_risk || 0 }}</el-descriptions-item>
+          <el-descriptions-item label="阻断">{{ upgradeDiff.summary?.blocked || 0 }}</el-descriptions-item>
         </el-descriptions>
 
         <el-alert v-if="upgradeDiff.risk_report?.summary" class="mb" :type="riskType(upgradeDiff.risk_report.level)" show-icon :closable="false" :title="upgradeDiff.risk_report.summary" />
@@ -119,19 +123,19 @@
           <el-collapse-item v-for="section in upgradeDiff.diff_sections || []" :key="section.section" :name="section.section">
             <template #title>
               <strong>{{ section.title }}</strong>
-              <el-tag class="ml-xs" size="small" :type="riskType(section.risk_level)" effect="plain">{{ section.risk_level }}</el-tag>
+              <el-tag class="ml-xs" size="small" :type="riskType(section.risk_level)" effect="plain">{{ pluginRiskText(section.risk_level) }}</el-tag>
             </template>
             <el-table :data="section.items || []" size="small" stripe>
               <el-table-column prop="path" label="路径" min-width="220" />
               <el-table-column prop="type" label="类型" width="100" />
               <el-table-column label="风险" width="100">
-                <template #default="{ row }"><el-tag :type="riskType(row.risk_level)" effect="plain">{{ row.risk_level }}</el-tag></template>
+                <template #default="{ row }"><el-tag :type="riskType(row.risk_level)" effect="plain">{{ pluginRiskText(row.risk_level) }}</el-tag></template>
               </el-table-column>
               <el-table-column prop="message" label="说明" min-width="220" />
-              <el-table-column label="before" min-width="180">
+              <el-table-column label="变更前" min-width="180">
                 <template #default="{ row }"><code>{{ compact(row.before) }}</code></template>
               </el-table-column>
-              <el-table-column label="after" min-width="180">
+              <el-table-column label="变更后" min-width="180">
                 <template #default="{ row }"><code>{{ compact(row.after) }}</code></template>
               </el-table-column>
             </el-table>
@@ -153,6 +157,8 @@
 import { ref, onMounted } from 'vue';
 import { ElMessage } from 'element-plus';
 import { listPluginVersions, listPluginCodeVersions, dryRunPluginVersionUpgradeDiff, createPluginApproval } from '@/api/admin';
+import { trustLevelLabel } from '@/i18n/formatters';
+import { pluginRiskText, pluginStatusText } from '@/modules/plugins/statusText';
 
 const loading = ref(false);
 const items = ref([]);
@@ -208,6 +214,15 @@ const riskType = (level) => {
   if (level === 'warning' || level === 'medium') return 'warning';
   if (level === 'low' || level === 'ok') return 'success';
   return 'info';
+};
+
+const sourceLabel = (source) => {
+  const value = String(source || '');
+  if (value === 'installed') return '已安装';
+  if (value === 'local_package') return '本地插件包';
+  if (value === 'uploaded_package') return '上传包';
+  if (value === 'remote_index') return '远程索引';
+  return value || '-';
 };
 
 const compact = (value) => {

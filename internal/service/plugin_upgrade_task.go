@@ -370,6 +370,18 @@ func (s *Service) UpgradePluginFromCompatCheckAs(operator PluginUpgradeOperator,
 		// Ensure status aligns with policy if current is disabled-ish.
 		_, _ = s.repo.SetPluginStatus(code, nextStatus)
 	}
+	if rerr := s.refreshPluginRegistry(pluginRegistryRefreshEvent{
+		Trigger:    "after_upgrade",
+		PluginCode: code,
+		ActorType:  "admin_user",
+		ActorID:    operator.ID,
+		ActorName:  firstNonEmpty(operator.Name, "system"),
+		OldVersion: task.OldVersion,
+		NewVersion: task.NewVersion,
+		Status:     nextStatus,
+	}); rerr != nil {
+		return s.failUpgradeTask(task, operator, "plugin_registry_reload_failed", "插件升级已写入，但运行态刷新失败", rerr)
+	}
 
 	task.Status = domain.PluginUpgradeTaskStatusUpgraded
 	task.NewPluginStatus = nextStatus

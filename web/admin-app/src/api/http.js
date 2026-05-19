@@ -1,5 +1,6 @@
 import axios from 'axios';
 import { ElMessage } from 'element-plus';
+import { pluginReasonText, pluginSuggestionText } from '@/modules/plugins/statusText';
 
 export const http = axios.create({
   baseURL: '/api/v1',
@@ -11,10 +12,12 @@ function formatAPIError(data) {
   const code = String(data.code || '').trim();
   const message = String(data.message || data.error || '').trim();
   const suggestion = String(data.suggestion || data.details?.suggestion || '').trim();
+  const displayMessage = message && message !== code ? message : pluginReasonText(code, message);
+  const displaySuggestion = suggestion || pluginSuggestionText(code);
   const parts = [];
-  if (code) parts.push(`[${code}]`);
-  if (message) parts.push(message);
-  if (suggestion) parts.push(`建议：${suggestion}`);
+  if (displayMessage) parts.push(displayMessage);
+  if (displaySuggestion) parts.push(`建议：${displaySuggestion}`);
+  if (code) parts.push(`错误码：${code}`);
   return parts.join(' ');
 }
 

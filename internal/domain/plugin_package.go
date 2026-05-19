@@ -77,19 +77,32 @@ type PluginPackageRiskReport struct {
 	Items   []PluginPackageRiskItem `json:"items,omitempty"`
 }
 
+type PluginPackageMigrationPlanItem struct {
+	Path        string `json:"path"`
+	Name        string `json:"name"`
+	Size        int64  `json:"size,omitempty"`
+	SHA256      string `json:"sha256,omitempty"`
+	Source      string `json:"source"`
+	WillExecute bool   `json:"will_execute"`
+}
+
 // PluginPackageDryRunResult is returned by POST /api/v1/admin/plugins/packages/dry-run.
 // status: ok|warning|blocked
 type PluginPackageDryRunResult struct {
-	Package            PluginPackageInfo               `json:"package"`
-	FileScan           PluginPackageFileScan           `json:"file_scan"`
-	Checksum           PluginPackageChecksumResult     `json:"checksum"`
-	Signature          PluginPackageSignatureResult    `json:"signature,omitempty"`
-	ManifestValidation PluginPackageManifestValidation `json:"manifest_validation"`
-	InstallDryRun      PluginManifestValidationResult  `json:"install_dry_run"`
-	RiskReport         PluginPackageRiskReport         `json:"risk_report"`
-	Status             string                          `json:"status"`
-	BlockedCode        string                          `json:"blocked_code,omitempty"`
-	BlockedReasons     []string                        `json:"blocked_reasons,omitempty"`
-	Warnings           []string                        `json:"warnings,omitempty"`
-	Errors             []string                        `json:"errors,omitempty"`
+	Package            PluginPackageInfo                `json:"package"`
+	FileScan           PluginPackageFileScan            `json:"file_scan"`
+	Checksum           PluginPackageChecksumResult      `json:"checksum"`
+	Signature          PluginPackageSignatureResult     `json:"signature,omitempty"`
+	ManifestValidation PluginPackageManifestValidation  `json:"manifest_validation"`
+	InstallDryRun      PluginManifestValidationResult   `json:"install_dry_run"`
+	MigrationPlan      []PluginPackageMigrationPlanItem `json:"migration_plan,omitempty"`
+	RiskReport         PluginPackageRiskReport          `json:"risk_report"`
+	Status             string                           `json:"status"`
+	BlockedCode        string                           `json:"blocked_code,omitempty"`
+	BlockedReasons     []string                         `json:"blocked_reasons,omitempty"`
+	Warnings           []string                         `json:"warnings,omitempty"`
+	Errors             []string                         `json:"errors,omitempty"`
+	DryRunID           string                           `json:"dry_run_id,omitempty"`
+	GeneratedAt        string                           `json:"generated_at,omitempty"`
+	ExpiresAt          string                           `json:"expires_at,omitempty"`
 }

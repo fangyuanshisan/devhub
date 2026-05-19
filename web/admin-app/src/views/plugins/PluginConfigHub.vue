@@ -28,7 +28,7 @@
       <el-table-column label="配置状态" width="140">
         <template #default="{ row }">
           <el-tag :type="row.health?.config_status === 'invalid' || row.status === 'config_invalid' ? 'danger' : 'success'" effect="plain">
-            {{ row.health?.config_status || (row.status === 'config_invalid' ? 'invalid' : 'valid') }}
+            {{ configStatusLabel(row) }}
           </el-tag>
         </template>
       </el-table-column>
@@ -49,6 +49,7 @@ import { computed, onMounted, ref } from 'vue';
 import { useRouter } from 'vue-router';
 import PluginDetailDrawer from '@/components/plugin/PluginDetailDrawer.vue';
 import { usePluginData } from './usePluginData';
+import { genericStatusLabel } from '@/i18n/formatters';
 
 const router = useRouter();
 const drawerVisible = ref(false);
@@ -64,6 +65,10 @@ function hasSchema(row) {
   return row && row.config_schema && Object.keys(row.config_schema || {}).length > 0;
 }
 
+function configStatusLabel(row) {
+  return genericStatusLabel(row?.health?.config_status || (row?.status === 'config_invalid' ? 'invalid' : 'valid'));
+}
+
 function openPlugin(row, tab) {
   drawerPlugin.value = row;
   drawerTab.value = tab || 'overview';
@@ -76,4 +81,3 @@ function openByCode(code, tab = 'config') {
   openPlugin(target, tab);
 }
 </script>
-

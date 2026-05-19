@@ -216,6 +216,18 @@ func (s *Service) SoftUninstallPluginAs(operator PluginUninstallOperator, code s
 	if err != nil {
 		return s.failSoftUninstallTask(task, operator, "plugin_soft_uninstall_failed", "更新插件状态失败", err)
 	}
+	if rerr := s.refreshPluginRegistry(pluginRegistryRefreshEvent{
+		Trigger:    "after_archive",
+		PluginCode: archived.Code,
+		ActorType:  "admin_user",
+		ActorID:    operator.ID,
+		ActorName:  firstNonEmpty(operator.Name, "system"),
+		OldVersion: plugin.Version,
+		NewVersion: archived.Version,
+		Status:     archived.Status,
+	}); rerr != nil {
+		return s.failSoftUninstallTask(task, operator, "plugin_registry_reload_failed", "插件已归档，但运行态刷新失败", rerr)
+	}
 
 	// Record unregistered snapshot (runtime gating is derived from status).
 	task.UnregisteredContentTypesJSON = mustJSON(map[string]any{"count": len(archived.ContentTypes) + len(archived.ContentTypeDefs)})

@@ -1088,12 +1088,13 @@ func (s *MySQLStore) AppendHookExecution(record domain.HookExecution) (domain.Ho
 		record.FinishedAt = record.StartedAt
 	}
 	res, err := s.db.Exec(`INSERT INTO hook_executions
-		(hook_name,plugin_code,mode,content_type,content_id,community_id,category_id,actor_type,actor_id,user_id,admin_user_id,request_id,started_at,finished_at,duration_ms,success,error_message,blocking,metadata_json,created_at)
-		VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,NOW())`,
-		record.HookName, record.PluginCode, record.Mode, record.ContentType,
+		(hook_name,plugin_code,service_type,endpoint_url,mode,content_type,content_id,community_id,category_id,actor_type,actor_id,user_id,admin_user_id,request_id,started_at,finished_at,duration_ms,success,error_message,blocking,status,response_status,response_body_excerpt,request_body_sha256,error_code,metadata_json,created_at)
+		VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,NOW())`,
+		record.HookName, record.PluginCode, record.ServiceType, record.EndpointURL, record.Mode, record.ContentType,
 		nullableInt64(record.ContentID), nullableInt64(record.CommunityID), nullableInt64(record.CategoryID),
 		record.ActorType, nullableInt64(record.ActorID), nullableInt64(record.UserID), nullableInt64(record.AdminUserID),
-		record.RequestID, record.StartedAt, record.FinishedAt, record.DurationMS, record.Success, record.ErrorMessage, record.Blocking, mysqlJSONArg(record.Metadata))
+		record.RequestID, record.StartedAt, record.FinishedAt, record.DurationMS, record.Success, record.ErrorMessage, record.Blocking,
+		record.Status, record.ResponseStatus, record.ResponseBodyExcerpt, record.RequestBodySHA256, record.ErrorCode, mysqlJSONArg(record.Metadata))
 	if err != nil {
 		return domain.HookExecution{}, err
 	}
@@ -1115,7 +1116,7 @@ func (s *MySQLStore) HookExecutions(pluginCode string, limit int) ([]domain.Hook
 		args = append(args, pluginCode)
 	}
 	args = append(args, limit)
-	rows, err := s.db.Query(`SELECT id,hook_name,plugin_code,mode,COALESCE(content_type,''),COALESCE(content_id,0),COALESCE(community_id,0),COALESCE(category_id,0),COALESCE(actor_type,''),COALESCE(actor_id,0),COALESCE(user_id,0),COALESCE(admin_user_id,0),COALESCE(request_id,''),DATE_FORMAT(started_at,'%Y-%m-%d %H:%i:%s'),COALESCE(DATE_FORMAT(finished_at,'%Y-%m-%d %H:%i:%s'),''),duration_ms,success,COALESCE(error_message,''),blocking,COALESCE(CAST(metadata_json AS CHAR),''),DATE_FORMAT(created_at,'%Y-%m-%d %H:%i:%s')
+	rows, err := s.db.Query(`SELECT id,hook_name,plugin_code,COALESCE(service_type,''),COALESCE(endpoint_url,''),mode,COALESCE(content_type,''),COALESCE(content_id,0),COALESCE(community_id,0),COALESCE(category_id,0),COALESCE(actor_type,''),COALESCE(actor_id,0),COALESCE(user_id,0),COALESCE(admin_user_id,0),COALESCE(request_id,''),DATE_FORMAT(started_at,'%Y-%m-%d %H:%i:%s'),COALESCE(DATE_FORMAT(finished_at,'%Y-%m-%d %H:%i:%s'),''),duration_ms,success,COALESCE(error_message,''),blocking,COALESCE(status,''),response_status,COALESCE(response_body_excerpt,''),COALESCE(request_body_sha256,''),COALESCE(error_code,''),COALESCE(CAST(metadata_json AS CHAR),''),DATE_FORMAT(created_at,'%Y-%m-%d %H:%i:%s')
 		FROM hook_executions `+where+` ORDER BY id DESC LIMIT ?`, args...)
 	if err != nil {
 		return nil, err
@@ -1124,9 +1125,54 @@ func (s *MySQLStore) HookExecutions(pluginCode string, limit int) ([]domain.Hook
 	out := []domain.HookExecution{}
 	for rows.Next() {
 		var it domain.HookExecution
-		if err := rows.Scan(&it.ID, &it.HookName, &it.PluginCode, &it.Mode, &it.ContentType, &it.ContentID, &it.CommunityID, &it.CategoryID, &it.ActorType, &it.ActorID, &it.UserID, &it.AdminUserID, &it.RequestID, &it.StartedAt, &it.FinishedAt, &it.DurationMS, &it.Success, &it.ErrorMessage, &it.Blocking, &it.Metadata, &it.CreatedAt); err == nil {
+		if err := rows.Scan(&it.ID, &it.HookName, &it.PluginCode, &it.ServiceType, &it.EndpointURL, &it.Mode, &it.ContentType, &it.ContentID, &it.CommunityID, &it.CategoryID, &it.ActorType, &it.ActorID, &it.UserID, &it.AdminUserID, &it.RequestID, &it.StartedAt, &it.FinishedAt, &it.DurationMS, &it.Success, &it.ErrorMessage, &it.Blocking, &it.Status, &it.ResponseStatus, &it.ResponseBodyExcerpt, &it.RequestBodySHA256, &it.ErrorCode, &it.Metadata, &it.CreatedAt); err == nil {
 			out = append(out, it)
 		}
+	}
+	return out, nil
+}
+
+func (s *MySQLStore) PluginExternalServiceConfig(pluginCode string) (domain.PluginExternalServiceConfig, bool) {
+	pluginCode = strings.TrimSpace(pluginCode)
+	if pluginCode == "" {
+		return domain.PluginExternalServiceConfig{}, false
+	}
+	var it domain.PluginExternalServiceConfig
+	var enabled int
+	err := s.db.QueryRow(`SELECT plugin_code,service_type,endpoint_url,health_check_path,timeout_ms,failure_policy,auth_type,token_ref,token_ciphertext,token_hash,enabled,status,last_health_status,
+		COALESCE(DATE_FORMAT(last_checked_at,'%Y-%m-%d %H:%i:%s'),''),COALESCE(DATE_FORMAT(last_success_at,'%Y-%m-%d %H:%i:%s'),''),COALESCE(DATE_FORMAT(last_failure_at,'%Y-%m-%d %H:%i:%s'),''),
+		failure_count,warning_threshold,error_threshold,last_error_message,DATE_FORMAT(created_at,'%Y-%m-%d %H:%i:%s'),DATE_FORMAT(updated_at,'%Y-%m-%d %H:%i:%s')
+		FROM plugin_external_services WHERE plugin_code=? LIMIT 1`, pluginCode).
+		Scan(&it.PluginCode, &it.ServiceType, &it.EndpointURL, &it.HealthCheckPath, &it.TimeoutMS, &it.FailurePolicy, &it.AuthType, &it.TokenRef, &it.TokenCiphertext, &it.TokenHash, &enabled, &it.Status, &it.LastHealthStatus,
+			&it.LastCheckedAt, &it.LastSuccessAt, &it.LastFailureAt, &it.FailureCount, &it.WarningThreshold, &it.ErrorThreshold, &it.LastErrorMessage, &it.CreatedAt, &it.UpdatedAt)
+	if err != nil {
+		return domain.PluginExternalServiceConfig{}, false
+	}
+	it.Enabled = enabled == 1
+	return it, true
+}
+
+func (s *MySQLStore) SavePluginExternalServiceConfig(record domain.PluginExternalServiceConfig) (domain.PluginExternalServiceConfig, error) {
+	record.PluginCode = strings.TrimSpace(record.PluginCode)
+	if record.PluginCode == "" {
+		return domain.PluginExternalServiceConfig{}, errors.New("plugin_code 不能为空")
+	}
+	enabled := 0
+	if record.Enabled {
+		enabled = 1
+	}
+	_, err := s.db.Exec(`INSERT INTO plugin_external_services
+		(plugin_code,service_type,endpoint_url,health_check_path,timeout_ms,failure_policy,auth_type,token_ref,token_ciphertext,token_hash,enabled,status,last_health_status,last_checked_at,last_success_at,last_failure_at,failure_count,warning_threshold,error_threshold,last_error_message,created_at,updated_at)
+		VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,NOW(),NOW())
+		ON DUPLICATE KEY UPDATE service_type=VALUES(service_type),endpoint_url=VALUES(endpoint_url),health_check_path=VALUES(health_check_path),timeout_ms=VALUES(timeout_ms),failure_policy=VALUES(failure_policy),auth_type=VALUES(auth_type),token_ref=VALUES(token_ref),token_ciphertext=VALUES(token_ciphertext),token_hash=VALUES(token_hash),enabled=VALUES(enabled),status=VALUES(status),last_health_status=VALUES(last_health_status),last_checked_at=VALUES(last_checked_at),last_success_at=VALUES(last_success_at),last_failure_at=VALUES(last_failure_at),failure_count=VALUES(failure_count),warning_threshold=VALUES(warning_threshold),error_threshold=VALUES(error_threshold),last_error_message=VALUES(last_error_message),updated_at=NOW()`,
+		record.PluginCode, firstNonEmptyString(record.ServiceType, "external_service"), record.EndpointURL, record.HealthCheckPath, record.TimeoutMS, record.FailurePolicy, record.AuthType, record.TokenRef, record.TokenCiphertext, record.TokenHash, enabled, record.Status, record.LastHealthStatus,
+		nullableTimeString(record.LastCheckedAt), nullableTimeString(record.LastSuccessAt), nullableTimeString(record.LastFailureAt), record.FailureCount, record.WarningThreshold, record.ErrorThreshold, record.LastErrorMessage)
+	if err != nil {
+		return domain.PluginExternalServiceConfig{}, err
+	}
+	out, ok := s.PluginExternalServiceConfig(record.PluginCode)
+	if !ok {
+		return record, nil
 	}
 	return out, nil
 }
@@ -1175,6 +1221,10 @@ func (s *MySQLStore) HookExecutionsByFilter(filter domain.HookExecutionFilter) (
 	if filter.HookName != "" {
 		where += " AND hook_name=?"
 		args = append(args, filter.HookName)
+	}
+	if filter.ServiceType != "" {
+		where += " AND service_type=?"
+		args = append(args, filter.ServiceType)
 	}
 	if filter.Mode != "" {
 		where += " AND mode=?"
@@ -1237,7 +1287,7 @@ func (s *MySQLStore) HookExecutionsByFilter(filter domain.HookExecutionFilter) (
 	offset := (filter.Page - 1) * filter.PageSize
 	queryArgs := append([]any{}, args...)
 	queryArgs = append(queryArgs, filter.PageSize, offset)
-	rows, err := s.db.Query(`SELECT id,hook_name,plugin_code,mode,COALESCE(content_type,''),COALESCE(content_id,0),COALESCE(community_id,0),COALESCE(category_id,0),COALESCE(actor_type,''),COALESCE(actor_id,0),COALESCE(user_id,0),COALESCE(admin_user_id,0),COALESCE(request_id,''),DATE_FORMAT(started_at,'%Y-%m-%d %H:%i:%s'),COALESCE(DATE_FORMAT(finished_at,'%Y-%m-%d %H:%i:%s'),''),duration_ms,success,COALESCE(error_message,''),blocking,COALESCE(CAST(metadata_json AS CHAR),''),DATE_FORMAT(created_at,'%Y-%m-%d %H:%i:%s')
+	rows, err := s.db.Query(`SELECT id,hook_name,plugin_code,COALESCE(service_type,''),COALESCE(endpoint_url,''),mode,COALESCE(content_type,''),COALESCE(content_id,0),COALESCE(community_id,0),COALESCE(category_id,0),COALESCE(actor_type,''),COALESCE(actor_id,0),COALESCE(user_id,0),COALESCE(admin_user_id,0),COALESCE(request_id,''),DATE_FORMAT(started_at,'%Y-%m-%d %H:%i:%s'),COALESCE(DATE_FORMAT(finished_at,'%Y-%m-%d %H:%i:%s'),''),duration_ms,success,COALESCE(error_message,''),blocking,COALESCE(status,''),response_status,COALESCE(response_body_excerpt,''),COALESCE(request_body_sha256,''),COALESCE(error_code,''),COALESCE(CAST(metadata_json AS CHAR),''),DATE_FORMAT(created_at,'%Y-%m-%d %H:%i:%s')
 		FROM hook_executions `+where+` ORDER BY id DESC LIMIT ? OFFSET ?`, queryArgs...)
 	if err != nil {
 		return nil, 0, err
@@ -1246,7 +1296,7 @@ func (s *MySQLStore) HookExecutionsByFilter(filter domain.HookExecutionFilter) (
 	out := []domain.HookExecution{}
 	for rows.Next() {
 		var it domain.HookExecution
-		if err := rows.Scan(&it.ID, &it.HookName, &it.PluginCode, &it.Mode, &it.ContentType, &it.ContentID, &it.CommunityID, &it.CategoryID, &it.ActorType, &it.ActorID, &it.UserID, &it.AdminUserID, &it.RequestID, &it.StartedAt, &it.FinishedAt, &it.DurationMS, &it.Success, &it.ErrorMessage, &it.Blocking, &it.Metadata, &it.CreatedAt); err == nil {
+		if err := rows.Scan(&it.ID, &it.HookName, &it.PluginCode, &it.ServiceType, &it.EndpointURL, &it.Mode, &it.ContentType, &it.ContentID, &it.CommunityID, &it.CategoryID, &it.ActorType, &it.ActorID, &it.UserID, &it.AdminUserID, &it.RequestID, &it.StartedAt, &it.FinishedAt, &it.DurationMS, &it.Success, &it.ErrorMessage, &it.Blocking, &it.Status, &it.ResponseStatus, &it.ResponseBodyExcerpt, &it.RequestBodySHA256, &it.ErrorCode, &it.Metadata, &it.CreatedAt); err == nil {
 			out = append(out, it)
 		}
 	}
@@ -1637,6 +1687,8 @@ func (s *MySQLStore) migrateSiteScopedAudit() error {
 		id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
 		hook_name VARCHAR(128) NOT NULL,
 		plugin_code VARCHAR(64) NOT NULL,
+		service_type VARCHAR(32) NOT NULL DEFAULT '',
+		endpoint_url VARCHAR(1000) NOT NULL DEFAULT '',
 		mode VARCHAR(32) NOT NULL DEFAULT 'non_blocking',
 		content_type VARCHAR(64) NOT NULL DEFAULT '',
 		content_id BIGINT UNSIGNED NULL,
@@ -1653,6 +1705,11 @@ func (s *MySQLStore) migrateSiteScopedAudit() error {
 		success TINYINT(1) NOT NULL DEFAULT 1,
 		error_message TEXT NULL,
 		blocking TINYINT(1) NOT NULL DEFAULT 0,
+		status VARCHAR(32) NOT NULL DEFAULT '',
+		response_status INT NOT NULL DEFAULT 0,
+		response_body_excerpt VARCHAR(2000) NOT NULL DEFAULT '',
+		request_body_sha256 VARCHAR(128) NOT NULL DEFAULT '',
+		error_code VARCHAR(128) NOT NULL DEFAULT '',
 		metadata_json JSON NULL,
 		created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
 		PRIMARY KEY (id),
@@ -1661,6 +1718,54 @@ func (s *MySQLStore) migrateSiteScopedAudit() error {
 		KEY idx_hook_executions_content (content_id),
 		KEY idx_hook_executions_community (community_id)
 	) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci`)
+	_, _ = s.db.Exec(`CREATE TABLE IF NOT EXISTS plugin_external_services (
+		plugin_code VARCHAR(64) NOT NULL,
+		service_type VARCHAR(32) NOT NULL DEFAULT 'external_service',
+		endpoint_url VARCHAR(1000) NOT NULL DEFAULT '',
+		health_check_path VARCHAR(255) NOT NULL DEFAULT '/health',
+		timeout_ms INT NOT NULL DEFAULT 3000,
+		failure_policy VARCHAR(32) NOT NULL DEFAULT 'warn',
+		auth_type VARCHAR(32) NOT NULL DEFAULT 'none',
+		token_ref VARCHAR(128) NOT NULL DEFAULT '',
+		token_ciphertext VARCHAR(1024) NOT NULL DEFAULT '',
+		token_hash VARCHAR(128) NOT NULL DEFAULT '',
+		enabled TINYINT(1) NOT NULL DEFAULT 1,
+		status VARCHAR(32) NOT NULL DEFAULT 'unknown',
+		last_health_status VARCHAR(32) NOT NULL DEFAULT 'unknown',
+		last_checked_at DATETIME NULL,
+		last_success_at DATETIME NULL,
+		last_failure_at DATETIME NULL,
+		failure_count INT NOT NULL DEFAULT 0,
+		warning_threshold INT NOT NULL DEFAULT 3,
+		error_threshold INT NOT NULL DEFAULT 5,
+		last_error_message VARCHAR(1000) NOT NULL DEFAULT '',
+		created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+		updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+		PRIMARY KEY (plugin_code),
+		KEY idx_plugin_external_services_status (status, updated_at),
+		KEY idx_plugin_external_services_health (last_health_status, last_checked_at)
+	) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci`)
+	if !s.columnExists("hook_executions", "service_type") {
+		_, _ = s.db.Exec(`ALTER TABLE hook_executions ADD COLUMN service_type VARCHAR(32) NOT NULL DEFAULT '' AFTER plugin_code`)
+	}
+	if !s.columnExists("hook_executions", "endpoint_url") {
+		_, _ = s.db.Exec(`ALTER TABLE hook_executions ADD COLUMN endpoint_url VARCHAR(1000) NOT NULL DEFAULT '' AFTER service_type`)
+	}
+	if !s.columnExists("hook_executions", "status") {
+		_, _ = s.db.Exec(`ALTER TABLE hook_executions ADD COLUMN status VARCHAR(32) NOT NULL DEFAULT '' AFTER blocking`)
+	}
+	if !s.columnExists("hook_executions", "response_status") {
+		_, _ = s.db.Exec(`ALTER TABLE hook_executions ADD COLUMN response_status INT NOT NULL DEFAULT 0 AFTER status`)
+	}
+	if !s.columnExists("hook_executions", "response_body_excerpt") {
+		_, _ = s.db.Exec(`ALTER TABLE hook_executions ADD COLUMN response_body_excerpt VARCHAR(2000) NOT NULL DEFAULT '' AFTER response_status`)
+	}
+	if !s.columnExists("hook_executions", "request_body_sha256") {
+		_, _ = s.db.Exec(`ALTER TABLE hook_executions ADD COLUMN request_body_sha256 VARCHAR(128) NOT NULL DEFAULT '' AFTER response_body_excerpt`)
+	}
+	if !s.columnExists("hook_executions", "error_code") {
+		_, _ = s.db.Exec(`ALTER TABLE hook_executions ADD COLUMN error_code VARCHAR(128) NOT NULL DEFAULT '' AFTER request_body_sha256`)
+	}
 	_, _ = s.db.Exec(`UPDATE categories SET nav_visible=visible WHERE nav_visible=1`)
 	_, _ = s.db.Exec(`UPDATE categories SET type='document', plugin_code='docs', allowed_content_types=JSON_ARRAY('document','doc') WHERE type='doc' OR slug='docs'`)
 	_, _ = s.db.Exec(`UPDATE categories SET type='wiki_page', plugin_code='wiki', allowed_content_types=JSON_ARRAY('wiki_page','wiki') WHERE type='wiki' OR slug='wiki'`)
@@ -2763,6 +2868,39 @@ func mysqlPluginDefinitionFromRuntime(runtime domain.Plugin) domain.Plugin {
 		},
 		Status: runtime.Status,
 	}
+}
+
+func (s *MySQLStore) contentTypeDefinitionByType(contentType string) (domain.ContentTypeDefinition, bool) {
+	want := pluginregistry.NormalizeContentType(contentType)
+	if want == "" {
+		return domain.ContentTypeDefinition{}, false
+	}
+	for _, plugin := range s.Plugins() {
+		for _, def := range plugin.ContentTypeDefs {
+			if pluginregistry.NormalizeContentType(def.Type) == want {
+				if def.PluginCode == "" {
+					def.PluginCode = plugin.Code
+				}
+				def.Type = pluginregistry.NormalizeContentType(def.Type)
+				return def, true
+			}
+			for _, alias := range def.Aliases {
+				if pluginregistry.NormalizeContentType(alias) == want {
+					if def.PluginCode == "" {
+						def.PluginCode = plugin.Code
+					}
+					def.Type = pluginregistry.NormalizeContentType(def.Type)
+					return def, true
+				}
+			}
+		}
+		for _, typ := range plugin.ContentTypes {
+			if pluginregistry.NormalizeContentType(typ) == want {
+				return domain.ContentTypeDefinition{Type: want, Name: want, PluginCode: plugin.Code}, true
+			}
+		}
+	}
+	return domain.ContentTypeDefinition{}, false
 }
 
 func (s *MySQLStore) SavePlugin(plugin domain.Plugin) (domain.Plugin, error) {
@@ -5257,11 +5395,7 @@ func (s *MySQLStore) SetCommunityPluginStatus(communityID int64, code, status st
 	if status != pluginregistry.StatusEnabled && status != pluginregistry.StatusDisabled {
 		return domain.Plugin{}, errors.New("插件状态不合法")
 	}
-	def, ok := pluginregistry.DefinitionByCode(code)
-	if !ok {
-		return domain.Plugin{}, errors.New("插件不存在")
-	}
-	plugin, ok := s.PluginByCode(def.Code)
+	plugin, ok := s.PluginByCode(code)
 	if !ok {
 		return domain.Plugin{}, errors.New("插件不存在")
 	}
@@ -5274,12 +5408,12 @@ func (s *MySQLStore) SetCommunityPluginStatus(communityID int64, code, status st
 	}
 	if _, err := s.db.Exec(`INSERT INTO community_plugins (community_id,plugin_code,status,sort_order,config_json,created_at,updated_at)
 		VALUES (?,?,?,0,NULL,NOW(),NOW())
-		ON DUPLICATE KEY UPDATE status=VALUES(status),updated_at=NOW()`, communityID, def.Code, status); err != nil {
+		ON DUPLICATE KEY UPDATE status=VALUES(status),updated_at=NOW()`, communityID, plugin.Code, status); err != nil {
 		return domain.Plugin{}, err
 	}
 	items, _ := s.CommunityPlugins(communityID)
 	for _, item := range items {
-		if item.Code == def.Code {
+		if item.Code == plugin.Code {
 			return item, nil
 		}
 	}
@@ -5287,8 +5421,8 @@ func (s *MySQLStore) SetCommunityPluginStatus(communityID int64, code, status st
 }
 
 func (s *MySQLStore) SetCommunityPluginConfig(communityID int64, code, configJSON string) (domain.Plugin, error) {
-	def, ok := pluginregistry.DefinitionByCode(code)
-	if !ok {
+	plugin, ok := s.PluginByCode(code)
+	if !ok || plugin.Code == "" {
 		return domain.Plugin{}, errors.New("插件不存在")
 	}
 	var exists int
@@ -5296,7 +5430,7 @@ func (s *MySQLStore) SetCommunityPluginConfig(communityID int64, code, configJSO
 		return domain.Plugin{}, errors.New("子站不存在")
 	}
 	configJSON = strings.TrimSpace(configJSON)
-	if err := pluginregistry.ValidateConfigJSON(def, configJSON); err != nil {
+	if err := pluginregistry.ValidateConfigJSON(plugin, configJSON); err != nil {
 		return domain.Plugin{}, err
 	}
 	var config any = nil
@@ -5305,12 +5439,12 @@ func (s *MySQLStore) SetCommunityPluginConfig(communityID int64, code, configJSO
 	}
 	if _, err := s.db.Exec(`INSERT INTO community_plugins (community_id,plugin_code,status,sort_order,config_json,created_at,updated_at)
 		VALUES (?,?,?,0,?,NOW(),NOW())
-		ON DUPLICATE KEY UPDATE config_json=VALUES(config_json),updated_at=NOW()`, communityID, def.Code, pluginregistry.StatusDisabled, config); err != nil {
+		ON DUPLICATE KEY UPDATE config_json=VALUES(config_json),updated_at=NOW()`, communityID, plugin.Code, pluginregistry.StatusDisabled, config); err != nil {
 		return domain.Plugin{}, err
 	}
 	items, _ := s.CommunityPlugins(communityID)
 	for _, item := range items {
-		if item.Code == def.Code {
+		if item.Code == plugin.Code {
 			return item, nil
 		}
 	}
@@ -5324,13 +5458,13 @@ func (s *MySQLStore) ReorderCommunityPlugins(communityID int64, codes []string) 
 	}
 	updated := 0
 	for i, code := range codes {
-		def, ok := pluginregistry.DefinitionByCode(code)
-		if !ok {
+		plugin, ok := s.PluginByCode(code)
+		if !ok || plugin.Code == "" {
 			continue
 		}
 		if _, err := s.db.Exec(`INSERT INTO community_plugins (community_id,plugin_code,status,sort_order,config_json,created_at,updated_at)
 			VALUES (?,?,?, ?, NULL, NOW(), NOW())
-			ON DUPLICATE KEY UPDATE sort_order=VALUES(sort_order),updated_at=NOW()`, communityID, def.Code, pluginregistry.StatusDisabled, i); err != nil {
+			ON DUPLICATE KEY UPDATE sort_order=VALUES(sort_order),updated_at=NOW()`, communityID, plugin.Code, pluginregistry.StatusDisabled, i); err != nil {
 			return updated, err
 		}
 		updated++
@@ -7295,7 +7429,7 @@ func (s *MySQLStore) CreateCategory(communityID int64, req domain.CategoryReques
 		return domain.Category{}, errors.New("子站不存在")
 	}
 	req.CommunityID = communityID
-	cat, err := normalizeMySQLCategoryRequest(req, nil)
+	cat, err := s.normalizeMySQLCategoryRequest(req, nil)
 	if err != nil {
 		return domain.Category{}, err
 	}
@@ -7326,7 +7460,7 @@ func (s *MySQLStore) UpdateCategory(id int64, req domain.CategoryRequest) (domai
 	if !ok {
 		return domain.Category{}, errors.New("板块不存在")
 	}
-	cat, err := normalizeMySQLCategoryRequest(req, &current)
+	cat, err := s.normalizeMySQLCategoryRequest(req, &current)
 	if err != nil {
 		return domain.Category{}, err
 	}
@@ -7380,7 +7514,7 @@ func (s *MySQLStore) ReorderCategories(ids []int64) int {
 
 func (s *MySQLStore) TopicsByFilter(communityID, categoryID int64, contentType, sort string, isSolved *bool, tag string, page, pageSize int) ([]domain.Topic, int) {
 	contentType = pluginregistry.NormalizeContentType(contentType)
-	query := `SELECT id,community_id,category_id,user_id,title,COALESCE(slug,''),content_type,COALESCE(summary,''),content,COALESCE(ai_summary,''),COALESCE(cover_image,''),status,is_pinned,is_featured,is_solved,comment_locked,view_count,comment_count,like_count,favorite_count,hot_score,DATE_FORMAT(last_active_at,'%Y-%m-%d %H:%i:%s'),DATE_FORMAT(created_at,'%Y-%m-%d %H:%i:%s'),DATE_FORMAT(updated_at,'%Y-%m-%d %H:%i:%s') FROM topics WHERE deleted_at IS NULL AND status=1`
+	query := `SELECT id,community_id,category_id,user_id,title,COALESCE(slug,''),COALESCE(plugin_code,''),content_type,COALESCE(summary,''),content,COALESCE(ai_summary,''),COALESCE(cover_image,''),status,is_pinned,is_featured,is_solved,comment_locked,view_count,comment_count,like_count,favorite_count,hot_score,DATE_FORMAT(last_active_at,'%Y-%m-%d %H:%i:%s'),DATE_FORMAT(created_at,'%Y-%m-%d %H:%i:%s'),DATE_FORMAT(updated_at,'%Y-%m-%d %H:%i:%s') FROM topics WHERE deleted_at IS NULL AND status=1`
 	args := []any{}
 
 	if communityID > 0 {
@@ -7429,7 +7563,7 @@ func (s *MySQLStore) TopicsByFilter(communityID, categoryID int64, contentType, 
 	}
 
 	// 获取总数
-	countQuery := strings.Replace(query, `SELECT id,community_id,category_id,user_id,title,COALESCE(slug,''),content_type,COALESCE(summary,''),content,COALESCE(ai_summary,''),COALESCE(cover_image,''),status,is_pinned,is_featured,is_solved,comment_locked,view_count,comment_count,like_count,favorite_count,hot_score,DATE_FORMAT(last_active_at,'%Y-%m-%d %H:%i:%s'),DATE_FORMAT(created_at,'%Y-%m-%d %H:%i:%s'),DATE_FORMAT(updated_at,'%Y-%m-%d %H:%i:%s') FROM topics`, `SELECT COUNT(*) FROM topics`, 1)
+	countQuery := strings.Replace(query, `SELECT id,community_id,category_id,user_id,title,COALESCE(slug,''),COALESCE(plugin_code,''),content_type,COALESCE(summary,''),content,COALESCE(ai_summary,''),COALESCE(cover_image,''),status,is_pinned,is_featured,is_solved,comment_locked,view_count,comment_count,like_count,favorite_count,hot_score,DATE_FORMAT(last_active_at,'%Y-%m-%d %H:%i:%s'),DATE_FORMAT(created_at,'%Y-%m-%d %H:%i:%s'),DATE_FORMAT(updated_at,'%Y-%m-%d %H:%i:%s') FROM topics`, `SELECT COUNT(*) FROM topics`, 1)
 	var total int
 	_ = s.db.QueryRow(countQuery, args...).Scan(&total)
 
@@ -7470,7 +7604,7 @@ func (s *MySQLStore) TagTopics(tagID int64, communityID int64, contentType strin
 	if err != nil || tag.Status != "enable" {
 		return []domain.Topic{}, 0
 	}
-	selectClause := `SELECT t.id,t.community_id,t.category_id,t.user_id,t.title,COALESCE(t.slug,''),t.content_type,COALESCE(t.summary,''),t.content,COALESCE(t.ai_summary,''),COALESCE(t.cover_image,''),t.status,t.is_pinned,t.is_featured,t.is_solved,t.comment_locked,t.view_count,t.comment_count,t.like_count,t.favorite_count,t.hot_score,DATE_FORMAT(t.last_active_at,'%Y-%m-%d %H:%i:%s'),DATE_FORMAT(t.created_at,'%Y-%m-%d %H:%i:%s'),DATE_FORMAT(t.updated_at,'%Y-%m-%d %H:%i:%s') FROM topics t JOIN topic_tags tt ON tt.topic_id=t.id`
+	selectClause := `SELECT t.id,t.community_id,t.category_id,t.user_id,t.title,COALESCE(t.slug,''),COALESCE(t.plugin_code,''),t.content_type,COALESCE(t.summary,''),t.content,COALESCE(t.ai_summary,''),COALESCE(t.cover_image,''),t.status,t.is_pinned,t.is_featured,t.is_solved,t.comment_locked,t.view_count,t.comment_count,t.like_count,t.favorite_count,t.hot_score,DATE_FORMAT(t.last_active_at,'%Y-%m-%d %H:%i:%s'),DATE_FORMAT(t.created_at,'%Y-%m-%d %H:%i:%s'),DATE_FORMAT(t.updated_at,'%Y-%m-%d %H:%i:%s') FROM topics t JOIN topic_tags tt ON tt.topic_id=t.id`
 	where := ` WHERE tt.tag_id=? AND t.deleted_at IS NULL AND t.status=1`
 	args := []any{tagID}
 	if communityID > 0 {
@@ -7531,13 +7665,16 @@ func (s *MySQLStore) TopicByID(id int64, increaseView bool) (*domain.Topic, erro
 		_, _ = s.db.Exec(`UPDATE topics SET view_count=view_count+1 WHERE id=?`, id)
 	}
 
-	row := s.db.QueryRow(`SELECT id,community_id,category_id,user_id,title,COALESCE(slug,''),content_type,COALESCE(summary,''),content,COALESCE(ai_summary,''),COALESCE(cover_image,''),status,is_pinned,is_featured,is_solved,comment_locked,reject_reason,offline_reason,COALESCE(best_comment_id,0),view_count,comment_count,like_count,favorite_count,hot_score,DATE_FORMAT(last_active_at,'%Y-%m-%d %H:%i:%s'),DATE_FORMAT(created_at,'%Y-%m-%d %H:%i:%s'),DATE_FORMAT(updated_at,'%Y-%m-%d %H:%i:%s') FROM topics WHERE id=? AND deleted_at IS NULL`, id)
+	row := s.db.QueryRow(`SELECT id,community_id,category_id,user_id,title,COALESCE(slug,''),COALESCE(plugin_code,''),content_type,COALESCE(summary,''),content,COALESCE(ai_summary,''),COALESCE(cover_image,''),status,is_pinned,is_featured,is_solved,comment_locked,reject_reason,offline_reason,COALESCE(best_comment_id,0),view_count,comment_count,like_count,favorite_count,hot_score,DATE_FORMAT(last_active_at,'%Y-%m-%d %H:%i:%s'),DATE_FORMAT(created_at,'%Y-%m-%d %H:%i:%s'),DATE_FORMAT(updated_at,'%Y-%m-%d %H:%i:%s') FROM topics WHERE id=? AND deleted_at IS NULL`, id)
 	return s.scanTopicDetail(row)
 }
 
 func (s *MySQLStore) CreateTopic(req domain.CreateTopicRequest) (*domain.Topic, error) {
 	req.ContentType = pluginregistry.NormalizeContentType(req.ContentType)
-	req.PluginCode = pluginregistry.PluginCodeForContentType(req.ContentType)
+	req.PluginCode = strings.TrimSpace(req.PluginCode)
+	if req.PluginCode == "" {
+		req.PluginCode = pluginregistry.PluginCodeForContentType(req.ContentType)
+	}
 	result, err := s.db.Exec(`INSERT INTO topics (community_id,category_id,user_id,title,plugin_code,content_type,summary,content,status,view_count,comment_count,like_count,favorite_count,hot_score,last_active_at,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?,?,0,0,0,0,0,NOW(),NOW(),NOW())`,
 		req.CommunityID, req.CategoryID, req.UserID, req.Title, req.PluginCode, req.ContentType, req.Summary, req.Content, 1)
 	if err != nil {
@@ -7603,8 +7740,15 @@ func (s *MySQLStore) UpdateTopic(id int64, req domain.UpdateTopicRequest) (*doma
 		normalized := pluginregistry.NormalizeContentType(*req.ContentType)
 		updates = append(updates, "content_type=?")
 		args = append(args, normalized)
+		pluginCode := ""
+		if req.PluginCode != nil {
+			pluginCode = strings.TrimSpace(*req.PluginCode)
+		}
+		if pluginCode == "" {
+			pluginCode = pluginregistry.PluginCodeForContentType(normalized)
+		}
 		updates = append(updates, "plugin_code=?")
-		args = append(args, pluginregistry.PluginCodeForContentType(normalized))
+		args = append(args, pluginCode)
 	}
 	if req.PluginCode != nil && req.ContentType == nil {
 		updates = append(updates, "plugin_code=?")
@@ -7685,7 +7829,7 @@ func (s *MySQLStore) DeleteTopic(id int64) bool {
 
 func (s *MySQLStore) SearchTopics(req domain.SearchRequest) ([]domain.Topic, int) {
 	req.ContentType = pluginregistry.NormalizeContentType(req.ContentType)
-	selectClause := `SELECT id,community_id,category_id,user_id,title,COALESCE(slug,''),content_type,COALESCE(summary,''),content,COALESCE(ai_summary,''),COALESCE(cover_image,''),status,is_pinned,is_featured,is_solved,comment_locked,view_count,comment_count,like_count,favorite_count,hot_score,DATE_FORMAT(last_active_at,'%Y-%m-%d %H:%i:%s'),DATE_FORMAT(created_at,'%Y-%m-%d %H:%i:%s'),DATE_FORMAT(updated_at,'%Y-%m-%d %H:%i:%s') FROM topics`
+	selectClause := `SELECT id,community_id,category_id,user_id,title,COALESCE(slug,''),COALESCE(plugin_code,''),content_type,COALESCE(summary,''),content,COALESCE(ai_summary,''),COALESCE(cover_image,''),status,is_pinned,is_featured,is_solved,comment_locked,view_count,comment_count,like_count,favorite_count,hot_score,DATE_FORMAT(last_active_at,'%Y-%m-%d %H:%i:%s'),DATE_FORMAT(created_at,'%Y-%m-%d %H:%i:%s'),DATE_FORMAT(updated_at,'%Y-%m-%d %H:%i:%s') FROM topics`
 	where := ` WHERE deleted_at IS NULL AND status=1`
 	args := []any{}
 
@@ -8696,25 +8840,31 @@ func (s *MySQLStore) SetCommentStatus(id int64, status string) (*domain.Comment,
 
 func scanTopic(row scanner) (*domain.Topic, error) {
 	t := &domain.Topic{}
-	err := row.Scan(&t.ID, &t.CommunityID, &t.CategoryID, &t.UserID, &t.Title, &t.Slug, &t.ContentType,
+	err := row.Scan(&t.ID, &t.CommunityID, &t.CategoryID, &t.UserID, &t.Title, &t.Slug, &t.PluginCode, &t.ContentType,
 		&t.Summary, &t.Content, &t.AISummary, &t.CoverImage, &t.Status, &t.IsPinned, &t.IsFeatured, &t.IsSolved,
 		&t.CommentLocked, &t.ViewCount, &t.CommentCount, &t.LikeCount, &t.FavoriteCount, &t.HotScore, &t.LastActiveAt, &t.CreatedAt, &t.UpdatedAt)
 	t.ContentType = pluginregistry.NormalizeContentType(t.ContentType)
-	t.PluginCode = pluginregistry.PluginCodeForContentType(t.ContentType)
+	t.PluginCode = strings.TrimSpace(t.PluginCode)
+	if t.PluginCode == "" {
+		t.PluginCode = pluginregistry.PluginCodeForContentType(t.ContentType)
+	}
 	return t, err
 }
 
 func (s *MySQLStore) scanTopicDetail(row scanner) (*domain.Topic, error) {
 	t := &domain.Topic{}
 	var rejectReason, offlineReason sql.NullString
-	err := row.Scan(&t.ID, &t.CommunityID, &t.CategoryID, &t.UserID, &t.Title, &t.Slug, &t.ContentType,
+	err := row.Scan(&t.ID, &t.CommunityID, &t.CategoryID, &t.UserID, &t.Title, &t.Slug, &t.PluginCode, &t.ContentType,
 		&t.Summary, &t.Content, &t.AISummary, &t.CoverImage, &t.Status, &t.IsPinned, &t.IsFeatured, &t.IsSolved,
 		&t.CommentLocked, &rejectReason, &offlineReason, &t.BestCommentID, &t.ViewCount, &t.CommentCount, &t.LikeCount,
 		&t.FavoriteCount, &t.HotScore, &t.LastActiveAt, &t.CreatedAt, &t.UpdatedAt)
 	t.RejectReason = rejectReason.String
 	t.OfflineReason = offlineReason.String
 	t.ContentType = pluginregistry.NormalizeContentType(t.ContentType)
-	t.PluginCode = pluginregistry.PluginCodeForContentType(t.ContentType)
+	t.PluginCode = strings.TrimSpace(t.PluginCode)
+	if t.PluginCode == "" {
+		t.PluginCode = pluginregistry.PluginCodeForContentType(t.ContentType)
+	}
 	if t.ID > 0 {
 		t.Tags = s.getTopicTags(t.ID)
 	}
@@ -9241,7 +9391,7 @@ func normalizeMySQLCommunityRequest(req domain.CommunityRequest, current *domain
 	return comm, nil
 }
 
-func normalizeMySQLCategoryRequest(req domain.CategoryRequest, current *domain.Category) (*domain.Category, error) {
+func (s *MySQLStore) normalizeMySQLCategoryRequest(req domain.CategoryRequest, current *domain.Category) (*domain.Category, error) {
 	cat := &domain.Category{Visible: true, NavVisible: true, Postable: true, Status: 1}
 	if current != nil {
 		cp := *current
@@ -9270,7 +9420,9 @@ func normalizeMySQLCategoryRequest(req domain.CategoryRequest, current *domain.C
 	if contentType := strings.TrimSpace(firstNonEmptyString(req.ContentType, req.Type)); contentType != "" {
 		contentType = pluginregistry.NormalizeContentType(contentType)
 		if !validCategoryContentType(contentType) {
-			return nil, errors.New("内容类型不合法")
+			if _, ok := s.contentTypeDefinitionByType(contentType); !ok {
+				return nil, errors.New("内容类型不合法")
+			}
 		}
 		cat.Type = contentType
 		cat.ContentType = contentType
@@ -9285,6 +9437,9 @@ func normalizeMySQLCategoryRequest(req domain.CategoryRequest, current *domain.C
 		cat.PluginCode = strings.TrimSpace(req.PluginCode)
 	}
 	expectedPlugin := pluginregistry.PluginCodeForContentType(cat.ContentType)
+	if def, ok := s.contentTypeDefinitionByType(cat.ContentType); ok && strings.TrimSpace(def.PluginCode) != "" {
+		expectedPlugin = strings.TrimSpace(def.PluginCode)
+	}
 	if cat.PluginCode == "" {
 		cat.PluginCode = expectedPlugin
 	}
@@ -9296,14 +9451,22 @@ func normalizeMySQLCategoryRequest(req domain.CategoryRequest, current *domain.C
 		for _, item := range req.AllowedContentTypes {
 			item = pluginregistry.NormalizeContentType(item)
 			if !validCategoryContentType(item) {
-				return nil, errors.New("允许内容类型不合法")
+				if _, ok := s.contentTypeDefinitionByType(item); !ok {
+					return nil, errors.New("允许内容类型不合法")
+				}
 			}
 			allowed = append(allowed, item)
 		}
 		cat.AllowedContentTypes = uniqueTags(allowed)
 	}
 	if len(cat.AllowedContentTypes) == 0 {
-		cat.AllowedContentTypes = pluginregistry.DefaultAllowedContentTypes(cat.ContentType)
+		if def, ok := s.contentTypeDefinitionByType(cat.ContentType); ok {
+			cat.AllowedContentTypes = append([]string{}, def.Type)
+			cat.AllowedContentTypes = append(cat.AllowedContentTypes, def.Aliases...)
+			cat.AllowedContentTypes = uniqueTags(cat.AllowedContentTypes)
+		} else {
+			cat.AllowedContentTypes = pluginregistry.DefaultAllowedContentTypes(cat.ContentType)
+		}
 	}
 	if strings.TrimSpace(req.Description) != "" || current == nil {
 		cat.Description = strings.TrimSpace(req.Description)

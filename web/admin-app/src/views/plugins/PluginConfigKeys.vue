@@ -101,12 +101,12 @@
             data-testid="plugin-config-keys-reencrypt"
             @click="doReencrypt"
           >
-            re-encrypt（使用 current key）
+            重新加密（使用当前 key）
           </el-button>
           <el-button :disabled="!dryRunResult.items?.length" @click="showItems = !showItems">
             {{ showItems ? '隐藏明细' : '查看明细' }} ({{ (dryRunResult.items || []).length }})
           </el-button>
-          <el-alert v-if="!canManage" type="warning" show-icon title="缺少 plugin.manage：只能查看，不能执行 re-encrypt。" class="ml12" />
+          <el-alert v-if="!canManage" type="warning" show-icon title="缺少 plugin.manage：只能查看，不能执行重新加密。" class="ml12" />
         </div>
 
         <el-table v-if="showItems" :data="dryRunResult.items || []" class="mt12" height="420" data-testid="plugin-config-keys-items-table">
@@ -116,8 +116,10 @@
           <el-table-column prop="field_path" label="field_path" min-width="220" />
           <el-table-column prop="cipher_version" label="cipher" width="100" />
           <el-table-column prop="key_id" label="key_id" min-width="160" />
-          <el-table-column prop="status" label="status" width="150" />
-          <el-table-column prop="message" label="message" min-width="260" />
+          <el-table-column prop="status" label="状态" width="150">
+            <template #default="{ row }">{{ genericStatusLabel(row.status) }}</template>
+          </el-table-column>
+          <el-table-column prop="message" label="说明" min-width="260" />
         </el-table>
       </div>
     </el-card>
@@ -130,6 +132,8 @@ import { ElMessage, ElMessageBox } from 'element-plus';
 import PluginPackageBoundaryNotice from './components/PluginPackageBoundaryNotice.vue';
 import PluginStatusTag from './components/PluginStatusTag.vue';
 import { dryRunPluginConfigKeyRotation, getPluginConfigKeyStatus, reencryptPluginConfigKeys } from '@/api/plugins';
+import { genericStatusLabel } from '@/i18n/formatters';
+import { pluginMessageText } from '@/modules/plugins/statusText';
 import { useAuthStore } from '@/stores/auth';
 
 const auth = useAuthStore();
@@ -206,10 +210,7 @@ const dryRun = async () => {
 
 function apiError(error) {
   const data = error?.response?.data?.error || error?.response?.data || {};
-  const code = data.code ? `[${data.code}] ` : '';
-  const message = data.message || error?.message || '请求失败';
-  const suggestion = data.suggestion ? ` 建议：${data.suggestion}` : '';
-  return `${code}${message}${suggestion}`;
+  return pluginMessageText(data, error?.message || '请求失败');
 }
 
 const doReencrypt = async () => {
@@ -223,8 +224,8 @@ const doReencrypt = async () => {
   }
   const currentKeyID = status.value?.current_key_id || dryRunResult.value.current_key_id || '';
   await ElMessageBox.confirm(
-    `确认执行 re-encrypt？将使用 current_key_id=${currentKeyID} 重写敏感字段密文（不返回明文，不展示密文）。`,
-    '确认 re-encrypt',
+    `确认执行重新加密？将使用 current_key_id=${currentKeyID} 重写敏感字段密文；不会返回明文，也不会展示密文。`,
+    '确认重新加密',
     { confirmButtonText: '确认', cancelButtonText: '取消', type: 'warning' },
   );
   reencryptLoading.value = true;
@@ -237,11 +238,11 @@ const doReencrypt = async () => {
       confirm_current_key_id: currentKeyID,
     };
     const data = await reencryptPluginConfigKeys(payload);
-    ElMessage.success(`re-encrypt 完成：updated_count=${data.updated_count || 0}`);
+    ElMessage.success(`重新加密完成：更新 ${data.updated_count || 0} 条`);
     await loadStatus();
     await dryRun();
   } catch (e) {
-    ElMessage.error(String(e?.response?.data?.message || e?.message || 're-encrypt 失败'));
+    ElMessage.error(apiError(e) || '重新加密失败');
   } finally {
     reencryptLoading.value = false;
   }

@@ -363,13 +363,17 @@ func (s *Service) ExecutePluginApproval(operator PluginApprovalOperator, id int6
 				WithSuggestion("请先修复阻断项后重新提交审批。")
 		}
 		opID := newPluginOperationID()
+		installDryRunID := s.signPluginPackageInstallDryRun(dry, timeNow(), timeNow().Add(pluginPackageInstallDryRunTTL))
 		it.MetadataJSON = mustJSON(scrubAnyForSnapshot(map[string]any{
-			"operation_id": opID,
-			"approval_id":  it.ID,
+			"operation_id":        opID,
+			"approval_id":         it.ID,
+			"install_dry_run_id":  installDryRunID,
+			"install_dry_run_ttl": pluginPackageInstallDryRunTTL.String(),
 		}))
 		_, _ = s.repo.SavePluginApprovalRequest(it)
 		installRes, ierr := s.InstallPluginPackage(PluginOperationOperator{ID: operator.ID, Name: operator.Name}, domain.PluginPackageInstallRequest{
 			Path:             it.PackagePath,
+			DryRunID:         installDryRunID,
 			ConfirmRiskLevel: strings.ToLower(strings.TrimSpace(dry.RiskReport.Level)),
 			ApprovalID:       it.ID,
 			OperationID:      opID,

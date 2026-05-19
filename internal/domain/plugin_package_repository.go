@@ -28,6 +28,9 @@ type PluginPackageRepositoryListItem struct {
 
 	UpdatedAt int64 `json:"updated_at,omitempty"`
 
+	SourceUploadID string `json:"source_upload_id,omitempty"`
+	PromotedAt     string `json:"promoted_at,omitempty"`
+
 	Warnings []string `json:"warnings,omitempty"`
 	Errors   []string `json:"errors,omitempty"`
 }

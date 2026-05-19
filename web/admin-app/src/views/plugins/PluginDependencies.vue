@@ -24,7 +24,7 @@
       </el-table-column>
       <el-table-column label="依赖状态" width="160">
         <template #default="{ row }">
-          <el-tag :type="dependencyTagType(row)" effect="plain">{{ row.health?.dependency_status || row.health?.status || '-' }}</el-tag>
+          <el-tag :type="dependencyTagType(row)" effect="plain">{{ dependencyStatusLabel(row) }}</el-tag>
         </template>
       </el-table-column>
       <el-table-column label="原因" min-width="260">
@@ -48,6 +48,7 @@ import { computed, onMounted, ref } from 'vue';
 import { useRouter } from 'vue-router';
 import PluginDetailDrawer from '@/components/plugin/PluginDetailDrawer.vue';
 import { usePluginData } from './usePluginData';
+import { pluginStatusText } from '@/modules/plugins/statusText';
 
 const router = useRouter();
 const drawerVisible = ref(false);
@@ -69,6 +70,10 @@ function dependencyTagType(row) {
   return 'warning';
 }
 
+function dependencyStatusLabel(row) {
+  return pluginStatusText(row?.health?.dependency_status || row?.health?.status || row?.status);
+}
+
 function openPlugin(row, tab) {
   drawerPlugin.value = row;
   drawerTab.value = tab || 'overview';
@@ -81,4 +86,3 @@ function openByCode(code, tab = 'dependencies') {
   openPlugin(target, tab);
 }
 </script>
-

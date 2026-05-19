@@ -79,8 +79,14 @@
 - `runtime.type=http_service` 表示后端能力由独立 HTTP 插件服务承载。
 - `runtime.type=iframe` 表示插件主要提供前端隔离页面。
 - `frontend.mounts` 只声明挂载位置，不代表当前 Core 已实现该 slot。
-- `backend.service_url` 必须在后续实现中经过可信来源、SSRF、防重放和签名校验设计。
+- `backend.service_url` 必须经过可信来源、SSRF、防重放和签名校验设计；v1.8.3-S11 当前只落地 external_service 的受控 endpoint 配置与 health check 预备能力，不等于远程 Hook 投递或第三方代码执行已开放。
 - `api_scopes` 是插件申请的最大 Core API 权限范围，最终授权仍由管理员和 Core 策略决定。
+
+v1.8.3-S11 实现边界：
+
+- external_service 配置可在后台保存 endpoint、health_check_path、timeout_ms、failure_policy、auth_type 与 token_ref。
+- health check 只做 `GET {endpoint_url}{health_check_path}` 探活，并记录 `hook_executions(service_type=external_service)`；不会执行插件包脚本、不会加载远程代码、不会开放 blocking Hook。
+- external_service token 与 Webhook Secret、Callback Token 分离管理，列表 / 详情 / 执行记录 / 审计不回显明文。
 
 完整设计见 [插件运行模型设计](PLUGIN_RUNTIME_MODEL.md)。
 
@@ -102,7 +108,7 @@ devhub-plugin-demo/
 ├─ docs/
 │  └─ usage.md
 ├─ migrations/
-│  └─ 001_init.json
+│  └─ 001_init.sql
 ├─ assets/
 │  └─ preview.png
 └─ checksums.json
@@ -113,13 +119,35 @@ devhub-plugin-demo/
 1. `manifest.json` 是唯一主声明文件（必须）。
 2. `README.md` 是插件说明（建议）。
 3. `config.example.json` 是示例配置（建议），不得包含真实 secret。
-4. `migrations/` 当前只允许声明型迁移描述文件；dry-run 不执行任何 SQL。
+4. `migrations/` 是插件包数据库迁移的唯一标准入口；SQL 文件按文件名排序生成计划，dry-run 不执行任何 SQL。
 5. `assets/` 当前只允许预览素材；dry-run 不会动态加载到前台。
 6. `checksums.json` 当前支持 **sha256 完整性校验**；如存在 `signature.json`，会对 `checksums.json` 摘要执行 Ed25519 真实验签。
 7. 目录名建议与 `manifest.code` 一致；不一致会 warning。
 8. 未知文件默认 warning；危险文件会 blocked。
 
 > 注：v1.5.0 当前支持本地插件仓库扫描、插件包详情、dry-run、安装确认与审批执行链路；安装仍走 `plugin.approve` 执行权限，不允许携带代码或可执行资产的插件包。
+
+### v1.8.3-S8 migrations/ 规范收口
+
+DevHub 插件包数据库迁移规范统一为 `migrations/`：
+
+- 新包只能把迁移 SQL 放在 `migrations/` 下，推荐 `migrations/001_init.sql`、`migrations/002_add_xxx.sql`。
+- `migrations/` 下的 `.sql` 文件按文件名排序，dry-run 只返回 `migration_plan`，且计划项 `will_execute=false`。
+- 根目录 `001_schema.sql` 已废弃；预检发现时只给 deprecated warning，提示迁移到 `migrations/001_init.sql`，不会执行，也不会进入标准 migration plan。
+- 根目录其他 `.sql` 文件仍视为危险文件并阻断，避免插件包根目录任意 SQL 被误认作迁移入口。
+- dry-run 是“计划预览”，不是“试执行”：不会创建表、修改表、删除表、写 migration 记录、写插件安装状态、执行插件脚本或调用远程服务产生副作用。
+- install / upgrade 真实流程仍会服务端复跑 dry-run，并且只基于 `migrations/` 计划和 manifest 声明做治理记录；不会执行根目录 SQL 或第三方 SQL。
+- 后续版本可考虑把根目录 `001_schema.sql` 从 warning 升级为 error；本轮先保留兼容 warning。
+- v1.8.3-S12 进一步收口 upload -> promote -> install：promote 只把包转入 `storage/plugins/packages/` 本地仓库；install 只能从本地仓库包发起，且必须携带当前 install dry-run 计划凭证 `dry_run_id`。upload/staging 阶段的 dry-run 只用于预检，不可直接替代 install dry-run。
+
+### 后台中文状态与异常提示
+
+后台插件包治理页面展示给管理员的状态和异常原因统一走插件模块中文映射：
+
+- 状态示例：`uploaded` 显示为“已上传”，`scanned` 显示为“已扫描”，`promoted` 显示为“已转入本地仓库”，`approval_pending` 显示为“待审批”，`blocked` 显示为“已阻断”。
+- 风险 / 阻断示例：`manifest_invalid` 显示为“插件清单校验失败”，`checksum_failed` 显示为“文件完整性校验失败”，`signature_invalid` 显示为“插件签名无效”，`publisher_unknown` 显示为“发布者未受信任”，`core_incompatible` 显示为“当前 DevHub 版本不兼容”。
+- 后端 API 仍保留英文 `code` 和现有枚举值；前端优先展示中文 `message`，仅有 code 时用 `web/admin-app/src/modules/plugins/statusText.js` 映射兜底并保留错误码，便于排障和自动化测试。
+- 技术字段名如 `plugin_code`、`checksum`、`manifest`、`publisher_id` 可保留原名；面向管理员的按钮、空状态、确认提示和可操作异常建议必须中文化。
 
 ## 后台初始化插件包（v1.5.0 收口补充）
 
@@ -250,6 +278,9 @@ promote 规则：
 - 目标目录已存在默认拒绝，返回 `plugin_package_promote_target_exists`；当前 API 支持 `force` 字段，但后台默认不覆盖。
 - checksum mismatch、dangerous file、manifest invalid、quarantine 包、路径穿越包均不能 promote。
 - promote 只把包转入本地仓库，不安装插件、不提交审批、不启用插件、不执行代码/SQL、不动态加载前端资产。
+- promote 成功后仍需重新执行 install dry-run；upload/staging 的旧 dry-run 结果不能直接用于 install。
+- promote 成功后，本地仓库列表会展示 `source_upload_id/promoted_at`，用于追溯来源上传包；执行人以 promote 审计日志为准。
+- install 只接受本地仓库包路径，且服务端会校验 `dry_run_id` 是否与当前 path / plugin_code / version / manifest checksum / checksum status / migration plan hash 一致并未过期；无有效 `dry_run_id`、过期或不一致时拒绝安装。
 
 ## 上传包生命周期治理（v1.6.0-P0-02）
 
@@ -380,6 +411,9 @@ staged/blocked/approval_rejected/canceled/failed/expired/promoted -> deleted
   "checksum": { "algorithm": "sha256", "status": "ok|warning|failed|missing" },
   "manifest_validation": { "valid": true, "errors": [], "warnings": [] },
   "install_dry_run": { "valid": true, "impact_summary": {}, "install_preview": {} },
+  "migration_plan": [
+    { "path": "migrations/001_init.sql", "name": "001_init", "source": "migrations", "will_execute": false }
+  ],
   "risk_report": { "level": "low|medium|high|blocked", "score": 0, "summary": "", "items": [] },
   "status": "ok|warning|blocked",
   "blocked_code": "plugin_package_dangerous_file|plugin_package_manifest_invalid|plugin_package_dry_run_blocked",
@@ -414,6 +448,8 @@ staged/blocked/approval_rejected/canceled/failed/expired/promoted -> deleted
 
 - 从白名单仓库目录中选择一个**校验通过**的插件包，执行“声明型插件”安装闭环。
 - 服务端会在安装前强制复跑 dry-run（scan/checksum/risk/manifest validate/install preview），不信任前端缓存结果。
+- 安装后的 manifest 声明能力会进入运行态：`content_types` / `content_type_definitions`、`permissions`、`menus`、`config_schema` 等由 Core 读取并参与子站启用、发布校验、权限矩阵和后台治理展示。
+- 插件仍需全局启用和子站启用后才能使用声明能力；全局 disabled、子站 disabled、archived / soft_uninstalled 会阻断新内容、菜单和新能力，历史内容 / 审计保留可查。
 
 边界：
 
@@ -518,7 +554,7 @@ Dry-run 会返回 `risk_report`：
 - `README.md`
 - `config.example.json`
 - `docs/usage.md`
-- `migrations/001_init.json`（声明示例，不执行）
+- `migrations/001_init.sql`（只进入预检/计划，不执行；新 SQL 迁移统一放在 `migrations/`）
 
 ## 插件包签名与可信来源（v1.6.0-P0-03）
 
@@ -748,7 +784,7 @@ exported-plugin/
 ### checksums.json 生成规则
 
 - 固定使用 `sha256`。
-- 覆盖 `manifest.json`、`README.md`、`config.example.json`、`docs/**/*.md`、`migrations/**/*.json`、`publisher.json`、`signature.json`、`package.json`（如存在）。
+- 覆盖 `manifest.json`、`README.md`、`config.example.json`、`docs/**/*.md`、`migrations/**/*.sql`、`migrations/exported_migrations.json`、`publisher.json`、`signature.json`、`package.json`（如存在）。
 - `checksums.json` 不包含自身。
 - 路径使用包内相对路径，按字典序稳定排序。
 - 导出后 package dry-run 应能通过 checksum 校验；若自检 warning，会在导出结果中展示。
@@ -860,7 +896,7 @@ sha256 规则：
 - 菜单 / 路由：必须是站内路径，禁止外链、`javascript:`、`data:` 和路径穿越；禁止覆盖 `/admin-next`、`/login`、`/register`、`/topics`、`/c`、`/api/v1/admin/plugins/*`、`/api/v1/admin/users/*`、`/api/v1/admin/system/*` 等核心入口。
 - Hook：Hook 名称必须属于当前 HookBus；mode 只能 `blocking/non_blocking`；failure_policy 只能 `block/log/ignore`，blocking Hook 禁止 `ignore`。
 - config_schema：只验证 DevHub 当前简化 JSON Schema 能力；`default_config` 如存在必须满足 schema。
-- migrations：只允许 `direction=up`，本轮只记录 pending，不执行 migration，不支持 migration down。
+- migrations：manifest 声明只允许 `direction=up`；插件包文件迁移只认 `migrations/`，本轮只记录 pending / 生成计划，不执行 migration，不支持 migration down。
 
 结论规则：
 

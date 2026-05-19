@@ -169,6 +169,7 @@ import {
   uploadPluginPackageZip,
 } from '@/api/plugins';
 import { genericStatusLabel, trustLevelLabel } from '@/i18n/formatters';
+import { pluginMessageText, pluginReasonText } from '@/modules/plugins/statusText';
 
 const statuses = ['uploaded', 'scanned', 'staged', 'blocked', 'approval_pending', 'approval_rejected', 'approved', 'promoted', 'install_approval_pending', 'installed', 'canceled', 'expired', 'deleted', 'failed'];
 const filters = reactive({ keyword: '', status: 'all', risk_level: 'all', page: 1, page_size: 20 });
@@ -184,7 +185,10 @@ const uploadRef = ref();
 const errorText = ref('');
 
 const actionMap = computed(() => Object.fromEntries((detail.value?.actions || []).map((item) => [item.action, item])));
-const disabledReasons = computed(() => (detail.value?.actions || []).filter((item) => !item.enabled && item.reason).map((item) => `${item.reason_code}: ${item.reason}`).join('；'));
+const disabledReasons = computed(() => (detail.value?.actions || [])
+  .filter((item) => !item.enabled && item.reason)
+  .map((item) => `${pluginReasonText(item.reason_code)}：${item.reason}`)
+  .join('；'));
 const hasTechnicalDetails = computed(() => [
   detail.value?.zip_scan,
   detail.value?.file_scan,
@@ -216,10 +220,7 @@ function pretty(value) {
 
 function apiError(error) {
   const data = error?.response?.data?.error || error?.response?.data || {};
-  const code = data.code || 'unknown_error';
-  const message = data.message || error?.message || '操作失败';
-  const suggestion = data.suggestion ? ` 建议：${data.suggestion}` : '';
-  return `[${code}] ${message}${suggestion}`;
+  return pluginMessageText(data, error?.message || '操作失败');
 }
 
 async function fetchUploads() {
@@ -245,7 +246,7 @@ function onFileRemove() {
 
 async function submitUpload() {
   if (!selectedFile.value) {
-    errorText.value = '[plugin_package_upload_invalid_type] 请先选择 .zip 插件包';
+    errorText.value = '请先选择 .zip 插件包。';
     return;
   }
   uploading.value = true;

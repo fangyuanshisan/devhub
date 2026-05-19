@@ -193,7 +193,7 @@
           <el-descriptions-item label="危险文件">{{ (zipUploadResult.file_scan?.dangerous_files || []).length }}</el-descriptions-item>
         </el-descriptions>
         <el-descriptions :column="3" border class="mb" data-testid="plugin-package-upload-checksum">
-          <el-descriptions-item label="checksum">
+          <el-descriptions-item label="校验状态">
             <el-tag :type="checksumStatusType(zipUploadResult.checksum?.status)" effect="plain">{{ genericStatusLabel(zipUploadResult.checksum?.status) }}</el-tag>
           </el-descriptions-item>
           <el-descriptions-item label="签名">{{ genericStatusLabel(zipUploadResult.signature?.verification_status || 'missing') }}</el-descriptions-item>
@@ -225,7 +225,7 @@
           <ul class="result-list">
             <li v-for="(item, idx) in zipUploadResult.errors || []" :key="`upload-err-${idx}`">{{ item }}</li>
             <li v-for="(item, idx) in zipUploadResult.risk_report?.items || []" :key="`upload-risk-${idx}`">
-              {{ item.code }}：{{ item.message }}；建议：{{ item.suggestion || '-' }}
+              {{ pluginReasonText(item.code) }}：{{ item.message }}；建议：{{ item.suggestion || '-' }}
             </li>
           </ul>
         </div>
@@ -345,9 +345,18 @@
             <el-tag :type="riskLevelType(row.risk_level)" effect="plain">{{ packageRiskLabel(row.risk_level) }}</el-tag>
           </template>
         </el-table-column>
-        <el-table-column prop="checksum_status" label="checksum" width="120">
+        <el-table-column prop="checksum_status" label="校验状态" width="120">
           <template #default="{ row }">
-            <el-tag :type="checksumStatusType(row.checksum_status)" effect="plain">{{ row.checksum_status || '-' }}</el-tag>
+            <el-tag :type="checksumStatusType(row.checksum_status)" effect="plain">{{ genericStatusLabel(row.checksum_status) }}</el-tag>
+          </template>
+        </el-table-column>
+        <el-table-column label="来源上传包" min-width="180">
+          <template #default="{ row }">
+            <div v-if="row.source_upload_id">
+              <div class="mono small">{{ row.source_upload_id }}</div>
+              <div class="muted small">{{ row.promoted_at || '已转入本地仓库' }}</div>
+            </div>
+            <span v-else class="muted">本地包</span>
           </template>
         </el-table-column>
         <el-table-column label="签名" width="190">
@@ -429,7 +438,7 @@
         <template #title>
           <span>风险等级：</span>
           <el-tag :type="riskLevelType(packageResult.risk_report.level)" effect="plain" data-testid="plugin-package-risk-level">
-            {{ packageResult.risk_report.level }}
+            {{ packageRiskLabel(packageResult.risk_report.level) }}
           </el-tag>
           <span class="muted" style="margin-left: 8px" data-testid="plugin-package-risk-score">score={{ packageResult.risk_report.score ?? 0 }}</span>
         </template>
@@ -467,7 +476,7 @@
         <el-descriptions-item label="目录">{{ packageResult.package?.dir_name || '-' }}</el-descriptions-item>
         <el-descriptions-item label="插件编码">{{ packageResult.package?.code || '-' }}</el-descriptions-item>
         <el-descriptions-item label="版本">{{ packageResult.package?.version || '-' }}</el-descriptions-item>
-        <el-descriptions-item label="阻断码">{{ packageResult.blocked_code || '-' }}</el-descriptions-item>
+        <el-descriptions-item label="阻断原因">{{ pluginReasonText(packageResult.blocked_code) }}</el-descriptions-item>
         <el-descriptions-item label="Manifest">{{ yesNo(packageResult.package?.manifest_found) }}</el-descriptions-item>
         <el-descriptions-item label="README">{{ yesNo(packageResult.package?.readme_found) }}</el-descriptions-item>
         <el-descriptions-item label="配置示例">{{ yesNo(packageResult.package?.config_example_found) }}</el-descriptions-item>
@@ -624,7 +633,7 @@
             <div class="card-head">
               <strong>{{ repoDetail.package?.code || '-' }}</strong>
               <el-tag :type="repoDetail.status === 'blocked' ? 'danger' : repoDetail.status === 'warning' ? 'warning' : 'success'" effect="plain">
-                {{ repoDetail.status }}
+                {{ genericStatusLabel(repoDetail.status) }}
               </el-tag>
             </div>
           </template>
@@ -639,7 +648,7 @@
             <template #title>
               <span>风险等级：</span>
               <el-tag :type="riskLevelType(repoDetail.risk_report.level)" effect="plain">
-                {{ repoDetail.risk_report.level }}
+                {{ packageRiskLabel(repoDetail.risk_report.level) }}
               </el-tag>
               <span class="muted" style="margin-left: 8px">score={{ repoDetail.risk_report.score ?? 0 }}</span>
             </template>
@@ -647,54 +656,54 @@
           </el-alert>
 
           <el-descriptions :column="2" border class="mb">
-            <el-descriptions-item label="path">{{ repoDetail.package?.path || '-' }}</el-descriptions-item>
-            <el-descriptions-item label="dir">{{ repoDetail.package?.dir_name || '-' }}</el-descriptions-item>
-            <el-descriptions-item label="name">{{ repoDetail.package?.name || '-' }}</el-descriptions-item>
-            <el-descriptions-item label="version">{{ repoDetail.package?.version || '-' }}</el-descriptions-item>
-            <el-descriptions-item label="checksum_found">{{ repoDetail.package?.checksum_found ?? false }}</el-descriptions-item>
-            <el-descriptions-item label="blocked_code">{{ repoDetail.blocked_code || '-' }}</el-descriptions-item>
+            <el-descriptions-item label="路径">{{ repoDetail.package?.path || '-' }}</el-descriptions-item>
+            <el-descriptions-item label="目录">{{ repoDetail.package?.dir_name || '-' }}</el-descriptions-item>
+            <el-descriptions-item label="名称">{{ repoDetail.package?.name || '-' }}</el-descriptions-item>
+            <el-descriptions-item label="版本">{{ repoDetail.package?.version || '-' }}</el-descriptions-item>
+            <el-descriptions-item label="校验文件">{{ repoDetail.package?.checksum_found ? '是' : '否' }}</el-descriptions-item>
+            <el-descriptions-item label="阻断原因">{{ pluginReasonText(repoDetail.blocked_code) }}</el-descriptions-item>
           </el-descriptions>
 
           <el-descriptions v-if="repoDetail.checksum" :column="3" border class="mb">
-            <el-descriptions-item label="checksum.algorithm">{{ repoDetail.checksum.algorithm || '-' }}</el-descriptions-item>
-            <el-descriptions-item label="checksum.status">
+            <el-descriptions-item label="校验算法">{{ repoDetail.checksum.algorithm || '-' }}</el-descriptions-item>
+            <el-descriptions-item label="校验状态">
               <el-tag :type="checksumStatusType(repoDetail.checksum.status)" effect="plain">
-                {{ repoDetail.checksum.status || '-' }}
+                {{ genericStatusLabel(repoDetail.checksum.status) }}
               </el-tag>
             </el-descriptions-item>
-            <el-descriptions-item label="matched">{{ (repoDetail.checksum.matched || []).length }}</el-descriptions-item>
-            <el-descriptions-item label="mismatched">{{ (repoDetail.checksum.mismatched || []).length }}</el-descriptions-item>
-            <el-descriptions-item label="missing">{{ (repoDetail.checksum.missing || []).length }}</el-descriptions-item>
-            <el-descriptions-item label="extra">{{ (repoDetail.checksum.extra || []).length }}</el-descriptions-item>
+            <el-descriptions-item label="匹配">{{ (repoDetail.checksum.matched || []).length }}</el-descriptions-item>
+            <el-descriptions-item label="不匹配">{{ (repoDetail.checksum.mismatched || []).length }}</el-descriptions-item>
+            <el-descriptions-item label="缺失">{{ (repoDetail.checksum.missing || []).length }}</el-descriptions-item>
+            <el-descriptions-item label="额外文件">{{ (repoDetail.checksum.extra || []).length }}</el-descriptions-item>
           </el-descriptions>
 
           <el-descriptions v-if="repoDetail.signature" :column="3" border class="mb" data-testid="plugin-package-repo-detail-signature">
-            <el-descriptions-item label="trust_status">
+            <el-descriptions-item label="信任状态">
               <el-tag :type="signatureTrustType(repoDetail.signature.trust_status)" effect="plain" data-testid="plugin-package-repo-detail-signature-trust">
-                {{ repoDetail.signature.trust_status || '-' }}
+                {{ trustLevelLabel(repoDetail.signature.trust_status) }}
               </el-tag>
             </el-descriptions-item>
-            <el-descriptions-item label="verification_status">
+            <el-descriptions-item label="验签状态">
               <el-tag :type="signatureVerifyType(repoDetail.signature.verification_status)" effect="plain" data-testid="plugin-package-repo-detail-signature-verify">
-                {{ repoDetail.signature.verification_status || '-' }}
+                {{ genericStatusLabel(repoDetail.signature.verification_status) }}
               </el-tag>
             </el-descriptions-item>
             <el-descriptions-item label="publisher_id">{{ repoDetail.signature.publisher_id || '-' }}</el-descriptions-item>
             <el-descriptions-item label="public_key_id">{{ repoDetail.signature.public_key_id || '-' }}</el-descriptions-item>
             <el-descriptions-item label="fingerprint">{{ repoDetail.signature.fingerprint || '-' }}</el-descriptions-item>
-            <el-descriptions-item label="signed_files_count">{{ repoDetail.signature.signed_files_count ?? 0 }}</el-descriptions-item>
-            <el-descriptions-item label="unsigned_files_count">{{ (repoDetail.signature.unsigned_files || []).length }}</el-descriptions-item>
+            <el-descriptions-item label="已签名文件数">{{ repoDetail.signature.signed_files_count ?? 0 }}</el-descriptions-item>
+            <el-descriptions-item label="未签名文件数">{{ (repoDetail.signature.unsigned_files || []).length }}</el-descriptions-item>
           </el-descriptions>
 
           <div v-if="repoDetail.signature && (repoDetail.signature.signed_files || []).length" class="mb" data-testid="plugin-package-repo-detail-signed-files">
-            <h4 style="margin: 0 0 8px">signed_files</h4>
+            <h4 style="margin: 0 0 8px">已签名文件</h4>
             <div class="tag-wrap">
               <el-tag v-for="item in repoDetail.signature.signed_files || []" :key="item" type="success" effect="plain">{{ item }}</el-tag>
             </div>
           </div>
 
           <div v-if="repoDetail.signature && (repoDetail.signature.unsigned_files || []).length" class="mb" data-testid="plugin-package-repo-detail-unsigned-files">
-            <h4 style="margin: 0 0 8px">unsigned_files</h4>
+            <h4 style="margin: 0 0 8px">未签名文件</h4>
             <div class="tag-wrap">
               <el-tag v-for="item in repoDetail.signature.unsigned_files || []" :key="item" type="warning" effect="plain">{{ item }}</el-tag>
             </div>
@@ -709,42 +718,48 @@
       <template #header>
         <div class="card-head">
           <strong>确认安装（本地插件包）</strong>
-          <span class="muted">安装后默认 disabled，不会执行代码/SQL，不会加载前端资产。</span>
+          <span class="muted">安装前必须基于本地仓库包重新执行 dry-run；安装后默认 disabled。</span>
         </div>
       </template>
       <section v-if="repoInstallVisible" class="action-panel in-drawer" data-testid="plugin-package-repo-install-content">
-        <el-alert type="info" show-icon :closable="false" class="mb" title="边界：不会执行第三方代码 / 不会执行 SQL / 不会动态加载前端资产；本轮从本地插件包写入声明与记录（disabled）。" />
+        <el-alert type="info" show-icon :closable="false" class="mb" title="边界：不会执行第三方代码 / 不会执行根目录 SQL / 不会动态加载前端资产；只能从本地仓库包安装，且必须使用当前安装 dry-run 计划。" />
 
         <el-alert v-if="repoInstallError" type="error" show-icon :closable="false" class="mb" :title="repoInstallError" />
 
         <div v-if="repoInstallDetail" class="mb">
           <el-descriptions :column="2" border class="mb">
-            <el-descriptions-item label="code">{{ repoInstallDetail.package?.code || '-' }}</el-descriptions-item>
-            <el-descriptions-item label="name">{{ repoInstallDetail.package?.name || '-' }}</el-descriptions-item>
-            <el-descriptions-item label="version">{{ repoInstallDetail.package?.version || '-' }}</el-descriptions-item>
-            <el-descriptions-item label="path">{{ repoInstallDetail.package?.path || '-' }}</el-descriptions-item>
-            <el-descriptions-item label="status">
+            <el-descriptions-item label="插件编码">{{ repoInstallDetail.package?.code || '-' }}</el-descriptions-item>
+            <el-descriptions-item label="名称">{{ repoInstallDetail.package?.name || '-' }}</el-descriptions-item>
+            <el-descriptions-item label="版本">{{ repoInstallDetail.package?.version || '-' }}</el-descriptions-item>
+            <el-descriptions-item label="路径">{{ repoInstallDetail.package?.path || '-' }}</el-descriptions-item>
+            <el-descriptions-item label="安装 dry-run">
+              <el-tag :type="repoInstallDetail.dry_run_id ? 'success' : 'warning'" effect="plain">
+                {{ repoInstallDetail.dry_run_id ? '当前有效' : '需要重新 dry-run' }}
+              </el-tag>
+            </el-descriptions-item>
+            <el-descriptions-item label="计划过期时间">{{ repoInstallDetail.expires_at || '-' }}</el-descriptions-item>
+            <el-descriptions-item label="状态">
               <el-tag :type="repoInstallDetail.status === 'blocked' ? 'danger' : repoInstallDetail.status === 'warning' ? 'warning' : 'success'" effect="plain" data-testid="plugin-package-repo-install-status">
-                {{ repoInstallDetail.status || '-' }}
+                {{ genericStatusLabel(repoInstallDetail.status) }}
               </el-tag>
             </el-descriptions-item>
-            <el-descriptions-item label="risk_level">
+            <el-descriptions-item label="风险等级">
               <el-tag :type="riskLevelType(repoInstallDetail.risk_report?.level)" effect="plain">
-                {{ repoInstallDetail.risk_report?.level || '-' }}
+                {{ packageRiskLabel(repoInstallDetail.risk_report?.level) }}
               </el-tag>
             </el-descriptions-item>
-            <el-descriptions-item label="checksum_status">
+            <el-descriptions-item label="校验状态">
               <el-tag :type="checksumStatusType(repoInstallDetail.checksum?.status)" effect="plain">
-                {{ repoInstallDetail.checksum?.status || '-' }}
+                {{ genericStatusLabel(repoInstallDetail.checksum?.status) }}
               </el-tag>
             </el-descriptions-item>
-            <el-descriptions-item label="signature">
+            <el-descriptions-item label="签名">
               <div style="display: inline-flex; gap: 6px; flex-wrap: wrap" data-testid="plugin-package-repo-install-signature">
                 <el-tag :type="signatureTrustType(repoInstallDetail.signature?.trust_status)" effect="plain">
-                  {{ repoInstallDetail.signature?.trust_status || '-' }}
+                  {{ trustLevelLabel(repoInstallDetail.signature?.trust_status) }}
                 </el-tag>
                 <el-tag :type="signatureVerifyType(repoInstallDetail.signature?.verification_status)" effect="plain">
-                  {{ repoInstallDetail.signature?.verification_status || '-' }}
+                  {{ genericStatusLabel(repoInstallDetail.signature?.verification_status) }}
                 </el-tag>
                 <el-tag v-if="repoInstallDetail.signature?.fingerprint" type="info" effect="plain">
                   {{ repoInstallDetail.signature.fingerprint }}
@@ -770,9 +785,9 @@
           <div class="filter-actions mb" style="justify-content: space-between; gap: 10px">
             <div v-if="String(repoInstallDetail.risk_report?.level || '').toLowerCase() !== 'low'" style="display: flex; align-items: center; gap: 10px">
               <span class="muted">确认风险等级：</span>
-              <el-select v-model="repoInstallConfirmRiskLevel" placeholder="confirm_risk_level" style="width: 180px">
-                <el-option label="medium" value="medium" />
-                <el-option label="high" value="high" />
+              <el-select v-model="repoInstallConfirmRiskLevel" placeholder="确认风险等级" style="width: 180px">
+                <el-option label="中风险" value="medium" />
+                <el-option label="高风险" value="high" />
               </el-select>
             </div>
             <div class="filter-actions" style="justify-content: flex-end">
@@ -787,7 +802,7 @@
               >
                 提交安装审批
               </el-button>
-              <el-button type="success" :loading="repoInstallLoading" :disabled="!repoInstallDetail || String(repoInstallDetail.status || '').toLowerCase() === 'blocked'" data-testid="plugin-package-repo-install-confirm" @click="confirmRepoInstall">确认安装</el-button>
+              <el-button type="success" :loading="repoInstallLoading" :disabled="!repoInstallDetail || !repoInstallDetail.dry_run_id || String(repoInstallDetail.status || '').toLowerCase() === 'blocked'" data-testid="plugin-package-repo-install-confirm" @click="confirmRepoInstall">确认安装</el-button>
             </div>
           </div>
         </div>
@@ -997,6 +1012,7 @@ import {
 } from '@/api/admin';
 import { t } from '@/i18n';
 import { genericStatusLabel, packageRiskLabel, pluginStatusLabel, trustLevelLabel } from '@/i18n/formatters';
+import { pluginMessageText, pluginReasonText } from '@/modules/plugins/statusText';
 
 const router = useRouter();
 const route = useRoute();
@@ -1349,6 +1365,7 @@ async function confirmRepoInstall() {
     const risk = String(repoInstallDetail.value?.risk_report?.level || '').toLowerCase();
     const payload = {
       path,
+      dry_run_id: String(repoInstallDetail.value?.dry_run_id || '').trim(),
       confirm_risk_level: risk && risk !== 'low' ? String(repoInstallConfirmRiskLevel.value || '').toLowerCase() : '',
     };
     const res = await installPluginPackage(payload);
@@ -1678,9 +1695,9 @@ function formatJSON(obj) {
 }
 
 function compatibilityLabel(status) {
-  if (status === 'compatible') return 'compatible';
-  if (status === 'warning') return 'warning';
-  if (status === 'incompatible') return 'incompatible';
+  if (status === 'compatible') return '兼容';
+  if (status === 'warning') return '警告';
+  if (status === 'incompatible') return '不兼容';
   return status || '-';
 }
 
@@ -1707,9 +1724,9 @@ function dependencySummaryType(summary) {
 }
 
 function dependencySummaryText(summary) {
-  if (summary === 'blocked') return 'blocked';
-  if (summary === 'warning') return 'warning';
-  if (summary === 'pass') return 'pass';
+  if (summary === 'blocked') return '已阻断';
+  if (summary === 'warning') return '警告';
+  if (summary === 'pass') return '通过';
   return summary || '-';
 }
 
@@ -1722,7 +1739,7 @@ function dependencyStatusType(status, satisfied) {
 }
 
 function dependencyStatusLabel(status) {
-  return status || '-';
+  return genericStatusLabel(status);
 }
 </script>
 

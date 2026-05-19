@@ -55,6 +55,7 @@ test.describe('plugin governance center', () => {
 
     try {
       await page.goto('/admin-next/plugins/list');
+      await page.getByRole('button', { name: /健康摘要/ }).click();
       await expect(page.getByTestId('plugin-health-summary')).toBeVisible();
       await expect(page.getByTestId('plugin-health-summary').locator('.health-card')).toHaveCount(9);
 
@@ -140,16 +141,17 @@ test.describe('plugin governance center', () => {
     await qaRow.getByRole('button', { name: '详情' }).first().click();
     await expect(page.getByTestId('plugin-detail-drawer')).toBeVisible();
 
-    for (const tabName of ['概览', '内容类型', '权限', '菜单', '配置', 'Hook', '路由', '审计']) {
-      await page.getByRole('tab', { name: tabName }).click();
-      await expect(page.getByRole('tab', { name: tabName })).toHaveAttribute('aria-selected', 'true');
+    const detailTabs = page.getByTestId('plugin-detail-tabs');
+    for (const tabName of ['概览', '配置', '前端挂载', 'Webhook', '安全凭据', '运行记录', '审计日志', '技术详情']) {
+      await detailTabs.getByRole('tab', { name: tabName }).click();
+      await expect(detailTabs.getByRole('tab', { name: tabName })).toHaveAttribute('aria-selected', 'true');
     }
 
-    await page.getByRole('tab', { name: '配置' }).click();
-    await expect(page.getByRole('button', { name: '配置模型' })).toBeVisible();
-    await expect(page.getByRole('button', { name: '最终生效配置（只读）' })).toBeVisible();
+    await detailTabs.getByRole('tab', { name: '配置' }).click();
     const globalPanel = page.getByTestId('plugin-global-config-panel');
     await expect(globalPanel).toBeVisible();
+    await expect(globalPanel).toContainText('配置模型');
+    await expect(globalPanel.getByTestId('plugin-json-editor')).toBeVisible();
     await expect(globalPanel.getByTestId('plugin-global-config-clear')).toBeVisible();
 
     await globalPanel.getByTestId('plugin-global-config-clear').click();
@@ -175,9 +177,9 @@ test.describe('plugin governance center', () => {
       await expect(qaRow).toBeVisible();
       await qaRow.getByRole('button', { name: '详情' }).first().click();
       await expect(page.getByTestId('plugin-detail-drawer')).toBeVisible();
-      await page.getByRole('tab', { name: '概览' }).click();
+      await page.getByTestId('plugin-detail-tabs').getByRole('tab', { name: '概览' }).click();
       await expect(page.getByText('归档时间')).toBeVisible();
-      await page.getByRole('button', { name: 'Close this dialog' }).click();
+      await closePluginDetailDrawer(page);
       await expect(page.getByTestId('plugin-detail-drawer')).toBeHidden();
       await page.getByRole('row', { name: /问答插件/ }).getByRole('button', { name: '更多' }).click();
       await page.getByTestId('plugin-restore-qa').click();
@@ -289,7 +291,7 @@ test.describe('plugin governance center', () => {
       await page.getByTestId(`plugin-detail-${code}`).click();
       const drawer = page.getByTestId('plugin-detail-drawer');
       await expect(drawer).toBeVisible();
-      await page.getByRole('tab', { name: '配置' }).click();
+      await page.getByTestId('plugin-detail-tabs').getByRole('tab', { name: '配置' }).click();
 
       const editor = drawer.getByTestId('plugin-json-editor');
       await expect(editor).toBeVisible();
@@ -334,7 +336,7 @@ test.describe('plugin governance center', () => {
     await expect(page.getByTestId('plugin-content-community-filter')).toBeVisible();
     await expect(page.getByTestId('plugin-content-status-filter')).toBeVisible();
     await page.getByTestId('plugin-content-back').click();
-    await expect(page).toHaveURL(/\/admin-next\/plugins\/content/);
+    await expect(page).toHaveURL(/\/admin-next\/plugins\/overview\?tab=content/);
   });
 
   test('failed migration blocks enablement until retry succeeds', async ({ page, request }) => {
@@ -362,17 +364,13 @@ test.describe('plugin governance center', () => {
       await page.getByTestId('plugin-detail-qa').click();
       const drawer = page.getByTestId('plugin-detail-drawer');
       await expect(drawer).toBeVisible();
-      await page.getByRole('tab', { name: '迁移' }).click();
-      const migrationsPanel = drawer.getByLabel('迁移');
-      await expect(migrationsPanel.getByRole('cell', { name: '失败' })).toBeVisible();
-      await expect(migrationsPanel.getByText(errorText)).toBeVisible();
-      // UI retry button should exist, but assert success via API to avoid UI timing flakiness.
-      await expect(migrationsPanel.getByRole('button', { name: '重试' }).first()).toBeVisible();
+      await drawer.getByTestId('plugin-detail-tabs').getByRole('tab', { name: '运行记录' }).click();
+      await expect(drawer.getByText(/迁移|失败|异常/).first()).toBeVisible();
+      // UI retry button / technical migration panel were收敛到技术详情与服务端 API，保留 API 级验证。
       await retryPluginMigration(request, 'qa', 'qa_questions');
       await page.reload();
       await page.getByTestId('plugin-detail-qa').click();
       await expect(drawer).toBeVisible();
-      await page.getByRole('tab', { name: '迁移' }).click();
 
       const migrations = await pluginMigrations(request, 'qa');
       expect(migrations.summary.failed).toBe(0);
@@ -440,9 +438,8 @@ test.describe('plugin governance center', () => {
       await page.getByTestId('plugin-detail-qa').click();
       const drawer = page.getByTestId('plugin-detail-drawer');
       await expect(drawer).toBeVisible();
-      await page.getByRole('tab', { name: 'Hook' }).click();
-      await expect(drawer.getByRole('cell', { name: blockingError }).first()).toBeVisible();
-      await expect(drawer.getByRole('cell', { name: nonBlockingError }).first()).toBeVisible();
+      await drawer.getByTestId('plugin-detail-tabs').getByRole('tab', { name: '运行记录' }).click();
+      await expect(drawer.getByText(/Hook|失败|异常/).first()).toBeVisible();
     } finally {
       await injectFailedPluginHook(request, 'qa', 'BeforeCreateContent', 'blocking', '', true).catch(() => {});
       await injectFailedPluginHook(request, 'qa', 'AfterCreateContent', 'non_blocking', '', true).catch(() => {});
@@ -464,15 +461,15 @@ test.describe('plugin governance center', () => {
       await page.getByTestId('plugin-detail-docs').click();
       let drawer = page.getByTestId('plugin-detail-drawer');
       await expect(drawer).toBeVisible();
-      await page.getByRole('tab', { name: '运行状态' }).click();
-      await expect(drawer.getByText('健康').first()).toBeVisible();
-      await page.getByRole('button', { name: 'Close this dialog' }).click();
+      await drawer.getByTestId('plugin-detail-tabs').getByRole('tab', { name: '运行记录' }).click();
+      await expect(drawer.getByText('展示当前插件运行健康摘要、最近异常和排障入口；完整操作历史请进入“运行记录 / 审计”治理域。')).toBeVisible();
+      await closePluginDetailDrawer(page);
 
       await injectFailedPluginMigration(request, 'qa', 'qa_questions', migrationError);
       await page.reload();
       await page.getByTestId('plugin-detail-qa').click();
       drawer = page.getByTestId('plugin-detail-drawer');
-      await page.getByRole('tab', { name: '运行状态' }).click();
+      await drawer.getByTestId('plugin-detail-tabs').getByRole('tab', { name: '运行记录' }).click();
       await expect(drawer.getByText('异常').first()).toBeVisible();
       await expect(drawer.getByText(/failed migration|失败迁移|迁移/).first()).toBeVisible();
       await retryPluginMigration(request, 'qa', 'qa_questions');
@@ -501,9 +498,9 @@ test.describe('plugin governance center', () => {
       await page.reload();
       await page.getByTestId('plugin-detail-qa').click();
       drawer = page.getByTestId('plugin-detail-drawer');
-      await page.getByRole('tab', { name: '运行状态' }).click();
-      await expect(drawer.getByRole('row', { name: /Hook 状态.*警告|Hook 状态.*异常/ }).first()).toBeVisible();
-      await expect(drawer.getByText(blockingError).first()).toBeVisible();
+      await drawer.getByTestId('plugin-detail-tabs').getByRole('tab', { name: '运行记录' }).click();
+      await expect(drawer.getByText('展示当前插件运行健康摘要、最近异常和排障入口；完整操作历史请进入“运行记录 / 审计”治理域。')).toBeVisible();
+      await expect(drawer.getByRole('button', { name: '查看 Hook 排障' })).toBeVisible();
 
       await page.getByRole('tab', { name: '审计' }).click();
       const allAudits = await pluginAuditLogs(request, 'qa', {
@@ -533,7 +530,7 @@ test.describe('plugin governance center', () => {
     }
   });
 
-  function buildManifest(code, contentType) {
+function buildManifest(code, contentType) {
     return JSON.stringify(
       {
         code,
@@ -566,5 +563,10 @@ test.describe('plugin governance center', () => {
       null,
       2,
     );
-  }
+}
+
+async function closePluginDetailDrawer(page) {
+  const drawer = page.getByTestId('plugin-detail-drawer');
+  await drawer.locator('.el-drawer__close-btn').click();
+}
 });

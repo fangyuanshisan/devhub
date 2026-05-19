@@ -169,6 +169,10 @@ v1.7.2 插件运行模型设计补充：外部 HTTP 插件服务接口（如 `GE
 | `plugin_package_invalid` | 插件包无效 | `path` | 补齐 manifest/checksum 后重试 |
 | `plugin_package_detail_not_found` | 插件包详情不存在 | `path` | 检查路径或先扫描仓库 |
 | `plugin_package_install_blocked` | 插件包安装被阻断 | `path`,`risk_level`,`blocked_code` | 修复阻断原因后重试 |
+| `plugin_package_install_source_invalid` | 非本地仓库包不能安装 | `path` | 先 upload / precheck / promote 到 `storage/plugins/packages/` |
+| `plugin_package_install_dry_run_required` | 缺少安装 dry-run 计划 | `path` | 先执行本地仓库包安装 dry-run |
+| `plugin_package_install_dry_run_expired` | 安装 dry-run 计划已过期 | `path` | 重新执行安装 dry-run |
+| `plugin_package_install_dry_run_mismatch` | dry-run 计划与当前包不一致 | `path`,`plugin_code`,`version` | 插件包内容或 migration plan 已变化，重新 dry-run |
 | `plugin_package_install_failed` | 插件包安装失败 | `plugin_code` | 查看后台日志后重试 |
 | `plugin_package_already_installed` | 同编码插件已安装 | `plugin_code` | 走 upgrade 流程升级插件 |
 | `plugin_package_dependency_missing` | required 依赖未满足 | `dependencies` | 先安装并启用 required 依赖插件 |
@@ -697,7 +701,8 @@ v1.7.2 插件运行模型设计补充：外部 HTTP 插件服务接口（如 `GE
   - `storage/plugins/staging/`
   - `storage/plugins/quarantine/`
   - `.devhub/plugins/`
-- 返回：包含 `package`、`file_scan`、`checksum`、`signature`、`risk_report`、`manifest_validation`、`install_dry_run`、`status`、`blocked_code`、`blocked_reasons`、`warnings`、`errors`。
+- 返回：包含 `package`、`file_scan`、`checksum`、`signature`、`risk_report`、`manifest_validation`、`install_dry_run`、`migration_plan`、`status`、`blocked_code`、`blocked_reasons`、`warnings`、`errors`、`dry_run_id`、`generated_at`、`expires_at`。
+- `dry_run_id`：仅作为本地仓库包安装前的当前计划凭证，安装时必须随请求带回；服务端仍会重新执行 dry-run 并校验 path / plugin_code / version / manifest checksum / checksum status / migration plan hash / status / risk_level，不信任前端缓存。
 - `status`：`ok|warning|blocked`。
 - `blocked_code`：当 `status=blocked` 时返回阻断原因代码（例如 `plugin_package_dangerous_file` / `plugin_package_manifest_invalid`）。
   - `blocked_reasons`：可选，返回所有阻断原因 code（用于 UI 逐项展示）。
@@ -787,6 +792,7 @@ v1.7.2 插件运行模型设计补充：外部 HTTP 插件服务接口（如 `GE
   - promote 前重新 dry-run；复制后再次 dry-run 复检。
   - 目标目录已存在默认拒绝，返回 `plugin_package_promote_target_exists`。
   - blocked、quarantine、dangerous file、checksum mismatch、manifest invalid 均禁止 promote。
+  - promote 成功后，`GET /admin/plugins/packages` 的本地仓库列表可通过 `source_upload_id/promoted_at` 追溯来源上传包。
   - promote 写入 `admin_logs`，但不写插件表、不写 migration 表、不执行代码/SQL、不动态加载资产。
 
 `POST /api/v1/admin/plugins/packages/uploads/:upload_id/cancel`
@@ -932,6 +938,7 @@ v1.7.2 插件运行模型设计补充：外部 HTTP 插件服务接口（如 `GE
   - `manifest_valid`：可选，`true|false`
   - `page` / `page_size`
 - 返回：`items/pagination/summary`，其中 `items` 每项包含 `path/code/name/version/status/risk_level/risk_summary/checksum_status/manifest_valid/total_files/total_size/updated_at/warnings/errors`，以及可选签名摘要 `signature`（同 dry-run）。
+- 由上传包 promote 进入本地仓库的条目会额外返回 `source_upload_id` 和 `promoted_at`，用于把本地仓库包追溯到暂存上传记录；`promoted_by` 仍以 promote 审计日志为准。
 
 `GET /api/v1/admin/plugins/packages/detail`
 
@@ -1010,19 +1017,24 @@ v1.7.2 插件运行模型设计补充：外部 HTTP 插件服务接口（如 `GE
 
 - 认证：后台 admin token。
 - 权限：`plugin.approve`（仅审批人可直接执行；普通管理员需先提交审批申请）。
-- 用途：从**本地插件包**安装声明型插件（最小闭环）。服务端会强制复跑 package dry-run（scan/checksum/risk/manifest validate/install preview），通过后复用现有 manifest install 写入插件记录。
+- 用途：从**本地插件仓库包**安装声明型插件（最小闭环）。安装只能来自 `storage/plugins/packages/`，必须先对当前本地仓库包执行安装 dry-run 并带回 `dry_run_id`；服务端会再次复跑 package dry-run（scan/checksum/risk/manifest validate/install preview），校验 dry-run 计划未过期且与当前包一致，通过后复用现有 manifest install 写入插件记录。
 - 请求：
 
 ```json
 {
   "path": "storage/plugins/packages/demo_notice",
+  "dry_run_id": "eyJwYXRoIjoiLi4uIn0.signature",
   "confirm_risk_level": "low"
 }
 ```
 
 - 行为与边界：
+  - 不能直接从 upload / staging / quarantine 路径安装；必须先 promote 到本地插件仓库。
+  - upload 阶段 dry-run 不能替代 install dry-run；`dry_run_id` 过期、缺失或与当前包 checksum / manifest / migration plan 不一致时拒绝安装。
   - 只写入 manifest 声明、默认配置、迁移 pending 记录与审计；不执行第三方代码、不执行外部 raw SQL、不动态加载前端资产。
+  - install 只基于 `migrations/` 计划；根目录 `001_schema.sql` 不执行。
   - 安装成功后插件状态固定为 `disabled`（不自动启用）。
+  - 安装成功后触发 PluginRegistry reload；安装失败不会污染运行态。
   - 若同 `code` 插件已安装，返回 `plugin_package_already_installed`（提示走 upgrade）。
 - 返回：`plugin`（含 `source_type=local_package`）、`package`、`checksum`、`risk_level`、`install_result`、`warnings`。
 
@@ -1308,6 +1320,7 @@ Core 兼容：`min_core_version` 缺失为 warning；`min_core_version` 高于�
 - 用途：Hooks 排障页查询某插件的 `hook_executions` 执行记录列表（支持基础筛选 + 分页）。该接口不提供重试、清空或告警能力。
 - 查询参数（可选）：
   - `hook_name`
+  - `service_type`：例如 `external_service`，用于筛选外部服务 health check / Hook 执行记录。
   - `mode`
   - `success`：`true/false/1/0`
   - `blocking`：`true/false/1/0`
@@ -1327,6 +1340,61 @@ Core 兼容：`min_core_version` 缺失为 warning；`min_core_version` 高于�
   "total": 0,
   "page": 1,
   "page_size": 20
+}
+```
+
+### v1.8.3-S11 external_service 运行时预备 API
+
+说明：本节描述 **已实现** 的 external_service 运行时预备接口。它用于声明型插件配置外部 HTTP 服务、执行受控 health check，并将结果写入 `hook_executions`。本能力不是第三方代码执行，不开放动态加载，不改变 Webhook Secret / Callback Token 安全模型，也不实现 blocking Hook。
+
+密钥边界：
+
+- external_service token：DevHub 调用外部服务 health check / Hook 时使用，当前仅支持 `auth_type=none|bearer`，Bearer 明文只在写入请求中出现一次，不回显。
+- Webhook Secret：DevHub 向插件服务投递 Webhook 时做 HMAC 签名使用。
+- Callback Token：插件服务回调 DevHub Core API 时使用。
+- 三者不能混用；列表、详情、审计、日志和 `hook_executions` 均不返回 token 明文、Authorization Header、Webhook Secret 明文或 Callback Token 明文。
+
+#### `GET /api/v1/admin/plugins/:code/external-service`
+
+- 认证：后台 admin token。
+- 权限：`plugin.read`。
+- 用途：查询插件 external_service 配置与最近健康状态。
+- 返回：`{"configured":true,"config":{...}}`；未配置时返回 `{"configured":false,"config":null}`。
+
+#### `PUT /api/v1/admin/plugins/:code/external-service`
+
+- 认证：后台 admin token。
+- 权限：`plugin.manage`。
+- 用途：保存插件 external_service 配置。保存后刷新插件运行态元数据。
+- 请求字段：
+  - `endpoint_url`：必填；只允许 `https://`，本地开发允许 `http://localhost` / `http://127.0.0.1` / `http://[::1]`；拒绝 `javascript:`、`data:`、`file:`、`ftp:`。
+  - `health_check_path`：默认 `/health`。
+  - `timeout_ms`：默认 `3000`，下限 `500`，上限 `10000`。
+  - `failure_policy`：`ignore|warn|error|disable_hook`，默认 `warn`。
+  - `auth_type`：`none|bearer`。
+  - `token`：仅 `auth_type=bearer` 时写入；不会在响应中回显。
+  - `enabled`：是否启用 external_service。
+  - `warning_threshold` / `error_threshold`：默认 `3` / `5`。
+
+#### `POST /api/v1/admin/plugins/:code/external-service/health-check`
+
+- 认证：后台 admin token。
+- 权限：`plugin.manage`。
+- 用途：对 `{endpoint_url}{health_check_path}` 执行受控 `GET` 探活，并写入 `hook_executions(service_type=external_service)`。
+- 成功规则：HTTP 2xx 为 `healthy`；HTTP 3xx 记录为 `warning`；HTTP 4xx/5xx、超时、DNS/TLS/连接错误记录为失败并按阈值进入 `warning` / `error`。
+- 插件 disabled / archived 时不调用 endpoint，写入 `skipped` 记录。
+- 返回示例：
+
+```json
+{
+  "plugin_code": "qa",
+  "service_type": "external_service",
+  "endpoint_url": "https://plugin.example.com",
+  "health_status": "healthy",
+  "status": "healthy",
+  "checked_at": "2026-05-19 10:00:00",
+  "duration_ms": 42,
+  "message": ""
 }
 ```
 

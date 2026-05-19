@@ -21,7 +21,7 @@
       </el-table-column>
       <el-table-column label="Hook 状态" width="140">
         <template #default="{ row }">
-          <el-tag :type="hookTagType(row)" effect="plain">{{ row.health?.hook_status || row.health?.status || '-' }}</el-tag>
+          <el-tag :type="hookTagType(row)" effect="plain">{{ hookStatusLabel(row) }}</el-tag>
         </template>
       </el-table-column>
       <el-table-column label="最近错误" min-width="260">
@@ -44,6 +44,7 @@
 import { computed, onMounted, ref } from 'vue';
 import PluginDetailDrawer from '@/components/plugin/PluginDetailDrawer.vue';
 import { usePluginData } from './usePluginData';
+import { pluginStatusText } from '@/modules/plugins/statusText';
 
 const drawerVisible = ref(false);
 const drawerPlugin = ref(null);
@@ -64,6 +65,10 @@ function hookTagType(row) {
   return 'info';
 }
 
+function hookStatusLabel(row) {
+  return pluginStatusText(row?.health?.hook_status || row?.health?.status);
+}
+
 function openPlugin(row, tab) {
   drawerPlugin.value = row;
   drawerTab.value = tab || 'overview';
@@ -76,4 +81,3 @@ function openByCode(code, tab = 'hooks') {
   openPlugin(target, tab);
 }
 </script>
-

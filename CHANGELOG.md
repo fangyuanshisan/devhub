@@ -15,6 +15,12 @@
 - v1.8.3-S5：优化插件详情抽屉视觉层级与信息密度。可见 Tab 收敛为概览、配置、前端挂载、Webhook、安全凭据、运行记录、审计日志、技术详情；Webhook 密钥和回调 Token 合并为安全凭据，原始配置和声明 JSON 默认进入技术详情并脱敏，official_announcement 配置/挂载/预览入口更直观；后台 quick build 通过。
 - v1.8.3-S6：完成插件详情抽屉性能拆包与 1024 宽度视觉回归。配置版本弹窗、技术详情和 JSON 编辑器改为按需加载，详情抽屉低频 Tab 懒渲染；`PluginConfigEditor` chunk 明显降低，普通插件详情、技术详情、配置 Tab 和配置版本弹窗已截图回归；后台 quick build 通过。
 - v1.8.3-S7：为 `official_announcement` 浏览器回归补固定 fixture。`scripts/check-admin-plugin-ia.sh` 通过现有后台 API 幂等准备官方公告插件全局 / 子站启用状态和公告配置，并强制覆盖插件列表、详情概览、公告配置、前端挂载、公告预览截图；同时修复后台预览 Host helper 请求 context / audit 未带 admin Authorization 导致 iframe 不创建的问题。token 只用于 Host 请求，不暴露给 iframe；不开放远程 iframe，不改变插件逻辑或 Webhook 协议。
+- v1.8.3-S8：收口插件包 migrations 规范。插件包 dry-run / 预检 / 安装 / 升级只读取 `migrations/` 下的 `.sql` 文件并生成只读 migration plan；根目录 `001_schema.sql` 降级为 deprecated warning，不再作为标准迁移入口或执行目标；新模板 / 示例统一生成 `migrations/001_init.sql`，dry-run 不执行 SQL、不修改数据库、不写安装状态。
+- v1.8.3-S9：收口 PluginRegistry reload 运行态刷新。安装、升级、启停、软卸载 / 归档、恢复、全局配置、子站插件状态和子站配置变化后刷新运行态快照；reload 失败保留旧快照并写审计，不执行第三方代码、不开放动态加载。
+- v1.8.3-S10：完成声明型插件可用闭环。manifest 插件声明的菜单、content_type、权限和配置声明可进入运行态、子站启用、发布校验和权限矩阵；disabled / archived / 子站 disabled 会阻断新能力但保留历史内容可读；不改变 Webhook 协议、Secret / Token 安全模型或动态加载边界。
+- v1.8.3-S11：完成 external_service Webhook 运行时预备。新增外部服务配置模型、Admin API、endpoint / timeout / failure_policy / auth_type 校验、Bearer token 加密引用、受控 health check、`hook_executions(service_type=external_service)` 记录和健康 warning/error 联动；后台插件详情展示外部服务健康摘要。插件 disabled / archived 时只记录 skipped，不调用 endpoint；不执行第三方代码、不开放动态加载、不做 blocking Hook。
+- v1.8.3-S12：继续收口插件包 upload -> promote -> install。blocked / failed 上传包不可 promote；promote 只转入本地仓库，不安装、不启用、不执行脚本；本地仓库列表展示 `source_upload_id/promoted_at` 以追溯来源上传包；install 只能从本地仓库包执行，且必须携带当前 install dry-run 计划凭证 `dry_run_id`，服务端会重新 dry-run 并核对 path / plugin_code / version / manifest checksum / checksum status / migration plan hash；upload/staging 阶段旧 dry-run 结果不能直接复用。dry-run 仍不执行 SQL，install 只基于 `migrations/` 计划执行，根目录 `001_schema.sql` 不执行。
+- 后台插件中心中文状态和异常提示统一：新增 `web/admin-app/src/modules/plugins/statusText.js` 作为插件模块状态 / 风险 / 阻断原因 / Hook 健康原因 / 操作名 / 建议文案集中映射；插件列表、详情、上传包、promote/install、远程索引、版本升级、配置密钥等页面复用同一中文口径；前端错误提示优先展示中文 message，仅有 code 时映射中文并保留错误码。未改变 API code、状态枚举、插件生命周期或安全边界。
 - 优化插件后台公共筛选条布局：标题说明置顶、筛选控件网格排布、按钮与条件同行，改善宽屏下控件过长和按钮位置松散的问题。
 - 调整插件模块二级导航呈现：保留左侧二级导航栏，在“插件管理”分组下直接展示 5 个治理域，页内 Tab 继续作为三级导航。
 - 修复 `/admin-next/plugins/operations` 操作历史页读取 `undefined.items` 的运行时错误，兼容前端 HTTP 拦截器已解包的业务响应和空列表响应。

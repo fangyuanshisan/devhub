@@ -346,6 +346,15 @@ func classifyPluginPackageFile(rel string, info fs.FileInfo) (category string, r
 
 	ext := strings.ToLower(filepath.Ext(base))
 	if pluginPackageDangerousExt[ext] {
+		if (info.Mode() & 0111) != 0 {
+			return "dangerous", "executable_file"
+		}
+		if lower == "001_schema.sql" {
+			return "unknown", "deprecated_root_schema_sql"
+		}
+		if strings.HasPrefix(lower, "migrations/") && ext == ".sql" {
+			return "allowed", "allowed_migration_sql"
+		}
 		return "dangerous", "dangerous_ext"
 	}
 

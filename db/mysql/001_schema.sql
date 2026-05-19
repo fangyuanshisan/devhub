@@ -975,6 +975,8 @@ CREATE TABLE IF NOT EXISTS hook_executions (
   id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
   hook_name VARCHAR(128) NOT NULL,
   plugin_code VARCHAR(64) NOT NULL,
+  service_type VARCHAR(32) NOT NULL DEFAULT '',
+  endpoint_url VARCHAR(1000) NOT NULL DEFAULT '',
   mode VARCHAR(32) NOT NULL DEFAULT 'non_blocking',
   content_type VARCHAR(64) NOT NULL DEFAULT '',
   content_id BIGINT UNSIGNED NULL,
@@ -991,6 +993,11 @@ CREATE TABLE IF NOT EXISTS hook_executions (
   success TINYINT(1) NOT NULL DEFAULT 1,
   error_message TEXT NULL,
   blocking TINYINT(1) NOT NULL DEFAULT 0,
+  status VARCHAR(32) NOT NULL DEFAULT '',
+  response_status INT NOT NULL DEFAULT 0,
+  response_body_excerpt VARCHAR(2000) NOT NULL DEFAULT '',
+  request_body_sha256 VARCHAR(128) NOT NULL DEFAULT '',
+  error_code VARCHAR(128) NOT NULL DEFAULT '',
   metadata_json JSON NULL,
   created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
   PRIMARY KEY (id),
@@ -998,6 +1005,34 @@ CREATE TABLE IF NOT EXISTS hook_executions (
   KEY idx_hook_executions_success (plugin_code, success, started_at),
   KEY idx_hook_executions_content (content_id),
   KEY idx_hook_executions_community (community_id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE IF NOT EXISTS plugin_external_services (
+  plugin_code VARCHAR(64) NOT NULL,
+  service_type VARCHAR(32) NOT NULL DEFAULT 'external_service',
+  endpoint_url VARCHAR(1000) NOT NULL DEFAULT '',
+  health_check_path VARCHAR(255) NOT NULL DEFAULT '/health',
+  timeout_ms INT NOT NULL DEFAULT 3000,
+  failure_policy VARCHAR(32) NOT NULL DEFAULT 'warn',
+  auth_type VARCHAR(32) NOT NULL DEFAULT 'none',
+  token_ref VARCHAR(128) NOT NULL DEFAULT '',
+  token_ciphertext VARCHAR(1024) NOT NULL DEFAULT '',
+  token_hash VARCHAR(128) NOT NULL DEFAULT '',
+  enabled TINYINT(1) NOT NULL DEFAULT 1,
+  status VARCHAR(32) NOT NULL DEFAULT 'unknown',
+  last_health_status VARCHAR(32) NOT NULL DEFAULT 'unknown',
+  last_checked_at DATETIME NULL,
+  last_success_at DATETIME NULL,
+  last_failure_at DATETIME NULL,
+  failure_count INT NOT NULL DEFAULT 0,
+  warning_threshold INT NOT NULL DEFAULT 3,
+  error_threshold INT NOT NULL DEFAULT 5,
+  last_error_message VARCHAR(1000) NOT NULL DEFAULT '',
+  created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  PRIMARY KEY (plugin_code),
+  KEY idx_plugin_external_services_status (status, updated_at),
+  KEY idx_plugin_external_services_health (last_health_status, last_checked_at)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 CREATE TABLE IF NOT EXISTS categories (

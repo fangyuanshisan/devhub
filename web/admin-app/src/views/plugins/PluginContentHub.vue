@@ -17,12 +17,12 @@
             <h3>{{ card.title }}</h3>
             <p>{{ card.desc }}</p>
           </div>
-          <el-tag :type="statusTagType(card.plugin?.status)" effect="plain">{{ card.plugin?.status || '-' }}</el-tag>
+          <el-tag :type="statusTagType(card.plugin?.status)" effect="plain">{{ pluginStatusLabel(card.plugin?.status) }}</el-tag>
         </div>
         <div class="tag-wrap mb">
           <el-tag type="info" effect="plain">{{ card.pluginCode }}</el-tag>
           <el-tag type="info" effect="plain">{{ card.contentType }}</el-tag>
-          <el-tag v-if="card.plugin?.health?.status" :type="healthTagType(card.plugin.health.status)" effect="plain">{{ card.plugin.health.status }}</el-tag>
+          <el-tag v-if="card.plugin?.health?.status" :type="healthTagType(card.plugin.health.status)" effect="plain">{{ pluginHealthLabel(card.plugin.health.status) }}</el-tag>
         </div>
         <div class="row-actions">
           <el-button type="primary" plain :data-testid="`plugin-content-hub-open-${card.pluginCode}`" @click="router.push(card.path)">进入治理</el-button>
@@ -40,6 +40,7 @@ import { computed, onMounted, ref } from 'vue';
 import { useRouter } from 'vue-router';
 import PluginDetailDrawer from '@/components/plugin/PluginDetailDrawer.vue';
 import { usePluginData } from './usePluginData';
+import { pluginHealthLabel, pluginStatusLabel } from '@/i18n/formatters';
 
 const router = useRouter();
 const drawerVisible = ref(false);
@@ -89,4 +90,3 @@ function healthTagType(status) {
   return 'info';
 }
 </script>
-

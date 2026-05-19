@@ -143,6 +143,36 @@
             <el-descriptions-item :label="t('plugin.recentError')" :span="2">{{ plugin.health?.recent_error || '-' }}</el-descriptions-item>
             <el-descriptions-item :label="t('plugin.runtime.statusReason')" :span="2">{{ plugin.health?.status_reason || '-' }}</el-descriptions-item>
           </el-descriptions>
+          <section class="compact-section mt" data-testid="plugin-external-service-runtime">
+            <div class="section-head">
+              <div>
+                <h4>外部服务</h4>
+                <p>external_service 仅做受控 HTTP 探活和执行记录，不执行第三方插件代码。</p>
+              </div>
+              <el-button size="small" type="primary" plain :loading="externalServiceLoading" :disabled="!externalServiceConfigured || plugin.status !== 'enabled'" @click="runExternalServiceHealthCheck">
+                健康检查
+              </el-button>
+            </div>
+            <el-empty v-if="!externalServiceConfigured" description="暂无外部服务配置" :image-size="80" />
+            <template v-else>
+              <el-descriptions :column="2" border size="small">
+                <el-descriptions-item label="服务地址">{{ externalService.endpoint_url || '-' }}</el-descriptions-item>
+                <el-descriptions-item label="健康状态">
+                  <el-tag :type="externalServiceHealthType(externalService.last_health_status || externalService.status)">
+                    {{ externalServiceHealthLabel(externalService.last_health_status || externalService.status) }}
+                  </el-tag>
+                </el-descriptions-item>
+                <el-descriptions-item label="超时时间">{{ externalService.timeout_ms || 3000 }} ms</el-descriptions-item>
+                <el-descriptions-item label="失败策略">{{ externalServiceFailurePolicyLabel(externalService.failure_policy) }}</el-descriptions-item>
+                <el-descriptions-item label="认证方式">{{ externalServiceAuthLabel(externalService.auth_type) }}</el-descriptions-item>
+                <el-descriptions-item label="连续失败">{{ externalService.failure_count || 0 }}</el-descriptions-item>
+                <el-descriptions-item label="最近检查">{{ externalService.last_checked_at || '-' }}</el-descriptions-item>
+                <el-descriptions-item label="最近失败">{{ externalService.last_failure_at || '-' }}</el-descriptions-item>
+                <el-descriptions-item label="失败原因" :span="2">{{ externalService.last_error_message || '-' }}</el-descriptions-item>
+              </el-descriptions>
+              <el-alert class="mt" type="warning" show-icon :closable="false" title="Token 明文、Authorization Header、Webhook Secret 和 Callback Token 不会在列表、详情或执行记录中展示。" />
+            </template>
+          </section>
           <div class="sub-toolbar mt">
             <el-button type="primary" plain @click="openRuntimeGovernance('operations')">查看操作历史</el-button>
             <el-button plain @click="openRuntimeGovernance('hooks')">查看 Hook 排障</el-button>
@@ -164,11 +194,18 @@
             <el-descriptions-item label="最近 Hook 失败">{{ plugin.health?.hook_failure_count ?? 0 }}</el-descriptions-item>
             <el-descriptions-item label="重试队列">在 Webhook 治理 / 重试队列查看</el-descriptions-item>
             <el-descriptions-item label="熔断状态">在 Webhook 治理 / 熔断状态查看</el-descriptions-item>
+            <el-descriptions-item label="外部服务">{{ externalServiceConfigured ? '已配置' : '未配置' }}</el-descriptions-item>
+            <el-descriptions-item label="外部服务健康">
+              <el-tag :type="externalServiceHealthType(externalService?.last_health_status || externalService?.status)">
+                {{ externalServiceHealthLabel(externalService?.last_health_status || externalService?.status) }}
+              </el-tag>
+            </el-descriptions-item>
           </el-descriptions>
           <div class="sub-toolbar">
             <el-button type="primary" plain @click="openWebhookGovernance('deliveries')">查看投递记录</el-button>
             <el-button plain @click="openWebhookGovernance('retry')">查看重试队列</el-button>
             <el-button plain @click="openWebhookGovernance('circuits')">查看熔断状态</el-button>
+            <el-button plain @click="openExternalServiceExecutions">查看外部服务记录</el-button>
           </div>
         </el-tab-pane>
 
@@ -592,7 +629,7 @@
                 <template #default="{ row }">
                   <div v-if="!row.visible">
                     <div class="muted">{{ row.reason || '-' }}</div>
-                    <div v-if="row.reason_code" class="mono">{{ row.reason_code }}</div>
+                    <div v-if="row.reason_code" class="muted">{{ pluginReasonText(row.reason_code) }}</div>
                   </div>
                   <span v-else class="muted">-</span>
                 </template>
@@ -767,6 +804,11 @@
                     <el-option v-for="name in allHookNames" :key="name" :label="name" :value="name" />
                   </el-select>
                 </el-form-item>
+                <el-form-item label="服务类型">
+                  <el-select v-model="hookExecFilters.service_type" clearable style="width: 160px" data-testid="hook-exec-filter-service-type">
+                    <el-option label="外部服务" value="external_service" />
+                  </el-select>
+                </el-form-item>
                 <el-form-item :label="t('plugin.hook.mode')">
                   <el-select v-model="hookExecFilters.mode" clearable style="width: 160px" data-testid="hook-exec-filter-mode">
                     <el-option label="blocking" value="blocking" />
@@ -816,6 +858,9 @@
               <el-table-column prop="id" label="ID" width="90" />
               <el-table-column prop="finished_at" :label="t('plugin.audit.time')" width="170" />
               <el-table-column prop="hook_name" :label="t('plugin.hook.hookName')" min-width="180" />
+              <el-table-column prop="service_type" label="服务类型" width="130">
+                <template #default="{ row }">{{ row.service_type === 'external_service' ? '外部服务' : row.service_type || '-' }}</template>
+              </el-table-column>
               <el-table-column prop="mode" :label="t('plugin.hook.mode')" width="140" />
               <el-table-column prop="blocking" :label="t('plugin.hook.blockingFlag')" width="110">
                 <template #default="{ row }">
@@ -1144,9 +1189,10 @@ import { computed, defineAsyncComponent, h, reactive, ref, watch } from 'vue';
 import { ElMessage, ElMessageBox } from 'element-plus';
 import PluginConfigEditor from './PluginConfigEditor.vue';
 import PluginIframeMount from './PluginIframeMount.vue';
-import { dryRunPluginExport, enablePluginFromEnablePrecheck, exportPluginPackage, getPluginUninstallImpact, getPluginUpgradeTask, listPluginPackageCompatChecks, listPluginUpgradeTasks, pluginAuditLogs, pluginHookExecutions, pluginHooks, pluginMenusPreview, pluginMigrations, pluginReadiness, pluginUpgradeImpact, retryPluginUpgradeTask, runPluginEnablePrecheck, runPluginMigrations, softUninstallPlugin, upgradePluginFromPackage, updatePluginConfig } from '@/api/admin';
+import { dryRunPluginExport, enablePluginFromEnablePrecheck, exportPluginPackage, getPluginUninstallImpact, getPluginUpgradeTask, listPluginPackageCompatChecks, listPluginUpgradeTasks, pluginAuditLogs, pluginHookExecutions, pluginHooks, pluginMenusPreview, pluginMigrations, pluginReadiness, pluginUpgradeImpact, retryPluginUpgradeTask, runPluginEnablePrecheck, runPluginExternalServiceHealthCheck, runPluginMigrations, softUninstallPlugin, upgradePluginFromPackage, updatePluginConfig } from '@/api/admin';
 import { t } from '@/i18n';
 import { auditActionLabel, genericStatusLabel, maturityLabel, migrationStatusLabel, pluginHealthLabel, pluginStatusLabel } from '@/i18n/formatters';
+import { pluginReasonText } from '@/modules/plugins/statusText';
 import { useRouter } from 'vue-router';
 import { useAuthStore } from '@/stores/auth';
 
@@ -1226,6 +1272,7 @@ const hookExecTotal = ref(0);
 const hookExecDrawer = ref(false);
 const hookExecTarget = ref(null);
 const hookDrawer = ref(false);
+const externalServiceLoading = ref(false);
 const readinessLoading = ref(false);
 const readinessResult = ref(null);
 const menuPreviewLoading = ref(false);
@@ -1251,6 +1298,7 @@ const menuPreviewParams = reactive({
 });
 const hookExecFilters = reactive({
   hook_name: '',
+  service_type: '',
   mode: '',
   success: 'all',
   blocking: 'all',
@@ -1283,6 +1331,8 @@ const exportForm = reactive({
 const safePlugin = computed(() => (props.plugin && (props.plugin.code || props.plugin.plugin_code)) ? props.plugin : null);
 const title = computed(() => safePlugin.value ? `${safePlugin.value.name || safePlugin.value.code || ''} ${t('plugin.detailTitle')}` : t('plugin.detailTitle'));
 const exportPreviewFiles = computed(() => (exportPreview.value?.export_preview?.files || []).map((path) => ({ path })));
+const externalService = computed(() => props.plugin?.external_service_config || null);
+const externalServiceConfigured = computed(() => Boolean(externalService.value?.endpoint_url));
 const canViewOfficialAnnouncement = computed(() => (auth?.can ? auth.can('plugin.read') : true));
 const canEditPluginConfig = computed(() => (auth?.can ? auth.can('plugin.write') : true));
 const showLegacyTechnicalTabs = false;
@@ -1337,6 +1387,7 @@ watch(
     auditTotal.value = 0;
     hookStats.value = [];
     hookRecent.value = [];
+    hookExecFilters.service_type = '';
     migrationRows.value = [];
     migrationSummary.value = {};
     readinessResult.value = null;
@@ -1973,6 +2024,45 @@ function metricType(status) {
   return 'info';
 }
 
+function externalServiceHealthType(status) {
+  if (status === 'healthy' || status === 'success') return 'success';
+  if (status === 'warning' || status === 'health_warning') return 'warning';
+  if (status === 'error' || status === 'failed' || status === 'timeout' || status === 'health_error') return 'danger';
+  return 'info';
+}
+
+function externalServiceHealthLabel(status) {
+  const map = {
+    healthy: '正常',
+    success: '成功',
+    warning: '健康警告',
+    error: '健康异常',
+    disabled: '已停用',
+    skipped: '已跳过',
+    timeout: '超时',
+    unknown: '未检查',
+  };
+  return map[String(status || 'unknown')] || String(status || '未检查');
+}
+
+function externalServiceFailurePolicyLabel(policy) {
+  const map = {
+    ignore: '仅记录',
+    warn: '达到阈值后警告',
+    error: '达到阈值后异常',
+    disable_hook: '异常后暂停 Hook',
+  };
+  return map[String(policy || 'warn')] || String(policy || 'warn');
+}
+
+function externalServiceAuthLabel(authType) {
+  const map = {
+    none: '无认证',
+    bearer: 'Bearer Token',
+  };
+  return map[String(authType || 'none')] || String(authType || 'none');
+}
+
 function dependencyStatus(dep, plugin) {
   if (!plugin?.code) return dep.required === false ? 'optional_missing' : 'missing';
   if (plugin.status === 'archived') return 'archived';
@@ -2070,6 +2160,7 @@ function openHookExecutions() {
 
 function resetHookExecutionsFilters() {
   hookExecFilters.hook_name = '';
+  hookExecFilters.service_type = '';
   hookExecFilters.mode = '';
   hookExecFilters.success = 'all';
   hookExecFilters.blocking = 'all';
@@ -2092,6 +2183,7 @@ async function loadHookExecutions(resetPage) {
   try {
     const params = {
       hook_name: hookExecFilters.hook_name || '',
+      service_type: hookExecFilters.service_type || '',
       mode: hookExecFilters.mode || '',
       content_type: hookExecFilters.content_type || '',
       content_id: Number(hookExecFilters.content_id || 0) || 0,
@@ -2114,6 +2206,38 @@ async function loadHookExecutions(resetPage) {
     ElMessage.warning(String(e?.message || e || t('plugin.hook.unavailable')));
   } finally {
     hookExecLoading.value = false;
+  }
+}
+
+function openExternalServiceExecutions() {
+  hookExecFilters.hook_name = '';
+  hookExecFilters.service_type = 'external_service';
+  hookExecFilters.mode = '';
+  hookExecFilters.success = 'all';
+  hookExecFilters.blocking = 'all';
+  hookExecFilters.content_type = '';
+  hookExecFilters.content_id = '';
+  hookExecFilters.community_id = '';
+  hookExecFilters.actor_type = '';
+  hookExecFilters.actor_id = '';
+  hookExecFilters.range = [];
+  hookExecFilters.page = 1;
+  hookExecFilters.pageSize = 20;
+  openHookExecutions();
+}
+
+async function runExternalServiceHealthCheck() {
+  const p = props.plugin;
+  if (!p || !p.code) return;
+  externalServiceLoading.value = true;
+  try {
+    const res = await runPluginExternalServiceHealthCheck(p.code);
+    ElMessage.success(`健康检查完成：${externalServiceHealthLabel(res?.health_status || res?.status)}`);
+    emit('refresh');
+  } catch (e) {
+    ElMessage.error(String(e?.message || e || '健康检查失败，请稍后重试'));
+  } finally {
+    externalServiceLoading.value = false;
   }
 }
 
@@ -2420,6 +2544,29 @@ async function confirmExport() {
   justify-content: flex-start;
   align-items: center;
   margin-bottom: 10px;
+}
+.compact-section {
+  padding: 12px;
+  border: 1px solid #e2e8f0;
+  border-radius: 10px;
+  background: #fff;
+}
+.section-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 12px;
+  margin-bottom: 10px;
+}
+.section-head h4 {
+  margin: 0;
+  color: #0f172a;
+}
+.section-head p {
+  margin: 4px 0 0;
+  color: #64748b;
+  font-size: 13px;
+  line-height: 1.45;
 }
 .audit-filter-wrap {
   display: inline-flex;

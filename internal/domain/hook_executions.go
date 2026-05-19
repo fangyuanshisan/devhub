@@ -7,6 +7,7 @@ import "strings"
 type HookExecutionFilter struct {
 	PluginCode  string
 	HookName    string
+	ServiceType string
 	Mode        string
 	Blocking    *bool
 	Success     *bool
@@ -25,6 +26,7 @@ type HookExecutionFilter struct {
 func (f HookExecutionFilter) Normalize() HookExecutionFilter {
 	f.PluginCode = strings.TrimSpace(f.PluginCode)
 	f.HookName = strings.TrimSpace(f.HookName)
+	f.ServiceType = strings.TrimSpace(f.ServiceType)
 	f.Mode = strings.TrimSpace(f.Mode)
 	f.ContentType = strings.TrimSpace(f.ContentType)
 	f.ActorType = strings.TrimSpace(f.ActorType)

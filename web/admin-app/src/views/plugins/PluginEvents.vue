@@ -22,7 +22,7 @@
       </template>
       <ul class="muted">
         <li>站内通知（in_app）为当前唯一明确支持方向；email/sms/webhook 均不在 v1.4.0 支持范围。</li>
-        <li>如需排障，请优先使用：审计日志、Hook 排障、依赖兼容与 Readiness 诊断。</li>
+        <li>如需排障，请优先使用：审计日志、Hook 排障、依赖兼容与启用检查。</li>
       </ul>
     </el-card>
   </section>
@@ -30,4 +30,3 @@
 
 <script setup>
 </script>
-

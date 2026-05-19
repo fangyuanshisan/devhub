@@ -1,9 +1,10 @@
 <template>
-  <el-tag :type="tagType" effect="plain" :data-testid="testid">{{ level || '-' }}</el-tag>
+  <el-tag :type="tagType" effect="plain" :data-testid="testid">{{ pluginRiskText(level) }}</el-tag>
 </template>
 
 <script setup>
 import { computed } from 'vue';
+import { pluginRiskText } from '@/modules/plugins/statusText';
 
 const props = defineProps({
   level: { type: String, default: '' },

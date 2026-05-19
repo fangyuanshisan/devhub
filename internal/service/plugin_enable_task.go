@@ -176,6 +176,18 @@ func (s *Service) EnablePluginFromEnablePrecheckAs(operator PluginEnableOperator
 	if err != nil {
 		return s.failEnableTask(task, operator, "plugin_enable_failed", "更新插件状态失败", err)
 	}
+	if rerr := s.refreshPluginRegistry(pluginRegistryRefreshEvent{
+		Trigger:    "after_enable",
+		PluginCode: enabled.Code,
+		ActorType:  "admin_user",
+		ActorID:    operator.ID,
+		ActorName:  firstNonEmpty(operator.Name, "system"),
+		OldVersion: plugin.Version,
+		NewVersion: enabled.Version,
+		Status:     enabled.Status,
+	}); rerr != nil {
+		return s.failEnableTask(task, operator, "plugin_registry_reload_failed", "插件已启用，但运行态刷新失败", rerr)
+	}
 
 	registered := map[string]int{
 		"content_types": len(enabled.ContentTypes) + len(enabled.ContentTypeDefs),

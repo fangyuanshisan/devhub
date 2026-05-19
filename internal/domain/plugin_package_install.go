@@ -3,6 +3,7 @@ package domain
 // PluginPackageInstallRequest is used by POST /api/v1/admin/plugins/packages/install.
 type PluginPackageInstallRequest struct {
 	Path              string `json:"path"`
+	DryRunID          string `json:"dry_run_id,omitempty"`
 	ConfirmRiskLevel  string `json:"confirm_risk_level,omitempty"`
 	AllowWithWarnings bool   `json:"allow_with_warnings,omitempty"`
 	// Optional context: used internally for approvals/operations linking.

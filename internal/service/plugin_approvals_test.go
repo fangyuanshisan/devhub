@@ -1,6 +1,8 @@
 package service
 
 import (
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -11,10 +13,11 @@ import (
 func TestPluginApprovals_Install_CreateApproveExecute(t *testing.T) {
 	repo := store.NewMemoryStore()
 	svc := New(repo)
+	path := prepareApprovalRepositoryFixture(t, "demo_notice_install_approval")
 
 	created, err := svc.CreatePluginApproval(PluginApprovalOperator{ID: 1, Name: "admin"}, domain.PluginApprovalCreateRequest{
 		Action:      "install",
-		PackagePath: "plugins-local/repository-fixtures/demo_notice_install",
+		PackagePath: path,
 		Reason:      "安装示例插件用于验收审批流",
 	})
 	if err != nil {
@@ -61,9 +64,10 @@ func TestPluginApprovals_Install_CreateApproveExecute(t *testing.T) {
 func TestPluginApprovals_RejectRequiresComment(t *testing.T) {
 	repo := store.NewMemoryStore()
 	svc := New(repo)
+	path := prepareApprovalRepositoryFixture(t, "demo_notice_install_reject")
 	created, err := svc.CreatePluginApproval(PluginApprovalOperator{ID: 1, Name: "admin"}, domain.PluginApprovalCreateRequest{
 		Action:      "install",
-		PackagePath: "plugins-local/repository-fixtures/demo_notice_install",
+		PackagePath: path,
 	})
 	if err != nil {
 		t.Fatalf("CreatePluginApproval: %v", err)
@@ -79,4 +83,19 @@ func TestPluginApprovals_RejectRequiresComment(t *testing.T) {
 	if api.Code != "plugin_approval_reject_reason_required" {
 		t.Fatalf("unexpected code: %q", api.Code)
 	}
+}
+
+func prepareApprovalRepositoryFixture(t *testing.T, name string) string {
+	t.Helper()
+	root := mustProjectRoot(t)
+	src := filepath.Join(root, "plugins-local", "repository-fixtures", "demo_notice_install")
+	dst := filepath.Join(root, "storage", "plugins", "packages", name)
+	if err := os.RemoveAll(dst); err != nil {
+		t.Fatalf("cleanup fixture: %v", err)
+	}
+	if err := copyPackageTree(src, dst); err != nil {
+		t.Fatalf("copy fixture: %v", err)
+	}
+	t.Cleanup(func() { _ = os.RemoveAll(dst) })
+	return filepath.ToSlash(filepath.Join("storage", "plugins", "packages", name))
 }

@@ -61,6 +61,7 @@ type MemoryStore struct {
 	categories             map[int64]*domain.Category
 	plugins                map[string]*domain.Plugin
 	communityPlugins       map[int64]map[string]*domain.CommunityPlugin
+	pluginExternalServices map[string]*domain.PluginExternalServiceConfig
 	pluginMigrations       map[string][]domain.PluginMigration // plugin_code -> records
 	hookExecutions         []domain.HookExecution
 	qaQuestions            map[int64]*domain.QAQuestion
@@ -343,6 +344,7 @@ func NewMemoryStore() *MemoryStore {
 		categories:             map[int64]*domain.Category{},
 		plugins:                map[string]*domain.Plugin{},
 		communityPlugins:       map[int64]map[string]*domain.CommunityPlugin{},
+		pluginExternalServices: map[string]*domain.PluginExternalServiceConfig{},
 		pluginMigrations:       map[string][]domain.PluginMigration{},
 		hookExecutions:         []domain.HookExecution{},
 		qaQuestions:            map[int64]*domain.QAQuestion{},
@@ -542,6 +544,42 @@ func (s *MemoryStore) HookExecutions(pluginCode string, limit int) ([]domain.Hoo
 		out = append(out, record)
 	}
 	return out, nil
+}
+
+func (s *MemoryStore) PluginExternalServiceConfig(pluginCode string) (domain.PluginExternalServiceConfig, bool) {
+	pluginCode = strings.TrimSpace(pluginCode)
+	if pluginCode == "" {
+		return domain.PluginExternalServiceConfig{}, false
+	}
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	record, ok := s.pluginExternalServices[pluginCode]
+	if !ok || record == nil {
+		return domain.PluginExternalServiceConfig{}, false
+	}
+	out := *record
+	return out, true
+}
+
+func (s *MemoryStore) SavePluginExternalServiceConfig(record domain.PluginExternalServiceConfig) (domain.PluginExternalServiceConfig, error) {
+	record.PluginCode = strings.TrimSpace(record.PluginCode)
+	if record.PluginCode == "" {
+		return domain.PluginExternalServiceConfig{}, errors.New("plugin_code 不能为空")
+	}
+	now := Now()
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if old, ok := s.pluginExternalServices[record.PluginCode]; ok && old != nil {
+		if record.CreatedAt == "" {
+			record.CreatedAt = old.CreatedAt
+		}
+	} else if record.CreatedAt == "" {
+		record.CreatedAt = now
+	}
+	record.UpdatedAt = now
+	cp := record
+	s.pluginExternalServices[record.PluginCode] = &cp
+	return record, nil
 }
 
 func (s *MemoryStore) HookStats(pluginCode string) ([]domain.HookStats, error) {
@@ -1381,6 +1419,9 @@ func (s *MemoryStore) HookExecutionsByFilter(filter domain.HookExecutionFilter) 
 			continue
 		}
 		if filter.HookName != "" && record.HookName != filter.HookName {
+			continue
+		}
+		if filter.ServiceType != "" && record.ServiceType != filter.ServiceType {
 			continue
 		}
 		if filter.Mode != "" && record.Mode != filter.Mode {
@@ -2471,16 +2512,16 @@ func (s *MemoryStore) Plugins() []domain.Plugin {
 		seen[def.Code] = true
 		if runtime, ok := s.plugins[def.Code]; ok {
 			plugin := pluginregistry.MergeRuntimeState(def, *runtime)
-			out = append(out, withResolvedPluginConfig(plugin, runtime.ConfigJSON, ""))
+			out = append(out, s.attachExternalServiceConfigLocked(withResolvedPluginConfig(plugin, runtime.ConfigJSON, "")))
 			continue
 		}
-		out = append(out, withResolvedPluginConfig(def, "", ""))
+		out = append(out, s.attachExternalServiceConfigLocked(withResolvedPluginConfig(def, "", "")))
 	}
 	for code, runtime := range s.plugins {
 		if seen[code] {
 			continue
 		}
-		out = append(out, withResolvedPluginConfig(*runtime, runtime.ConfigJSON, ""))
+		out = append(out, s.attachExternalServiceConfigLocked(withResolvedPluginConfig(*runtime, runtime.ConfigJSON, "")))
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i].Code < out[j].Code })
 	return out
@@ -2494,14 +2535,25 @@ func (s *MemoryStore) PluginByCode(code string) (domain.Plugin, bool) {
 	if ok {
 		if runtime, ok := s.plugins[def.Code]; ok {
 			plugin := pluginregistry.MergeRuntimeState(def, *runtime)
-			return withResolvedPluginConfig(plugin, runtime.ConfigJSON, ""), true
+			return s.attachExternalServiceConfigLocked(withResolvedPluginConfig(plugin, runtime.ConfigJSON, "")), true
 		}
-		return withResolvedPluginConfig(def, "", ""), true
+		return s.attachExternalServiceConfigLocked(withResolvedPluginConfig(def, "", "")), true
 	}
 	if runtime, ok := s.plugins[strings.TrimSpace(code)]; ok {
-		return withResolvedPluginConfig(*runtime, runtime.ConfigJSON, ""), true
+		return s.attachExternalServiceConfigLocked(withResolvedPluginConfig(*runtime, runtime.ConfigJSON, "")), true
 	}
 	return domain.Plugin{}, false
+}
+
+func (s *MemoryStore) attachExternalServiceConfigLocked(plugin domain.Plugin) domain.Plugin {
+	if plugin.Code == "" {
+		return plugin
+	}
+	if record, ok := s.pluginExternalServices[plugin.Code]; ok && record != nil {
+		cp := *record
+		plugin.ExternalServiceConfig = &cp
+	}
+	return plugin
 }
 
 func withResolvedPluginConfig(plugin domain.Plugin, globalConfigJSON, communityConfigJSON string) domain.Plugin {
@@ -2608,15 +2660,13 @@ func (s *MemoryStore) CommunityPlugins(communityID int64) ([]domain.Plugin, erro
 		return nil, errors.New("子站不存在")
 	}
 	runtime := s.communityPlugins[communityID]
-	out := make([]domain.Plugin, 0, len(pluginregistry.Definitions()))
-	for _, def := range pluginregistry.Definitions() {
-		merged := def
-		if global, ok := s.plugins[def.Code]; ok {
-			merged = pluginregistry.MergeRuntimeState(def, *global)
-		}
+	base := s.pluginsLocked()
+	out := make([]domain.Plugin, 0, len(base))
+	for _, plugin := range base {
+		merged := plugin
 		merged.GlobalStatus = merged.Status
 		merged.CommunityStatus = pluginregistry.StatusDisabled
-		if cp, ok := runtime[def.Code]; ok && cp != nil {
+		if cp, ok := runtime[merged.Code]; ok && cp != nil {
 			merged.CommunityStatus = cp.Status
 			merged.SortOrder = cp.SortOrder
 			merged = withResolvedPluginConfig(merged, merged.ConfigJSON, cp.ConfigJSON)
@@ -2628,7 +2678,7 @@ func (s *MemoryStore) CommunityPlugins(communityID int64) ([]domain.Plugin, erro
 		} else {
 			merged.Status = pluginregistry.StatusDisabled
 		}
-		out = append(out, pluginregistry.ApplyLifecycle(merged))
+		out = append(out, s.attachExternalServiceConfigLocked(pluginregistry.ApplyLifecycle(merged)))
 	}
 	sort.Slice(out, func(i, j int) bool {
 		if out[i].SortOrder != out[j].SortOrder {
@@ -2637,6 +2687,44 @@ func (s *MemoryStore) CommunityPlugins(communityID int64) ([]domain.Plugin, erro
 		return out[i].Code < out[j].Code
 	})
 	return out, nil
+}
+
+func (s *MemoryStore) pluginByCodeLocked(code string) (domain.Plugin, bool) {
+	code = strings.TrimSpace(code)
+	def, ok := pluginregistry.DefinitionByCode(code)
+	if ok {
+		if runtime, ok := s.plugins[def.Code]; ok {
+			plugin := pluginregistry.MergeRuntimeState(def, *runtime)
+			return s.attachExternalServiceConfigLocked(withResolvedPluginConfig(plugin, runtime.ConfigJSON, "")), true
+		}
+		return s.attachExternalServiceConfigLocked(withResolvedPluginConfig(def, "", "")), true
+	}
+	if runtime, ok := s.plugins[code]; ok {
+		return s.attachExternalServiceConfigLocked(withResolvedPluginConfig(*runtime, runtime.ConfigJSON, "")), true
+	}
+	return domain.Plugin{}, false
+}
+
+func (s *MemoryStore) pluginsLocked() []domain.Plugin {
+	out := make([]domain.Plugin, 0, len(pluginregistry.Definitions())+len(s.plugins))
+	seen := map[string]bool{}
+	for _, def := range pluginregistry.Definitions() {
+		seen[def.Code] = true
+		if runtime, ok := s.plugins[def.Code]; ok {
+			plugin := pluginregistry.MergeRuntimeState(def, *runtime)
+			out = append(out, s.attachExternalServiceConfigLocked(withResolvedPluginConfig(plugin, runtime.ConfigJSON, "")))
+			continue
+		}
+		out = append(out, s.attachExternalServiceConfigLocked(withResolvedPluginConfig(def, "", "")))
+	}
+	for code, runtime := range s.plugins {
+		if seen[code] {
+			continue
+		}
+		out = append(out, s.attachExternalServiceConfigLocked(withResolvedPluginConfig(*runtime, runtime.ConfigJSON, "")))
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].Code < out[j].Code })
+	return out
 }
 
 func (s *MemoryStore) SetCommunityPluginStatus(communityID int64, code, status string) (domain.Plugin, error) {
@@ -2649,31 +2737,27 @@ func (s *MemoryStore) SetCommunityPluginStatus(communityID int64, code, status s
 	if _, ok := s.communities[communityID]; !ok {
 		return domain.Plugin{}, errors.New("子站不存在")
 	}
-	def, ok := pluginregistry.DefinitionByCode(code)
-	if !ok {
+	globalPlugin, ok := s.pluginByCodeLocked(code)
+	if !ok || globalPlugin.Code == "" {
 		return domain.Plugin{}, errors.New("插件不存在")
 	}
-	global, ok := s.plugins[def.Code]
-	if !ok {
-		return domain.Plugin{}, errors.New("插件不存在")
-	}
-	if global.Status != pluginregistry.StatusEnabled && status == pluginregistry.StatusEnabled {
+	if globalPlugin.Status != pluginregistry.StatusEnabled && status == pluginregistry.StatusEnabled {
 		return domain.Plugin{}, errors.New("插件全局未启用，不能在子站启用")
 	}
 	if _, ok := s.communityPlugins[communityID]; !ok {
 		s.communityPlugins[communityID] = map[string]*domain.CommunityPlugin{}
 	}
-	cp := s.communityPlugins[communityID][def.Code]
+	cp := s.communityPlugins[communityID][globalPlugin.Code]
 	if cp == nil {
-		cp = &domain.CommunityPlugin{CommunityID: communityID, PluginCode: def.Code, CreatedAt: Now()}
-		s.communityPlugins[communityID][def.Code] = cp
+		cp = &domain.CommunityPlugin{CommunityID: communityID, PluginCode: globalPlugin.Code, CreatedAt: Now()}
+		s.communityPlugins[communityID][globalPlugin.Code] = cp
 	}
 	cp.Status = status
 	cp.UpdatedAt = Now()
-	plugin := pluginregistry.MergeRuntimeState(def, *global)
-	plugin.GlobalStatus = global.Status
+	plugin := globalPlugin
+	plugin.GlobalStatus = globalPlugin.Status
 	plugin.CommunityStatus = cp.Status
-	plugin = withResolvedPluginConfig(plugin, global.ConfigJSON, cp.ConfigJSON)
+	plugin = withResolvedPluginConfig(plugin, globalPlugin.ConfigJSON, cp.ConfigJSON)
 	if plugin.GlobalStatus == pluginregistry.StatusEnabled && plugin.CommunityStatus == pluginregistry.StatusEnabled {
 		plugin.Status = pluginregistry.StatusEnabled
 	} else {
@@ -2689,31 +2773,27 @@ func (s *MemoryStore) SetCommunityPluginConfig(communityID int64, code, configJS
 	if _, ok := s.communities[communityID]; !ok {
 		return domain.Plugin{}, errors.New("子站不存在")
 	}
-	def, ok := pluginregistry.DefinitionByCode(code)
-	if !ok {
+	globalPlugin, ok := s.pluginByCodeLocked(code)
+	if !ok || globalPlugin.Code == "" {
 		return domain.Plugin{}, errors.New("插件不存在")
 	}
-	if err := pluginregistry.ValidateConfigJSON(def, configJSON); err != nil {
+	if err := pluginregistry.ValidateConfigJSON(globalPlugin, configJSON); err != nil {
 		return domain.Plugin{}, err
-	}
-	global, ok := s.plugins[def.Code]
-	if !ok {
-		return domain.Plugin{}, errors.New("插件不存在")
 	}
 	if _, ok := s.communityPlugins[communityID]; !ok {
 		s.communityPlugins[communityID] = map[string]*domain.CommunityPlugin{}
 	}
-	cp := s.communityPlugins[communityID][def.Code]
+	cp := s.communityPlugins[communityID][globalPlugin.Code]
 	if cp == nil {
-		cp = &domain.CommunityPlugin{CommunityID: communityID, PluginCode: def.Code, Status: pluginregistry.StatusDisabled, CreatedAt: Now()}
-		s.communityPlugins[communityID][def.Code] = cp
+		cp = &domain.CommunityPlugin{CommunityID: communityID, PluginCode: globalPlugin.Code, Status: pluginregistry.StatusDisabled, CreatedAt: Now()}
+		s.communityPlugins[communityID][globalPlugin.Code] = cp
 	}
 	cp.ConfigJSON = configJSON
 	cp.UpdatedAt = Now()
-	plugin := pluginregistry.MergeRuntimeState(def, *global)
-	plugin.GlobalStatus = global.Status
+	plugin := globalPlugin
+	plugin.GlobalStatus = globalPlugin.Status
 	plugin.CommunityStatus = cp.Status
-	plugin = withResolvedPluginConfig(plugin, global.ConfigJSON, cp.ConfigJSON)
+	plugin = withResolvedPluginConfig(plugin, globalPlugin.ConfigJSON, cp.ConfigJSON)
 	if plugin.GlobalStatus == pluginregistry.StatusEnabled && plugin.CommunityStatus == pluginregistry.StatusEnabled {
 		plugin.Status = pluginregistry.StatusEnabled
 	} else {
@@ -2733,14 +2813,14 @@ func (s *MemoryStore) ReorderCommunityPlugins(communityID int64, codes []string)
 	}
 	updated := 0
 	for i, code := range codes {
-		def, ok := pluginregistry.DefinitionByCode(code)
-		if !ok {
+		plugin, ok := s.pluginByCodeLocked(code)
+		if !ok || plugin.Code == "" {
 			continue
 		}
-		cp := s.communityPlugins[communityID][def.Code]
+		cp := s.communityPlugins[communityID][plugin.Code]
 		if cp == nil {
-			cp = &domain.CommunityPlugin{CommunityID: communityID, PluginCode: def.Code, Status: pluginregistry.StatusDisabled, CreatedAt: Now()}
-			s.communityPlugins[communityID][def.Code] = cp
+			cp = &domain.CommunityPlugin{CommunityID: communityID, PluginCode: plugin.Code, Status: pluginregistry.StatusDisabled, CreatedAt: Now()}
+			s.communityPlugins[communityID][plugin.Code] = cp
 		}
 		cp.SortOrder = i
 		cp.UpdatedAt = Now()
@@ -4707,14 +4787,16 @@ func (s *MemoryStore) topicFromPostLocked(id int64, increaseView bool) (domain.T
 		userID = 1
 	}
 	favoriteCount := s.favoriteCountLocked("topic", p.ID)
+	contentType := memoryPostContentType(p)
+	pluginCode := memoryPostPluginCode(p)
 	return domain.Topic{
 		ID:            p.ID,
 		CommunityID:   communityID,
 		CategoryID:    s.categoryIDForBoardLocked(communityID, p.Board),
 		UserID:        userID,
 		Title:         p.Title,
-		ContentType:   contentTypeForBoard(p.Board),
-		PluginCode:    pluginregistry.PluginCodeForContentType(contentTypeForBoard(p.Board)),
+		ContentType:   contentType,
+		PluginCode:    pluginCode,
 		Summary:       p.Summary,
 		Content:       p.Content,
 		Status:        status,
@@ -4775,6 +4857,26 @@ func (s *MemoryStore) normalizeCommentLocked(c *domain.Comment) {
 	if c.UpdatedAt == "" {
 		c.UpdatedAt = c.CreatedAt
 	}
+}
+
+func memoryPostContentType(p *domain.Post) string {
+	if p == nil {
+		return ""
+	}
+	if ct := pluginregistry.NormalizeContentType(p.ContentType); ct != "" {
+		return ct
+	}
+	return contentTypeForBoard(p.Board)
+}
+
+func memoryPostPluginCode(p *domain.Post) string {
+	if p == nil {
+		return pluginregistry.CoreCode
+	}
+	if code := strings.TrimSpace(p.PluginCode); code != "" {
+		return code
+	}
+	return pluginregistry.PluginCodeForContentType(memoryPostContentType(p))
 }
 
 func (s *MemoryStore) communityByIDLocked(id int64) domain.Community {
@@ -5106,6 +5208,39 @@ func validCategoryContentType(contentType string) bool {
 	return pluginregistry.ValidContentType(contentType)
 }
 
+func memoryContentTypeDefinitionByTypeFromPlugins(contentType string, plugins []domain.Plugin) (domain.ContentTypeDefinition, bool) {
+	want := pluginregistry.NormalizeContentType(contentType)
+	if want == "" {
+		return domain.ContentTypeDefinition{}, false
+	}
+	for _, plugin := range plugins {
+		for _, def := range plugin.ContentTypeDefs {
+			if pluginregistry.NormalizeContentType(def.Type) == want {
+				if def.PluginCode == "" {
+					def.PluginCode = plugin.Code
+				}
+				def.Type = pluginregistry.NormalizeContentType(def.Type)
+				return def, true
+			}
+			for _, alias := range def.Aliases {
+				if pluginregistry.NormalizeContentType(alias) == want {
+					if def.PluginCode == "" {
+						def.PluginCode = plugin.Code
+					}
+					def.Type = pluginregistry.NormalizeContentType(def.Type)
+					return def, true
+				}
+			}
+		}
+		for _, typ := range plugin.ContentTypes {
+			if pluginregistry.NormalizeContentType(typ) == want {
+				return domain.ContentTypeDefinition{Type: want, Name: want, PluginCode: plugin.Code}, true
+			}
+		}
+	}
+	return domain.ContentTypeDefinition{}, false
+}
+
 // ===== 新增：DevHub 通用社区系统方法 =====
 
 func (s *MemoryStore) Communities() []domain.Community {
@@ -5280,6 +5415,7 @@ func (s *MemoryStore) CreateCategory(communityID int64, req domain.CategoryReque
 	if _, ok := s.communities[communityID]; !ok {
 		return domain.Category{}, errors.New("子站不存在")
 	}
+	req.CommunityID = communityID
 	cat, err := s.normalizeCategoryRequestLocked(req, nil)
 	if err != nil {
 		return domain.Category{}, err
@@ -5468,7 +5604,9 @@ func (s *MemoryStore) normalizeCategoryRequestLocked(req domain.CategoryRequest,
 	if contentType != "" {
 		contentType = pluginregistry.NormalizeContentType(contentType)
 		if !validCategoryContentType(contentType) {
-			return nil, errors.New("内容类型不合法")
+			if _, ok := memoryContentTypeDefinitionByTypeFromPlugins(contentType, s.pluginsLocked()); !ok {
+				return nil, errors.New("内容类型不合法")
+			}
 		}
 		cat.Type = contentType
 		cat.ContentType = contentType
@@ -5484,6 +5622,9 @@ func (s *MemoryStore) normalizeCategoryRequestLocked(req domain.CategoryRequest,
 		cat.PluginCode = strings.TrimSpace(req.PluginCode)
 	}
 	expectedPlugin := pluginregistry.PluginCodeForContentType(cat.ContentType)
+	if def, ok := memoryContentTypeDefinitionByTypeFromPlugins(cat.ContentType, s.pluginsLocked()); ok && strings.TrimSpace(def.PluginCode) != "" {
+		expectedPlugin = strings.TrimSpace(def.PluginCode)
+	}
 	if cat.PluginCode == "" {
 		cat.PluginCode = expectedPlugin
 	}
@@ -5494,8 +5635,8 @@ func (s *MemoryStore) normalizeCategoryRequestLocked(req domain.CategoryRequest,
 		return nil, errors.New("板块必须绑定子站")
 	}
 	if expectedPlugin != pluginregistry.CoreCode {
-		global := s.plugins[expectedPlugin]
-		if global == nil || global.Status != pluginregistry.StatusEnabled {
+		global, ok := s.pluginByCodeLocked(expectedPlugin)
+		if !ok || global.Status != pluginregistry.StatusEnabled {
 			return nil, errors.New("插件全局未启用，不能绑定该插件板块")
 		}
 		cp := s.communityPlugins[cat.CommunityID][expectedPlugin]
@@ -5508,14 +5649,22 @@ func (s *MemoryStore) normalizeCategoryRequestLocked(req domain.CategoryRequest,
 		for _, item := range req.AllowedContentTypes {
 			item = pluginregistry.NormalizeContentType(item)
 			if !validCategoryContentType(item) {
-				return nil, errors.New("允许内容类型不合法")
+				if _, ok := memoryContentTypeDefinitionByTypeFromPlugins(item, s.pluginsLocked()); !ok {
+					return nil, errors.New("允许内容类型不合法")
+				}
 			}
 			allowed = append(allowed, item)
 		}
 		cat.AllowedContentTypes = uniqueTags(allowed)
 	}
 	if len(cat.AllowedContentTypes) == 0 {
-		cat.AllowedContentTypes = pluginregistry.DefaultAllowedContentTypes(cat.ContentType)
+		if def, ok := memoryContentTypeDefinitionByTypeFromPlugins(cat.ContentType, s.pluginsLocked()); ok {
+			cat.AllowedContentTypes = append([]string{}, def.Type)
+			cat.AllowedContentTypes = append(cat.AllowedContentTypes, def.Aliases...)
+			cat.AllowedContentTypes = uniqueTags(cat.AllowedContentTypes)
+		} else {
+			cat.AllowedContentTypes = pluginregistry.DefaultAllowedContentTypes(cat.ContentType)
+		}
 	}
 	if strings.TrimSpace(req.Description) != "" || current == nil {
 		cat.Description = strings.TrimSpace(req.Description)
@@ -5627,8 +5776,8 @@ func (s *MemoryStore) TopicsByFilter(communityID, categoryID int64, contentType,
 			CategoryID:    s.categoryIDForBoardLocked(s.communityIDBySlugLocked(p.Site), p.Board),
 			UserID:        p.UserID,
 			Title:         p.Title,
-			ContentType:   contentTypeForBoard(p.Board),
-			PluginCode:    pluginregistry.PluginCodeForContentType(contentTypeForBoard(p.Board)),
+			ContentType:   memoryPostContentType(p),
+			PluginCode:    memoryPostPluginCode(p),
 			Summary:       p.Summary,
 			Content:       p.Content,
 			Status:        memoryTopicStatus(p),
@@ -5754,7 +5903,10 @@ func (s *MemoryStore) CreateTopic(req domain.CreateTopicRequest) (*domain.Topic,
 	defer s.mu.Unlock()
 
 	req.ContentType = pluginregistry.NormalizeContentType(req.ContentType)
-	req.PluginCode = pluginregistry.PluginCodeForContentType(req.ContentType)
+	req.PluginCode = strings.TrimSpace(req.PluginCode)
+	if req.PluginCode == "" {
+		req.PluginCode = pluginregistry.PluginCodeForContentType(req.ContentType)
+	}
 	site := s.communitySlugByIDLocked(req.CommunityID)
 	board := boardByContentType(req.ContentType)
 	if req.CategoryID > 0 {
@@ -5777,6 +5929,8 @@ func (s *MemoryStore) CreateTopic(req domain.CreateTopicRequest) (*domain.Topic,
 		UserID:      userID,
 		Site:        site,
 		Board:       board,
+		PluginCode:  req.PluginCode,
+		ContentType: req.ContentType,
 		Title:       strings.TrimSpace(req.Title),
 		Summary:     strings.TrimSpace(req.Summary),
 		Content:     strings.TrimSpace(req.Content),
@@ -5851,7 +6005,11 @@ func (s *MemoryStore) UpdateTopic(id int64, req domain.UpdateTopicRequest) (*dom
 	if req.ContentType != nil && strings.TrimSpace(*req.ContentType) != "" {
 		contentType := pluginregistry.NormalizeContentType(*req.ContentType)
 		p.Board = boardByContentType(contentType)
+		p.ContentType = contentType
 		*req.ContentType = contentType
+	}
+	if req.PluginCode != nil {
+		p.PluginCode = strings.TrimSpace(*req.PluginCode)
 	}
 	if req.Title != nil {
 		title := strings.TrimSpace(*req.Title)
@@ -5950,8 +6108,8 @@ func (s *MemoryStore) SearchTopics(req domain.SearchRequest) ([]domain.Topic, in
 			CategoryID:    s.categoryIDForBoardLocked(communityID, p.Board),
 			UserID:        p.UserID,
 			Title:         p.Title,
-			ContentType:   contentTypeForBoard(p.Board),
-			PluginCode:    pluginregistry.PluginCodeForContentType(contentTypeForBoard(p.Board)),
+			ContentType:   memoryPostContentType(p),
+			PluginCode:    memoryPostPluginCode(p),
 			Summary:       p.Summary,
 			Content:       p.Content,
 			Status:        status,

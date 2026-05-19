@@ -1,11 +1,17 @@
 package service
 
 import (
+	"crypto/hmac"
+	"crypto/sha256"
+	"encoding/base64"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
+	"time"
 
 	pluginregistry "devhub-gin-backend/internal/plugins"
 
@@ -100,6 +106,19 @@ func (s *Service) DryRunPluginPackage(inputPath string) (domain.PluginPackageDry
 			warnings = append(warnings, fmt.Sprintf("发现 %d 个未知文件（unknown_files）", len(scan.UnknownFiles)))
 		}
 		warnings = append(warnings, scan.Warnings...)
+	}
+	if hasDeprecatedRootSchemaSQL(scan) {
+		if status != "blocked" {
+			status = "warning"
+		}
+		warnings = append(warnings, "根目录 001_schema.sql 已废弃，请迁移到 migrations/001_init.sql。DevHub 插件包标准迁移入口仅为 migrations/，dry-run 和安装流程不会执行根目录 001_schema.sql。")
+	}
+	migrationPlan, planWarnings := buildPackageMigrationPlan(abs, scan)
+	if len(planWarnings) > 0 {
+		if status != "blocked" {
+			status = "warning"
+		}
+		warnings = append(warnings, planWarnings...)
 	}
 
 	// checksums.json verification (optional, but mismatch/invalid blocks dry-run).
@@ -216,20 +235,204 @@ func (s *Service) DryRunPluginPackage(inputPath string) (domain.PluginPackageDry
 		status = "warning"
 	}
 
-	return domain.PluginPackageDryRunResult{
+	generatedAt := timeNow()
+	expiresAt := generatedAt.Add(pluginPackageInstallDryRunTTL)
+	result := domain.PluginPackageDryRunResult{
 		Package:            info,
 		FileScan:           scan,
 		Checksum:           checksumResult,
 		Signature:          signatureResult,
 		ManifestValidation: manifestValidation,
 		InstallDryRun:      installDryRun,
+		MigrationPlan:      migrationPlan,
 		RiskReport:         risk,
 		Status:             status,
 		BlockedCode:        blockedCode,
 		BlockedReasons:     uniqueStrings(blockedReasons),
 		Warnings:           uniqueStrings(warnings),
 		Errors:             uniqueStrings(errorsList),
-	}, nil
+		GeneratedAt:        generatedAt.Format("2006-01-02 15:04:05"),
+		ExpiresAt:          expiresAt.Format("2006-01-02 15:04:05"),
+	}
+	result.DryRunID = s.signPluginPackageInstallDryRun(result, generatedAt, expiresAt)
+	return result, nil
+}
+
+const pluginPackageInstallDryRunTTL = 30 * time.Minute
+
+type pluginPackageInstallDryRunToken struct {
+	Path              string   `json:"path"`
+	PluginCode        string   `json:"plugin_code"`
+	Version           string   `json:"version"`
+	ManifestChecksum  string   `json:"manifest_checksum"`
+	ChecksumStatus    string   `json:"checksum_status"`
+	MigrationPlanHash string   `json:"migration_plan_hash"`
+	Status            string   `json:"status"`
+	RiskLevel         string   `json:"risk_level"`
+	GeneratedAtUnix   int64    `json:"generated_at_unix"`
+	ExpiresAtUnix     int64    `json:"expires_at_unix"`
+	Warnings          []string `json:"warnings,omitempty"`
+}
+
+func (s *Service) signPluginPackageInstallDryRun(dry domain.PluginPackageDryRunResult, generatedAt, expiresAt time.Time) string {
+	if s == nil || strings.TrimSpace(s.packageDryRunSecret) == "" {
+		return ""
+	}
+	token := pluginPackageInstallDryRunToken{
+		Path:              strings.TrimSpace(dry.Package.Path),
+		PluginCode:        strings.TrimSpace(dry.Package.Code),
+		Version:           strings.TrimSpace(dry.Package.Version),
+		ManifestChecksum:  strings.TrimSpace(dry.InstallDryRun.Checksum),
+		ChecksumStatus:    strings.TrimSpace(dry.Checksum.Status),
+		MigrationPlanHash: hashPluginPackageMigrationPlan(dry.MigrationPlan),
+		Status:            strings.TrimSpace(dry.Status),
+		RiskLevel:         strings.TrimSpace(dry.RiskReport.Level),
+		GeneratedAtUnix:   generatedAt.Unix(),
+		ExpiresAtUnix:     expiresAt.Unix(),
+		Warnings:          append([]string(nil), dry.Warnings...),
+	}
+	raw, err := json.Marshal(token)
+	if err != nil {
+		return ""
+	}
+	payload := base64.RawURLEncoding.EncodeToString(raw)
+	mac := hmac.New(sha256.New, []byte(s.packageDryRunSecret))
+	_, _ = mac.Write([]byte(payload))
+	sig := base64.RawURLEncoding.EncodeToString(mac.Sum(nil))
+	return payload + "." + sig
+}
+
+func (s *Service) verifyPluginPackageInstallDryRunID(dry domain.PluginPackageDryRunResult, dryRunID string) error {
+	dryRunID = strings.TrimSpace(dryRunID)
+	if dryRunID == "" {
+		return domain.NewPluginError("plugin_package_install_dry_run_required", "请先执行安装 dry-run").
+			WithStatus(400).
+			WithDetail("path", dry.Package.Path).
+			WithSuggestion("安装只能基于本地仓库包的当前 dry-run 计划执行，请先点击“执行安装 dry-run”。")
+	}
+	if strings.TrimSpace(s.packageDryRunSecret) == "" {
+		return domain.NewPluginError("plugin_package_install_dry_run_invalid", "安装 dry-run 凭证不可用").
+			WithStatus(400).
+			WithSuggestion("请重新执行安装 dry-run 后再安装。")
+	}
+	parts := strings.Split(dryRunID, ".")
+	if len(parts) != 2 || strings.TrimSpace(parts[0]) == "" || strings.TrimSpace(parts[1]) == "" {
+		return domain.NewPluginError("plugin_package_install_dry_run_invalid", "dry-run 计划无效，请重新执行").
+			WithStatus(400).
+			WithSuggestion("请重新执行安装 dry-run，确认当前计划后再安装。")
+	}
+	mac := hmac.New(sha256.New, []byte(s.packageDryRunSecret))
+	_, _ = mac.Write([]byte(parts[0]))
+	expected := mac.Sum(nil)
+	actual, err := base64.RawURLEncoding.DecodeString(parts[1])
+	if err != nil || !hmac.Equal(actual, expected) {
+		return domain.NewPluginError("plugin_package_install_dry_run_invalid", "dry-run 计划签名无效，请重新执行").
+			WithStatus(400).
+			WithSuggestion("请重新执行安装 dry-run，确认当前计划后再安装。")
+	}
+	raw, err := base64.RawURLEncoding.DecodeString(parts[0])
+	if err != nil {
+		return domain.NewPluginError("plugin_package_install_dry_run_invalid", "dry-run 计划无法解析，请重新执行").
+			WithStatus(400)
+	}
+	var token pluginPackageInstallDryRunToken
+	if err := json.Unmarshal(raw, &token); err != nil {
+		return domain.NewPluginError("plugin_package_install_dry_run_invalid", "dry-run 计划无法解析，请重新执行").
+			WithStatus(400)
+	}
+	if token.ExpiresAtUnix <= 0 || timeNow().Unix() > token.ExpiresAtUnix {
+		return domain.NewPluginError("plugin_package_install_dry_run_expired", "dry-run 已过期，请重新执行").
+			WithStatus(400).
+			WithDetail("path", dry.Package.Path).
+			WithSuggestion("安装前请基于当前本地仓库包重新执行 dry-run。")
+	}
+	current := pluginPackageInstallDryRunToken{
+		Path:              strings.TrimSpace(dry.Package.Path),
+		PluginCode:        strings.TrimSpace(dry.Package.Code),
+		Version:           strings.TrimSpace(dry.Package.Version),
+		ManifestChecksum:  strings.TrimSpace(dry.InstallDryRun.Checksum),
+		ChecksumStatus:    strings.TrimSpace(dry.Checksum.Status),
+		MigrationPlanHash: hashPluginPackageMigrationPlan(dry.MigrationPlan),
+		Status:            strings.TrimSpace(dry.Status),
+		RiskLevel:         strings.TrimSpace(dry.RiskReport.Level),
+	}
+	if token.Path != current.Path || token.PluginCode != current.PluginCode || token.Version != current.Version || token.ManifestChecksum != current.ManifestChecksum || token.ChecksumStatus != current.ChecksumStatus || token.MigrationPlanHash != current.MigrationPlanHash || token.Status != current.Status || token.RiskLevel != current.RiskLevel {
+		return domain.NewPluginError("plugin_package_install_dry_run_mismatch", "dry-run 计划与当前插件包不一致，请重新执行").
+			WithStatus(400).
+			WithDetail("path", dry.Package.Path).
+			WithDetail("plugin_code", dry.Package.Code).
+			WithDetail("version", dry.Package.Version).
+			WithSuggestion("插件包内容、校验和、manifest 或 migration plan 已变化，请重新执行安装 dry-run。")
+	}
+	return nil
+}
+
+func hashPluginPackageMigrationPlan(plan []domain.PluginPackageMigrationPlanItem) string {
+	type stableItem struct {
+		Path        string `json:"path"`
+		Name        string `json:"name"`
+		SHA256      string `json:"sha256,omitempty"`
+		Source      string `json:"source"`
+		WillExecute bool   `json:"will_execute"`
+	}
+	items := make([]stableItem, 0, len(plan))
+	for _, item := range plan {
+		items = append(items, stableItem{
+			Path:        strings.TrimSpace(item.Path),
+			Name:        strings.TrimSpace(item.Name),
+			SHA256:      strings.TrimSpace(item.SHA256),
+			Source:      strings.TrimSpace(item.Source),
+			WillExecute: item.WillExecute,
+		})
+	}
+	raw, _ := json.Marshal(items)
+	sum := sha256.Sum256(raw)
+	return hex.EncodeToString(sum[:])
+}
+
+func hasDeprecatedRootSchemaSQL(scan domain.PluginPackageFileScan) bool {
+	for _, item := range append(append([]domain.PluginPackageFileEntry{}, scan.UnknownFiles...), scan.AllowedFiles...) {
+		if strings.EqualFold(strings.TrimSpace(item.Path), "001_schema.sql") {
+			return true
+		}
+	}
+	return false
+}
+
+func buildPackageMigrationPlan(packageDir string, scan domain.PluginPackageFileScan) ([]domain.PluginPackageMigrationPlanItem, []string) {
+	files := []domain.PluginPackageFileEntry{}
+	for _, item := range scan.AllowedFiles {
+		path := filepath.ToSlash(strings.TrimSpace(item.Path))
+		if strings.HasPrefix(path, "migrations/") && strings.HasSuffix(strings.ToLower(path), ".sql") {
+			files = append(files, item)
+		}
+	}
+	sort.Slice(files, func(i, j int) bool {
+		return filepath.ToSlash(files[i].Path) < filepath.ToSlash(files[j].Path)
+	})
+
+	plan := make([]domain.PluginPackageMigrationPlanItem, 0, len(files))
+	warnings := []string{}
+	for _, item := range files {
+		path := filepath.ToSlash(strings.TrimSpace(item.Path))
+		name := strings.TrimSuffix(strings.TrimPrefix(path, "migrations/"), filepath.Ext(path))
+		full := filepath.Join(packageDir, filepath.FromSlash(path))
+		raw, err := os.ReadFile(full)
+		if err != nil {
+			warnings = append(warnings, fmt.Sprintf("读取 migration 计划文件失败：%s", path))
+			continue
+		}
+		sum := sha256.Sum256(raw)
+		plan = append(plan, domain.PluginPackageMigrationPlanItem{
+			Path:        path,
+			Name:        name,
+			Size:        item.Size,
+			SHA256:      hex.EncodeToString(sum[:]),
+			Source:      "migrations",
+			WillExecute: false,
+		})
+	}
+	return plan, warnings
 }
 
 func fileExists(path string) bool {
