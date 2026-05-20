@@ -131,6 +131,7 @@ devhub-plugin-demo/
 6. `checksums.json` 当前支持 **sha256 完整性校验**；如存在 `signature.json`，会对 `checksums.json` 摘要执行 Ed25519 真实验签。
 7. 目录名建议与 `manifest.code` 一致；不一致会 warning。
 8. 未知文件默认 warning；危险文件会 blocked。
+9. `migrations/` 之外不提供其他 SQL 入口；根目录 SQL、内嵌 SQL、代码执行和动态资产加载都不属于插件包能力。
 
 > 注：v1.5.0 当前支持本地插件仓库扫描、插件包详情、dry-run、安装确认与审批执行链路；安装仍走 `plugin.approve` 执行权限，不允许携带代码或可执行资产的插件包。
 

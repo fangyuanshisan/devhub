@@ -45,7 +45,7 @@
 
         <el-tabs v-model="tab" class="tabs" data-testid="plugin-detail-tabs">
         <el-tab-pane :label="t('plugin.tabs.overview')" name="overview">
-          <p class="tab-note">这里只展示插件身份、状态、能力和风险；原始 JSON 与调试字段已收纳到“技术详情”。</p>
+          <p class="tab-note">先看这个插件现在是什么状态、能做什么、卡在哪里；原始 JSON 和调试字段放到“技术详情”排障。</p>
           <el-descriptions :column="2" border>
             <el-descriptions-item :label="t('field.name')">{{ plugin.name }}</el-descriptions-item>
             <el-descriptions-item :label="t('field.plugin_code')">{{ plugin.code }}</el-descriptions-item>
@@ -84,12 +84,12 @@
             show-icon
             :closable="false"
           >
-            <template #title>官方公告插件：配置、前端挂载和公告预览入口已在详情内聚合。</template>
+            <template #title>官方公告插件：配置、前端挂载和公告预览入口已合并到详情里，方便直接处理。</template>
             <template #default>
               <div class="official-quick-links">
-                <el-button size="small" type="success" plain @click="tab = 'config'">公告配置</el-button>
-                <el-button size="small" type="success" plain @click="tab = 'capabilities'">前端挂载</el-button>
-                <el-button size="small" type="success" plain @click="tab = 'officialAnnouncementPreview'">公告预览</el-button>
+                <el-button size="small" type="success" plain @click="tab = 'config'">去公告配置</el-button>
+                <el-button size="small" type="success" plain @click="tab = 'capabilities'">看前端挂载</el-button>
+                <el-button size="small" type="success" plain @click="tab = 'officialAnnouncementPreview'">看公告预览</el-button>
                 <span>官方内置插件，用于验证前端挂载模型；iframe 只允许内置页面，不执行第三方代码，不暴露 callback token / webhook secret。</span>
               </div>
             </template>
@@ -111,7 +111,15 @@
         </el-tab-pane>
 
         <el-tab-pane label="能力" name="capabilities" lazy>
-          <p class="tab-note">汇总当前插件声明能力；完整治理请跳转到对应治理域，详情抽屉不再复制全局表格。</p>
+          <p class="tab-note">先看这个插件在前端、权限、内容和 Webhook 上能做什么；需要完整管理时跳到对应治理域。</p>
+          <el-alert
+            v-if="legacyTabNoticeText"
+            type="info"
+            show-icon
+            :closable="false"
+            class="mb"
+            :title="legacyTabNoticeText"
+          />
           <section class="summary-grid mb">
             <div class="summary-card">
               <span>菜单</span>
@@ -126,12 +134,12 @@
             <div class="summary-card">
               <span>权限</span>
               <strong>{{ (plugin.permissions || []).length }}</strong>
-              <small>完整矩阵在插件总览 / 高级治理查看。</small>
+              <small>要看完整矩阵，去插件总览的高级治理或权限矩阵。</small>
             </div>
             <div class="summary-card">
               <span>Webhook / 外部服务</span>
               <strong>{{ (plugin.hooks || []).length }} / {{ externalServiceConfigured ? '已配置' : '未配置' }}</strong>
-              <small>投递、重试和熔断进入 Webhook 治理。</small>
+              <small>投递、重试和熔断都在 Webhook 治理里处理。</small>
             </div>
           </section>
           <el-alert
@@ -164,7 +172,15 @@
         </el-tab-pane>
 
         <el-tab-pane label="运行记录" name="runtime" lazy>
-          <p class="tab-note">展示当前插件运行健康摘要、最近异常和排障入口；完整操作历史请进入“运行记录 / 审计”治理域。</p>
+          <p class="tab-note">先看这个插件为什么健康或异常，再去运行记录 / 审计处理操作历史和 Hook 细节。</p>
+          <el-alert
+            v-if="legacyTabNoticeText"
+            type="info"
+            show-icon
+            :closable="false"
+            class="mb"
+            :title="legacyTabNoticeText"
+          />
           <el-alert
             type="info"
             show-icon
@@ -1136,7 +1152,124 @@
         </el-tab-pane>
 
         <el-tab-pane label="技术详情" name="technical" lazy>
-          <p class="tab-note">低频技术字段、原始声明和 JSON 默认折叠，仅用于排障；敏感字段会脱敏显示。</p>
+          <p class="tab-note">技术详情按排障用途最小分组：启用检查、迁移明细、导出本地插件包、原始声明 / JSON。低频技术字段默认折叠，敏感字段会脱敏显示。</p>
+          <el-alert
+            v-if="legacyTabNoticeText"
+            type="info"
+            show-icon
+            :closable="false"
+            class="mb"
+            :title="legacyTabNoticeText"
+          />
+          <section class="compact-section mb" data-testid="plugin-readiness-section">
+            <div class="section-head">
+              <div>
+                <h4>启用检查</h4>
+                <p>检查依赖、配置、迁移和声明冲突；安装 / 升级仍走插件包治理，启用仍由后端校验。</p>
+              </div>
+              <div class="section-actions">
+                <el-tag :type="readinessTagType(readinessResult?.status)" effect="plain">
+                  {{ t('plugin.readiness.overall') }}：{{ readinessStatusLabel(readinessResult?.status) }}
+                </el-tag>
+                <el-button size="small" plain :loading="readinessLoading" data-testid="plugin-readiness-refresh-visible" @click="loadReadiness">{{ t('common.refresh') }}</el-button>
+                <el-button
+                  v-if="canRunEnablePrecheck"
+                  size="small"
+                  type="primary"
+                  plain
+                  :loading="enablePrecheckLoading"
+                  data-testid="plugin-enable-precheck-run-visible"
+                  @click="runEnablePrecheck"
+                >
+                  {{ t('plugin.ops.enablePrecheck') }}
+                </el-button>
+              </div>
+            </div>
+            <el-alert type="info" show-icon :closable="false" class="mb" :title="t('plugin.ops.enablePrecheckTip')" />
+            <el-alert
+              v-if="enablePrecheckResult"
+              :title="t('plugin.ops.enablePrecheckResult')"
+              :type="enablePrecheckResult.can_enable ? 'success' : 'error'"
+              show-icon
+              :closable="false"
+              class="mb"
+            >
+              <template #default>
+                <div class="banner-lines">
+                  <div><strong>状态：</strong>{{ genericStatusLabel(enablePrecheckResult.status) }}</div>
+                  <div><strong>允许启用：</strong>{{ enablePrecheckResult.can_enable ? '是' : '否' }}</div>
+                  <div v-if="(enablePrecheckResult.errors || []).length"><strong>错误：</strong>{{ (enablePrecheckResult.errors || []).join('；') }}</div>
+                  <div v-if="(enablePrecheckResult.warnings || []).length"><strong>警告：</strong>{{ (enablePrecheckResult.warnings || []).join('；') }}</div>
+                  <div v-if="enablePrecheckResult.id && enablePrecheckResult.can_enable">
+                    <el-button type="primary" size="small" :loading="enableTaskLoading" data-testid="plugin-enable-from-precheck-visible" @click="enableFromPrecheck">
+                      {{ t('plugin.ops.enableFromPrecheck') }}
+                    </el-button>
+                  </div>
+                </div>
+              </template>
+            </el-alert>
+            <el-table v-loading="readinessLoading" :data="readinessResult?.checks || []" border stripe :empty-text="`暂无${t('plugin.tabs.readiness')}`" data-testid="plugin-readiness-table-visible">
+              <el-table-column prop="title" :label="t('field.name')" min-width="220" />
+              <el-table-column :label="t('field.status')" width="120">
+                <template #default="{ row }">
+                  <el-tag :type="readinessTagType(row.status)" effect="plain">{{ readinessStatusLabel(row.status) }}</el-tag>
+                </template>
+              </el-table-column>
+              <el-table-column prop="code" :label="t('plugin.ops.errorCode')" width="220">
+                <template #default="{ row }"><span class="mono">{{ row.code || '-' }}</span></template>
+              </el-table-column>
+              <el-table-column prop="reason" :label="t('plugin.readiness.reason')" min-width="240" />
+              <el-table-column prop="suggestion" :label="t('plugin.readiness.suggestion')" min-width="260" />
+              <el-table-column :label="t('plugin.action')" width="120">
+                <template #default="{ row }">
+                  <el-button v-if="row.dependency_code" link type="primary" @click="emit('open-plugin', row.dependency_code)">{{ t('plugin.dependencies.openPlugin') }}</el-button>
+                </template>
+              </el-table-column>
+            </el-table>
+          </section>
+          <section class="compact-section mb" data-testid="plugin-migrations-section">
+            <div class="section-head">
+              <div>
+                <h4>迁移明细</h4>
+                <p>只读查看迁移计划和执行结果；真正执行仍走安装 / 升级流程。</p>
+              </div>
+              <div class="section-actions">
+                <el-button size="small" plain :loading="migrationsLoading" data-testid="plugin-migrations-refresh" @click="loadMigrations">{{ t('common.refresh') }}</el-button>
+                <el-button size="small" type="primary" :loading="migrationsLoading" data-testid="plugin-migrations-run" @click="runMigrations">{{ t('plugin.migration.runPending') }}</el-button>
+              </div>
+            </div>
+            <el-descriptions :column="4" border class="mb">
+              <el-descriptions-item :label="t('common.total')">{{ migrationSummary.total || migrationRows.length || 0 }}</el-descriptions-item>
+              <el-descriptions-item :label="pluginHealthLabel('success')">{{ migrationSummary.success || 0 }}</el-descriptions-item>
+              <el-descriptions-item :label="t('plugin.migration.pending')">{{ migrationSummary.pending || 0 }}</el-descriptions-item>
+              <el-descriptions-item :label="pluginHealthLabel('failed')">{{ migrationSummary.failed || 0 }}</el-descriptions-item>
+            </el-descriptions>
+            <el-table v-loading="migrationsLoading" :data="migrationRows" border stripe :empty-text="`暂无${t('plugin.tabs.migrations')}`">
+              <el-table-column prop="migration_name" :label="t('plugin.migration.title')" min-width="180" />
+              <el-table-column prop="migration_version" :label="t('plugin.version')" width="120" />
+              <el-table-column prop="direction" :label="t('plugin.migration.direction')" width="100" />
+              <el-table-column prop="status" :label="t('field.status')" width="110">
+                <template #default="{ row }">
+                  <el-tag :type="migrationStatusType(row.status)">{{ migrationStatusLabel(row.status) }}</el-tag>
+                </template>
+              </el-table-column>
+              <el-table-column prop="finished_at" :label="t('plugin.migration.lastFinished')" min-width="160" />
+              <el-table-column :label="t('plugin.migration.duration')" width="110">
+                <template #default="{ row }">{{ migrationDuration(row) }}</template>
+              </el-table-column>
+              <el-table-column :label="t('plugin.migration.rollback')" width="110">
+                <template #default="{ row }">
+                  <el-tag :type="migrationRollbackAvailable(row) ? 'success' : 'info'" effect="plain">{{ migrationRollbackAvailable(row) ? t('common.yes') : t('common.no') }}</el-tag>
+                </template>
+              </el-table-column>
+              <el-table-column prop="error_message" :label="t('plugin.migration.errorReason')" min-width="220" />
+              <el-table-column label="操作" width="120" fixed="right">
+                <template #default="{ row }">
+                  <el-button link type="primary" :disabled="row.status === 'success'" @click="retryMigration(row)">{{ t('common.retry') }}</el-button>
+                </template>
+              </el-table-column>
+            </el-table>
+          </section>
           <section class="export-panel mb" data-testid="plugin-export-panel">
             <div>
               <h4>导出本地插件包</h4>
@@ -1145,15 +1278,23 @@
             <el-button type="primary" plain data-testid="plugin-export-open" @click="openExportDialog">导出本地插件包</el-button>
           </section>
 
-          <el-empty v-if="!technicalDetailBlocks.length" description="暂无技术详情" />
-          <Suspense v-else>
-            <template #default>
-              <AsyncPluginTechnicalDetails :blocks="technicalDetailBlocks" />
-            </template>
-            <template #fallback>
-              <div class="lazy-state">技术详情加载中...</div>
-            </template>
-          </Suspense>
+          <section class="compact-section mb" data-testid="plugin-raw-declarations-section">
+            <div class="section-head">
+              <div>
+                <h4>原始声明 / JSON</h4>
+                <p>收纳 config_schema、resolved_config、content_type、权限、前端挂载、Webhook / Hook 和运行健康原始摘要，仅用于排障。</p>
+              </div>
+            </div>
+            <el-empty v-if="!technicalDetailBlocks.length" description="暂无技术详情" />
+            <Suspense v-else>
+              <template #default>
+                <AsyncPluginTechnicalDetails :blocks="technicalDetailBlocks" />
+              </template>
+              <template #fallback>
+                <div class="lazy-state">技术详情加载中...</div>
+              </template>
+            </Suspense>
+          </section>
         </el-tab-pane>
         </el-tabs>
       </div>
@@ -1242,7 +1383,7 @@ import { computed, defineAsyncComponent, h, reactive, ref, watch } from 'vue';
 import { ElMessage, ElMessageBox } from 'element-plus';
 import PluginConfigEditor from './PluginConfigEditor.vue';
 import PluginIframeMount from './PluginIframeMount.vue';
-import { dryRunPluginExport, enablePluginFromEnablePrecheck, exportPluginPackage, getPluginUninstallImpact, getPluginUpgradeTask, listPluginPackageCompatChecks, listPluginUpgradeTasks, pluginAuditLogs, pluginHookExecutions, pluginHooks, pluginMenusPreview, pluginMigrations, pluginReadiness, pluginUpgradeImpact, retryPluginUpgradeTask, runPluginEnablePrecheck, runPluginExternalServiceHealthCheck, runPluginMigrations, softUninstallPlugin, upgradePluginFromPackage, updatePluginConfig } from '@/api/admin';
+import { dryRunPluginExport, enablePluginFromEnablePrecheck, exportPluginPackage, getPluginUninstallImpact, getPluginUpgradeTask, listPluginPackageCompatChecks, listPluginUpgradeTasks, pluginAuditLogs, pluginHookExecutions, pluginHooks, pluginMenusPreview, pluginMigrations, pluginReadiness, pluginUpgradeImpact, retryPluginMigration, retryPluginUpgradeTask, runPluginEnablePrecheck, runPluginExternalServiceHealthCheck, runPluginMigrations, softUninstallPlugin, upgradePluginFromPackage, updatePluginConfig } from '@/api/admin';
 import { t } from '@/i18n';
 import { auditActionLabel, genericStatusLabel, maturityLabel, migrationStatusLabel, pluginHealthLabel, pluginStatusLabel } from '@/i18n/formatters';
 import { pluginReasonText } from '@/modules/plugins/statusText';
@@ -1389,6 +1530,8 @@ const externalServiceConfigured = computed(() => Boolean(externalService.value?.
 const canViewOfficialAnnouncement = computed(() => (auth?.can ? auth.can('plugin.read') : true));
 const canEditPluginConfig = computed(() => (auth?.can ? auth.can('plugin.write') : true));
 const showLegacyTechnicalTabs = false;
+const legacyTabNotice = ref({ tab: '', text: '' });
+const legacyTabNoticeText = computed(() => (legacyTabNotice.value?.tab === tab.value ? legacyTabNotice.value.text : ''));
 const previewRefreshKey = ref(0);
 const canRunEnablePrecheck = computed(() => {
   const p = props.plugin;
@@ -1447,6 +1590,7 @@ watch(
     exportPreview.value = null;
     exportResult.value = null;
     exportError.value = '';
+    legacyTabNotice.value = { tab: '', text: '' };
     upgradeImpact.value = null;
     upgradeCompatChecks.value = [];
     selectedUpgradeCompatCheckID.value = 0;
@@ -1456,6 +1600,10 @@ watch(
     if (visible.value && tab.value === 'runtime') loadHooks();
     if (visible.value && tab.value === 'hooks') loadHooks();
     if (visible.value && tab.value === 'migrations') loadMigrations();
+    if (visible.value && tab.value === 'technical') {
+      loadReadiness();
+      loadMigrations();
+    }
     if (visible.value && tab.value === 'readiness') {
       loadUpgradeCompatChecks();
       loadUpgradeTasks();
@@ -1474,6 +1622,10 @@ watch(
     if (nextTab === 'audit') loadAudit();
     if (nextTab === 'runtime' || nextTab === 'hooks') loadHooks();
     if (nextTab === 'migrations') loadMigrations();
+    if (nextTab === 'technical') {
+      loadReadiness();
+      loadMigrations();
+    }
     if (nextTab === 'readiness') loadReadiness();
   },
 );
@@ -1488,6 +1640,10 @@ watch(tab, (t) => {
   if (t === 'audit') loadAudit();
   if (t === 'runtime' || t === 'hooks') loadHooks();
   if (t === 'migrations') loadMigrations();
+  if (t === 'technical') {
+    loadReadiness();
+    loadMigrations();
+  }
   if (t === 'readiness') loadReadiness();
   if (t === 'menus') loadMenuPreview();
 });
@@ -1495,22 +1651,33 @@ watch(tab, (t) => {
 function normalizeDetailTab(value, plugin = props.plugin) {
   const name = String(value || 'overview');
   const code = plugin?.code || plugin?.plugin_code || '';
-  if (name === 'officialAnnouncementPreview' && code !== 'official_announcement') return 'overview';
+  if (name === 'officialAnnouncementPreview' && code !== 'official_announcement') {
+    legacyTabNotice.value = { tab: 'overview', text: '该插件页面尚未实现，已返回插件概览。' };
+    return 'overview';
+  }
   const map = {
-    callbackTokens: 'capabilities',
-    webhook: 'capabilities',
-    webhookSecrets: 'capabilities',
-    menus: 'capabilities',
-    audit: 'runtime',
-    readiness: 'technical',
-    dependencies: 'technical',
-    contentTypes: 'technical',
-    permissions: 'technical',
-    hooks: 'runtime',
-    migrations: 'technical',
-    routes: 'technical',
+    callbackTokens: { tab: 'capabilities', notice: '回调 Token 入口已合并到「Webhook 治理」。' },
+    webhook: { tab: 'capabilities', notice: 'Webhook 入口已合并到「Webhook 治理」。' },
+    webhookSecrets: { tab: 'capabilities', notice: 'Webhook 密钥入口已合并到「Webhook 治理」。' },
+    menus: { tab: 'capabilities', notice: '前端挂载入口已合并到「能力」摘要和「技术详情」。' },
+    audit: { tab: 'runtime', notice: '审计入口已合并到「运行记录 / 审计」。' },
+    readiness: { tab: 'technical', notice: '启用检查已沉到「技术详情」，完整执行仍走原有后端校验。' },
+    dependencies: { tab: 'technical', notice: '依赖明细已沉到「技术详情」，依赖治理入口在「插件包治理」。' },
+    contentTypes: { tab: 'technical', notice: 'content_type 明细已沉到「技术详情」。' },
+    permissions: { tab: 'technical', notice: '权限矩阵明细已沉到「技术详情」，全局矩阵入口在「插件总览」。' },
+    hooks: { tab: 'runtime', notice: 'Hook 排障已合并到「运行」摘要和「运行记录 / 审计」。' },
+    migrations: { tab: 'technical', notice: '迁移明细已沉到「技术详情」。' },
+    routes: { tab: 'technical', notice: '路由声明已沉到「技术详情」。' },
   };
-  return map[name] || name;
+  const mapped = map[name];
+  if (mapped) {
+    legacyTabNotice.value = { tab: mapped.tab, text: mapped.notice };
+    return mapped.tab;
+  }
+  if (legacyTabNotice.value?.tab && legacyTabNotice.value.tab !== name) {
+    legacyTabNotice.value = { tab: '', text: '' };
+  }
+  return name;
 }
 
 function readinessTagType(status) {
@@ -1840,10 +2007,17 @@ function openPermissionRefs(row) {
 }
 
 function openWebhookGovernance(targetTab) {
+  const tabMap = {
+    retry: 'exceptions',
+    circuits: 'exceptions',
+    callback_tokens: 'callback_tokens',
+    callbackTokens: 'callback_tokens',
+  };
+  const tabName = tabMap[targetTab] || targetTab || 'deliveries';
   router.push({
-    path: '/admin-next/plugins/webhooks',
+    path: '/plugins/webhooks',
     query: {
-      tab: targetTab || 'deliveries',
+      tab: tabName,
       plugin_code: props.plugin?.code || '',
       sec_plugin_code: props.plugin?.code || '',
       cbtk_plugin_code: props.plugin?.code || '',
@@ -1854,7 +2028,7 @@ function openWebhookGovernance(targetTab) {
 
 function openOverviewGovernance(targetTab) {
   router.push({
-    path: '/admin-next/plugins/overview',
+    path: '/plugins/overview',
     query: {
       tab: targetTab || 'list',
       plugin_code: props.plugin?.code || '',
@@ -1864,7 +2038,7 @@ function openOverviewGovernance(targetTab) {
 
 function openRuntimeGovernance(targetTab) {
   router.push({
-    path: '/admin-next/plugins/runtime',
+    path: '/plugins/runtime',
     query: {
       tab: targetTab || 'operations',
       plugin_code: props.plugin?.code || '',
@@ -1948,6 +2122,17 @@ function hasTechnicalValue(value) {
   if (Array.isArray(value)) return value.length > 0;
   if (value && typeof value === 'object') return Object.keys(value).length > 0;
   return value !== undefined && value !== null && value !== '';
+}
+
+function migrationDuration(row) {
+  const duration = row?.duration_ms ?? row?.execution_time_ms;
+  if (duration == null || duration === '') return '-';
+  const num = Number(duration);
+  return Number.isFinite(num) ? `${num}ms` : String(duration);
+}
+
+function migrationRollbackAvailable(row) {
+  return Boolean(row?.rollback_available || row?.rollback_supported);
 }
 
 function redactSensitive(value) {
@@ -2321,7 +2506,7 @@ function openHookExecutionDetail(row) {
 function openPluginContent(row) {
   const pluginCode = row?.plugin_code || props.plugin?.code;
   if (!pluginCode) return;
-  router.push({ path: `/admin-next/${pluginCode}` });
+  router.push({ path: `/${pluginCode}` });
 }
 
 function openHookAudit(row) {
@@ -2330,7 +2515,7 @@ function openHookAudit(row) {
   const requestId = row?.request_id || '';
   // Reuse existing audit log page; do not fake exact match.
   router.push({
-    path: '/admin-next/audit-logs',
+    path: '/audit-logs',
     query: {
       plugin_code: pluginCode,
       action: row?.blocking ? 'plugin.hook.blocked' : 'plugin.hook.failed',
@@ -2639,6 +2824,13 @@ async function confirmExport() {
   color: #64748b;
   font-size: 13px;
   line-height: 1.45;
+}
+.section-actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 8px;
+  min-width: 240px;
 }
 .audit-filter-wrap {
   display: inline-flex;

@@ -10,7 +10,7 @@ DevHub 当前长期目标是 **Core + 插件 的开源服务底座**。插件系
 
 社区能力是 Core 默认能力之一，但不是 DevHub 的唯一边界。DevHub 应面向社区、内容站、知识库、内部工具平台和垂直业务系统等可扩展服务场景。
 
-完整插件系统与插件运行模型是当前最高优先级长期主线。插件运行模型的详细设计见 [插件运行模型设计](PLUGIN_RUNTIME_MODEL.md)；下一阶段完整目标、生命周期和验收标准以 [完整插件系统长期完善路线图](PLUGIN_SYSTEM_ROADMAP.md) 为准。插件市场、远程安装、在线更新、动态加载、前端插件沙箱和 HTTP 插件服务协议仍属于后续阶段路线，必须在权限、安全、审计、生命周期和 SEO 红线内推进。
+完整插件系统与插件运行模型是当前最高优先级长期主线。插件运行模型的详细设计见 [插件运行模型设计](PLUGIN_RUNTIME_MODEL.md)；下一阶段完整目标、生命周期和验收标准以 [完整插件系统长期完善路线图](PLUGIN_SYSTEM_ROADMAP.md) 为准。当前仅 external_service 的 non-blocking delivery 子集已经实现，完整第三方运行模型仍未实现。插件市场、远程安装、在线更新、动态加载、前端插件沙箱和完整 HTTP 插件服务协议仍属于后续阶段路线，必须在权限、安全、审计、生命周期和 SEO 红线内推进。
 
 前端挂载模型补充（v1.8.0 文档阶段）：
 
@@ -65,10 +65,10 @@ Core 保持稳定、克制、通用，不承载过多垂直业务。当前 Core 
 DevHub 插件运行模型拆分为三类：
 
 1. **Core 内置插件**：如 `qa`、`docs`、`wiki`、`projects`、`jobs`、`ai_works`，随 DevHub 主仓库编译发布，运行在 DevHub 进程内，受 Core 权限、审计、配置、生命周期和 HookBus 约束。
-2. **外部 HTTP 服务插件**：第三方后端插件作为独立 HTTP 服务运行，DevHub 不加载插件代码，通过签名请求 / token 与插件服务通信；插件服务只能调用受控 Core API。这是中期推荐的第三方后端运行方式。
+2. **外部 HTTP 服务插件**：当前仅落地 external_service 的 non-blocking delivery 子集，用于受控 Webhook 投递和 health check；第三方后端完整运行模型仍未实现。未来的独立 HTTP 插件服务运行方式仍需要通过签名请求 / token 与插件服务通信，且插件服务只能调用受控 Core API。
 3. **前端 iframe / sandbox 插件**：第三方前端页面通过 iframe 或 sandbox 容器挂载，通过 `postMessage` 或受控 SDK 与 Core 通信；DevHub 不直接执行不可信 JS。
 
-当前这些运行模型是设计口径：外部 HTTP 插件服务协议、iframe / sandbox 前端挂载、插件 SDK、受控 API token、运行时鉴权、资源限制和错误隔离仍未实现。
+当前这些运行模型中，仅 external_service non-blocking delivery 子集已经实现；外部 HTTP 插件服务完整运行模型、iframe / sandbox 前端挂载、插件 SDK、受控 API token、运行时鉴权、资源限制和错误隔离仍未实现。
 
 相关协议设计：
 
@@ -355,7 +355,7 @@ scope 语义当前约定为：
 
 ## HookBus 与 Hook
 
-HookBus 完整化属于插件平台 P0 收口任务。当前只服务内置系统插件扩展点，不承载第三方动态执行；第三方插件执行、沙箱和动态加载进入 P3 评估，不是当前代码实现范围。
+HookBus 完整化属于插件平台 P0 收口任务。当前只服务内置系统插件扩展点和 external_service 的受控投递触发，不承载第三方动态执行；HookBus 本身不执行第三方代码，只派发事件、记录执行结果，并在 external_service 场景触发外部 HTTP 投递。第三方插件执行、沙箱和动态加载进入 P3 评估，不是当前代码实现范围。
 
 建议 Hook 名称统一为：
 
@@ -377,6 +377,7 @@ HookBus 完整化属于插件平台 P0 收口任务。当前只服务内置系�
 - HookBus 当前仅注册内置系统插件 Hook handlers（编译期内置注册，不支持第三方动态加载）。
 - `v1.3.2` 起 HookBus 执行结果会落入 `hook_executions`，后台可查询每个插件 Hook 的执行次数、失败次数、平均耗时、最近执行、最近失败和最近错误。
 - blocking hook 失败会阻断主流程，并写入 `plugin.hook.blocked` 审计；non-blocking hook 失败不阻断主流程，但会写入 `plugin.hook.failed` 审计。
+- HookBus 不执行第三方插件代码；它只负责把事件派发给已注册的内置 handler，或在 external_service 场景下触发受控 HTTP 投递。
 - `v1.3.4` 起提供测试 / 开发环境专用 Hook 失败注入接口：`POST /api/v1/admin/plugins/:code/hooks/:name/e2e-fail`。该接口仅在 `DEVHUB_E2E_TESTING=1` 或 `CMS_STORE=memory` 可用，用于自动化验证 blocking 失败阻断主流程、non-blocking 失败不阻断主流程、`hook_executions` 和审计可追踪；它不是生产治理接口。
 - 当前没有第三方动态注册，也没有插件包运行时加载；HookBus 仅服务内置系统插件和后续 Core 内部扩展。
 - 搜索、通知和 SEO 当前是最小调用点：已能派发事件，但还没有复杂索引、通知模板或结构化数据插件处理器。

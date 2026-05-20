@@ -93,11 +93,14 @@ const tabs = [
   { name: 'versions', label: '版本与升级', component: lazyTab(() => import('./PluginVersions.vue')) },
   { name: 'approvals', label: '安装 / 升级审批', component: lazyTab(() => import('./PluginApprovals.vue')) },
 ];
-const visibleTabs = tabs.filter((item) => ['flow', 'uploads', 'install', 'versions'].includes(item.name));
 const tabNames = new Set(tabs.map((item) => item.name));
 const normalizeTab = (value) => (tabNames.has(String(value || '')) ? String(value) : defaultTab);
 
 const activeTab = ref(normalizeTab(route.query.tab));
+const visibleTabs = computed(() => {
+  const primary = new Set(['flow', 'uploads', 'install', 'versions']);
+  return tabs.filter((item) => primary.has(item.name) || item.name === activeTab.value);
+});
 const activeComponent = computed(() => tabs.find((item) => item.name === activeTab.value)?.component || tabs[0].component);
 
 watch(activeTab, async (next) => {

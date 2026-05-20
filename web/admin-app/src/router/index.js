@@ -26,7 +26,6 @@ export const menuRoutes = [
 const withTab = (path, tab) => (to) => ({ path, query: { ...to.query, tab } });
 const withPackageInstallTab = (to) => {
   const query = { ...to.query, tab: 'install' };
-  if (to.query.tab) query.workspace_tab = to.query.tab;
   return { path: '/plugins/packages', query };
 };
 
@@ -49,7 +48,9 @@ export const pluginRoutes = [
   { path: '/plugins/packages/install', redirect: withPackageInstallTab },
   { path: '/plugins/packages/export', redirect: withPackageInstallTab },
   { path: '/plugins/packages/uploads', redirect: withTab('/plugins/packages', 'uploads') },
+  { path: '/plugins/package-uploads', redirect: withTab('/plugins/packages', 'uploads') },
   { path: '/plugins/packages/remote', redirect: withTab('/plugins/packages', 'remote-packages') },
+  { path: '/plugins/remote-packages', redirect: withTab('/plugins/packages', 'remote-packages') },
   { path: '/plugins/versions', redirect: withTab('/plugins/packages', 'versions') },
   { path: '/plugins/upgrade-diff', redirect: withTab('/plugins/packages', 'versions') },
   { path: '/plugins/remote-indexes', redirect: withTab('/plugins/packages', 'remote-indexes') },
@@ -57,6 +58,13 @@ export const pluginRoutes = [
   { path: '/plugins/approvals', redirect: withTab('/plugins/packages', 'approvals') },
 
   { path: '/plugins/events', redirect: withTab('/plugins/webhooks', 'events') },
+  { path: '/plugins/webhook-events', redirect: withTab('/plugins/webhooks', 'events') },
+  { path: '/plugins/webhook-deliveries', redirect: withTab('/plugins/webhooks', 'deliveries') },
+  { path: '/plugins/webhook-retry', redirect: withTab('/plugins/webhooks', 'exceptions') },
+  { path: '/plugins/webhook-circuits', redirect: withTab('/plugins/webhooks', 'exceptions') },
+  { path: '/plugins/webhook-secrets', redirect: withTab('/plugins/webhooks', 'secrets') },
+  { path: '/plugins/callback-tokens', redirect: withTab('/plugins/webhooks', 'callback_tokens') },
+  { path: '/plugins/callback-requests', redirect: withTab('/plugins/webhooks', 'callback_requests') },
 
   { path: '/plugins/trusted-publishers', redirect: withTab('/plugins/publishers', 'list') },
   { path: '/plugins/config-keys', redirect: withTab('/plugins/publishers', 'config-keys') },

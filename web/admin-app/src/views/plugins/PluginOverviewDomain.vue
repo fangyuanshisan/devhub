@@ -4,7 +4,7 @@
       <div>
         <p class="eyebrow">插件管理</p>
         <h2>插件总览</h2>
-        <p class="muted">默认聚焦插件状态、待处理事项和下一步操作；内容治理、权限矩阵和开发者工具收进高级治理。</p>
+        <p class="muted">按任务找入口：日常操作先去总览和列表，安装升级去插件包治理，投递与密钥去 Webhook，排障和追踪去运行记录 / 审计。</p>
       </div>
     </div>
 
@@ -51,7 +51,7 @@ function AdvancedGovernance() {
   }, () => label);
   return h(ElCard, { shadow: 'never', class: 'domain-note-card' }, () => [
     h('h3', { class: 'note-title' }, '高级治理'),
-    h('p', { class: 'muted' }, '低频能力仍可访问，但不再默认铺在插件总览首页。完整治理请进入对应功能区，插件详情只保留当前插件摘要。'),
+    h('p', { class: 'muted' }, '低频能力仍可访问，但不再默认铺在插件总览首页。需要改配置、看挂载、查权限或排障时，再进入对应功能区。'),
     h('div', { class: 'next-actions' }, [
       go('config', '配置中心'),
       go('navigation', '前端挂载'),
@@ -61,6 +61,7 @@ function AdvancedGovernance() {
     ]),
     h(ElDescriptions, { column: 1, border: true, class: 'note-descriptions' }, () => [
       h(ElDescriptionsItem, { label: '日常入口' }, () => '优先使用“总览”和“插件列表”处理启停、配置、异常和详情。'),
+      h(ElDescriptionsItem, { label: '变更 / 排障' }, () => '安装升级去插件包治理，投递与密钥去 Webhook 治理，操作历史和审计去运行记录 / 审计。'),
       h(ElDescriptionsItem, { label: '技术内容' }, () => '原始声明、权限引用、前端挂载明细和开发工具归入高级治理或插件详情技术详情。'),
     ]),
   ]);
@@ -77,11 +78,14 @@ const tabs = [
   { name: 'permissions', label: '权限矩阵', component: lazyTab(() => import('./PluginPermissions.vue')) },
   { name: 'developer', label: '开发者工具', component: lazyTab(() => import('./PluginDeveloper.vue')) },
 ];
-const visibleTabs = tabs.filter((item) => ['overview', 'list', 'advanced'].includes(item.name));
 const tabNames = new Set(tabs.map((item) => item.name));
 const normalizeTab = (value) => (tabNames.has(String(value || '')) ? String(value) : defaultTab);
 
 const activeTab = ref(normalizeTab(route.query.tab));
+const visibleTabs = computed(() => {
+  const primary = new Set(['overview', 'list', 'advanced']);
+  return tabs.filter((item) => primary.has(item.name) || item.name === activeTab.value);
+});
 const activeComponent = computed(() => tabs.find((item) => item.name === activeTab.value)?.component || tabs[0].component);
 
 watch(activeTab, async (next) => {

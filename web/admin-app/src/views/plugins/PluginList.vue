@@ -7,9 +7,9 @@
         <p>{{ t('plugin.description') }}</p>
       </div>
       <div class="primary-actions">
-        <el-button type="primary" plain data-testid="plugin-manifest-validate" @click="goInstall">{{ t('plugin.ops.validateManifest') }}</el-button>
-        <el-button type="primary" plain data-testid="plugin-manifest-dry-run" @click="goInstall">{{ t('plugin.ops.dryRun') }}</el-button>
-        <el-button type="success" plain data-testid="plugin-manifest-install" @click="goInstall">{{ t('plugin.ops.install') }}</el-button>
+        <el-button type="primary" plain data-testid="plugin-manifest-validate" @click="goInstall">校验清单</el-button>
+        <el-button type="primary" plain data-testid="plugin-manifest-dry-run" @click="goInstall">查看预检</el-button>
+        <el-button type="success" plain data-testid="plugin-manifest-install" @click="goInstall">去安装</el-button>
       </div>
     </div>
 
@@ -154,24 +154,24 @@
       <el-table-column :label="t('plugin.action')" fixed="right" width="220">
         <template #default="{ row }">
           <div class="row-actions">
-            <el-button link type="primary" :data-testid="`plugin-detail-${row.code}`" @click="openPlugin(row)">{{ t('plugin.viewDetail') }}</el-button>
-            <el-button link type="primary" @click="openPlugin(row, 'config')">{{ t('plugin.config.title') }}</el-button>
+            <el-button link type="primary" :data-testid="`plugin-detail-${row.code}`" @click="openPlugin(row)">看详情</el-button>
+            <el-button link type="primary" @click="openPlugin(row, 'config')">处理配置</el-button>
             <el-dropdown trigger="click" @command="(command) => handlePluginCommand(row, command)">
-              <el-button link type="info">{{ t('plugin.ops.more') }}</el-button>
+              <el-button link type="info">更多任务</el-button>
               <template #dropdown>
                 <el-dropdown-menu>
-                  <el-dropdown-item command="permissions">{{ t('plugin.capability.permissions') }}</el-dropdown-item>
-                  <el-dropdown-item command="menus">{{ t('plugin.capability.menus') }}</el-dropdown-item>
-                  <el-dropdown-item command="dependencies">{{ t('plugin.tabs.dependencies') }}</el-dropdown-item>
-                  <el-dropdown-item command="hooks">{{ t('plugin.tabs.hooks') }}</el-dropdown-item>
-                  <el-dropdown-item command="migrations">{{ t('plugin.tabs.migrations') }}</el-dropdown-item>
-                  <el-dropdown-item command="runtime">{{ t('plugin.tabs.runtime') }}</el-dropdown-item>
-                  <el-dropdown-item command="audit">{{ t('plugin.viewAudit') }}</el-dropdown-item>
-                  <el-dropdown-item v-if="row.status !== 'enabled' && row.status !== 'archived'" command="enable" :data-testid="`plugin-enable-${row.code}`">启用</el-dropdown-item>
-                  <el-dropdown-item v-if="row.status === 'enabled'" command="disable" :data-testid="`plugin-disable-${row.code}`">停用</el-dropdown-item>
-                  <el-dropdown-item command="readiness">升级 / 启用检查</el-dropdown-item>
-                  <el-dropdown-item v-if="row.status !== 'archived'" command="archive" :data-testid="`plugin-archive-${row.code}`" divided>软卸载</el-dropdown-item>
-                  <el-dropdown-item v-if="row.status === 'archived'" command="restore" :data-testid="`plugin-restore-${row.code}`" divided>{{ t('common.restore') }}</el-dropdown-item>
+                  <el-dropdown-item command="permissions">看权限</el-dropdown-item>
+                  <el-dropdown-item command="menus">看挂载</el-dropdown-item>
+                  <el-dropdown-item command="dependencies">看依赖</el-dropdown-item>
+                  <el-dropdown-item command="hooks">看 Hook</el-dropdown-item>
+                  <el-dropdown-item command="migrations">看迁移</el-dropdown-item>
+                  <el-dropdown-item command="runtime">看运行</el-dropdown-item>
+                  <el-dropdown-item command="audit">去审计</el-dropdown-item>
+                  <el-dropdown-item v-if="row.status !== 'enabled' && row.status !== 'archived'" command="enable" :data-testid="`plugin-enable-${row.code}`">去启用</el-dropdown-item>
+                  <el-dropdown-item v-if="row.status === 'enabled'" command="disable" :data-testid="`plugin-disable-${row.code}`">去停用</el-dropdown-item>
+                  <el-dropdown-item command="readiness">做启用检查</el-dropdown-item>
+                  <el-dropdown-item v-if="row.status !== 'archived'" command="archive" :data-testid="`plugin-archive-${row.code}`" divided>去软卸载</el-dropdown-item>
+                  <el-dropdown-item v-if="row.status === 'archived'" command="restore" :data-testid="`plugin-restore-${row.code}`" divided>恢复入口</el-dropdown-item>
                 </el-dropdown-menu>
               </template>
             </el-dropdown>
@@ -189,7 +189,7 @@
           </div>
           <div class="action-panel-tools">
             <el-button data-testid="plugin-result-close" @click="bulkDialogVisible = false">{{ t('common.close') }}</el-button>
-            <el-button v-if="bulkStep === 'result'" type="success" plain data-testid="plugin-result-audit" @click="openAuditLogs">{{ t('plugin.ops.viewAuditLogs') }}</el-button>
+            <el-button v-if="bulkStep === 'result'" type="success" plain data-testid="plugin-result-audit" @click="openAuditLogs">去审计日志</el-button>
             <el-button v-if="bulkStep === 'preview'" :loading="bulkLoading" type="warning" data-testid="plugin-bulk-confirm" @click="confirmBulkAction">{{ bulkMode === 'archive' ? t('plugin.ops.confirmBulkArchive') : t('plugin.ops.confirmBulkRestore') }}</el-button>
           </div>
         </div>

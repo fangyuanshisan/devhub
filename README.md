@@ -58,7 +58,7 @@ DevHub 提供默认社区能力，但长期目标不是单一社区程序，而�
 
 DevHub 当前定位为 **Core + 插件 的开源服务底座**。Core 保持稳定、克制和通用，不承载过多垂直业务；插件扩展业务能力，但不能绕过 Core 的权限、安全、审计和生命周期治理。
 
-当前 `v1.8.3` 重点是后台插件治理稳定性、中文体验、声明型插件从安装到使用的真实闭环、插件包 upload -> promote -> install 验收、PluginRegistry 运行态刷新，以及 external_service non-blocking Webhook 投递闭环。完整第三方代码执行、远程动态加载、远程 iframe、插件市场和 blocking Hook 仍未开放，详见 [插件系统路线图](docs/PLUGIN_SYSTEM_ROADMAP.md) 与 [v1.8.3 Release Notes](docs/releases/v1.8.3.md)。
+当前 `v1.8.3` 重点是后台插件治理稳定性、中文体验、声明型插件从安装到使用的真实闭环、插件包 upload -> promote -> install 验收、PluginRegistry 运行态刷新，以及 external_service non-blocking Webhook 子集。完整第三方代码执行、完整第三方运行模型、远程动态加载、远程 iframe、插件市场和 blocking Hook 仍未开放，详见 [插件系统路线图](docs/PLUGIN_SYSTEM_ROADMAP.md) 与 [v1.8.3 Release Notes](docs/releases/v1.8.3.md)。
 
 当前范围和限制以 [v1.8.3 Release Notes](docs/releases/v1.8.3.md) 为准，长期滚动状态见 [项目进度](docs/PROJECT_PROGRESS.md)。
 
@@ -68,7 +68,7 @@ DevHub 当前定位为 **Core + 插件 的开源服务底座**。Core 保持稳�
 
 - P0：持续收口真实插件包与声明型插件“安装到使用”闭环，确保 upload、precheck、promote、本地仓库、install dry-run、install、enable、community enable、菜单、content_type、权限、配置和阻断规则可验收。
 - P1：继续完善后台插件治理中文体验、状态提示、审计、运行记录和真实 fixture 回归，避免只靠 mock 数据判断插件能力。
-- P2：收口 external_service non-blocking Webhook、health warning / error、retry、skipped 和 token 不泄露边界。
+- P2：收口 external_service non-blocking Webhook 子集、health warning / error、retry、skipped 和 token 不泄露边界。
 - P3：继续沉淀官方声明型插件样例，例如公告、友情链接、SEO 扩展或统计代码插件。
 - P4：在插件包治理、运行模型和官方插件验证稳定后，再推进远程分发、插件市场和第三方生态。
 

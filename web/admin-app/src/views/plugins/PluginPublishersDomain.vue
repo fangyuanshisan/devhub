@@ -96,11 +96,14 @@ const tabs = [
   { name: 'impact', label: '影响分析', component: ImpactGuidance },
   { name: 'config-keys', label: '密钥轮换', component: lazyTab(() => import('./PluginConfigKeys.vue')) },
 ];
-const visibleTabs = tabs.filter((item) => ['list', 'advanced'].includes(item.name));
 const tabNames = new Set(tabs.map((item) => item.name));
 const normalizeTab = (value) => (tabNames.has(String(value || '')) ? String(value) : defaultTab);
 
 const activeTab = ref(normalizeTab(route.query.tab));
+const visibleTabs = computed(() => {
+  const primary = new Set(['list', 'advanced']);
+  return tabs.filter((item) => primary.has(item.name) || item.name === activeTab.value);
+});
 const activeComponent = computed(() => tabs.find((item) => item.name === activeTab.value)?.component || tabs[0].component);
 
 watch(activeTab, async (next) => {

@@ -2,7 +2,7 @@
 
 [返回文档入口](README.md)
 
-更新时间：2026-05-19
+更新时间：2026-05-20
 
 本文档记录当前仓库滚动测试目标、已执行验收记录和后续补测项。历史版本测试只保留必要回归，不再展开旧版本完整矩阵。
 
@@ -85,6 +85,8 @@ bash -n dev.sh
 22. 插件市场仍未开放。
 23. blocking Hook 仍未开放。
 24. 后台构建通过。
+25. S18 的按钮行为与旧路由回归已作为常规守护项，`/plugins/*` 旧入口不得白屏、跳错或丢 Tab。
+26. 插件详情、Webhook、插件包治理的低频 Tab 或旧路由直达后，页面标题、面包屑和左侧高亮仍需正确。
 
 ### v1.8.3-S16 后台插件治理复杂度继续压缩验收项
 
@@ -122,6 +124,107 @@ bash -n dev.sh
 25. 第三方代码执行仍未开放。
 26. blocking Hook 仍未开放。
 27. 后台 quick 检查通过。
+
+### v1.8.3-S18 插件后台按钮行为与旧路由跳转回归验收项
+
+说明：S18 只修按钮行为、旧路由兼容、页面跳转和 Tab 定位；不改变 API、插件底层逻辑、Webhook 协议、Secret / Token 安全模型，不开放远程 iframe、第三方代码执行或 blocking Hook。
+
+长期守护口径：插件后台不再只按页面名记入口，而是按任务划分去向。管理员先决定“要安装 / 启用 / 排障 / 看审计 / 管密钥 / 看原始声明”，再进入对应治理域、页内 Tab 或详情抽屉。
+
+建议命令：
+
+```bash
+./scripts/check-admin-plugin-ia.sh
+./scripts/check-frontend.sh --admin-only --quick
+```
+
+本轮执行结果：
+
+- `./scripts/check-admin-plugin-ia.sh`：通过，覆盖 5 个治理域、主要按钮点击、详情抽屉配置 / 能力 / 运行记录 / 技术详情、旧路由到新治理域 / Tab、标题 / 面包屑 / 页面不白屏；截图目录 `.devhub/screenshots/plugin-ia`。
+- `./scripts/check-frontend.sh --admin-only --quick`：通过，日志目录 `.devhub/checks/20260520-202752/`。
+- S18 追加复查：技术详情最小分组、启用检查可见入口、迁移重试 import、导出入口和原始声明折叠已纳入本节常规验收；`./scripts/check-admin-plugin-ia.sh` 单独重跑通过，截图目录 `.devhub/screenshots/plugin-ia`。
+
+验收项：
+
+1. 插件总览主要按钮可点击。
+2. 插件列表查看详情按钮可打开正确插件。
+3. 插件详情配置 / 能力 / 运行 / 技术详情 Tab 可切换。
+4. 插件包治理主要按钮可点击。
+5. blocked 包 promote 按钮禁用且后端拒绝。
+6. 本地仓库包安装 dry-run 入口可用。
+7. Webhook 治理主要按钮可点击。
+8. Webhook 投递记录入口跳转正确。
+9. Webhook 密钥入口跳转正确。
+10. 回调 Token 入口跳转正确。
+11. 发布者与信任主要按钮可点击。
+12. 运行记录 / 审计主要按钮可点击。
+13. 旧路由能跳转到正确治理域。
+14. 旧路由能定位到正确 Tab。
+15. 刷新后 Tab 状态保持。
+16. 浏览器前进 / 后退 Tab 状态正常。
+17. 左侧导航高亮正确。
+18. 页面标题不为空、不重复。
+19. 面包屑不为空、不重复。
+20. 未实现功能显示中文占位，不白屏。
+21. 按钮点击不出现 Cannot read properties。
+22. 按钮点击不出现 undefined / null。
+23. 远程 iframe URL 仍未开放。
+24. 第三方代码执行仍未开放。
+25. blocking Hook 仍未开放。
+26. admin quick 检查通过。
+27. 插件详情的技术详情里能直接看到迁移明细和刷新 / 重试入口。
+28. 迁移明细默认不再依赖隐藏旧 Tab 才能查看。
+29. 插件详情的技术详情按“启用检查 / 迁移明细 / 导出本地插件包 / 原始声明 JSON”最小分组展示。
+30. 启用检查入口不再依赖隐藏旧 readiness Tab，可刷新检查并运行启用预检；真正启用仍走后端校验。
+31. 导出本地插件包入口在技术详情中可见，导出范围仍仅包含 manifest、README、config.example.json、checksums，不包含敏感配置、用户数据、运行时代码或外部 SQL。
+32. 原始声明 / JSON 默认折叠，config_schema、resolved_config、content_type、权限、前端挂载、Webhook / Hook 和运行健康原始摘要继续脱敏展示。
+33. 插件后台入口应能用“任务 -> 入口”描述清楚，不再只靠页面名猜位置。
+34. 日常状态查看和单插件处理应落到插件总览 / 插件列表 / 详情抽屉。
+35. 安装、预检、promote、dry-run、安装计划应落到插件包治理。
+36. Webhook 投递、异常、密钥、回调 Token、回调请求应落到 Webhook 治理。
+37. 发布者、公钥、可信性、影响分析应落到发布者与信任。
+38. 操作历史、审计、Hook 排障、最近错误应落到运行记录 / 审计。
+39. 原始声明、配置模型、迁移明细、导出包结构应落到插件详情技术详情。
+40. 插件列表主按钮与行内动作应统一为任务语言，例如“看详情 / 处理配置 / 更多任务 / 去审计 / 去启用 / 去停用 / 做启用检查 / 去软卸载”。
+41. 插件列表顶部安装相关按钮应统一为任务语言，例如“校验清单 / 查看预检 / 去安装”。
+
+插件后台路由兼容表：
+
+| 旧入口 | 新治理域 / Tab |
+| --- | --- |
+| `/plugins/list` | `/plugins/overview?tab=list` |
+| `/plugins/content` | `/plugins/overview?tab=content` |
+| `/plugins/config` | `/plugins/overview?tab=config` |
+| `/plugins/navigation` | `/plugins/overview?tab=navigation` |
+| `/plugins/permissions` | `/plugins/overview?tab=permissions` |
+| `/plugins/developer` | `/plugins/overview?tab=developer` |
+| `/plugins/install`、`/plugins/packages/local`、`/plugins/packages/install`、`/plugins/packages/export`、`/plugins/manifest` | `/plugins/packages?tab=install` |
+| `/plugins/packages/uploads`、`/plugins/package-uploads` | `/plugins/packages?tab=uploads` |
+| `/plugins/packages/remote`、`/plugins/remote-packages` | `/plugins/packages?tab=remote-packages` |
+| `/plugins/remote-indexes` | `/plugins/packages?tab=remote-indexes` |
+| `/plugins/versions`、`/plugins/upgrade-diff` | `/plugins/packages?tab=versions` |
+| `/plugins/dependencies` | `/plugins/packages?tab=dependencies` |
+| `/plugins/approvals` | `/plugins/packages?tab=approvals` |
+| `/plugins/events`、`/plugins/webhook-events` | `/plugins/webhooks?tab=events` |
+| `/plugins/webhook-deliveries` | `/plugins/webhooks?tab=deliveries` |
+| `/plugins/webhook-retry`、`/plugins/webhook-circuits` | `/plugins/webhooks?tab=exceptions` |
+| `/plugins/webhook-secrets` | `/plugins/webhooks?tab=secrets` |
+| `/plugins/callback-tokens` | `/plugins/webhooks?tab=callback_tokens` |
+| `/plugins/callback-requests` | `/plugins/webhooks?tab=callback_requests` |
+| `/plugins/trusted-publishers` | `/plugins/publishers?tab=list` |
+| `/plugins/config-keys`、`/plugins/security` | `/plugins/publishers?tab=config-keys` |
+| `/plugins/operations` | `/plugins/runtime?tab=operations` |
+| `/plugins/audit` | `/plugins/runtime?tab=audit` |
+| `/plugins/hooks`、`/plugins/diagnostics` | `/plugins/runtime?tab=hooks` |
+| `/plugins/search-index` | `/plugins/runtime?tab=search-index` |
+
+低频入口收纳关系：
+
+- 插件详情 Webhook、Webhook 密钥、回调 Token、前端挂载入口收纳到“能力”摘要，并提供 Webhook 治理跳转。
+- 插件详情审计和 Hook 排障入口收纳到“运行记录”，并提供运行记录 / 审计治理跳转。
+- 插件详情 readiness 不再只依赖隐藏旧 Tab：启用检查已恢复到“技术详情”的可见分组；dependencies、content_type、permissions、routes 收纳到“原始声明 / JSON”，migrations 收纳到“迁移明细”，并显示中文说明。
+- Webhook 治理事件、密钥、回调 Token、回调请求属于高级治理或旧路由直达 Tab；投递记录和异常处理仍是主入口。
+- 插件包治理远程索引、远程包、依赖兼容、审批属于低频 Tab；旧路由直达时该 Tab 会可见。
 
 ### v1.8.3-S9 PluginRegistry reload 运行态刷新验收项
 

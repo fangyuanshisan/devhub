@@ -4,7 +4,7 @@
       <div>
         <div class="eyebrow">插件运营</div>
         <h2>插件概览</h2>
-        <p class="muted">插件后台按功能分页的全局视角入口；更多单插件细节请打开插件详情抽屉。</p>
+        <p class="muted">按任务找入口：先在这里看状态和待处理事项，再去插件列表、安装升级、Webhook、发布者与信任或运行记录 / 审计处理具体问题。</p>
       </div>
       <div class="primary-actions compact-actions">
         <el-button type="primary" plain @click="go('/plugins/list')">插件列表</el-button>
@@ -13,14 +13,14 @@
           <el-button plain>更多治理</el-button>
           <template #dropdown>
             <el-dropdown-menu>
-              <el-dropdown-item command="/plugins/config">配置中心</el-dropdown-item>
-              <el-dropdown-item command="/plugins/navigation">前端挂载</el-dropdown-item>
-              <el-dropdown-item command="/plugins/content">内容治理</el-dropdown-item>
-              <el-dropdown-item command="/plugins/dependencies">依赖兼容</el-dropdown-item>
-              <el-dropdown-item command="/plugins/hooks">Hook 排障</el-dropdown-item>
-            </el-dropdown-menu>
-          </template>
-        </el-dropdown>
+          <el-dropdown-item command="/plugins/config">配置中心</el-dropdown-item>
+          <el-dropdown-item command="/plugins/navigation">前端挂载</el-dropdown-item>
+          <el-dropdown-item command="/plugins/content">内容治理</el-dropdown-item>
+          <el-dropdown-item command="/plugins/dependencies">依赖兼容</el-dropdown-item>
+          <el-dropdown-item command="/plugins/hooks">Hook 排障</el-dropdown-item>
+        </el-dropdown-menu>
+      </template>
+    </el-dropdown>
       </div>
     </div>
 
@@ -34,26 +34,31 @@
     />
 
     <div class="stats-grid compact overview-stats" data-testid="plugin-overview-stats">
-      <button class="stat-card stat-button" type="button" @click="go('/plugins/list')">
-        <div class="stat-k">插件总数</div>
-        <div class="stat-v">{{ stats.total }}</div>
-      </button>
-      <button class="stat-card stat-button" type="button" @click="go('/plugins/list', { status: 'enabled' })">
-        <div class="stat-k">已启用</div>
-        <div class="stat-v">{{ stats.enabled }}</div>
-      </button>
-      <button class="stat-card stat-button" type="button" @click="go('/plugins/list', { status: 'disabled' })">
-        <div class="stat-k">已禁用</div>
-        <div class="stat-v">{{ stats.disabled }}</div>
-      </button>
-      <button class="stat-card stat-button" type="button" @click="go('/plugins/list', { status: 'archived' })">
-        <div class="stat-k">已归档</div>
-        <div class="stat-v">{{ stats.archived }}</div>
-      </button>
-      <button class="stat-card stat-card-danger stat-button" type="button" @click="go('/plugins/list', { health: 'error' })">
-        <div class="stat-k">异常插件</div>
-        <div class="stat-v">{{ stats.abnormal }}</div>
-      </button>
+    <button class="stat-card stat-button" type="button" @click="go('/plugins/list')">
+      <div class="stat-k">去插件列表</div>
+      <div class="stat-v">{{ stats.total }}</div>
+      <div class="stat-sub">查看单个插件、进详情或处理具体状态。</div>
+    </button>
+    <button class="stat-card stat-button" type="button" @click="go('/plugins/list', { status: 'enabled' })">
+      <div class="stat-k">查看已启用</div>
+      <div class="stat-v">{{ stats.enabled }}</div>
+      <div class="stat-sub">处理日常运行中的插件。</div>
+    </button>
+    <button class="stat-card stat-button" type="button" @click="go('/plugins/list', { status: 'disabled' })">
+      <div class="stat-k">查看已停用</div>
+      <div class="stat-v">{{ stats.disabled }}</div>
+      <div class="stat-sub">恢复前先确认原因。</div>
+    </button>
+    <button class="stat-card stat-button" type="button" @click="go('/plugins/list', { status: 'archived' })">
+      <div class="stat-k">查看已归档</div>
+      <div class="stat-v">{{ stats.archived }}</div>
+      <div class="stat-sub">历史保留，入口关闭。</div>
+    </button>
+    <button class="stat-card stat-card-danger stat-button" type="button" @click="go('/plugins/list', { health: 'error' })">
+      <div class="stat-k">处理异常</div>
+      <div class="stat-v">{{ stats.abnormal }}</div>
+      <div class="stat-sub">优先看最近错误和建议动作。</div>
+    </button>
     </div>
 
     <el-collapse v-model="panels" class="health-collapse overview-collapse">
@@ -61,7 +66,7 @@
         <template #title>
           <div class="collapse-title">
             <strong>最近异常</strong>
-            <span class="muted">只展示需要处理的插件</span>
+            <span class="muted">先看这批再决定去配置、迁移、Webhook 还是审计</span>
           </div>
         </template>
         <el-table v-loading="loading" :data="recentAbnormal" border stripe :empty-text="'暂无异常'" data-testid="plugin-overview-recent-abnormal">
@@ -85,7 +90,7 @@
           </el-table-column>
           <el-table-column label="操作" width="150">
             <template #default="{ row }">
-              <el-button link type="primary" @click="openPlugin(row, 'runtime')">查看详情</el-button>
+              <el-button link type="primary" @click="openPlugin(row, 'runtime')">看详情</el-button>
               <el-button link type="primary" @click="openPlugin(row, suggestedTab(row))">去处理</el-button>
             </template>
           </el-table-column>

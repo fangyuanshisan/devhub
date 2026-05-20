@@ -648,9 +648,28 @@ import { confirmDanger } from './components/useDangerConfirm';
 const route = useRoute();
 const router = useRouter();
 
-const tab = ref(String(route.query.tab || 'overview'));
+const normalizeMainTab = (value) => {
+  const name = String(value || 'overview').replace(/_/g, '-');
+  if (name === 'retry' || name === 'circuits') return 'exceptions';
+  if (name === 'callback-tokens') return 'callback_tokens';
+  if (name === 'callback-requests') return 'callback_requests';
+  if (['overview', 'deliveries', 'exceptions', 'advanced', 'events', 'secrets', 'callback_tokens', 'callback_requests'].includes(name)) return name;
+  return 'overview';
+};
+
+const tab = ref(normalizeMainTab(route.query.tab));
 watch(tab, async (next) => {
+  const normalized = normalizeMainTab(next);
+  if (normalized !== next) {
+    tab.value = normalized;
+    return;
+  }
   await router.replace({ query: { ...route.query, tab: next } });
+});
+
+watch(() => route.query.tab, (value) => {
+  const next = normalizeMainTab(value);
+  if (tab.value !== next) tab.value = next;
 });
 
 const events = ref({ items: [], pagination: { page: 1, page_size: 20, total: 0 } });
@@ -1075,12 +1094,6 @@ function onCircuitPageChange(page) {
   refreshCircuits();
 }
 
-const normalizeMainTab = (value) => {
-  const name = String(value || 'overview');
-  if (name === 'retry' || name === 'circuits') return 'exceptions';
-  return name;
-};
-
 onMounted(async () => {
   tab.value = normalizeMainTab(tab.value);
   if (tab.value === 'overview') {
@@ -1089,11 +1102,9 @@ onMounted(async () => {
     return;
   }
   if (tab.value === 'events') await refreshEvents();
-  else if (tab.value === 'circuits') await refreshCircuits();
   else if (tab.value === 'secrets') await refreshSecrets();
   else if (tab.value === 'callback_tokens') await refreshCallbackTokens();
   else if (tab.value === 'callback_requests') await refreshCallbackRequests();
-  else if (tab.value === 'retry') await refreshDeliveries();
   else if (tab.value === 'exceptions') {
     await refreshDeliveries();
     await refreshCircuits();
@@ -1113,14 +1124,10 @@ watch(tab, async (next) => {
     return;
   }
   if (next === 'events') await refreshEvents();
-  else if (next === 'circuits') await refreshCircuits();
   else if (next === 'secrets') await refreshSecrets();
   else if (next === 'callback_tokens') await refreshCallbackTokens();
   else if (next === 'callback_requests') await refreshCallbackRequests();
-  else if (next === 'retry') {
-    deliveryFilters.value.status = 'all';
-    await refreshDeliveries();
-  } else if (next === 'deliveries') await refreshDeliveries();
+  else if (next === 'deliveries') await refreshDeliveries();
   else if (next === 'exceptions') {
     deliveryFilters.value.status = 'all';
     await refreshDeliveries();

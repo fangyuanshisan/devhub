@@ -95,11 +95,14 @@ const tabs = [
   { name: 'hooks', label: 'Hook 排障', component: lazyTab(() => import('./PluginHooks.vue')) },
   { name: 'search-index', label: '搜索索引', component: lazyTab(() => import('./PluginSearchIndex.vue')) },
 ];
-const visibleTabs = tabs.filter((item) => ['errors', 'operations', 'audit', 'advanced'].includes(item.name));
 const tabNames = new Set(tabs.map((item) => item.name));
 const normalizeTab = (value) => (tabNames.has(String(value || '')) ? String(value) : defaultTab);
 
 const activeTab = ref(normalizeTab(route.query.tab));
+const visibleTabs = computed(() => {
+  const primary = new Set(['errors', 'operations', 'audit', 'advanced']);
+  return tabs.filter((item) => primary.has(item.name) || item.name === activeTab.value);
+});
 const activeComponent = computed(() => tabs.find((item) => item.name === activeTab.value)?.component || tabs[0].component);
 
 watch(activeTab, async (next) => {

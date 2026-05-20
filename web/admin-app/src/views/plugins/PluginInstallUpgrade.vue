@@ -1088,8 +1088,8 @@ watch(packageTab, async (next) => {
   await router.replace({ query });
 });
 
-watch(() => route.query.workspace_tab, (value) => {
-  const next = packageTabs.has(String(value || '')) ? String(value) : 'repository';
+watch(() => [route.query.workspace_tab, route.query.package_tab], ([workspaceTab, packageTabQuery]) => {
+  const next = packageTabs.has(String(workspaceTab || packageTabQuery || '')) ? String(workspaceTab || packageTabQuery) : 'repository';
   if (packageTab.value !== next) packageTab.value = next;
 });
 

@@ -54,13 +54,43 @@ const domains = [
 ];
 
 const legacyRoutes = [
+  ['/admin-next/plugins/list', /\/admin-next\/plugins\/overview.*tab=list/],
+  ['/admin-next/plugins/content', /\/admin-next\/plugins\/overview.*tab=content/],
+  ['/admin-next/plugins/config', /\/admin-next\/plugins\/overview.*tab=config/],
+  ['/admin-next/plugins/navigation', /\/admin-next\/plugins\/overview.*tab=navigation/],
+  ['/admin-next/plugins/permissions', /\/admin-next\/plugins\/overview.*tab=permissions/],
+  ['/admin-next/plugins/developer', /\/admin-next\/plugins\/overview.*tab=developer/],
+  ['/admin-next/plugins/install', /\/admin-next\/plugins\/packages.*tab=install/],
+  ['/admin-next/plugins/packages/local', /\/admin-next\/plugins\/packages.*tab=install/],
+  ['/admin-next/plugins/packages/install', /\/admin-next\/plugins\/packages.*tab=install/],
+  ['/admin-next/plugins/packages/export', /\/admin-next\/plugins\/packages.*tab=install/],
   ['/admin-next/plugins/remote-indexes', /\/admin-next\/plugins\/packages.*tab=remote-indexes/],
   ['/admin-next/plugins/packages/uploads', /\/admin-next\/plugins\/packages.*tab=uploads/],
+  ['/admin-next/plugins/package-uploads', /\/admin-next\/plugins\/packages.*tab=uploads/],
+  ['/admin-next/plugins/packages/remote', /\/admin-next\/plugins\/packages.*tab=remote-packages/],
+  ['/admin-next/plugins/remote-packages', /\/admin-next\/plugins\/packages.*tab=remote-packages/],
+  ['/admin-next/plugins/versions', /\/admin-next\/plugins\/packages.*tab=versions/],
+  ['/admin-next/plugins/upgrade-diff', /\/admin-next\/plugins\/packages.*tab=versions/],
+  ['/admin-next/plugins/dependencies', /\/admin-next\/plugins\/packages.*tab=dependencies/],
+  ['/admin-next/plugins/approvals', /\/admin-next\/plugins\/packages.*tab=approvals/],
   ['/admin-next/plugins/events', /\/admin-next\/plugins\/webhooks.*tab=events/],
+  ['/admin-next/plugins/webhook-events', /\/admin-next\/plugins\/webhooks.*tab=events/],
+  ['/admin-next/plugins/webhook-deliveries', /\/admin-next\/plugins\/webhooks.*tab=deliveries/],
+  ['/admin-next/plugins/webhook-retry', /\/admin-next\/plugins\/webhooks.*tab=exceptions/],
+  ['/admin-next/plugins/webhook-circuits', /\/admin-next\/plugins\/webhooks.*tab=exceptions/],
+  ['/admin-next/plugins/webhook-secrets', /\/admin-next\/plugins\/webhooks.*tab=secrets/],
+  ['/admin-next/plugins/callback-tokens', /\/admin-next\/plugins\/webhooks.*tab=callback_tokens/],
+  ['/admin-next/plugins/callback-requests', /\/admin-next\/plugins\/webhooks.*tab=callback_requests/],
   ['/admin-next/plugins/webhooks?tab=secrets', /\/admin-next\/plugins\/webhooks.*tab=secrets/],
   ['/admin-next/plugins/webhooks?tab=callback_tokens', /\/admin-next\/plugins\/webhooks.*tab=callback_tokens/],
+  ['/admin-next/plugins/trusted-publishers', /\/admin-next\/plugins\/publishers.*tab=list/],
+  ['/admin-next/plugins/config-keys', /\/admin-next\/plugins\/publishers.*tab=config-keys/],
+  ['/admin-next/plugins/security', /\/admin-next\/plugins\/publishers.*tab=config-keys/],
+  ['/admin-next/plugins/operations', /\/admin-next\/plugins\/runtime.*tab=operations/],
   ['/admin-next/plugins/audit', /\/admin-next\/plugins\/runtime.*tab=audit/],
   ['/admin-next/plugins/hooks', /\/admin-next\/plugins\/runtime.*tab=hooks/],
+  ['/admin-next/plugins/diagnostics', /\/admin-next\/plugins\/runtime.*tab=hooks/],
+  ['/admin-next/plugins/search-index', /\/admin-next\/plugins\/runtime.*tab=search-index/],
 ];
 
 async function apiRequest(method, urlPath, token, body) {
@@ -126,6 +156,24 @@ function assertTextIncludesAny(text, label, candidates) {
   if (!candidates.some((candidate) => text.includes(candidate))) {
     throw new Error(`${label} 缺少文案：${candidates.join(' / ')}`);
   }
+}
+
+async function assertNoBrokenText(page, label) {
+  const text = await page.locator('body').innerText().catch(() => '');
+  for (const term of ['Cannot read properties', 'route not found', 'undefined', 'null', 'No Data']) {
+    if (text.includes(term)) throw new Error(`${label} 出现异常占位：${term}`);
+  }
+}
+
+async function clickTabByName(page, name, waitForTestId) {
+  await page.getByRole('tab', { name, exact: true }).click();
+  if (waitForTestId) await page.getByTestId(waitForTestId).waitFor({ timeout: 10000 });
+  await page.waitForTimeout(250);
+}
+
+async function clickButtonByName(page, name) {
+  await page.getByRole('button', { name, exact: true }).first().click();
+  await page.waitForTimeout(250);
 }
 
 async function ensureOfficialAnnouncementFixture(token) {
@@ -213,8 +261,68 @@ async function main() {
     if (!breadcrumb || !breadcrumb.includes('插件')) throw new Error(`${route} 面包屑异常：${breadcrumb}`);
     if (hasBlank) throw new Error(`${route} 仍存在 No Data 英文空状态`);
     if (overflow) throw new Error(`${route} 1366 宽度存在横向溢出`);
+    await assertNoBrokenText(page, route);
     report.domains.push({ key, route, title: pageTitle, breadcrumb });
   }
+
+  await page.goto(`${origin}/admin-next/plugins/overview?tab=list`, { waitUntil: 'networkidle' });
+  await page.getByTestId('admin-plugins-page').waitFor({ timeout: 10000 });
+  await page.getByTestId('plugin-search').fill('official_announcement');
+  await page.getByTestId('plugin-filter-reset').click();
+  await page.getByTestId('plugin-filter-refresh').click();
+  await page.getByTestId('plugin-filter-advanced-toggle').click();
+  await page.getByTestId('plugin-filter-advanced-toggle').click();
+  await assertNoBrokenText(page, '插件列表按钮');
+
+  await page.goto(`${origin}/admin-next/plugins/packages`, { waitUntil: 'networkidle' });
+  await page.getByTestId('plugin-packages-domain').waitFor({ timeout: 10000 });
+  await clickButtonByName(page, '查看暂存上传包');
+  await page.getByTestId('plugin-package-upload-lifecycle-page').waitFor({ timeout: 10000 });
+  await clickTabByName(page, '本地包与预检', 'plugin-install-page');
+  await page.getByTestId('plugin-manifest-validate').click();
+  await page.getByTestId('plugin-manifest-panel').waitFor({ timeout: 10000 });
+  await page.keyboard.press('Escape');
+  await page.getByTestId('plugin-package-dry-run').click();
+  await page.waitForTimeout(250);
+  await page.getByTestId('plugin-package-repo-refresh').click();
+  await assertNoBrokenText(page, '插件包治理按钮');
+  if (await page.getByTestId('plugin-package-repo-dryrun-btn').count()) {
+    await page.getByTestId('plugin-package-repo-dryrun-btn').first().click();
+    await page.waitForTimeout(250);
+  }
+  if (await page.getByTestId('plugin-package-repo-detail-btn').count()) {
+    await page.getByTestId('plugin-package-repo-detail-btn').first().click();
+    await page.getByTestId('plugin-package-repo-detail-dialog').waitFor({ timeout: 10000 });
+    await page.keyboard.press('Escape');
+  }
+
+  await page.goto(`${origin}/admin-next/plugins/webhooks`, { waitUntil: 'networkidle' });
+  await page.getByTestId('plugin-webhooks-page').waitFor({ timeout: 10000 });
+  await clickButtonByName(page, '查看投递记录');
+  await page.getByTestId('webhook-deliveries-table').waitFor({ timeout: 10000 });
+  await clickTabByName(page, '高级治理');
+  await clickButtonByName(page, 'Webhook 密钥');
+  await page.getByTestId('webhook-secrets-table').waitFor({ timeout: 10000 });
+  await clickTabByName(page, '回调 Token', 'callback-tokens-table');
+  await clickTabByName(page, '回调请求', 'callback-requests-table');
+  await assertNoBrokenText(page, 'Webhook 治理按钮');
+
+  await page.goto(`${origin}/admin-next/plugins/publishers`, { waitUntil: 'networkidle' });
+  await page.getByTestId('plugin-publishers-domain').waitFor({ timeout: 10000 });
+  await clickTabByName(page, '高级治理');
+  await clickButtonByName(page, '影响分析');
+  if (!page.url().includes('tab=impact')) throw new Error(`发布者影响分析 Tab 跳转异常：${page.url()}`);
+  await page.getByText('影响分析').first().waitFor({ timeout: 10000 });
+  await assertNoBrokenText(page, '发布者与信任按钮');
+
+  await page.goto(`${origin}/admin-next/plugins/runtime`, { waitUntil: 'networkidle' });
+  await page.getByTestId('plugin-runtime-domain').waitFor({ timeout: 10000 });
+  await clickTabByName(page, '高级排障');
+  await clickButtonByName(page, 'Hook 排障');
+  await page.getByTestId('plugin-hooks-page').waitFor({ timeout: 10000 });
+  await clickTabByName(page, '审计日志', 'plugin-audit-page');
+  await clickTabByName(page, '操作历史', 'plugin-operations-page');
+  await assertNoBrokenText(page, '运行记录 / 审计按钮');
 
   await page.setViewportSize({ width: 1024, height: 768 });
   await page.goto(`${origin}/admin-next/plugins/overview?tab=list`, { waitUntil: 'networkidle' });
@@ -255,6 +363,8 @@ async function main() {
   }
 
   if (!await openDetailByCode('docs', 'normal-plugin')) throw new Error('普通插件详情未能打开');
+  await clickDetailTab('能力', 'normal-plugin-detail-1024-capabilities.png');
+  await clickDetailTab('运行记录', 'normal-plugin-detail-1024-runtime.png');
   await clickDetailTab('技术详情', 'normal-plugin-detail-1024-technical.png');
   const technicalOverflow = await page.evaluate(() => document.querySelector('[data-testid="plugin-detail-drawer"]')?.scrollWidth > document.querySelector('[data-testid="plugin-detail-drawer"]')?.clientWidth);
   if (technicalOverflow) throw new Error('技术详情在 1024 宽度下撑破详情抽屉');

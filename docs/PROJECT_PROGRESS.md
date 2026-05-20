@@ -2,11 +2,17 @@
 
 [返回文档入口](README.md)
 
-更新时间：2026-05-19
+更新时间：2026-05-20
 
 本文档只记录当前仓库真实状态、当前风险和下一步任务。历史版本能力已并入当前分支，详情见对应 Release Notes；旧版本已解决问题不再占用当前主体。
 
 ## 当前版本结论
+
+2026-05-20 追加：新增 `docs/PLUGIN_WEBHOOK_USAGE.md`，把当前已实现的 Webhook 插件子集整理成可执行使用方法：external_service non-blocking 投递、Webhook Secret、Callback Token、健康检查、投递记录、异常处理和排障入口。该追加只改文档，不改 API、不改 Webhook 协议、不改 Secret / Token 安全模型，不开放第三方代码执行、远程 iframe 或 blocking Hook。
+
+2026-05-20 补充：`v1.8.3-S18` 完成插件后台按钮行为与旧路由跳转回归修复。本轮只修后台 UI / 路由 / 回归脚本：插件详情抽屉内原 `/admin-next/...` 绝对跳转改为当前 router base 下的 `/plugins/...`、`/audit-logs` 和插件内容页路径；详情抽屉被压缩后隐藏的 Webhook、Webhook 密钥、回调 Token、前端挂载、审计、Hook、readiness、dependencies、content_type、permissions、migrations、routes 等旧 Tab 入口会落到现有“能力 / 运行记录 / 技术详情”并显示中文合并说明，不再无反应或打开空白 Tab。旧路由新增 / 修正 `/plugins/package-uploads`、`/plugins/remote-packages`、`/plugins/webhook-*`、`/plugins/callback-*` 等映射，并允许低频 Tab 在通过旧路由或 query 定位时临时显示；Webhook `retry/circuits/callback-tokens/callback-requests` query 会归一到 `exceptions/callback_tokens/callback_requests`，刷新和前进 / 后退保持当前 Tab。`scripts/check-admin-plugin-ia.sh` 已扩展到 S18：浏览器回归 5 个治理域、主要按钮点击、详情抽屉“配置 / 能力 / 运行记录 / 技术详情”、旧路由映射、标题 / 面包屑 / 页面不白屏和敏感字段检查，截图目录 `.devhub/screenshots/plugin-ia`。已执行 `./scripts/check-admin-plugin-ia.sh` 通过；已执行 `./scripts/check-frontend.sh --admin-only --quick` 通过，日志目录 `.devhub/checks/20260520-185855/`。本轮未改变 API、插件底层逻辑、Webhook 协议、Secret / Token 安全模型，未开放远程 iframe、第三方代码执行或 blocking Hook。
+
+2026-05-20 追加：继续复查 S18 后被隐藏的低频技术入口，并把插件列表按钮也改成任务导向口径。插件详情“技术详情”已按“启用检查 / 迁移明细 / 导出本地插件包 / 原始声明 JSON”做最小分组：启用检查从隐藏旧 readiness Tab 恢复到可见分组，可刷新检查并运行启用预检，真正启用仍走既有后端校验；迁移明细保持可见并补齐重试按钮所需的前端 API import，兼容耗时和 rollback 字段；导出本地插件包入口继续可见，导出范围仍仅为 manifest、README、config.example.json、checksums，不包含敏感配置、用户数据、运行时代码或外部 SQL；config_schema、resolved_config、content_type、权限、前端挂载、Webhook / Hook 和运行健康原始摘要继续收纳到默认折叠的原始声明 JSON，并脱敏显示。插件总览、插件列表、插件详情和长期文档现在统一按“任务 -> 入口”表述：日常处理去总览 / 列表 / 详情，安装升级去插件包治理，投递与密钥去 Webhook 治理，发布者和可信性去发布者与信任，操作历史和排障去运行记录 / 审计，原始声明和技术字段去详情技术详情；插件列表主按钮已改为“看详情 / 处理配置 / 更多任务 / 去审计 / 去启用 / 去停用 / 做启用检查 / 去软卸载 / 恢复入口”，顶部安装动作改为“校验清单 / 查看预检 / 去安装”。已执行 `./scripts/check-frontend.sh --admin-only --quick` 通过，日志目录 `.devhub/checks/20260520-202752/`；已执行 `./scripts/check-admin-plugin-ia.sh` 通过，截图目录 `.devhub/screenshots/plugin-ia`。该追加仍只改后台 UI 和文档，不改变 API、插件底层逻辑、Webhook 协议、Secret / Token 安全模型，不开放远程 iframe、第三方代码执行或 blocking Hook。
 
 2026-05-19 补充：完成当前版本口径统一到 `v1.8.3`。`VERSION` 已从 `v1.7.1` 更新为 `v1.8.3`；README、docs/README、AGENT_RULES、PROJECT_PROGRESS、PLUGIN_ARCHITECTURE、PLUGIN_SYSTEM_ROADMAP、PLUGIN_PACKAGE、PLUGIN_WEBHOOK_IMPLEMENTATION_PLAN、v1.8.3 release notes 和 CHANGELOG 已同步把“当前版本 / 当前主线 / 当前范围”统一到 v1.8.3。历史 v1.7.x / v1.8.0-v1.8.2 release notes 和追溯章节保留为历史背景，不再作为当前任务口径。本轮只改版本声明和文档，不改业务逻辑；按仓库手动测试规则，未执行测试或构建，手动验证入口仍为 `./scripts/test-all.sh`。
 
@@ -14,7 +20,7 @@
 
 2026-05-19 补充：`v1.8.3-S16` 继续压缩后台插件治理复杂度。左侧仍保持 5 个治理域不变，但每个治理域的默认可见内容进一步减少：插件总览只保留概览摘要、插件列表、待处理事项和快捷操作，低频内容沉到“高级治理”；插件包治理改为流程型工作台，默认突出上传 / 预检 / 转入本地仓库 / 安装 dry-run / 安装 / 结果 / 审计的任务顺序，阻断原因和下一步操作放到最前；Webhook 治理默认聚焦总览、投递记录和异常处理，密钥 / Token / 回调请求 / 原始 JSON 进入“高级治理”；发布者与信任和运行记录 / 审计同样把技术字段与低频表格收进折叠区；插件详情抽屉进一步压缩为概览、配置、能力、运行、技术详情，低频治理入口转为跳转按钮。`official_announcement` 详情仍保留配置、挂载和预览提示，但不再把能力 Tab 细节堆满首屏。`scripts/check-admin-plugin-ia.sh` 已同步当前抽屉与治理域结构并完成浏览器回归，截图目录 `.devhub/screenshots/plugin-ia`；后台 quick 仍通过，日志目录 `.devhub/checks/20260519-174754/`。本轮不改变 API、插件逻辑、Webhook 协议或 Secret / Token 安全模型，也不开放远程 iframe、第三方代码执行或 blocking Hook。
 
-2026-05-19 补充：`v1.8.3-S14` 完成 `external_service` non-blocking Webhook 投递闭环。声明型插件 Hook 声明新增 `service_type=external_service`、`path`、`method`、`retry_enabled`、`max_attempts`、`enabled` 等治理字段，manifest 校验强制 external_service Hook 只能使用 `mode=non_blocking`、相对路径和第一版 `POST`，blocking Hook 仍未开放。HookBus 触发后会先创建 `hook_executions(service_type=external_service)` 的 `pending` 记录，再异步向 `{endpoint_url}{hook.path}` 投递 JSON payload，主业务流程不等待远端响应；投递支持 `timeout_ms`、`auth_type=none|bearer`、失败重试、`retry_scheduled/retry_exhausted/skipped` 状态、`request_body_sha256`、`execution_id/event_id/idempotency_key` 追踪和健康状态 before/after metadata。连续失败按 `failure_policy=ignore|warn|error|disable_hook` 更新 external_service healthy / warning / error，成功后恢复 healthy 并清零 failure_count；插件 disabled / archived / soft_uninstalled、external_service disabled、子站 disabled、endpoint/token 缺失时不调用 endpoint，只记录 skipped / failed 原因。后台沿用既有 Hook 执行记录接口和详情抽屉 external_service 执行记录入口展示投递结果。token 明文、Authorization Header、Webhook Secret、Callback Token 和敏感 payload 不进入执行记录、日志或审计。本轮不执行第三方代码、不开放动态加载、不开放远程 iframe、不实现 blocking Hook，不改变 Webhook Secret / Callback Token 安全模型。
+2026-05-19 补充：`v1.8.3-S14` 完成 `external_service` non-blocking Webhook 投递闭环。声明型插件 Hook 声明新增 `service_type=external_service`、`path`、`method`、`retry_enabled`、`max_attempts`、`enabled` 等治理字段，manifest 校验强制 external_service Hook 只能使用 `mode=non_blocking`、相对路径和第一版 `POST`，blocking Hook 仍未开放。HookBus 触发后会先创建 `hook_executions(service_type=external_service)` 的 `pending` 记录，再异步向 `{endpoint_url}{hook.path}` 投递 JSON payload，主业务流程不等待远端响应；投递支持 `timeout_ms`、`auth_type=none|bearer`、失败重试、`retry_scheduled/retry_exhausted/skipped` 状态、`request_body_sha256`、`execution_id/event_id/idempotency_key` 追踪和健康状态 before/after metadata。连续失败按 `failure_policy=ignore|warn|error|disable_hook` 更新 external_service healthy / warning / error，成功后恢复 healthy 并清零 failure_count；插件 disabled / archived / soft_uninstalled、external_service disabled、子站 disabled、endpoint/token 缺失时不调用 endpoint，只记录 skipped / failed 原因。这里的 external_service 仍只是插件运行模型里的 non-blocking delivery 子集，不等于完整第三方运行模型已经实现。后台沿用既有 Hook 执行记录接口和详情抽屉 external_service 执行记录入口展示投递结果。token 明文、Authorization Header、Webhook Secret、Callback Token 和敏感 payload 不进入执行记录、日志或审计。本轮不执行第三方代码、不开放动态加载、不开放远程 iframe、不实现 blocking Hook，不改变 Webhook Secret / Callback Token 安全模型。
 
 2026-05-19 补充：完成“后台插件中心中文状态和异常提示统一”收口。后台前端新增插件模块集中映射 `web/admin-app/src/modules/plugins/statusText.js`，统一插件状态、插件包风险、阻断原因、Hook / 健康原因、操作名和建议文案；`formatters.js`、`PluginStatusTag`、`PluginRiskTag` 与插件包上传 / promote / install、远程索引、版本升级、配置中心、内容治理、配置密钥、Hook、依赖、详情抽屉等页面统一接入中文展示。前端 HTTP 错误展示会优先使用后端中文 `message`，当旧接口只返回 `code` 时使用插件映射兜底，并保留“错误码：xxx”供排障。后端插件接口既有 `APIError{code,message,suggestion}` 结构保持兼容，未改变状态枚举、API code、插件生命周期、Webhook 协议、Secret / Token 安全模型，也未引入全站 i18n 框架或多语言体系。
 
@@ -54,7 +60,7 @@
 
 2026-05-18 补充：后台“安装升级 / 本地插件仓库”页面已将“本地仓库 / 初始化插件包 / 上传 zip”收敛为页内 tab，避免左侧导航、顶部页签和页面内多块表单形成三层堆叠；左侧“zip 上传包”改名为“上传记录”以区分上传动作与上传包生命周期列表。本轮未执行测试。
 
-当前 `VERSION` 为 `v1.8.3`，当前主线是“后台插件治理稳定性与中文体验优化版”。代码和文档重点已从早期插件包签名验签 / 运行模型设计，推进到真实插件包验收、声明型插件“安装到使用”闭环、PluginRegistry reload 运行态刷新、external_service non-blocking Webhook、后台插件治理中文提示和安全边界收口。旧 `v1.7.x` 段落保留为历史背景，不再作为当前任务口径。
+当前 `VERSION` 为 `v1.8.3`，当前主线是“后台插件治理稳定性与中文体验优化版”。代码和文档重点已从早期插件包签名验签 / 运行模型设计，推进到真实插件包验收、声明型插件“安装到使用”闭环、PluginRegistry reload 运行态刷新、external_service non-blocking Webhook 子集、后台插件治理中文提示和安全边界收口。旧 `v1.7.x` 段落保留为历史背景，不再作为当前任务口径。
 
 补充：`v1.7.3` 定义为“Webhook / HTTP 插件服务协议实现拆解与官方示例插件验证准备版”。本仓库已新增/更新对应文档（实现阶段拆解 + 官方公告插件验证方案），但 **v1.7.3 仍是文档与任务拆解阶段**：未实现真实 Webhook 投递、重试队列、熔断或插件回调 Core API token；不执行第三方代码、不做动态加载。
 

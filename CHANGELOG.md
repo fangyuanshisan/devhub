@@ -4,6 +4,7 @@
 
 ### Documentation
 
+- 新增 Webhook 插件使用方法文档 `docs/PLUGIN_WEBHOOK_USAGE.md`，把 external_service non-blocking 投递、Webhook Secret、Callback Token、健康检查、投递记录、异常处理和排障入口整理成管理员可执行流程；仅补文档，不改 API、Webhook 协议或安全模型。
 - 当前版本口径统一到 `v1.8.3`：`VERSION` 从 `v1.7.1` 更新为 `v1.8.3`，README、docs/README、AGENT_RULES、PROJECT_PROGRESS、PLUGIN_ARCHITECTURE、PLUGIN_SYSTEM_ROADMAP、PLUGIN_PACKAGE、PLUGIN_WEBHOOK_IMPLEMENTATION_PLAN 和 v1.8.3 release notes 已同步当前主线说明；历史 v1.7.x 文档保留为追溯背景。
 - v1.8.0：新增插件前端挂载模型设计文档（slots + iframe/sandbox + postMessage 协议与权限/状态 gating），明确官方公告插件作为首个前后台挂载验证方向（文档设计，未修改代码、未执行测试）。
 
@@ -25,6 +26,10 @@
 - v1.8.3-S13：新增真实插件包 fixture 验收 S12 链路。脚本可生成 valid / blocked / deprecated schema 三类 zip，后台 E2E 用真实 Admin API 验证上传、预检、blocked promote 拒绝、promote 入本地仓库、安装前重新 dry-run、安装、审计和插件包治理页面 smoke；不执行第三方代码，不开放动态加载，不改变 Webhook 协议或 Secret / Token 安全模型。
 - v1.8.3-S15：新增真实声明型友情链接插件 fixture 验收“安装到使用”完整闭环。`devhub-fixture-links-plugin*.zip` 通过真实 Admin API 覆盖 upload、precheck、promote、本地仓库 install dry-run、install、PluginRegistry reload、全局启用、子站启用、菜单、`friend_link*` content_type、权限矩阵、配置读写、禁用 / 归档阻断和历史内容可读；后台 `admin/posts` 可在受控 admin 场景显式携带声明型 `category_id/content_type/plugin_code` 并继续走 Service 层校验，避免 manifest 内容类型创建时回退到 `core`。不执行第三方代码、不开放动态加载、不开放远程 iframe、不实现 blocking Hook。
 - v1.8.3-S16：继续压缩后台插件治理复杂度。5 个治理域保持不变，但默认界面进一步轻量化：插件总览低频入口沉到“高级治理”，插件包治理改为 upload/precheck/promote/install dry-run/install 的流程型工作台，Webhook 治理聚焦投递记录和异常处理，发布者与信任、运行记录 / 审计弱化技术字段，插件详情抽屉压缩为当前插件摘要、能力、运行和技术详情入口。`scripts/check-admin-plugin-ia.sh` 已同步新抽屉结构并完成浏览器截图回归；后台 quick build 通过。不改变 API、插件逻辑、Webhook 协议或 Secret / Token 安全模型。
+- v1.8.3-S18：修复插件后台按钮行为与旧路由跳转回归。插件详情抽屉治理按钮不再跳到错误 `/admin-next` 路径；被压缩隐藏的 Webhook、密钥、Token、前端挂载、审计、Hook、readiness、dependencies、content_type、permissions、migrations、routes 等旧入口会落到现有 Tab 并显示中文合并说明；补齐 `/plugins/package-uploads`、`/plugins/remote-packages`、`/plugins/webhook-*`、`/plugins/callback-*` 等旧路由到新治理域 / Tab 的映射。浏览器 IA 回归和后台 quick build 通过；不改变 API、插件逻辑、Webhook 协议或 Secret / Token 安全模型。
+- v1.8.3-S18 追加：复查隐藏旧技术入口，插件详情“技术详情”按启用检查、迁移明细、导出本地插件包、原始声明 JSON 做最小分组；启用检查和迁移明细不再依赖隐藏旧 Tab，迁移重试按钮补齐前端 API import，导出入口保持可见，原始声明继续默认折叠和脱敏。不改变 API、插件逻辑、Webhook 协议或 Secret / Token 安全模型。
+- v1.8.3-S18 再追加：把插件总览、详情抽屉和长期文档统一改成任务导向口径。管理员现在先按“安装 / 启用 / 排障 / 看审计 / 管密钥 / 看原始声明”判断入口，再进入对应治理域，不再只靠页面名猜位置。不改变 API、插件逻辑、Webhook 协议或 Secret / Token 安全模型。
+- v1.8.3-S18 再再追加：插件列表主按钮和行内动作也统一成任务语言，主按钮改为“校验清单 / 查看预检 / 去安装”，行内动作改为“看详情 / 处理配置 / 更多任务 / 去审计 / 去启用 / 去停用 / 做启用检查 / 去软卸载 / 恢复入口”。不改变 API、插件逻辑、Webhook 协议或 Secret / Token 安全模型。
 - 后台插件中心中文状态和异常提示统一：新增 `web/admin-app/src/modules/plugins/statusText.js` 作为插件模块状态 / 风险 / 阻断原因 / Hook 健康原因 / 操作名 / 建议文案集中映射；插件列表、详情、上传包、promote/install、远程索引、版本升级、配置密钥等页面复用同一中文口径；前端错误提示优先展示中文 message，仅有 code 时映射中文并保留错误码。未改变 API code、状态枚举、插件生命周期或安全边界。
 - 优化插件后台公共筛选条布局：标题说明置顶、筛选控件网格排布、按钮与条件同行，改善宽屏下控件过长和按钮位置松散的问题。
 - 调整插件模块二级导航呈现：保留左侧二级导航栏，在“插件管理”分组下直接展示 5 个治理域，页内 Tab 继续作为三级导航。

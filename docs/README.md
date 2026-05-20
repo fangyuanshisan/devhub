@@ -41,63 +41,66 @@ DevHub 当前文档围绕 `v1.8.3` 后台插件治理稳定性、声明型插件
 10. [Webhook 协议实现拆解（v1.7.3）](PLUGIN_WEBHOOK_IMPLEMENTATION_PLAN.md)
    - 将协议设计拆成可落地阶段：non_blocking delivery、delivery 记录、重试队列、熔断、签名与鉴权、后台治理入口；并明确 blocking Hook 后置。
 
+11. [Webhook 插件使用方法](PLUGIN_WEBHOOK_USAGE.md)
+   - 面向管理员的实操指南：external_service non-blocking 投递、Webhook Secret、Callback Token、健康检查、投递记录和排障入口。
+
 补充（v1.7.8 已落地）：
 
 - 官方 mock receiver：`cmd/webhook-mock-receiver/main.go`（用于端到端验签/失败注入/重试熔断验证；不执行第三方代码）
 
-11. [插件 SDK 文档](PLUGIN_SDK.md)
+12. [插件 SDK 文档](PLUGIN_SDK.md)
    - 插件声明规范、生命周期、manifest 字段、内容类型、权限、菜单、配置、Hook、migration 和安全边界。
 
-11. [插件生成模板](PLUGIN_TEMPLATE.md)
+13. [插件生成模板](PLUGIN_TEMPLATE.md)
    - `go run ./cmd/devhub plugin:new` 脚手架用法、生成目录、校验规则和模板边界。
 
-12. [本地插件包规范（草案）](PLUGIN_PACKAGE.md)
+14. [本地插件包规范（草案）](PLUGIN_PACKAGE.md)
    - 插件包目录结构、允许/危险文件规则、大小限制，以及本地插件包 dry-run 导入预览接口与后台入口。
    - v1.7 补充：远程包 staging 下载、compat-check 与启用前安全检查（enable-precheck）均只做安全治理与结论输出，不会安装/启用/注册/执行。
 
-13. [测试文档](TESTING.md)
+15. [测试文档](TESTING.md)
    - 已实现必测项、后续补测项、必要历史回归和 SEO 回归命令。
 
-14. [v1.8.3 Release Notes](releases/v1.8.3.md)
+16. [v1.8.3 Release Notes](releases/v1.8.3.md)
    - 当前版本口径：后台插件治理稳定性与中文体验、PluginRegistry reload、声明型插件可用闭环、真实插件包验收、external_service non-blocking Webhook 和真实声明型插件“安装到使用”闭环。
 
-15. [v1.7.2 Release Notes](releases/v1.7.2.md)
+17. [v1.7.2 Release Notes](releases/v1.7.2.md)
    - 插件运行模型设计：Core 内置插件、外部 HTTP 服务插件、iframe / sandbox 前端插件、受控 API、HookBus、隔离边界和 manifest 运行字段设计。作为历史设计背景保留。
 
-16. [v1.8.0 Release Notes](releases/v1.8.0.md)
+18. [v1.8.0 Release Notes](releases/v1.8.0.md)
    - 官方插件前端挂载模型与 iframe/sandbox 容器设计：slots、postMessage 协议与权限/状态 gating（文档设计，不修改代码）。
 
-17. [v1.8.1 Release Notes](releases/v1.8.1.md)
+19. [v1.8.1 Release Notes](releases/v1.8.1.md)
    - 官方公告插件前端挂载最小实现：内置官方插件 + Host + iframe + postMessage 最小闭环（不执行第三方代码，不允许远程 iframe URL）。
 
-18. [v1.8.2 Release Notes](releases/v1.8.2.md)
+20. [v1.8.2 Release Notes](releases/v1.8.2.md)
    - iframe / sandbox 通用容器与 postMessage Host helper：前台首页、`/c/:slug` 与后台插件详情复用统一挂载机制（仅 allowlist 官方内置插件；仍不允许远程 iframe URL）。
 
-19. [v1.7.3 Release Notes](releases/v1.7.3.md)
+21. [v1.7.3 Release Notes](releases/v1.7.3.md)
    - Webhook / HTTP 插件服务协议实现拆解：以 non_blocking delivery 为第一优先级，拆解 delivery 记录、重试队列、熔断、签名鉴权与后台治理入口；并准备官方公告插件端到端验证方案。本轮只改文档，不新增真实投递实现。
 
-20. [v1.7.1 Release Notes](releases/v1.7.1.md)
+22. [v1.7.1 Release Notes](releases/v1.7.1.md)
    - 插件包 detached signature（devhub-signature.json）验签与可信发布者增强：Ed25519 真实验签、验签记录、与 compat-check/install/upgrade 联动、默认阻断 unsigned。
 
-21. [v1.7.0 Release Notes](releases/v1.7.0.md)
+23. [v1.7.0 Release Notes](releases/v1.7.0.md)
    - 远程插件包治理与安装安全增强：远程包安全下载到 staging、解压安全检查与 manifest 预校验、compat-check、安装事务/回滚、enable-precheck、enable、软卸载与升级任务闭环（不执行第三方代码、不自动更新、不做市场）。
 
-22. [v1.6.0 Release Notes](releases/v1.6.0.md)
+24. [v1.6.0 Release Notes](releases/v1.6.0.md)
    - 插件包上传与分发前置能力：zip 上传安全沙箱、上传包生命周期、真实签名验签、可信发布者、远程索引、版本仓库、失败恢复预览、配置密钥轮换和后台 UI 收口。
 
-23. [v1.5.0 Release Notes](releases/v1.5.0.md)
+25. [v1.5.0 Release Notes](releases/v1.5.0.md)
    - 插件包治理收口：本地插件包规范、dry-run、checksum / 风险报告、仓库扫描、安装闭环、配置版本历史、敏感配置加密、审批流、导出与签名/可信来源草案。
 
-24. [v1.4.0 Release Notes](releases/v1.4.0.md)
+26. [v1.4.0 Release Notes](releases/v1.4.0.md)
    - 插件内容治理增强：精确过滤、批量治理、审计闭环和当前验收记录。
 
-25. [v1.3.5 Release Notes](releases/v1.3.5.md)
+27. [v1.3.5 Release Notes](releases/v1.3.5.md)
     - 插件治理中心信息架构、完整安装 / 升级向导、批量归档 / 恢复影响预览、状态治理页和最小 E2E 回归。
 
-26. [部署启动文档](DEPLOYMENT.md)
+28. [部署启动文档](DEPLOYMENT.md)
    - 本地启动、构建行为、8090 端口排查、Go 模块网络和二进制排障启动。
 
-27. [备份与回滚文档](BACKUP_AND_ROLLBACK.md)
+29. [备份与回滚文档](BACKUP_AND_ROLLBACK.md)
     - v1.x 上线前后需要备份的内容、MySQL 备份恢复、二进制回滚、Git 回滚和紧急回滚流程。
 
 ## 历史版本归档
