@@ -30,4 +30,3 @@ func (s *Server) listAdminWebhookEvents(c *gin.Context) {
 	}
 	c.JSON(http.StatusOK, res)
 }
-

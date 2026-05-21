@@ -21,6 +21,7 @@ const (
 	webhookSecretBytesDefault       = 32
 	webhookSecretGracePeriodDefault = 24 * time.Hour
 	webhookSignatureAlgHMACSHA256   = "HMAC-SHA256"
+	webhookTargetURLMaxLength       = 512
 )
 
 type WebhookSecretOperator struct {
@@ -83,6 +84,9 @@ func (s *Service) CreatePluginWebhookSecret(operator WebhookSecretOperator, req 
 	targetURL := strings.TrimSpace(req.TargetURL)
 	if pluginCode == "" || targetURL == "" {
 		return CreateWebhookSecretResponse{}, domain.NewPluginError("webhook_secret_invalid", "plugin_code/target_url 必填").WithStatus(400)
+	}
+	if len(targetURL) > webhookTargetURLMaxLength {
+		return CreateWebhookSecretResponse{}, domain.NewPluginError("webhook_secret_target_url_too_long", "target_url 过长，最多 512 个字符").WithStatus(400)
 	}
 	if _, err := url.Parse(targetURL); err != nil {
 		return CreateWebhookSecretResponse{}, domain.NewPluginError("webhook_secret_invalid", "target_url 不合法").WithStatus(400)

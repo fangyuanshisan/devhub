@@ -22,6 +22,46 @@ Codex / Agent 默认不要在完成任务时自动跑测试、E2E 或完整验�
 ./scripts/test-all.sh --frontend-only --quiet
 ```
 
+## v1.8.3 插件系统发布前总验收记录
+
+执行日期：2026-05-21。
+
+本轮验收覆盖 official_links 声明型插件完整链路、official_webhook_notify external_service Webhook 链路、插件升级 dry-run / confirm / blocked / warning / failure_stage、声明型插件开发者指南与两个官方模板、frontend_mount 官方 allowlist、MemoryStore / MySQLStore 双模式、后台插件治理页面稳定性和文档一致性。
+
+执行结果：
+
+1. `gofmt -l`：通过，无未格式化 Go 文件。
+2. `go test ./...`：通过，使用 Docker `golang:1.22-bookworm`。
+3. `go build ./...`：通过，使用 Docker `golang:1.22-bookworm`。
+4. 插件专项定向测试：通过，覆盖 package dry-run、official_webhook_notify、external_service health / disabled gating、manual retry 相关链路、upgrade、frontend_mount allowlist 和公共插件 API 敏感字段剥离。
+5. `./scripts/build-plugin-package-fixtures.sh --suffix total-acceptance`：通过，可生成声明型插件包 fixture。
+6. `./scripts/check-frontend.sh --admin-only --quick`：通过，日志目录 `.devhub/checks/20260521-140147/`。
+7. `./scripts/check-frontend.sh --frontend-only --quick`：通过，日志目录 `.devhub/checks/20260521-140207/`。
+8. `./scripts/check-admin-plugin-ia.sh`：通过，截图目录 `.devhub/screenshots/plugin-ia`。
+9. `./dev.sh start --mysql`：通过；完整经过 MySQL ready、临时 API、前台构建、后台构建和最终 Go 服务启动。
+10. MySQL smoke：通过；`/api/v1/health` 返回 `store=mysql`，后台登录、插件列表、审计列表可访问，公共插件列表未暴露 `config_json`、`resolved_config`、`frontend_mounts`。
+11. `git diff --check`：通过。
+
+未完成 / 环境限制：
+
+- 额外尝试执行 MySQLStore 可选集成单测 `DEVHUB_MYSQL_TESTS=1 ... go test ./internal/service -run TestMySQLStorePluginPlatformConsistency -count=1 -v` 两次，均在测试 setup 前因容器下载 `github.com/go-sql-driver/mysql@v1.8.1` 发生 `TLS handshake timeout` 失败，未进入测试用例本体；该项不记录为通过。MySQL 模式应用启动和 smoke 已按上方记录通过。
+
+验收中修复：
+
+- MySQLStore 新装 schema 中 `plugin_webhook_secrets` 与 `webhook_circuit_breakers` 的 `(plugin_code, target_url)` 相关索引在 utf8mb4 下超出 MySQL 3072 byte 限制；已将两个被索引的 `target_url` 字段从 `VARCHAR(1000)` 收敛为 `VARCHAR(512)`，并同步 `db/mysql/001_schema.sql` 与 `internal/store/schema.go`。Webhook Secret 创建同步增加 `target_url` 512 字符上限校验；未参与索引的 `webhook_deliveries.target_url` 保持原长度。
+
+验收结论：
+
+1. official_links 链路由真实声明型 fixture、package dry-run / install / enable / community enable / content_type / 权限矩阵 / 配置 / disabled / archived 阻断用例覆盖；dry-run 不执行 SQL，install 只基于 `migrations/`。
+2. official_webhook_notify 链路由官方样板包 dry-run、external_service 配置、health check、hook_executions、manual retry 和 token 不回显规则覆盖；投递失败不阻塞主业务，blocking Hook 未开放。
+3. upgrade 链路继续要求 warning 显式确认，blocked 不可绕过；dry-run 不执行 SQL、不改变安装状态、不刷新 registry，失败阶段和下一步建议可见。
+4. frontend_mount 只支持官方 allowlist；未知挂载点 / 组件、远程 iframe / JS、inline HTML、remote component、eval 和可执行 JS 入口资产会被阻断，运行时过滤 disabled / archived / 子站 disabled 插件并过滤敏感 props。
+5. MemoryStore 与 MySQLStore 在本轮关键插件能力 smoke 和自动化测试范围内保持一致；MySQLStore 已验证 schema 初始化、插件列表、审计和公共插件 API 敏感字段剥离。
+6. 后台治理页面 quick build 与 S18 插件 IA 浏览器回归均通过；旧路由 / 入口 / 按钮矩阵继续由 `.devhub/screenshots/plugin-ia` 记录。
+7. 安全边界保持：不执行第三方代码、不开放 Go plugin / JS 沙箱 / 远程 iframe / remote component / 插件市场 / 远程在线安装 / blocking Hook；token / secret / Authorization 不回显，不进日志或审计明文。
+
+发布建议：`v1.8.3` 插件系统可进入冻结候选；冻结前仍建议按发布流程人工复核真实浏览器点击矩阵、生产 MySQL 大库备份 / 回滚演练和部署环境密钥配置。
+
 ## 后台插件中心中文状态和异常提示统一验收项
 
 说明：本轮只覆盖后台插件模块中文状态、按钮、错误提示、风险提示和异常原因收口，不引入完整 i18n 框架，不改变英文枚举真实值或 API `code` 字段。

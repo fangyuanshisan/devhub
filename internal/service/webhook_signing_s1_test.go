@@ -281,6 +281,27 @@ func TestWebhookSigning_Remote401DoesNotRetry(t *testing.T) {
 	}
 }
 
+func TestCreatePluginWebhookSecretRejectsTooLongTargetURL(t *testing.T) {
+	old := os.Getenv("DEVHUB_E2E_TESTING")
+	_ = os.Setenv("DEVHUB_E2E_TESTING", "1")
+	t.Cleanup(func() { _ = os.Setenv("DEVHUB_E2E_TESTING", old) })
+
+	repo := store.NewMemoryStore()
+	svc := New(repo)
+
+	_, err := svc.CreatePluginWebhookSecret(WebhookSecretOperator{ID: 1, Name: "admin"}, CreateWebhookSecretRequest{
+		PluginCode: "qa",
+		TargetURL:  "https://example.com/hooks/" + strings.Repeat("x", webhookTargetURLMaxLength),
+	})
+	if err == nil {
+		t.Fatal("expected too long target_url to be rejected")
+	}
+	apiErr, ok := err.(*domain.APIError)
+	if !ok || apiErr.Code != "webhook_secret_target_url_too_long" {
+		t.Fatalf("unexpected error: %T %v", err, err)
+	}
+}
+
 func gotTimestamp(headersJSON string) string {
 	var m map[string]string
 	_ = json.Unmarshal([]byte(headersJSON), &m)

@@ -2869,6 +2869,12 @@ GET /api/v1/admin/plugins/remote-indexes/:id/plugins/:code
 }
 ```
 
+校验：
+
+- `plugin_code` 与 `target_url` 必填。
+- `target_url` 必须是可解析 URL，且最长 512 个字符；超过时返回 `webhook_secret_target_url_too_long`，用于避免 MySQLStore 下 Webhook Secret / Circuit Breaker 联合索引超长。
+- 创建 / 轮换成功响应以外，Secret 明文不会回显。
+
 响应示例（注意：`secret` 字段只返回一次）：
 
 ```json

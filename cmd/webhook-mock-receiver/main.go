@@ -229,4 +229,3 @@ func writeJSON(w http.ResponseWriter, status int, v any) {
 	enc.SetEscapeHTML(true)
 	_ = enc.Encode(v)
 }
-

@@ -744,7 +744,7 @@ CREATE TABLE IF NOT EXISTS webhook_deliveries (
 CREATE TABLE IF NOT EXISTS plugin_webhook_secrets (
   id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
   plugin_code VARCHAR(64) NOT NULL,
-  target_url VARCHAR(1000) NOT NULL,
+  target_url VARCHAR(512) NOT NULL,
   secret_ref VARCHAR(128) NOT NULL,
   secret_ciphertext VARCHAR(512) NOT NULL DEFAULT '',
   secret_hash VARCHAR(128) NOT NULL DEFAULT '',
@@ -771,7 +771,7 @@ CREATE TABLE IF NOT EXISTS plugin_webhook_secrets (
 CREATE TABLE IF NOT EXISTS webhook_circuit_breakers (
   id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
   plugin_code VARCHAR(64) NOT NULL,
-  target_url VARCHAR(1000) NOT NULL,
+  target_url VARCHAR(512) NOT NULL,
   status ENUM('closed','open','half_open') NOT NULL DEFAULT 'closed',
   failure_count INT NOT NULL DEFAULT 0,
   success_count INT NOT NULL DEFAULT 0,
