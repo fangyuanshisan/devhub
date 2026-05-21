@@ -215,32 +215,71 @@
           <section class="compact-section mt" data-testid="plugin-external-service-runtime">
             <div class="section-head">
               <div>
-                <h4>外部服务</h4>
-                <p>external_service 仅做受控 HTTP 探活和执行记录，不执行第三方插件代码。</p>
+                <h4>外部服务配置</h4>
+                <p>配置 DevHub 异步投递的 external_service endpoint；只做 HTTP 投递，不执行第三方插件代码。</p>
               </div>
-              <el-button size="small" type="primary" plain :loading="externalServiceLoading" :disabled="!externalServiceConfigured || plugin.status !== 'enabled'" @click="runExternalServiceHealthCheck">
-                健康检查
-              </el-button>
+              <div class="section-actions">
+                <el-button size="small" plain :loading="externalServiceSaving" @click="resetExternalServiceForm">重置配置</el-button>
+                <el-button size="small" type="primary" :loading="externalServiceSaving" @click="saveExternalServiceConfig">保存配置</el-button>
+                <el-button size="small" type="success" plain :loading="externalServiceLoading" :disabled="!externalServiceConfigured || plugin.status !== 'enabled'" @click="runExternalServiceHealthCheck">
+                  执行健康检查
+                </el-button>
+              </div>
             </div>
-            <el-empty v-if="!externalServiceConfigured" description="暂无外部服务配置" :image-size="80" />
-            <template v-else>
-              <el-descriptions :column="2" border size="small">
-                <el-descriptions-item label="服务地址">{{ externalService.endpoint_url || '-' }}</el-descriptions-item>
-                <el-descriptions-item label="健康状态">
-                  <el-tag :type="externalServiceHealthType(externalService.last_health_status || externalService.status)">
-                    {{ externalServiceHealthLabel(externalService.last_health_status || externalService.status) }}
-                  </el-tag>
-                </el-descriptions-item>
-                <el-descriptions-item label="超时时间">{{ externalService.timeout_ms || 3000 }} ms</el-descriptions-item>
-                <el-descriptions-item label="失败策略">{{ externalServiceFailurePolicyLabel(externalService.failure_policy) }}</el-descriptions-item>
-                <el-descriptions-item label="认证方式">{{ externalServiceAuthLabel(externalService.auth_type) }}</el-descriptions-item>
-                <el-descriptions-item label="连续失败">{{ externalService.failure_count || 0 }}</el-descriptions-item>
-                <el-descriptions-item label="最近检查">{{ externalService.last_checked_at || '-' }}</el-descriptions-item>
-                <el-descriptions-item label="最近失败">{{ externalService.last_failure_at || '-' }}</el-descriptions-item>
-                <el-descriptions-item label="失败原因" :span="2">{{ externalService.last_error_message || '-' }}</el-descriptions-item>
-              </el-descriptions>
-              <el-alert class="mt" type="warning" show-icon :closable="false" title="Token 明文、Authorization Header、Webhook Secret 和 Callback Token 不会在列表、详情或执行记录中展示。" />
-            </template>
+            <el-form class="external-service-form" label-width="130px" size="small" data-testid="plugin-external-service-form">
+              <el-form-item label="启用投递">
+                <el-switch v-model="externalServiceForm.enabled" active-text="启用" inactive-text="停用" />
+              </el-form-item>
+              <el-form-item label="服务地址">
+                <el-input v-model="externalServiceForm.endpoint_url" placeholder="https://example.com 或 http://localhost:19090" data-testid="plugin-external-service-endpoint" />
+              </el-form-item>
+              <el-form-item label="健康检查路径">
+                <el-input v-model="externalServiceForm.health_check_path" placeholder="/health" />
+              </el-form-item>
+              <div class="external-service-grid">
+                <el-form-item label="超时时间">
+                  <el-input-number v-model="externalServiceForm.timeout_ms" :min="500" :max="10000" :step="500" controls-position="right" />
+                </el-form-item>
+                <el-form-item label="失败策略">
+                  <el-select v-model="externalServiceForm.failure_policy">
+                    <el-option label="达到阈值后警告" value="warn" />
+                    <el-option label="仅记录" value="ignore" />
+                    <el-option label="达到阈值后异常" value="error" />
+                    <el-option label="异常后暂停 Hook" value="disable_hook" />
+                  </el-select>
+                </el-form-item>
+                <el-form-item label="警告阈值">
+                  <el-input-number v-model="externalServiceForm.warning_threshold" :min="1" :max="100" controls-position="right" />
+                </el-form-item>
+                <el-form-item label="异常阈值">
+                  <el-input-number v-model="externalServiceForm.error_threshold" :min="1" :max="100" controls-position="right" />
+                </el-form-item>
+              </div>
+              <el-form-item label="认证方式">
+                <el-radio-group v-model="externalServiceForm.auth_type">
+                  <el-radio-button label="none">无认证</el-radio-button>
+                  <el-radio-button label="bearer">Bearer Token</el-radio-button>
+                </el-radio-group>
+                <span v-if="externalServiceHasToken" class="muted ml">已配置密钥 / 可替换</span>
+              </el-form-item>
+              <el-form-item v-if="externalServiceForm.auth_type === 'bearer'" label="Bearer Token">
+                <el-input v-model="externalServiceForm.token" type="password" show-password autocomplete="new-password" placeholder="只写入新 token，不回显明文" data-testid="plugin-external-service-token" />
+              </el-form-item>
+            </el-form>
+            <el-descriptions :column="2" border size="small" class="mt">
+              <el-descriptions-item label="当前服务地址">{{ externalService?.endpoint_url || '尚未配置' }}</el-descriptions-item>
+              <el-descriptions-item label="健康状态">
+                <el-tag :type="externalServiceHealthType(externalService?.last_health_status || externalService?.status)">
+                  {{ externalServiceHealthLabel(externalService?.last_health_status || externalService?.status) }}
+                </el-tag>
+              </el-descriptions-item>
+              <el-descriptions-item label="认证方式">{{ externalServiceAuthLabel(externalService?.auth_type) }}</el-descriptions-item>
+              <el-descriptions-item label="连续失败">{{ externalService?.failure_count || 0 }}</el-descriptions-item>
+              <el-descriptions-item label="最近检查">{{ externalService?.last_checked_at || '-' }}</el-descriptions-item>
+              <el-descriptions-item label="最近失败">{{ externalService?.last_failure_at || '-' }}</el-descriptions-item>
+              <el-descriptions-item label="失败原因" :span="2">{{ externalService?.last_error_message || '-' }}</el-descriptions-item>
+            </el-descriptions>
+            <el-alert class="mt" type="warning" show-icon :closable="false" title="Token 明文、Authorization Header、Webhook Secret 和 Callback Token 不会在列表、详情或执行记录中展示。" />
           </section>
           <div class="sub-toolbar mt">
             <el-button type="primary" plain @click="openRuntimeGovernance('operations')">查看操作历史</el-button>
@@ -635,14 +674,28 @@
         </el-tab-pane>
 
         <el-tab-pane v-if="showLegacyTechnicalTabs" :label="t('plugin.tabs.frontendMount')" name="menus" lazy>
-          <p class="tab-note">说明插件前端如何挂载，以及 iframe、sandbox、postMessage 的安全边界。</p>
+          <p class="tab-note">说明插件前端挂载到哪里、使用哪个官方组件 key，以及当前 allowlist 接受状态。</p>
           <el-alert
             type="info"
             show-icon
             :closable="false"
-            title="前端挂载受插件全局状态、子站状态和当前用户权限共同约束；当前只支持官方内置 iframe 页面，不允许远程 iframe URL。"
+            title="当前只支持官方 allowlist 挂载点和官方组件 key；不开放远程 iframe、远程 JS、插件 HTML 注入或第三方前端运行时。"
             class="mb"
           />
+          <el-table :data="frontendMountRows" border stripe :empty-text="'暂无前端挂载声明'" class="mb">
+            <el-table-column prop="mount_point" label="挂载点" min-width="220">
+              <template #default="{ row }"><span class="mono">{{ row.mount_point || '-' }}</span></template>
+            </el-table-column>
+            <el-table-column prop="component_key" label="组件 key" min-width="220">
+              <template #default="{ row }"><span class="mono">{{ row.component_key || '-' }}</span></template>
+            </el-table-column>
+            <el-table-column label="状态" width="180">
+              <template #default="{ row }">
+                <el-tag size="small" effect="plain" :type="row._statusType">{{ row._statusText }}</el-tag>
+              </template>
+            </el-table-column>
+            <el-table-column prop="message" label="说明" min-width="260" />
+          </el-table>
           <el-descriptions :column="2" border class="mb">
             <el-descriptions-item label="iframe 路由">{{ plugin.code === 'official_announcement' ? '/plugins/official-announcement/iframe' : '未声明内置 iframe' }}</el-descriptions-item>
             <el-descriptions-item label="sandbox 策略">allow-scripts</el-descriptions-item>
@@ -837,7 +890,7 @@
             <el-divider content-position="left">{{ t('plugin.hook.recentExecutions') }}</el-divider>
             <el-button size="small" @click="openHookExecutions()">{{ t('plugin.hook.viewAllExecutions') }}</el-button>
           </div>
-          <el-table :data="hookRecent" border stripe :empty-text="`暂无${t('plugin.hook.recentExecutions')}`" data-testid="hook-recent-table">
+            <el-table :data="hookRecent" border stripe :empty-text="`暂无${t('plugin.hook.recentExecutions')}`" data-testid="hook-recent-table">
             <el-table-column prop="finished_at" :label="t('plugin.audit.time')" width="170" />
             <el-table-column prop="hook_name" :label="t('plugin.tabs.hooks')" min-width="180" />
             <el-table-column prop="mode" :label="t('plugin.hook.mode')" width="120">
@@ -858,9 +911,10 @@
             <el-table-column prop="community_id" :label="t('field.community_id')" width="130" />
             <el-table-column prop="duration_ms" :label="t('plugin.hook.durationMs')" width="100" />
             <el-table-column prop="error_message" :label="t('plugin.hook.error')" min-width="220" />
-            <el-table-column :label="t('field.action')" width="120" fixed="right">
+            <el-table-column :label="t('field.action')" width="170" fixed="right">
               <template #default="{ row }">
                 <el-button link type="primary" @click="openHookExecutionDetail(row)">{{ t('common.detail') }}</el-button>
+                <el-button v-if="canRetryHookExecution(row)" link type="warning" :loading="retryingHookExecutionID === row.id" @click="manualRetryHookExecution(row)">重试</el-button>
               </template>
             </el-table-column>
           </el-table>
@@ -948,9 +1002,10 @@
               <el-table-column prop="actor_type" :label="t('plugin.hook.actorType')" width="140" />
               <el-table-column prop="actor_id" :label="t('plugin.hook.actorId')" width="120" />
               <el-table-column prop="error_message" :label="t('plugin.hook.error')" min-width="220" />
-              <el-table-column :label="t('field.action')" width="120" fixed="right">
+              <el-table-column :label="t('field.action')" width="170" fixed="right">
                 <template #default="{ row }">
                   <el-button link type="primary" @click="openHookExecutionDetail(row)">{{ t('common.detail') }}</el-button>
+                  <el-button v-if="canRetryHookExecution(row)" link type="warning" :loading="retryingHookExecutionID === row.id" @click="manualRetryHookExecution(row)">重试</el-button>
                 </template>
               </el-table-column>
             </el-table>
@@ -1001,6 +1056,7 @@
               <div class="detail-actions">
                 <el-button v-if="hookExecTarget.content_id" @click="openPluginContent(hookExecTarget)">{{ t('plugin.hook.openPluginContent') }}</el-button>
                 <el-button @click="openHookAudit(hookExecTarget)">{{ t('plugin.hook.openAuditLogs') }}</el-button>
+                <el-button v-if="canRetryHookExecution(hookExecTarget)" type="warning" plain :loading="retryingHookExecutionID === hookExecTarget.id" @click="manualRetryHookExecution(hookExecTarget)">重试外部服务投递</el-button>
               </div>
             </template>
           </el-drawer>
@@ -1383,7 +1439,7 @@ import { computed, defineAsyncComponent, h, reactive, ref, watch } from 'vue';
 import { ElMessage, ElMessageBox } from 'element-plus';
 import PluginConfigEditor from './PluginConfigEditor.vue';
 import PluginIframeMount from './PluginIframeMount.vue';
-import { dryRunPluginExport, enablePluginFromEnablePrecheck, exportPluginPackage, getPluginUninstallImpact, getPluginUpgradeTask, listPluginPackageCompatChecks, listPluginUpgradeTasks, pluginAuditLogs, pluginHookExecutions, pluginHooks, pluginMenusPreview, pluginMigrations, pluginReadiness, pluginUpgradeImpact, retryPluginMigration, retryPluginUpgradeTask, runPluginEnablePrecheck, runPluginExternalServiceHealthCheck, runPluginMigrations, softUninstallPlugin, upgradePluginFromPackage, updatePluginConfig } from '@/api/admin';
+import { dryRunPluginExport, enablePluginFromEnablePrecheck, exportPluginPackage, getPluginUninstallImpact, getPluginUpgradeTask, listPluginPackageCompatChecks, listPluginUpgradeTasks, pluginAuditLogs, pluginHookExecutions, pluginHooks, pluginMenusPreview, pluginMigrations, pluginReadiness, pluginUpgradeImpact, retryPluginHookExecution, retryPluginMigration, retryPluginUpgradeTask, runPluginEnablePrecheck, runPluginExternalServiceHealthCheck, runPluginMigrations, softUninstallPlugin, upgradePluginFromPackage, updatePluginConfig, updatePluginExternalService } from '@/api/admin';
 import { t } from '@/i18n';
 import { auditActionLabel, genericStatusLabel, maturityLabel, migrationStatusLabel, pluginHealthLabel, pluginStatusLabel } from '@/i18n/formatters';
 import { pluginReasonText } from '@/modules/plugins/statusText';
@@ -1467,6 +1523,19 @@ const hookExecDrawer = ref(false);
 const hookExecTarget = ref(null);
 const hookDrawer = ref(false);
 const externalServiceLoading = ref(false);
+const externalServiceSaving = ref(false);
+const retryingHookExecutionID = ref(0);
+const externalServiceForm = reactive({
+  enabled: true,
+  endpoint_url: '',
+  health_check_path: '/health',
+  timeout_ms: 3000,
+  failure_policy: 'warn',
+  auth_type: 'none',
+  token: '',
+  warning_threshold: 3,
+  error_threshold: 5,
+});
 const readinessLoading = ref(false);
 const readinessResult = ref(null);
 const menuPreviewLoading = ref(false);
@@ -1527,8 +1596,46 @@ const title = computed(() => safePlugin.value ? `${safePlugin.value.name || safe
 const exportPreviewFiles = computed(() => (exportPreview.value?.export_preview?.files || []).map((path) => ({ path })));
 const externalService = computed(() => props.plugin?.external_service_config || null);
 const externalServiceConfigured = computed(() => Boolean(externalService.value?.endpoint_url));
+const externalServiceHasToken = computed(() => Boolean(externalService.value?.token_ref));
 const canViewOfficialAnnouncement = computed(() => (auth?.can ? auth.can('plugin.read') : true));
 const canEditPluginConfig = computed(() => (auth?.can ? auth.can('plugin.write') : true));
+const officialFrontendMountPoints = new Set(['frontend.home.section', 'frontend.community.section', 'admin.plugin.detail.preview']);
+const officialFrontendComponentKeys = new Set(['official.announcement.card']);
+
+const frontendMountRows = computed(() => {
+  const mounts = Array.isArray(props.plugin?.frontend_mounts) ? props.plugin.frontend_mounts : [];
+  return mounts.map((item) => {
+    const mountPoint = item.mount_point || item.slot || '';
+    const componentKey = item.component_key || '';
+    const allowedMount = officialFrontendMountPoints.has(mountPoint);
+    const allowedComponent = officialFrontendComponentKeys.has(componentKey);
+    let statusText = '有效';
+    let statusType = 'success';
+    let message = '官方 allowlist 接受，运行时仍受插件启用、归档、子站启用和权限约束。';
+    if (!allowedMount) {
+      statusText = '未知挂载点';
+      statusType = 'danger';
+      message = '当前版本不支持该前端挂载声明，运行时会跳过。';
+    } else if (!allowedComponent) {
+      statusText = '未知组件';
+      statusType = 'danger';
+      message = '当前版本不支持该组件 key，运行时会跳过。';
+    }
+    if (props.plugin?.status !== 'enabled' && props.plugin?.status !== 'running') {
+      statusText = props.plugin?.status === 'archived' ? '被归档' : '被禁用';
+      statusType = 'info';
+      message = '插件未处于启用状态，运行时不会渲染挂载内容。';
+    }
+    return {
+      ...item,
+      mount_point: mountPoint,
+      component_key: componentKey,
+      _statusText: statusText,
+      _statusType: statusType,
+      message,
+    };
+  });
+});
 const showLegacyTechnicalTabs = false;
 const legacyTabNotice = ref({ tab: '', text: '' });
 const legacyTabNoticeText = computed(() => (legacyTabNotice.value?.tab === tab.value ? legacyTabNotice.value.text : ''));
@@ -1584,6 +1691,7 @@ watch(
     hookStats.value = [];
     hookRecent.value = [];
     hookExecFilters.service_type = '';
+    resetExternalServiceForm();
     migrationRows.value = [];
     migrationSummary.value = {};
     readinessResult.value = null;
@@ -1610,6 +1718,12 @@ watch(
     }
   },
   { immediate: true },
+);
+
+watch(
+  () => props.plugin?.external_service_config,
+  () => resetExternalServiceForm(),
+  { deep: true },
 );
 
 watch(
@@ -1865,7 +1979,7 @@ async function runPackageUpgrade() {
       confirmButtonText: t('plugin.ops.packageUpgradeConfirm'),
       cancelButtonText: t('common.cancel'),
     });
-    upgradeResult.value = await upgradePluginFromPackage(p.code, { target_compat_check_id: id, reason: t('plugin.ops.packageUpgradeDefaultReason') });
+    upgradeResult.value = await upgradePluginFromPackage(p.code, { target_compat_check_id: id, reason: t('plugin.ops.packageUpgradeDefaultReason'), confirm: true });
     ElMessage.success(t('plugin.ops.packageUpgradeDone'));
     emit('refresh');
     await loadReadiness();
@@ -1904,6 +2018,9 @@ async function openUpgradeTask(id) {
     lines.push(`状态：${genericStatusLabel(res?.status)}`);
     lines.push(`当前版本：${res?.old_version}`);
     lines.push(`目标版本：${res?.new_version}`);
+    if (res?.failure_stage) lines.push(`失败阶段：${res.failure_stage}`);
+    if (res?.failure_reason) lines.push(`失败原因：${res.failure_reason}`);
+    if (res?.next_step) lines.push(`下一步：${res.next_step}`);
     if ((res?.errors || []).length) lines.push(`错误：${(res.errors || []).join('；')}`);
     if ((res?.warnings || []).length) lines.push(`警告：${(res.warnings || []).join('；')}`);
     await ElMessageBox.alert(lines.join('\n'), t('plugin.ops.packageUpgradeTaskDetailTitle'), { type: 'info', confirmButtonText: t('common.close') });
@@ -2108,7 +2225,7 @@ const technicalDetailBlocks = computed(() => {
     { name: 'config_json', title: '当前配置 JSON', value: jsonValue(p.config_json) },
     { name: 'content_types', title: '内容类型声明', value: p.content_type_definitions || p.content_types },
     { name: 'permissions', title: '权限声明', value: p.permissions },
-    { name: 'frontend_mounts', title: '前端挂载声明', value: { menus: p.menus || [], routes: p.routes || [] } },
+    { name: 'frontend_mounts', title: '前端挂载声明', value: { frontend_mounts: p.frontend_mounts || [], menus: p.menus || [], routes: p.routes || [] } },
     { name: 'webhook_hooks', title: 'Webhook / Hook 声明', value: p.hooks },
     { name: 'dependencies', title: '依赖声明', value: dependencyRows.value },
     { name: 'health', title: '运行健康原始摘要', value: p.health },
@@ -2320,6 +2437,64 @@ function externalServiceAuthLabel(authType) {
   return map[String(authType || 'none')] || String(authType || 'none');
 }
 
+function resetExternalServiceForm() {
+  const cfg = externalService.value || {};
+  externalServiceForm.enabled = cfg.enabled !== false;
+  externalServiceForm.endpoint_url = cfg.endpoint_url || '';
+  externalServiceForm.health_check_path = cfg.health_check_path || '/health';
+  externalServiceForm.timeout_ms = Number(cfg.timeout_ms || 3000);
+  externalServiceForm.failure_policy = cfg.failure_policy || 'warn';
+  externalServiceForm.auth_type = cfg.auth_type || 'none';
+  externalServiceForm.token = '';
+  externalServiceForm.warning_threshold = Number(cfg.warning_threshold || 3);
+  externalServiceForm.error_threshold = Number(cfg.error_threshold || 5);
+}
+
+function externalServicePayload() {
+  const payload = {
+    enabled: Boolean(externalServiceForm.enabled),
+    endpoint_url: String(externalServiceForm.endpoint_url || '').trim(),
+    health_check_path: String(externalServiceForm.health_check_path || '/health').trim() || '/health',
+    timeout_ms: Number(externalServiceForm.timeout_ms || 3000),
+    failure_policy: String(externalServiceForm.failure_policy || 'warn').trim(),
+    auth_type: String(externalServiceForm.auth_type || 'none').trim(),
+    warning_threshold: Number(externalServiceForm.warning_threshold || 3),
+    error_threshold: Number(externalServiceForm.error_threshold || 5),
+  };
+  const token = String(externalServiceForm.token || '').trim();
+  if (payload.auth_type === 'bearer' && token) payload.token = token;
+  return payload;
+}
+
+async function saveExternalServiceConfig() {
+  const p = props.plugin;
+  if (!p?.code) return;
+  const endpoint = String(externalServiceForm.endpoint_url || '').trim();
+  if (!endpoint) {
+    ElMessage.error('external_service.endpoint_url 不能为空');
+    return;
+  }
+  if (!/^https?:\/\//i.test(endpoint)) {
+    ElMessage.error('服务地址必须是合法 URL，以 http:// 或 https:// 开头');
+    return;
+  }
+  if (externalServiceForm.auth_type === 'bearer' && !externalServiceHasToken.value && !String(externalServiceForm.token || '').trim()) {
+    ElMessage.error('Bearer Token 不能为空；已配置密钥时可留空表示不替换');
+    return;
+  }
+  externalServiceSaving.value = true;
+  try {
+    await updatePluginExternalService(p.code, externalServicePayload());
+    externalServiceForm.token = '';
+    ElMessage.success('external_service 配置已保存');
+    emit('refresh');
+  } catch (e) {
+    ElMessage.error(formatAPIError(e, 'external_service 配置保存失败'));
+  } finally {
+    externalServiceSaving.value = false;
+  }
+}
+
 function dependencyStatus(dep, plugin) {
   if (!plugin?.code) return dep.required === false ? 'optional_missing' : 'missing';
   if (plugin.status === 'archived') return 'archived';
@@ -2495,6 +2670,45 @@ async function runExternalServiceHealthCheck() {
     ElMessage.error(String(e?.message || e || '健康检查失败，请稍后重试'));
   } finally {
     externalServiceLoading.value = false;
+  }
+}
+
+function canRetryHookExecution(row) {
+  if (!row) return false;
+  if (row.service_type !== 'external_service') return false;
+  if (row.blocking || row.mode === 'blocking') return false;
+  if (row.success || row.status === 'success') return false;
+  return ['failed', 'timeout', 'retry_scheduled', 'retry_exhausted'].includes(String(row.status || '').trim());
+}
+
+async function manualRetryHookExecution(row) {
+  const p = props.plugin;
+  const id = Number(row?.id || 0);
+  if (!p?.code || !id) return;
+  try {
+    await ElMessageBox.confirm('将重新向外部服务投递该事件，请确认外部服务具备幂等处理能力。', '确认手动重试', {
+      type: 'warning',
+      confirmButtonText: '确认重试',
+      cancelButtonText: t('common.cancel'),
+    });
+  } catch {
+    return;
+  }
+  retryingHookExecutionID.value = id;
+  try {
+    const res = await retryPluginHookExecution(p.code, id);
+    if (res?.status === 'pending') {
+      ElMessage.success('已发起重试，请稍后刷新查看结果');
+    } else {
+      ElMessage.success(res?.message || `重试完成：${externalServiceHealthLabel(res?.status)}`);
+    }
+    await loadHookExecutions(false);
+    await loadHooks();
+    emit('refresh');
+  } catch (e) {
+    ElMessage.error(formatAPIError(e, '手动重试失败'));
+  } finally {
+    retryingHookExecutionID.value = 0;
   }
 }
 

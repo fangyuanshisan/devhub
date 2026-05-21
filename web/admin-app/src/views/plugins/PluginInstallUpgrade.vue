@@ -862,11 +862,94 @@
               <el-descriptions-item :label="t('plugin.ops.newVersion')">{{ resultUpgrade.new_version || '-' }}</el-descriptions-item>
               <el-descriptions-item :label="t('plugin.ops.currentCoreVersion')">{{ resultUpgrade.current_core_version || '-' }}</el-descriptions-item>
               <el-descriptions-item :label="t('plugin.ops.compatibilityStatus')">{{ compatibilityLabel(resultUpgrade.compatibility_status) }}</el-descriptions-item>
+              <el-descriptions-item label="风险等级">
+                <el-tag :type="upgradeRiskType(resultUpgrade.risk_level)" effect="plain">{{ upgradeRiskLabel(resultUpgrade.risk_level) }}</el-tag>
+              </el-descriptions-item>
+              <el-descriptions-item label="确认要求">
+                <el-tag :type="resultUpgrade.confirm_required ? 'warning' : 'success'" effect="plain">{{ resultUpgrade.confirm_required ? '需要确认' : '无需确认' }}</el-tag>
+              </el-descriptions-item>
               <el-descriptions-item :label="t('plugin.ops.minCoreVersion')">{{ resultCompatibility(resultUpgrade).min_core_version || '-' }}</el-descriptions-item>
               <el-descriptions-item :label="t('plugin.ops.compatibleCoreVersion')">{{ resultCompatibility(resultUpgrade).compatible_core_version || '-' }}</el-descriptions-item>
               <el-descriptions-item :label="t('plugin.ops.changedKeys')" :span="2">{{ (resultUpgrade.changed_keys || []).join(', ') || '-' }}</el-descriptions-item>
+              <el-descriptions-item label="变更摘要" :span="2">{{ resultUpgrade.change_summary?.message || resultUpgrade.risk_report?.summary || '-' }}</el-descriptions-item>
+              <el-descriptions-item label="影响范围" :span="2">
+                <span>站点 {{ resultUpgrade.impact_summary?.enabled_communities_count ?? 0 }}，内容类型 {{ resultUpgrade.impact_summary?.affected_content_types_count ?? 0 }}, 权限 {{ resultUpgrade.impact_summary?.affected_permissions_count ?? 0 }}, Hook {{ resultUpgrade.impact_summary?.affected_hook_count ?? 0 }}</span>
+              </el-descriptions-item>
             </el-descriptions>
             <div class="result-grid mb">
+              <div class="result-box full-width" data-testid="plugin-upgrade-version-plan">
+                <h4>版本 / 包摘要</h4>
+                <div class="tag-wrap mb">
+                  <el-tag effect="plain">{{ resultUpgrade.version_plan?.from_version || resultUpgrade.current_version || '-' }} → {{ resultUpgrade.version_plan?.to_version || resultUpgrade.new_version || '-' }}</el-tag>
+                  <el-tag :type="upgradeRiskType(resultUpgrade.risk_level)" effect="plain">{{ resultUpgrade.version_plan?.message || '-' }}</el-tag>
+                  <el-tag effect="plain">{{ resultUpgrade.package_summary?.source || 'manifest' }}</el-tag>
+                </div>
+                <div class="muted">校验摘要：{{ resultUpgrade.package_summary?.current_manifest_checksum || '-' }} → {{ resultUpgrade.package_summary?.target_manifest_checksum || '-' }}</div>
+                <div class="muted">发布者：{{ resultUpgrade.package_summary?.publisher || '-' }}</div>
+              </div>
+              <div class="result-box full-width" data-testid="plugin-upgrade-change-summary">
+                <h4>变更差异</h4>
+                <div class="tag-wrap mb">
+                  <el-tag type="info" effect="plain">新增 {{ resultUpgrade.change_summary?.added ?? 0 }}</el-tag>
+                  <el-tag type="warning" effect="plain">变更 {{ resultUpgrade.change_summary?.changed ?? 0 }}</el-tag>
+                  <el-tag type="danger" effect="plain">删除 {{ resultUpgrade.change_summary?.removed ?? 0 }}</el-tag>
+                  <el-tag type="warning" effect="plain">高风险 {{ resultUpgrade.change_summary?.high_risk ?? 0 }}</el-tag>
+                  <el-tag type="danger" effect="plain">阻断 {{ resultUpgrade.change_summary?.blocked ?? 0 }}</el-tag>
+                </div>
+                <div class="tag-wrap">
+                  <el-tag v-for="item in (resultUpgrade.change_summary?.sections || [])" :key="item" effect="plain">{{ item }}</el-tag>
+                  <span v-if="!(resultUpgrade.change_summary?.sections || []).length" class="muted">-</span>
+                </div>
+              </div>
+              <div class="result-box full-width" data-testid="plugin-upgrade-impact-summary">
+                <h4>影响范围</h4>
+                <div class="tag-wrap mb">
+                  <el-tag effect="plain">插件状态 {{ resultUpgrade.impact_summary?.plugin_status || '-' }}</el-tag>
+                  <el-tag effect="plain">站点 {{ resultUpgrade.impact_summary?.enabled_communities_count ?? 0 }}</el-tag>
+                  <el-tag effect="plain">内容类型 {{ resultUpgrade.impact_summary?.affected_content_types_count ?? 0 }}</el-tag>
+                  <el-tag effect="plain">权限 {{ resultUpgrade.impact_summary?.affected_permissions_count ?? 0 }}</el-tag>
+                  <el-tag effect="plain">配置 {{ resultUpgrade.impact_summary?.affected_config_count ?? 0 }}</el-tag>
+                  <el-tag effect="plain">Hook {{ resultUpgrade.impact_summary?.affected_hook_count ?? 0 }}</el-tag>
+                </div>
+                <div class="tag-wrap">
+                  <el-tag :type="resultUpgrade.impact_summary?.migration_affected ? 'warning' : 'info'" effect="plain">迁移 {{ resultUpgrade.impact_summary?.migration_affected ? '涉及' : '未涉及' }}</el-tag>
+                  <el-tag :type="resultUpgrade.impact_summary?.external_service_affected ? 'warning' : 'info'" effect="plain">Webhook {{ resultUpgrade.impact_summary?.external_service_affected ? '涉及' : '未涉及' }}</el-tag>
+                  <el-tag :type="resultUpgrade.impact_summary?.menu_route_affected ? 'warning' : 'info'" effect="plain">菜单 / 路由 {{ resultUpgrade.impact_summary?.menu_route_affected ? '涉及' : '未涉及' }}</el-tag>
+                  <el-tag :type="resultUpgrade.impact_summary?.frontend_mount_affected ? 'warning' : 'info'" effect="plain">前端挂载 {{ resultUpgrade.impact_summary?.frontend_mount_affected ? '涉及' : '未涉及' }}</el-tag>
+                </div>
+              </div>
+              <div class="result-box full-width" data-testid="plugin-upgrade-boundary">
+                <h4>失败回滚边界</h4>
+                <el-alert :title="resultUpgrade.rollback_boundary?.message || '当前不提供完整自动回滚'" type="warning" show-icon :closable="false" class="mb" />
+                <div class="tag-wrap mb">
+                  <el-tag :type="resultUpgrade.rollback_boundary?.migration_down_supported ? 'success' : 'info'" effect="plain">migration down {{ resultUpgrade.rollback_boundary?.migration_down_supported ? '支持' : '不支持' }}</el-tag>
+                  <el-tag :type="resultUpgrade.rollback_boundary?.manifest_rollback_supported ? 'success' : 'info'" effect="plain">manifest 回滚 {{ resultUpgrade.rollback_boundary?.manifest_rollback_supported ? '有限支持' : '不支持' }}</el-tag>
+                  <el-tag :type="resultUpgrade.rollback_boundary?.config_version_rollback_supported ? 'info' : 'info'" effect="plain">配置回滚 {{ resultUpgrade.rollback_boundary?.config_version_rollback_supported ? '支持' : '不支持' }}</el-tag>
+                  <el-tag :type="resultUpgrade.rollback_boundary?.assets_rollback_supported ? 'info' : 'info'" effect="plain">assets 回滚 {{ resultUpgrade.rollback_boundary?.assets_rollback_supported ? '支持' : '不支持' }}</el-tag>
+                  <el-tag :type="resultUpgrade.rollback_boundary?.external_service_rollback_supported ? 'info' : 'info'" effect="plain">external_service 回滚 {{ resultUpgrade.rollback_boundary?.external_service_rollback_supported ? '支持' : '不支持' }}</el-tag>
+                </div>
+                <div class="muted">人工处理：{{ (resultUpgrade.rollback_boundary?.manual_handling_required || []).join('；') || '-' }}</div>
+              </div>
+              <div class="result-box full-width" data-testid="plugin-upgrade-risk-items">
+                <h4>风险项</h4>
+                <el-alert v-if="resultUpgrade.confirm_required" title="该升级包含高风险变更，必须确认后才能执行。" type="warning" show-icon :closable="false" class="mb" />
+                <el-alert v-if="resultUpgrade.failure_stage" :title="`失败阶段：${resultUpgrade.failure_stage}`" type="error" show-icon :closable="false" class="mb" />
+                <div v-if="resultUpgrade.failure_stage || resultUpgrade.failure_reason || resultUpgrade.next_step" class="mb">
+                  <div v-if="resultUpgrade.failure_reason" class="muted">失败原因：{{ resultUpgrade.failure_reason }}</div>
+                  <div v-if="resultUpgrade.next_step" class="muted">下一步建议：{{ resultUpgrade.next_step }}</div>
+                </div>
+                <el-alert v-if="(resultUpgrade.blocking_items || []).length" title="阻断项" type="error" show-icon :closable="false" class="mb">
+                  <ul class="result-list">
+                    <li v-for="(item, idx) in resultUpgrade.blocking_items || []" :key="`blocking-${idx}`">{{ item.message }}{{ item.path ? `（${item.path}）` : '' }}</li>
+                  </ul>
+                </el-alert>
+                <el-alert v-if="(resultUpgrade.warnings || []).length" title="警告项" type="warning" show-icon :closable="false" class="mb">
+                  <ul class="result-list">
+                    <li v-for="(item, idx) in resultUpgrade.warnings || []" :key="`warn-${idx}`">{{ item.message }}{{ item.path ? `（${item.path}）` : '' }}</li>
+                  </ul>
+                </el-alert>
+                <el-alert v-if="(resultUpgrade.risk_items || []).length" :title="`风险项 ${resultUpgrade.risk_items.length}`" type="info" show-icon :closable="false" />
+              </div>
               <div class="result-box full-width" data-testid="plugin-upgrade-dependency-matrix">
                 <h4>{{ t('plugin.dependencies.matrix') }}</h4>
                 <div class="tag-wrap mb">
@@ -896,18 +979,29 @@
                 <h4>{{ t('plugin.dependencies.diff') }}</h4>
                 <pre class="json-box compact">{{ formatJSON(resultUpgrade.dependency_diff || {}) }}</pre>
               </div>
+              <div class="result-box full-width">
+                <h4>技术详情</h4>
+                <el-collapse>
+                  <el-collapse-item title="原始差异 JSON" name="raw-diff">
+                    <div class="result-grid">
+                      <div class="result-box">
+                        <h4>{{ t('plugin.ops.diffCurrent') }}</h4>
+                        <pre class="json-box compact">{{ formatJSON(resultUpgrade.diff?.current || {}) }}</pre>
+                      </div>
+                      <div class="result-box">
+                        <h4>{{ t('plugin.ops.diffNew') }}</h4>
+                        <pre class="json-box compact">{{ formatJSON(resultUpgrade.diff?.new || wizardResult || {}) }}</pre>
+                      </div>
+                    </div>
+                  </el-collapse-item>
+                  <el-collapse-item title="原始响应" name="raw-response">
+                    <pre class="json-box compact">{{ formatJSON(resultUpgrade) }}</pre>
+                  </el-collapse-item>
+                </el-collapse>
+              </div>
             </div>
             <el-alert v-if="isWizardConfirmStep" :title="t('plugin.wizard.confirmUpgradeTip')" type="warning" show-icon :closable="false" class="mb" />
-            <div class="result-grid">
-              <div class="result-box">
-                <h4>{{ t('plugin.ops.diffCurrent') }}</h4>
-                <pre class="json-box compact">{{ formatJSON(resultUpgrade.diff?.current || {}) }}</pre>
-              </div>
-              <div class="result-box">
-                <h4>{{ t('plugin.ops.diffNew') }}</h4>
-                <pre class="json-box compact">{{ formatJSON(resultUpgrade.diff?.new || wizardResult || {}) }}</pre>
-              </div>
-            </div>
+            <el-checkbox v-if="manifestDialogAction === 'upgrade' && isWizardConfirmStep && upgradePreviewConfirmRequired" v-model="upgradeConfirmChecked" class="mb">{{ t('plugin.ops.upgradeConfirmAck') }}</el-checkbox>
           </template>
 
           <template v-else>
@@ -1511,14 +1605,25 @@ const wizardStep = ref(0);
 const wizardValidation = ref({});
 const wizardPreview = ref({});
 const wizardResult = ref({});
+const upgradeConfirmChecked = ref(false);
 const wizardDisplayPayload = computed(() => {
   if (isWizardResultStep.value) return wizardResult.value || {};
   if (isWizardPreviewStep.value) return wizardPreview.value || {};
   return wizardValidation.value || {};
 });
+const resultUpgrade = computed(() => wizardDisplayPayload.value || {});
 const manifestResult = computed(() => wizardDisplayPayload.value?.validation || wizardDisplayPayload.value || {});
-const resultErrors = computed(() => Array.isArray(manifestResult.value?.errors) ? manifestResult.value.errors : []);
-const resultWarnings = computed(() => Array.isArray(manifestResult.value?.warnings) ? manifestResult.value.warnings : []);
+function normalizeMessageList(items) {
+  return (Array.isArray(items) ? items : [])
+    .map((item) => {
+      if (typeof item === 'string') return item;
+      if (item && typeof item === 'object') return item.message || item.suggestion || item.code || '';
+      return '';
+    })
+    .filter(Boolean);
+}
+const resultErrors = computed(() => normalizeMessageList(manifestResult.value?.errors));
+const resultWarnings = computed(() => normalizeMessageList(manifestResult.value?.warnings));
 
 const manifestDialogTitle = computed(() => {
   if (manifestDialogAction.value === 'dry-run') return t('plugin.ops.dryRun');
@@ -1561,6 +1666,9 @@ const isWizardPreviewStep = computed(() =>
 );
 
 const canShortcutConfirm = computed(() => false);
+const upgradePreviewRiskLevel = computed(() => String(wizardPreview.value?.risk_level || '').toLowerCase());
+const upgradePreviewConfirmRequired = computed(() => Boolean(wizardPreview.value?.confirm_required));
+const upgradePreviewBlocked = computed(() => upgradePreviewRiskLevel.value === 'blocked');
 
 const manifestDialogActionLabel = computed(() => {
   if (manifestDialogAction.value === 'validate' && wizardStep.value === 1) return t('common.close');
@@ -1581,6 +1689,8 @@ const wizardCanProceed = computed(() => {
   if (manifestLoading.value) return false;
   if ((manifestDialogAction.value === 'dry-run' || manifestDialogAction.value === 'install') && wizardStep.value === 1 && resultErrors.value.length) return false;
   if (manifestDialogAction.value === 'install' && wizardStep.value === 2 && resultErrors.value.length) return false;
+  if (manifestDialogAction.value === 'upgrade' && wizardStep.value === 1 && upgradePreviewBlocked.value) return false;
+  if (manifestDialogAction.value === 'upgrade' && wizardStep.value === 2 && upgradePreviewConfirmRequired.value && !upgradeConfirmChecked.value) return false;
   return true;
 });
 
@@ -1591,6 +1701,7 @@ function openManifestDialog(action, row = null) {
   wizardValidation.value = {};
   wizardPreview.value = {};
   wizardResult.value = {};
+  upgradeConfirmChecked.value = false;
   manifestDialogVisible.value = true;
 }
 
@@ -1671,7 +1782,7 @@ async function submitManifestAction() {
       }
       if (wizardStep.value === 2) {
         await ElMessageBox.confirm(t('plugin.ops.upgradeConfirmTip'), t('plugin.ops.upgrade'), { type: 'warning' });
-        wizardResult.value = await upgradePlugin(code, { manifest });
+        wizardResult.value = await upgradePlugin(code, { manifest, confirm: true });
         wizardStep.value = 3;
         await load();
         return;
@@ -1740,6 +1851,22 @@ function dependencyStatusType(status, satisfied) {
 
 function dependencyStatusLabel(status) {
   return genericStatusLabel(status);
+}
+
+function upgradeRiskType(level) {
+  const risk = String(level || '').toLowerCase();
+  if (risk === 'safe') return 'success';
+  if (risk === 'warning') return 'warning';
+  if (risk === 'blocked') return 'danger';
+  return 'info';
+}
+
+function upgradeRiskLabel(level) {
+  const risk = String(level || '').toLowerCase();
+  if (risk === 'safe') return '安全';
+  if (risk === 'warning') return '需确认';
+  if (risk === 'blocked') return '已阻断';
+  return risk || '-';
 }
 </script>
 

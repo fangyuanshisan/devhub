@@ -103,6 +103,16 @@ Webhook / HTTP 插件服务协议设计见 [Webhook / HTTP 插件服务协议（
 
 前端挂载模型（v1.8.0 文档阶段）见：`docs/PLUGIN_FRONTEND_MOUNT_MODEL.md`（slots、iframe/sandbox、postMessage 设计口径）。注意：该文档仅为设计，不代表已支持第三方插件前端挂载或动态加载前端资产。
 
+前端挂载治理口径（v1.8.3-S22）：
+
+- 插件包若声明 `frontend_mounts`，只能使用官方 allowlist 内的 `mount_point` 和 `component_key`。
+- 当前只允许声明 `mount_point + component_key + props_schema + config_ref`；`render_mode` 仅允许官方组件模式，其他值会 blocked。
+- 不允许 `iframe_url`、`script_url`、`remote_entry`、`external_js`、`remote_url`、`inline_html`、`remote_component`、`eval`、其他 HTML 注入或 JS 执行入口；若资产清单里出现可执行 JS 入口，只有在明确官方白名单时才可通过。
+- precheck / install dry-run 会在 manifest 阶段直接做 allowlist 校验，不会等到真正安装之后才报错。
+- `props_schema` 仅做声明和校验，不代表 DevHub 会执行插件前端代码；secret/token/password 类字段不会传给前端组件。
+- 预检遇到未知挂载点、未知组件 key、远程 iframe、远程脚本或内联 HTML 会直接 blocked，并返回中文错误码，如 `FRONTEND_MOUNT_NOT_ALLOWED`、`FRONTEND_COMPONENT_NOT_ALLOWED`、`REMOTE_IFRAME_NOT_ALLOWED`、`REMOTE_SCRIPT_NOT_ALLOWED`、`INLINE_HTML_NOT_ALLOWED`。
+- 运行时只渲染已启用、未归档、站点可用且通过 allowlist 的挂载；历史数据里若存在旧组件 key，会被跳过并记录 warning。
+
 ## 插件包目录结构
 
 推荐结构（示例）：
@@ -132,6 +142,15 @@ devhub-plugin-demo/
 7. 目录名建议与 `manifest.code` 一致；不一致会 warning。
 8. 未知文件默认 warning；危险文件会 blocked。
 9. `migrations/` 之外不提供其他 SQL 入口；根目录 SQL、内嵌 SQL、代码执行和动态资产加载都不属于插件包能力。
+10. 前端挂载只允许官方 allowlist 内的挂载点和组件 key；不允许任意远程 iframe、远程 JS/CSS 执行入口或 HTML 注入。
+
+推荐优先从官方模板开始：
+
+- 纯声明型内容插件模板：`examples/plugins/templates/declarative-content/`，基于 `official_links` / 友情链接场景，展示 content_type、权限、菜单、配置 schema、`checksums.json` 和 `migrations/`。
+- external_service Webhook 插件模板：`examples/plugins/templates/external-service-webhook/`，基于 `official_webhook_notify` 场景，展示 external_service 配置、non-blocking Hook、`checksums.json`、health check 和手动 retry 验收。
+- 开发流程、manifest 字段、安全规范和最小验收清单见 [声明型插件开发者指南](PLUGIN_DEVELOPER_GUIDE.md)。
+- 模板仍只是声明型插件包：不执行第三方代码、不开放远程 iframe、不开放 blocking Hook、不包含真实 token / secret，`migrations/` 仍是唯一迁移入口。
+- 这两个模板是当前官方推荐的起步路径：先复制模板，再改 manifest、README、`config.example.json` 和 `migrations/`，不要把 package scripts、远程 iframe 或可执行资产塞进模板。
 
 > 注：v1.5.0 当前支持本地插件仓库扫描、插件包详情、dry-run、安装确认与审批执行链路；安装仍走 `plugin.approve` 执行权限，不允许携带代码或可执行资产的插件包。
 
@@ -149,6 +168,8 @@ DevHub 插件包数据库迁移规范统一为 `migrations/`：
 - v1.8.3-S12 进一步收口 upload -> promote -> install：promote 只把包转入 `storage/plugins/packages/` 本地仓库；install 只能从本地仓库包发起，且必须携带当前 install dry-run 计划凭证 `dry_run_id`。upload/staging 阶段的 dry-run 只用于预检，不可直接替代 install dry-run。
 - v1.8.3-S13 增加真实 zip fixture 验收：`scripts/build-plugin-package-fixtures.sh` 可生成 valid / blocked / deprecated schema 三类插件包，后台 E2E 会真实上传 zip、promote、重新 install dry-run 并安装。valid 包只使用 `migrations/001_init.sql`；blocked 包包含危险脚本用于验证不可 promote；deprecated 包验证根目录 `001_schema.sql` 只 warning、不进入标准 migration plan、不执行。
 - v1.8.3-S15 增加真实声明型插件业务闭环 fixture：同一脚本可生成 `devhub-fixture-links-plugin*.zip`，插件编码为 `official_links*`，中文名为“声明型友情链接插件”。该包声明 `friend_link*` content_type、`official_links*.link.create/manage`、`official_links*.config.manage`、`official_links*.menu.view` 权限、后台 / 前台菜单、`enabled/title/max_links/display_position` 配置 Schema 和 `migrations/001_init.sql` 最小业务表。该 fixture 用于验证 upload -> precheck -> promote -> local repository -> install dry-run -> install -> enable -> community enable -> 菜单 / 内容类型 / 权限矩阵 / 配置 / 阻断的完整链路；仍不包含 package scripts、远程代码、远程 iframe、根目录 `001_schema.sql` 或第三方可执行资产。
+- v1.8.3-S19 增加官方 external_service Webhook 样板包：`examples/plugins/official_webhook_notify`。该包包含 `manifest.json`、`README.md`、`config.example.json`、`checksums.json` 和 `migrations/README.md`，声明 `AfterCreateContent` 的 `service_type=external_service` / `mode=non_blocking` / `path=/hooks/content.after_create` / `method=POST` / `retry_enabled=true` / `max_attempts=3` / `failure_policy=warn`。它用于验证 upload -> precheck -> promote -> install dry-run -> install、后台 external_service 配置、health check、mock receiver 投递和失败手动重试；不包含运行时代码、危险文件、真实 secret、用户数据、远程 iframe URL、根目录 SQL 或外部 SQL。`migrations/` 仍是唯一迁移入口，本示例无真实迁移，因此只保留说明文件。
+- v1.8.3-S21 将官方示例沉淀为两个可复制模板：`examples/plugins/templates/declarative-content/` 和 `examples/plugins/templates/external-service-webhook/`。模板补齐 `PACKAGING.md` / `receiver.example.md` 等开发者说明文件；包扫描器已把这些根目录模板说明文件列为允许文档，不会被误判为危险文件。模板只用于声明型插件开发，不代表第三方运行时、插件市场、远程在线安装或 blocking Hook 已开放。
 
 S13 fixture 使用：
 
@@ -853,6 +874,15 @@ exported-plugin/
 `diff_sections` 按功能分组返回：基础信息、内容类型、内容类型定义、权限、菜单、路由、配置 schema、默认配置、依赖、Hook、迁移声明。每个 diff item 都包含 `section`、`path`、`type`、`risk_level`、`before`、`after` 和 `message`，敏感字段统一脱敏为 `[REDACTED]`。
 
 高风险变更包括删除 content_type / permission、 新增高危权限、新增 required dependency、依赖约束收紧、config_schema 删除字段 / type 变化 / required 新增、Hook 改为 blocking、新增 migration。阻断项包括目标版本不升、Core 不兼容、required dependency 缺失、checksum mismatch、签名失败、publisher blocked / revoked、manifest invalid、dangerous file 和 remote_index 直接升级。
+
+升级 dry-run / upgrade 仍遵守以下边界：
+
+- `migrations/` 仍是唯一迁移入口；dry-run 只生成计划，不执行 SQL，也不执行 migration down。
+- `POST /api/v1/admin/plugins/:code/upgrade/dry-run` 现在会返回更结构化的升级计划、影响范围、风险项、确认需求和回滚边界说明，但仍是只读预览。
+- `POST /api/v1/admin/plugins/:code/upgrade/dry-run` 现已把 `frontend_mounts` 纳入差异计划与风险判断；新增未知挂载点或未知组件 key 会被 blocked，删除已存在挂载会按风险提示给出 warning / high risk。
+- `POST /api/v1/admin/plugins/:code/upgrade` 对 warning 升级要求显式 `confirm=true`，blocked 项不可通过 confirm 绕过；请求体可使用 `{ "manifest": {...}, "confirm": true }` 包装体。
+- 任何 secret / token / Authorization / Webhook Secret / Callback Token 仅能显示 changed / unchanged 或脱敏摘要，不进入明文 diff、日志或审计。
+- 当前仍不提供完整自动回滚、migration down、配置版本回滚、assets 回滚或 external_service 配置回滚；升级失败后会尽量保持已安装版本可见，并记录失败阶段和审计日志，涉及数据库迁移的失败需要人工处理。
 
 后台 `/admin-next/plugins/versions` 展示版本仓库、单插件版本列表和升级差异抽屉；远程索引版本会标记只读，必须先通过受控上传 / promote 进入本地仓库后才能参与真实升级流程。
 

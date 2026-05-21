@@ -1104,6 +1104,20 @@ func (s *MySQLStore) AppendHookExecution(record domain.HookExecution) (domain.Ho
 	return record, nil
 }
 
+func (s *MySQLStore) HookExecutionByID(id int64) (domain.HookExecution, bool) {
+	if id <= 0 {
+		return domain.HookExecution{}, false
+	}
+	var it domain.HookExecution
+	err := s.db.QueryRow(`SELECT id,hook_name,plugin_code,COALESCE(service_type,''),COALESCE(endpoint_url,''),mode,COALESCE(content_type,''),COALESCE(content_id,0),COALESCE(community_id,0),COALESCE(category_id,0),COALESCE(actor_type,''),COALESCE(actor_id,0),COALESCE(user_id,0),COALESCE(admin_user_id,0),COALESCE(request_id,''),DATE_FORMAT(started_at,'%Y-%m-%d %H:%i:%s'),COALESCE(DATE_FORMAT(finished_at,'%Y-%m-%d %H:%i:%s'),''),duration_ms,success,COALESCE(error_message,''),blocking,COALESCE(status,''),response_status,COALESCE(response_body_excerpt,''),COALESCE(request_body_sha256,''),COALESCE(error_code,''),COALESCE(CAST(metadata_json AS CHAR),''),DATE_FORMAT(created_at,'%Y-%m-%d %H:%i:%s')
+		FROM hook_executions WHERE id=? LIMIT 1`, id).
+		Scan(&it.ID, &it.HookName, &it.PluginCode, &it.ServiceType, &it.EndpointURL, &it.Mode, &it.ContentType, &it.ContentID, &it.CommunityID, &it.CategoryID, &it.ActorType, &it.ActorID, &it.UserID, &it.AdminUserID, &it.RequestID, &it.StartedAt, &it.FinishedAt, &it.DurationMS, &it.Success, &it.ErrorMessage, &it.Blocking, &it.Status, &it.ResponseStatus, &it.ResponseBodyExcerpt, &it.RequestBodySHA256, &it.ErrorCode, &it.Metadata, &it.CreatedAt)
+	if err != nil {
+		return domain.HookExecution{}, false
+	}
+	return it, true
+}
+
 func (s *MySQLStore) HookExecutions(pluginCode string, limit int) ([]domain.HookExecution, error) {
 	pluginCode = strings.TrimSpace(pluginCode)
 	if limit <= 0 || limit > 100 {
@@ -1765,6 +1779,15 @@ func (s *MySQLStore) migrateSiteScopedAudit() error {
 	}
 	if !s.columnExists("hook_executions", "error_code") {
 		_, _ = s.db.Exec(`ALTER TABLE hook_executions ADD COLUMN error_code VARCHAR(128) NOT NULL DEFAULT '' AFTER request_body_sha256`)
+	}
+	if !s.columnExists("plugin_upgrade_tasks", "failure_stage") {
+		_, _ = s.db.Exec(`ALTER TABLE plugin_upgrade_tasks ADD COLUMN failure_stage VARCHAR(64) NOT NULL DEFAULT '' AFTER rollback_log_json`)
+	}
+	if !s.columnExists("plugin_upgrade_tasks", "failure_reason") {
+		_, _ = s.db.Exec(`ALTER TABLE plugin_upgrade_tasks ADD COLUMN failure_reason VARCHAR(1000) NOT NULL DEFAULT '' AFTER failure_stage`)
+	}
+	if !s.columnExists("plugin_upgrade_tasks", "next_step") {
+		_, _ = s.db.Exec(`ALTER TABLE plugin_upgrade_tasks ADD COLUMN next_step VARCHAR(1000) NOT NULL DEFAULT '' AFTER failure_reason`)
 	}
 	_, _ = s.db.Exec(`UPDATE categories SET nav_visible=visible WHERE nav_visible=1`)
 	_, _ = s.db.Exec(`UPDATE categories SET type='document', plugin_code='docs', allowed_content_types=JSON_ARRAY('document','doc') WHERE type='doc' OR slug='docs'`)
@@ -4658,8 +4681,8 @@ func (s *MySQLStore) AppendPluginUpgradeTask(record domain.PluginUpgradeTask) (d
   (plugin_code,old_version,new_version,old_plugin_installation_id,new_package_download_id,new_package_precheck_id,new_package_compat_check_id,
    status,previous_plugin_status,new_plugin_status,backup_path,old_install_path,new_install_path,
    manifest_diff_json,config_diff_json,permission_diff_json,menu_diff_json,route_diff_json,hook_diff_json,content_type_diff_json,migration_diff_json,impact_json,
-   errors_json,warnings_json,rollback_log_json,reason,started_at,finished_at,duration_ms,requested_by)
-  VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+   errors_json,warnings_json,rollback_log_json,failure_stage,failure_reason,next_step,reason,started_at,finished_at,duration_ms,requested_by)
+  VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
 		strings.TrimSpace(record.PluginCode),
 		strings.TrimSpace(record.OldVersion),
 		strings.TrimSpace(record.NewVersion),
@@ -4685,6 +4708,9 @@ func (s *MySQLStore) AppendPluginUpgradeTask(record domain.PluginUpgradeTask) (d
 		nullJSONString(record.ErrorsJSON),
 		nullJSONString(record.WarningsJSON),
 		nullJSONString(record.RollbackLogJSON),
+		strings.TrimSpace(record.FailureStage),
+		strings.TrimSpace(record.FailureReason),
+		strings.TrimSpace(record.NextStep),
 		strings.TrimSpace(record.Reason),
 		nullTime(record.StartedAt),
 		nullTime(record.FinishedAt),
@@ -4707,7 +4733,7 @@ func (s *MySQLStore) SavePluginUpgradeTask(record domain.PluginUpgradeTask) (dom
   plugin_code=?,old_version=?,new_version=?,old_plugin_installation_id=?,new_package_download_id=?,new_package_precheck_id=?,new_package_compat_check_id=?,
   status=?,previous_plugin_status=?,new_plugin_status=?,backup_path=?,old_install_path=?,new_install_path=?,
   manifest_diff_json=?,config_diff_json=?,permission_diff_json=?,menu_diff_json=?,route_diff_json=?,hook_diff_json=?,content_type_diff_json=?,migration_diff_json=?,impact_json=?,
-  errors_json=?,warnings_json=?,rollback_log_json=?,reason=?,started_at=?,finished_at=?,duration_ms=?,requested_by=?
+  errors_json=?,warnings_json=?,rollback_log_json=?,failure_stage=?,failure_reason=?,next_step=?,reason=?,started_at=?,finished_at=?,duration_ms=?,requested_by=?
   WHERE id=?`,
 		strings.TrimSpace(record.PluginCode),
 		strings.TrimSpace(record.OldVersion),
@@ -4734,6 +4760,9 @@ func (s *MySQLStore) SavePluginUpgradeTask(record domain.PluginUpgradeTask) (dom
 		nullJSONString(record.ErrorsJSON),
 		nullJSONString(record.WarningsJSON),
 		nullJSONString(record.RollbackLogJSON),
+		strings.TrimSpace(record.FailureStage),
+		strings.TrimSpace(record.FailureReason),
+		strings.TrimSpace(record.NextStep),
 		strings.TrimSpace(record.Reason),
 		nullTime(record.StartedAt),
 		nullTime(record.FinishedAt),
@@ -4757,7 +4786,7 @@ func (s *MySQLStore) PluginUpgradeTaskByID(id int64) (domain.PluginUpgradeTask, 
 	err := s.db.QueryRow(`SELECT id,plugin_code,old_version,new_version,old_plugin_installation_id,new_package_download_id,new_package_precheck_id,new_package_compat_check_id,
   status,previous_plugin_status,new_plugin_status,backup_path,old_install_path,new_install_path,
   manifest_diff_json,config_diff_json,permission_diff_json,menu_diff_json,route_diff_json,hook_diff_json,content_type_diff_json,migration_diff_json,impact_json,
-  errors_json,warnings_json,rollback_log_json,reason,started_at,finished_at,duration_ms,requested_by,created_at,updated_at
+  errors_json,warnings_json,rollback_log_json,failure_stage,failure_reason,next_step,reason,started_at,finished_at,duration_ms,requested_by,created_at,updated_at
   FROM plugin_upgrade_tasks WHERE id=?`, id).Scan(
 		&record.ID,
 		&record.PluginCode,
@@ -4785,6 +4814,9 @@ func (s *MySQLStore) PluginUpgradeTaskByID(id int64) (domain.PluginUpgradeTask, 
 		&errorsJSON,
 		&warningsJSON,
 		&rollbackLog,
+		&record.FailureStage,
+		&record.FailureReason,
+		&record.NextStep,
 		&record.Reason,
 		&startedAt,
 		&finishedAt,
@@ -4836,9 +4868,9 @@ func (s *MySQLStore) PluginUpgradeTasks(filter domain.PluginUpgradeTaskFilter) (
 		args = append(args, code)
 	}
 	if keyword != "" {
-		where = append(where, "(plugin_code LIKE ? OR old_version LIKE ? OR new_version LIKE ? OR status LIKE ? OR reason LIKE ?)")
+		where = append(where, "(plugin_code LIKE ? OR old_version LIKE ? OR new_version LIKE ? OR status LIKE ? OR reason LIKE ? OR failure_stage LIKE ? OR failure_reason LIKE ?)")
 		like := "%" + keyword + "%"
-		args = append(args, like, like, like, like, like)
+		args = append(args, like, like, like, like, like, like, like)
 	}
 	var total int
 	if err := s.db.QueryRow(`SELECT COUNT(1) FROM plugin_upgrade_tasks WHERE `+strings.Join(where, " AND "), args...).Scan(&total); err != nil {
@@ -4848,7 +4880,7 @@ func (s *MySQLStore) PluginUpgradeTasks(filter domain.PluginUpgradeTaskFilter) (
 	rows, err := s.db.Query(`SELECT id,plugin_code,old_version,new_version,old_plugin_installation_id,new_package_download_id,new_package_precheck_id,new_package_compat_check_id,
   status,previous_plugin_status,new_plugin_status,backup_path,old_install_path,new_install_path,
   manifest_diff_json,config_diff_json,permission_diff_json,menu_diff_json,route_diff_json,hook_diff_json,content_type_diff_json,migration_diff_json,impact_json,
-  errors_json,warnings_json,rollback_log_json,reason,started_at,finished_at,duration_ms,requested_by,created_at,updated_at
+  errors_json,warnings_json,rollback_log_json,failure_stage,failure_reason,next_step,reason,started_at,finished_at,duration_ms,requested_by,created_at,updated_at
   FROM plugin_upgrade_tasks WHERE `+strings.Join(where, " AND ")+` ORDER BY id DESC LIMIT ? OFFSET ?`, args...)
 	if err != nil {
 		return nil, 0, err
@@ -4888,6 +4920,9 @@ func (s *MySQLStore) PluginUpgradeTasks(filter domain.PluginUpgradeTaskFilter) (
 			&errorsJSON,
 			&warningsJSON,
 			&rollbackLog,
+			&record.FailureStage,
+			&record.FailureReason,
+			&record.NextStep,
 			&record.Reason,
 			&startedAt,
 			&finishedAt,

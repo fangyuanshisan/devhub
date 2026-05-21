@@ -41,7 +41,7 @@
             </div>
             <ul class="overview-list">
               <li>Webhook 只做 non-blocking 投递、重试、熔断和回调治理，不执行第三方插件代码。</li>
-              <li>失败先看“异常处理”，再进入高级治理检查密钥、Token 或回调请求。</li>
+              <li>失败先看“异常处理”，external_service 失败可进入“外部服务执行”按插件编码重试。</li>
               <li>Secret、Callback Token 和 external_service token 明文不会进入列表或执行记录。</li>
             </ul>
           </el-card>
@@ -50,6 +50,7 @@
             <div class="overview-actions">
               <el-button size="small" type="primary" plain @click="tab = 'deliveries'">查看投递记录</el-button>
               <el-button size="small" type="warning" plain @click="tab = 'exceptions'">处理异常</el-button>
+              <el-button size="small" type="primary" plain @click="tab = 'external_service'">外部服务执行</el-button>
               <el-button size="small" type="primary" plain @click="tab = 'advanced'">高级治理</el-button>
             </div>
           </el-card>
@@ -238,6 +239,87 @@
               title="高级治理不会展示 Secret、Token、Authorization Header 或敏感 payload 明文。"
             />
           </el-card>
+        </div>
+      </el-tab-pane>
+
+      <el-tab-pane label="外部服务执行" name="external_service">
+        <PluginFilterBar title="external_service 执行记录" tip="查看声明型 external_service Hook 的非阻塞投递结果；失败类记录可手动重试。" testid="external-service-executions-filter">
+          <template #actions>
+            <el-button size="small" @click="refreshExternalServiceExecutions">刷新</el-button>
+          </template>
+          <el-input v-model="externalExecutionFilters.plugin_code" size="small" placeholder="插件编码，例如 official_webhook_notify" style="width: 260px" />
+          <el-input v-model="externalExecutionFilters.hook_name" size="small" placeholder="Hook 名称" style="width: 200px" />
+          <el-select v-model="externalExecutionFilters.success" size="small" placeholder="结果" style="width: 150px">
+            <el-option label="全部" value="all" />
+            <el-option label="成功" value="true" />
+            <el-option label="失败" value="false" />
+          </el-select>
+          <el-button size="small" type="primary" data-testid="external-service-executions-search" @click="refreshExternalServiceExecutions">查询</el-button>
+        </PluginFilterBar>
+
+        <PluginErrorAlert :message="externalExecutionsError" />
+
+        <el-alert
+          class="mb"
+          type="warning"
+          show-icon
+          :closable="false"
+          title="重试会重新向外部服务投递事件；请确认接收端具备幂等处理能力。Token、Secret、Authorization Header 不会在执行记录中展示。"
+        />
+
+        <el-table
+          v-loading="externalExecutionsLoading"
+          :data="externalExecutionRows"
+          stripe
+          border
+          size="small"
+          data-testid="external-service-executions-table"
+        >
+          <el-table-column prop="id" label="ID" width="80" />
+          <el-table-column prop="plugin_code" label="插件" width="180" />
+          <el-table-column prop="hook_name" label="Hook" min-width="200" />
+          <el-table-column prop="status" label="状态" width="150">
+            <template #default="{ row }">
+              <PluginStatusTag :value="row.status || (row.success ? 'success' : 'failed')" testid="external-service-execution-status" />
+            </template>
+          </el-table-column>
+          <el-table-column prop="response_status" label="响应" width="90" />
+          <el-table-column prop="content_type" label="内容类型" width="160" />
+          <el-table-column prop="content_id" label="内容 ID" width="110" />
+          <el-table-column prop="request_id" label="request_id" min-width="180" show-overflow-tooltip />
+          <el-table-column prop="error_message" label="错误信息" min-width="240" show-overflow-tooltip />
+          <el-table-column label="操作" width="150" fixed="right">
+            <template #default="{ row }">
+              <el-button
+                v-if="canRetryExternalExecution(row)"
+                size="small"
+                type="warning"
+                plain
+                data-testid="external-service-retry-button"
+                :loading="externalRetryingID === row.id"
+                @click="manualRetryExternalExecution(row)"
+              >
+                重试
+              </el-button>
+              <span v-else class="muted">-</span>
+            </template>
+          </el-table-column>
+        </el-table>
+
+        <PluginEmptyState
+          v-if="!externalExecutionsLoading && externalExecutionRows.length === 0 && !externalExecutionsError"
+          description="暂无 external_service 执行记录"
+          testid="external-service-executions-empty"
+        />
+
+        <div class="pager">
+          <el-pagination
+            layout="prev, pager, next"
+            :current-page="externalExecutionsPage.page || 1"
+            :page-size="externalExecutionsPage.page_size || 20"
+            :total="externalExecutionsPage.total || 0"
+            @current-change="onExternalExecutionPageChange"
+          />
         </div>
       </el-tab-pane>
 
@@ -651,9 +733,10 @@ const router = useRouter();
 const normalizeMainTab = (value) => {
   const name = String(value || 'overview').replace(/_/g, '-');
   if (name === 'retry' || name === 'circuits') return 'exceptions';
+  if (name === 'external-service' || name === 'executions' || name === 'hook-executions') return 'external_service';
   if (name === 'callback-tokens') return 'callback_tokens';
   if (name === 'callback-requests') return 'callback_requests';
-  if (['overview', 'deliveries', 'exceptions', 'advanced', 'events', 'secrets', 'callback_tokens', 'callback_requests'].includes(name)) return name;
+  if (['overview', 'deliveries', 'exceptions', 'advanced', 'external_service', 'events', 'secrets', 'callback_tokens', 'callback_requests'].includes(name)) return name;
   return 'overview';
 };
 
@@ -706,6 +789,18 @@ const circuitFilters = ref({
 });
 
 const retryDueLoading = ref(false);
+
+const externalExecutions = ref({ items: [], pagination: { page: 1, page_size: 20, total: 0 } });
+const externalExecutionsLoading = ref(false);
+const externalExecutionsError = ref('');
+const externalRetryingID = ref(0);
+const externalExecutionFilters = ref({
+  plugin_code: String(route.query.ext_plugin_code || route.query.plugin_code || ''),
+  hook_name: String(route.query.ext_hook_name || ''),
+  success: String(route.query.ext_success || 'all'),
+  page: Number(route.query.ext_page || 1),
+  page_size: 20,
+});
 
 const secrets = ref({ items: [], pagination: { page: 1, page_size: 20, total: 0 } });
 const secretsLoading = ref(false);
@@ -785,6 +880,8 @@ const deliveryRows = computed(() => listRows(deliveries));
 const deliveriesPage = computed(() => listPage(deliveries));
 const circuitRows = computed(() => listRows(circuits));
 const circuitsPage = computed(() => listPage(circuits));
+const externalExecutionRows = computed(() => listRows(externalExecutions));
+const externalExecutionsPage = computed(() => listPage(externalExecutions));
 const openCircuitRows = computed(() => circuitRows.value.filter((row) => ['open', 'half_open', 'circuit_open'].includes(String(row.status || '').toLowerCase())));
 const openCircuitCount = computed(() => openCircuitRows.value.length);
 const secretRows = computed(() => listRows(secrets));
@@ -1056,6 +1153,64 @@ async function refreshCircuits() {
   }
 }
 
+async function refreshExternalServiceExecutions() {
+  const pluginCode = String(externalExecutionFilters.value.plugin_code || '').trim();
+  if (!pluginCode) {
+    externalExecutions.value = normalizeListResponse({ items: [], total: 0 }, externalExecutionFilters.value.page_size);
+    externalExecutionsError.value = '请先输入插件编码';
+    return;
+  }
+  externalExecutionsLoading.value = true;
+  externalExecutionsError.value = '';
+  try {
+    const params = {
+      service_type: 'external_service',
+      hook_name: externalExecutionFilters.value.hook_name || '',
+      page: externalExecutionFilters.value.page,
+      page_size: externalExecutionFilters.value.page_size,
+    };
+    if (externalExecutionFilters.value.success !== 'all') params.success = externalExecutionFilters.value.success;
+    await router.replace({
+      query: {
+        ...route.query,
+        tab: tab.value,
+        ext_plugin_code: pluginCode,
+        ext_hook_name: params.hook_name,
+        ext_success: externalExecutionFilters.value.success,
+        ext_page: params.page,
+      },
+    });
+    const res = await admin.pluginHookExecutions(pluginCode, params);
+    externalExecutions.value = normalizeListResponse(res, externalExecutionFilters.value.page_size);
+  } catch (e) {
+    externalExecutionsError.value = e?.message || '加载失败';
+  } finally {
+    externalExecutionsLoading.value = false;
+  }
+}
+
+function canRetryExternalExecution(row) {
+  if (!row) return false;
+  if (row.service_type !== 'external_service') return false;
+  if (row.blocking || row.mode === 'blocking') return false;
+  if (row.success || row.status === 'success') return false;
+  return ['failed', 'timeout', 'retry_scheduled', 'retry_exhausted'].includes(String(row.status || '').trim());
+}
+
+async function manualRetryExternalExecution(row) {
+  await confirmDanger('将重新向外部服务投递该事件，请确认外部服务具备幂等处理能力。', '手动重试 external_service', {
+    confirmButtonText: '重试',
+    cancelButtonText: '取消',
+  });
+  externalRetryingID.value = row.id;
+  try {
+    await admin.retryPluginHookExecution(row.plugin_code, row.id);
+    await refreshExternalServiceExecutions();
+  } finally {
+    externalRetryingID.value = 0;
+  }
+}
+
 async function manualRetry(row) {
   await confirmDanger(`确认重试投递记录 #${row.id}？`, '手动重试', { confirmButtonText: '重试', cancelButtonText: '取消' });
   await admin.retryWebhookDelivery(row.id);
@@ -1094,6 +1249,11 @@ function onCircuitPageChange(page) {
   refreshCircuits();
 }
 
+function onExternalExecutionPageChange(page) {
+  externalExecutionFilters.value.page = page;
+  refreshExternalServiceExecutions();
+}
+
 onMounted(async () => {
   tab.value = normalizeMainTab(tab.value);
   if (tab.value === 'overview') {
@@ -1102,6 +1262,7 @@ onMounted(async () => {
     return;
   }
   if (tab.value === 'events') await refreshEvents();
+  else if (tab.value === 'external_service') await refreshExternalServiceExecutions();
   else if (tab.value === 'secrets') await refreshSecrets();
   else if (tab.value === 'callback_tokens') await refreshCallbackTokens();
   else if (tab.value === 'callback_requests') await refreshCallbackRequests();
@@ -1124,6 +1285,7 @@ watch(tab, async (next) => {
     return;
   }
   if (next === 'events') await refreshEvents();
+  else if (next === 'external_service') await refreshExternalServiceExecutions();
   else if (next === 'secrets') await refreshSecrets();
   else if (next === 'callback_tokens') await refreshCallbackTokens();
   else if (next === 'callback_requests') await refreshCallbackRequests();

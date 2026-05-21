@@ -1,0 +1,146 @@
+{
+  "code": "official_webhook_notify_template",
+  "name": "Official Webhook Notify Template",
+  "version": "1.0.0",
+  "description": "DevHub 官方 external_service Webhook 插件模板，只声明 non-blocking HTTP 投递，不包含运行时代码。",
+  "author": "DevHub Team",
+  "compatible_core_version": ">=1.8.3",
+  "min_core_version": "1.8.3",
+  "is_system": false,
+  "content_types": [],
+  "permissions": [
+    {
+      "plugin_code": "official_webhook_notify_template",
+      "code": "official_webhook_notify_template.manage",
+      "name": "管理 Webhook 通知模板",
+      "description": "允许配置 external_service endpoint、健康检查和投递排障。",
+      "scope": "global"
+    }
+  ],
+  "menus": [
+    {
+      "plugin_code": "official_webhook_notify_template",
+      "code": "official_webhook_notify_template.admin.webhooks",
+      "title": "Webhook 通知模板",
+      "path": "/admin-next/plugins/webhooks?plugin_code=official_webhook_notify_template",
+      "location": "admin",
+      "area": "admin",
+      "permission": "official_webhook_notify_template.manage",
+      "sort_order": 370
+    }
+  ],
+  "config_schema": {
+    "type": "object",
+    "additionalProperties": false,
+    "required": [
+      "enabled",
+      "endpoint_url",
+      "health_check_path",
+      "timeout_ms",
+      "failure_policy",
+      "auth_type",
+      "warning_threshold",
+      "error_threshold"
+    ],
+    "properties": {
+      "enabled": {
+        "type": "boolean",
+        "title": "启用外部投递",
+        "default": true
+      },
+      "endpoint_url": {
+        "type": "string",
+        "title": "外部服务地址",
+        "default": "http://127.0.0.1:19090"
+      },
+      "health_check_path": {
+        "type": "string",
+        "title": "健康检查路径",
+        "default": "/health"
+      },
+      "timeout_ms": {
+        "type": "integer",
+        "title": "超时时间毫秒",
+        "default": 3000,
+        "minimum": 500,
+        "maximum": 10000
+      },
+      "failure_policy": {
+        "type": "string",
+        "title": "失败策略",
+        "enum": [
+          "ignore",
+          "warn",
+          "error",
+          "disable_hook"
+        ],
+        "default": "warn"
+      },
+      "auth_type": {
+        "type": "string",
+        "title": "认证方式",
+        "enum": [
+          "none",
+          "bearer"
+        ],
+        "default": "none"
+      },
+      "token": {
+        "type": "string",
+        "title": "Bearer Token",
+        "description": "只允许后台写入，不要在 manifest 或示例配置中填写真实值。",
+        "default": ""
+      },
+      "warning_threshold": {
+        "type": "integer",
+        "title": "warning 阈值",
+        "default": 3,
+        "minimum": 1,
+        "maximum": 20
+      },
+      "error_threshold": {
+        "type": "integer",
+        "title": "error 阈值",
+        "default": 5,
+        "minimum": 1,
+        "maximum": 50
+      }
+    }
+  },
+  "default_config": {
+    "enabled": true,
+    "endpoint_url": "http://127.0.0.1:19090",
+    "health_check_path": "/health",
+    "timeout_ms": 3000,
+    "failure_policy": "warn",
+    "auth_type": "none",
+    "token": "",
+    "warning_threshold": 3,
+    "error_threshold": 5
+  },
+  "hooks": [
+    {
+      "plugin_code": "official_webhook_notify_template",
+      "name": "AfterCreateContent",
+      "description": "内容创建后异步投递到外部服务。DevHub 不执行插件包代码，只发送声明的 HTTP 请求。",
+      "mode": "non_blocking",
+      "service_type": "external_service",
+      "path": "/hooks/content.after_create",
+      "method": "POST",
+      "timeout_ms": 3000,
+      "retry_enabled": true,
+      "max_attempts": 3,
+      "failure_policy": "warn",
+      "enabled": true,
+      "blocking": false,
+      "critical": false
+    }
+  ],
+  "external_service": {
+    "endpoint": "https://example.com",
+    "timeout_ms": 3000,
+    "failure_policy": "warn",
+    "retry_policy": "linear"
+  },
+  "migrations": []
+}

@@ -58,6 +58,13 @@ async function doMount() {
   h.dataset.devhubPluginMount = '1';
   h.dataset.pluginCode = props.pluginCode;
   h.dataset.area = props.area || 'admin';
+  if (props.pluginCode === 'official_announcement') {
+    h.dataset.componentKey = 'official.announcement.card';
+    h.dataset.mountPoint = (props.area || 'admin') === 'admin' ? 'admin.plugin.detail.preview' : 'frontend.home.section';
+  } else {
+    delete h.dataset.componentKey;
+    delete h.dataset.mountPoint;
+  }
   if (props.communitySlug) h.dataset.communitySlug = props.communitySlug;
   else delete h.dataset.communitySlug;
   if (props.height) h.style.height = props.height;
@@ -68,7 +75,7 @@ async function doMount() {
     if (!w.DevHubOfficialPluginMountHost || typeof w.DevHubOfficialPluginMountHost.mount !== 'function') {
       throw new Error('helper_unavailable');
     }
-    w.DevHubOfficialPluginMountHost.mount(h, { pluginCode: props.pluginCode, area: props.area || 'admin', communitySlug: props.communitySlug || '' });
+    w.DevHubOfficialPluginMountHost.mount(h, { pluginCode: props.pluginCode, area: props.area || 'admin', communitySlug: props.communitySlug || '', componentKey: h.dataset.componentKey || '', mountPoint: h.dataset.mountPoint || '' });
   } catch (e: any) {
     error.value = '加载失败';
   }

@@ -10,8 +10,9 @@
 
 - 本文为 **v1.8.0 文档设计**，不代表当前代码已实现“第三方插件前端挂载”。  
 - DevHub 当前仍坚持运行时安全边界：**不执行第三方不可信代码**、不做远程动态加载、不做 Go plugin 动态加载。  
-- 插件前端挂载的主要方向是 **iframe + sandbox + postMessage**；插件页面不能绕过 Core 的权限、审计与插件生命周期状态。
-- v1.8.3 后台治理体验已将“前端挂载”作为插件详情三级 Tab 展示，显示 iframe 路由、sandbox、postMessage 状态和“远程 iframe URL：否 / 第三方代码执行：否”。`official_announcement` 的配置与预览入口在详情内更清晰；同时修复详情抽屉空插件状态下的运行时异常。该调整只改变后台信息展示和稳定性保护，不改变 Host + iframe + postMessage 协议。
+- 插件前端挂载的主要方向仍是 **iframe + sandbox + postMessage**（设计口径），但当前实现只开放官方 allowlist 挂载，不开放任意远程 iframe URL、不开放任意远程 JS / CSS 入口、不开放第三方前端运行时；插件页面不能绕过 Core 的权限、审计与插件生命周期状态。
+- v1.8.3-S22 进一步把 manifest / 预检 / 运行时收口到官方 allowlist：只接受官方挂载点和官方组件 key，预检 / install dry-run 会阻断未知挂载点、未知组件 key、`iframe_url`、`script_url`、`remote_entry`、`external_js`、`inline_html`、`remote_component`、`eval` 和不支持的 `render_mode`。`official_announcement` 的配置与预览入口仍在详情内展示，但不代表第三方前端挂载已开放。该调整只改变后台信息展示和安全收口，不改变 Host + iframe + postMessage 协议。
+- 运行时只返回已安装、已启用 / running、未归档、未软卸载，且当前子站已启用的插件挂载；未知历史组件会被跳过并返回 warning，不会白屏。传给前端组件的 props 会过滤 secret / token / authorization / password / credential 类字段，官方 helper 仍只创建内置同源 iframe，不读取插件声明的远程 iframe 或脚本入口。
 
 ## 1. 目标与非目标
 

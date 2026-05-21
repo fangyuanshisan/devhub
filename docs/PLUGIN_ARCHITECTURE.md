@@ -12,11 +12,26 @@ DevHub 当前长期目标是 **Core + 插件 的开源服务底座**。插件系
 
 完整插件系统与插件运行模型是当前最高优先级长期主线。插件运行模型的详细设计见 [插件运行模型设计](PLUGIN_RUNTIME_MODEL.md)；下一阶段完整目标、生命周期和验收标准以 [完整插件系统长期完善路线图](PLUGIN_SYSTEM_ROADMAP.md) 为准。当前仅 external_service 的 non-blocking delivery 子集已经实现，完整第三方运行模型仍未实现。插件市场、远程安装、在线更新、动态加载、前端插件沙箱和完整 HTTP 插件服务协议仍属于后续阶段路线，必须在权限、安全、审计、生命周期和 SEO 红线内推进。
 
+开发者模板补充（v1.8.3-S21）：
+
+- 新增 [声明型插件开发者指南](PLUGIN_DEVELOPER_GUIDE.md)，把当前可用的声明型能力、插件包结构、manifest 写法、安全规范、升级规范和验收清单整理为开发者入口。
+- 新增纯声明型内容插件模板：`examples/plugins/templates/declarative-content/`。该模板基于 `official_links` / 友情链接场景，展示 content_type、权限、菜单、配置 schema 和 `migrations/`，不需要外部服务，也不执行代码。
+- 新增 external_service Webhook 插件模板：`examples/plugins/templates/external-service-webhook/`。该模板基于 `official_webhook_notify` 场景，展示 external_service endpoint 配置、health check、non-blocking Hook、失败策略和手动 retry 验收方法。
+- 两个模板都只是声明型插件包模板，不是第三方运行时；仍不执行第三方代码，不开放 Go plugin / JS 沙箱 / 远程 iframe / 插件市场 / 远程在线安装 / blocking Hook。
+- `migrations/` 仍是唯一迁移入口；模板包不允许通过根目录 SQL、package scripts 或动态资产加载绕过 Core 治理。
+
+升级体验补充（v1.8.3）：
+
+- `POST /api/v1/admin/plugins/:code/upgrade/dry-run` 已从单纯的版本差异预览，增强为结构化升级计划入口，返回版本计划、变更摘要、影响范围、分区升级计划、风险项和回滚边界说明；但仍不执行 SQL、不执行 migration down、不执行第三方代码。
+- `POST /api/v1/admin/plugins/:code/upgrade` 已要求 warning 升级显式确认，blocked 升级不可通过 confirm 绕过；升级失败会尽量保留已安装版本可见，并记录失败阶段和审计日志，完整自动回滚仍未实现。
+- `migrations/` 仍是插件包唯一迁移入口，插件包也仍不能执行 SQL、执行代码或动态加载资产。
+- 这部分只是升级治理体验增强，不代表插件市场、远程更新、第三方运行时或 blocking Hook 已完成。
+
 前端挂载模型补充（v1.8.0 文档阶段）：
 
 - 插件前端扩展的主方向：**iframe + sandbox + postMessage**（设计口径）。
 - 挂载点（slots）、iframe 隔离策略、postMessage 协议与权限/状态 gating 见：`docs/PLUGIN_FRONTEND_MOUNT_MODEL.md`。
-  - 注意：当前仅为设计，不代表第三方插件前端挂载已实现；仍不执行第三方不可信代码。
+  - 注意：当前实现只开放官方 allowlist 挂载，不代表第三方插件前端挂载已实现；仍不执行第三方不可信代码，不开放任意远程 iframe URL。
 
 v1.8.1 实现补充（官方公告插件最小挂载）：
 
@@ -39,6 +54,7 @@ v1.8.3 后台治理稳定性、IA 与中文体验补充：
 - v1.8.3-S10 已完成声明型插件可用闭环：manifest 声明的菜单、content_type、权限和 config_schema 能进入运行态插件列表、子站启用链路、后台权限矩阵和发布校验；全局 disabled、子站 disabled、archived / soft_uninstalled 会阻断新能力，历史内容仍可读。该闭环仍只处理可信声明元数据，不执行第三方代码、不开放动态加载、不改变 Webhook 协议或 Secret / Token 安全模型。
 - v1.8.3-S15 已用真实声明型插件 `official_links*` 验收“安装到使用”完整业务闭环：真实 zip 包经过 upload、precheck、promote、本地仓库 install dry-run、install、PluginRegistry reload、全局启用、子站启用后，菜单、`friend_link*` content_type、权限矩阵、配置读写和后台 / 前台挂载声明均可被 Core 治理链读取；disabled / archived / 子站 disabled 会阻断新内容和新能力，历史内容仍可读。后台 `admin/posts` 兼容创建入口可显式携带声明型 `category_id/content_type/plugin_code`，但仍统一进入 Service 层校验，不绕过插件状态、板块、权限或子站 gating。
 - v1.8.3-S11 已完成 external_service Webhook 运行时预备：声明型插件可保存外部服务 endpoint / timeout / failure_policy / auth_type / token_ref 配置，执行受控 HTTP health check，并将结果写入 `hook_executions(service_type=external_service)` 与插件健康摘要。v1.8.3-S14 进一步补齐 external_service non-blocking Webhook 投递：声明型 Hook 只能以 `mode=non_blocking` 异步 `POST {endpoint_url}{hook.path}`，主业务流程不等待远端响应，投递结果、重试、skipped 和 health warning/error 进入 `hook_executions`。该能力不执行第三方插件代码、不开放动态加载、不改变 Webhook Secret / Callback Token 安全模型，也不实现 blocking Hook。
+- v1.8.3-S22 已把前端插件挂载继续收口到官方 allowlist：manifest 只能声明官方允许的挂载点和官方组件 key，运行时只渲染已启用、未归档、当前站点可用的 allowlist 挂载，未知挂载点或未知组件 key 会被跳过并记录 warning。当前不开放任意远程 iframe URL、远程 JS/CSS 入口、inline HTML 注入或第三方前端运行时；`HookBus` 仍只派发事件、记录执行和触发 external_service HTTP 投递，不执行第三方代码。
 - 后台插件中心中文状态和异常提示已收口到插件模块映射：前端集中维护 `web/admin-app/src/modules/plugins/statusText.js`，用于状态 badge、风险标签、插件包阻断原因、Hook / 健康原因、操作名、错误建议和旧接口 code 兜底展示。后端仍以英文枚举和 `APIError.code` 作为稳定机器字段，前端展示中文 `message` / 映射文案；不引入全站 i18n，不改变插件业务状态值或 API 兼容性。
 
 ## Core 边界
@@ -138,6 +154,8 @@ MySQL 专项补充：2026-05-11 已完成 MySQLStore 与老库升级专项验证
 预留：
 
 - 插件包分发：本地插件包 **dry-run 导入预览**、“本地插件仓库扫描（discovered packages）”、“已安装声明型插件导出为本地插件包”、“zip 上传安全沙箱 + promote 到本地仓库”与“上传包生命周期治理”已落地（含 `plugin_package_uploads`、导入审批、rescan、cancel/delete/cleanup、`checksums.json` sha256 校验、`risk_report` 风险报告，以及Ed25519 真实签名验签与可信发布者管理：`publisher.json`/`signature.json` + 后台 `plugin_trusted_publishers`，见 `docs/PLUGIN_PACKAGE.md`）；远程安装/市场仍处于预留阶段。
+- external_service 可交付样板：`examples/plugins/official_webhook_notify` 已提供官方声明型 Webhook 示例包，可用于 upload -> precheck -> promote -> install dry-run -> install，并配合 `cmd/webhook-mock-receiver` 验证 non-blocking delivery、健康检查和失败手动重试。该样板仍只包含 manifest / README / config.example / checksums / migrations 说明，不包含运行时代码、远程 iframe、真实 secret 或外部 SQL。
+- external_service 手动重试：后台可对失败类 `hook_executions(service_type=external_service)` 发起一次手动重试，复用现有 HTTP 投递逻辑并创建新的执行记录；`success`、`skipped`、internal/builtin Hook、健康检查记录、跨插件 code、disabled / archived 插件均禁止重试。该能力仍是 non-blocking delivery 治理能力，不是 blocking Hook，也不是第三方运行时。
 - 插件健康状态：`healthy`、`warning`、`error`、`disabled`、`migration_pending`、`config_invalid`、`dependency_missing`、`hook_warning`、`hook_error` 已有轻量计算；`hook_error` 当前基于 Hook 失败次数阈值（当前为 `>= 3`）判断。告警、自动恢复、重试队列和 Prometheus/Grafana 式可观测指标仍是后续能力。
 - 插件运行模型仍待设计：第三方插件前端挂载、后端隔离运行、HTTP 插件服务协议、iframe 沙箱、受控 API 调用、第三方 Hook handler 映射、主题/UI 扩展边界仍未完成。
 - 插件市场、远程自动更新、动态执行环境、脚本沙箱、第三方代码执行、硬卸载和 migration down 仍未完成。

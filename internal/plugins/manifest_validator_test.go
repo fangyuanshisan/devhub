@@ -135,3 +135,64 @@ func TestValidatePluginManifestJSONOptionalDependencyMissingWarns(t *testing.T) 
 		t.Fatalf("expected missing dependency warning, got %v", result.Warnings)
 	}
 }
+
+func TestValidatePluginManifestJSONFrontendMountAllowlist(t *testing.T) {
+	valid := []byte(`{
+		"code": "frontsafe",
+		"name": "Frontend Safe",
+		"version": "1.0.0",
+		"frontend_mounts": [
+			{"mount_point":"frontend.home.section","component_key":"official.announcement.card","render_mode":"official_component","props":{"title":"hello"}}
+		]
+	}`)
+	result := ValidatePluginManifestJSON(valid, Definitions(), "v1.8.3")
+	if !result.Valid {
+		t.Fatalf("expected allowlisted frontend mount to pass, errors=%v", result.Errors)
+	}
+	if got := result.NormalizedManifest.FrontendMounts; len(got) != 1 || got[0].PluginCode != "frontsafe" {
+		t.Fatalf("frontend mount was not normalized: %#v", got)
+	}
+
+	cases := []struct {
+		name string
+		raw  string
+		want string
+	}{
+		{
+			name: "unknown mount",
+			raw:  strings.Replace(string(valid), "frontend.home.section", "frontend.anywhere", 1),
+			want: "FRONTEND_MOUNT_NOT_ALLOWED",
+		},
+		{
+			name: "unknown component",
+			raw:  strings.Replace(string(valid), "official.announcement.card", "third.party.widget", 1),
+			want: "FRONTEND_COMPONENT_NOT_ALLOWED",
+		},
+		{
+			name: "remote iframe",
+			raw:  strings.Replace(string(valid), `"props":{"title":"hello"}`, `"iframe_url":"https://example.com/plugin.html"`, 1),
+			want: "REMOTE_IFRAME_NOT_ALLOWED",
+		},
+		{
+			name: "remote script",
+			raw:  strings.Replace(string(valid), `"props":{"title":"hello"}`, `"remote_entry":"https://example.com/plugin.js"`, 1),
+			want: "REMOTE_SCRIPT_NOT_ALLOWED",
+		},
+		{
+			name: "inline html",
+			raw:  strings.Replace(string(valid), `"props":{"title":"hello"}`, `"inline_html":"<strong>x</strong>"`, 1),
+			want: "INLINE_HTML_NOT_ALLOWED",
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			result := ValidatePluginManifestJSON([]byte(tc.raw), Definitions(), "v1.8.3")
+			if result.Valid {
+				t.Fatalf("expected invalid manifest")
+			}
+			if !strings.Contains(strings.Join(result.Errors, "\n"), tc.want) {
+				t.Fatalf("expected %s, got %v", tc.want, result.Errors)
+			}
+		})
+	}
+}

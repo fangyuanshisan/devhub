@@ -72,9 +72,49 @@ manifest 里的 `hooks[]` 需要声明成 `service_type=external_service`，并�
 - `max_attempts` 最高 5 次。
 - `failure_policy` 常用 `warn`，不要默认写成 blocking 思路。
 
+## 官方示例插件
+
+本仓库新增官方样板插件包：
+
+```text
+examples/plugins/official_webhook_notify/
+  manifest.json
+  README.md
+  config.example.json
+  checksums.json
+  migrations/README.md
+```
+
+用途：
+
+- 作为 external_service Webhook 插件的可复制样板。
+- 验证 upload -> precheck -> promote -> install dry-run -> install。
+- 配合 `cmd/webhook-mock-receiver` 验证健康检查、`AfterCreateContent` 投递、失败记录和手动重试。
+
+该包不包含可执行代码、危险文件、真实 secret、用户数据、远程 iframe URL 或外部 SQL。`migrations/` 只保留说明文件；如后续有真实迁移，也只能放在 `migrations/` 下。
+
+## 官方 Webhook 模板
+
+如果要开发自己的 external_service Webhook 插件，建议从模板复制：
+
+```text
+examples/plugins/templates/external-service-webhook/
+  manifest.json
+  README.md
+  config.example.json
+  checksums.json
+  receiver.example.md
+  PACKAGING.md
+  migrations/000_noop.json
+```
+
+该模板基于 `official_webhook_notify`，但它仍只是插件包模板，不是内置运行时：DevHub 不运行 receiver，不执行插件包代码，只按 manifest 中的 `service_type=external_service` / `mode=non_blocking` Hook 声明投递 HTTP 请求。
+
+完整开发步骤、安全规范和验收清单见 [声明型插件开发者指南](PLUGIN_DEVELOPER_GUIDE.md)。
+
 ## 2. 配置 external_service
 
-当前后台详情页可以查看外部服务状态并执行健康检查；真正的配置保存入口以 Admin API 为主。
+当前后台插件详情的“运行记录”区域提供 external_service 配置表单，也可以使用 Admin API。
 
 接口：
 
@@ -97,6 +137,8 @@ manifest 里的 `hooks[]` 需要声明成 `service_type=external_service`，并�
 - 线上只用 `https://`。
 - 本地开发可用 `localhost` / `127.0.0.1` / `::1`。
 - `token` 只在写入时提交，不要期望列表里能看到明文。
+- `auth_type=none` 时不用填写 token。
+- `auth_type=bearer` 时可以写入新 token；已有 token 只显示“已配置密钥 / 可替换”，不会回显明文。
 
 ## 3. 先跑健康检查
 
@@ -118,6 +160,7 @@ manifest 里的 `hooks[]` 需要声明成 `service_type=external_service`，并�
 
 - `投递记录` 看每次 Hook 是否成功。
 - `异常处理` 看重试队列、熔断状态和待处理异常。
+- `外部服务执行` 看 `hook_executions(service_type=external_service)`，失败类记录可手动重试。
 - `事件` 看事件链路。
 - `Webhook 密钥` 看签名凭据的治理。
 - `回调 Token` 看插件服务回调 Core 的凭据治理。
@@ -128,6 +171,31 @@ manifest 里的 `hooks[]` 需要声明成 `service_type=external_service`，并�
 - `retry_scheduled` / `retry_exhausted`：多半是超时、5xx 或 429。
 - `skipped`：通常是插件状态、子站状态、endpoint 缺失或 token 缺失。
 - `circuit_open`：先修外部服务，再去处理熔断。
+
+## 4.1 手动重试失败投递
+
+入口：
+
+- 插件详情 -> 运行记录 -> 外部服务执行记录。
+- Webhook 治理 -> 外部服务执行。
+
+规则：
+
+- 只对 `service_type=external_service` 的失败类记录显示“重试”。
+- `success`、`skipped`、internal/builtin Hook、健康检查记录不显示重试入口，也会被后端拒绝。
+- 点击前会提示：将重新向外部服务投递该事件，请确认外部服务具备幂等处理能力。
+- 重试会创建新的执行记录，并在 metadata 标记 `manual_retry=true`、来源执行记录和 operator。
+- 插件 disabled / archived / soft_uninstalled 或 external_service disabled 时不会实际调用 endpoint，会返回中文错误。
+
+接口：
+
+```text
+POST /api/v1/admin/plugins/:code/hooks/executions/:execution_id/retry
+```
+
+权限：后台 admin token + `plugin.manage`。
+
+返回里会包含本次 `retry_execution_id` / `retry_record_id`，可回到执行列表定位结果。
 
 ## 5. 配 Webhook Secret
 
@@ -161,12 +229,15 @@ manifest 里的 `hooks[]` 需要声明成 `service_type=external_service`，并�
 
 ## 7. 一个最短的实际流程
 
-1. 在 manifest 里声明 `external_service` Hook。
-2. 保存插件后，在后台配置 `endpoint_url` 和 `auth_type`。
-3. 点一次健康检查，确认状态是 healthy。
-4. 触发一次业务事件，例如创建内容。
-5. 去 `Webhook 治理 -> 投递记录` 看记录。
-6. 如果插件服务还要读配置或写审计，再创建 Callback Token。
+1. 使用 `examples/plugins/official_webhook_notify` 做本地插件包 dry-run，或打包 zip 后上传。
+2. 走插件包治理：upload -> precheck -> promote -> install dry-run -> install。
+3. 启动 mock receiver：`go run ./cmd/webhook-mock-receiver`。
+4. 在插件详情 -> 运行记录里配置 `endpoint_url=http://127.0.0.1:19090`、`auth_type=none`。
+5. 点一次健康检查，确认状态是 healthy。
+6. 触发一次业务事件，例如创建内容。
+7. 去 `Webhook 治理 -> 外部服务执行` 看 `AfterCreateContent` 投递记录。
+8. 停掉 mock receiver 或让它返回 500，确认失败记录可手动重试。
+9. 如果插件服务还要读配置或写审计，再创建 Callback Token。
 
 ## 8. 排障顺序
 
@@ -198,4 +269,3 @@ manifest 里的 `hooks[]` 需要声明成 `service_type=external_service`，并�
 - 没有远程 iframe URL。
 - 没有第三方代码执行。
 - 没有把 Secret / Token 明文开放给前端表格。
-

@@ -16,7 +16,7 @@ func (s *Server) pluginMountHostHelperJS(c *gin.Context) {
 
 func pluginMountHostHelperJS() string {
 	// Keep this helper small and safe:
-	// - Only supports official built-in plugins allowlist (phase 1: official_announcement).
+	// - Only supports official built-in plugin/component/mount allowlists.
 	// - No remote URL support.
 	// - Enforces strict postMessage checks (source/origin/plugin_code/mount_id/type).
 	// - Never exposes any token/secret to iframe.
@@ -32,6 +32,8 @@ func pluginMountHostHelperJS() string {
       iframePath: '/plugins/official-announcement/iframe',
       contextAPI: '/api/v1/plugins/official-announcement/context',
       auditAPI: '/api/v1/plugins/official-announcement/audit-events',
+      componentKey: 'official.announcement.card',
+      allowedMountPoints: ['frontend.home.section','frontend.community.section','admin.plugin.detail.preview'],
       iframeTitle: 'Official Announcement'
     }
   };
@@ -56,6 +58,14 @@ func pluginMountHostHelperJS() string {
 
   function getCommunitySlug(el){
     return el && el.dataset ? String(el.dataset.communitySlug || '').trim() : '';
+  }
+
+  function getComponentKey(el){
+    return el && el.dataset ? String(el.dataset.componentKey || '').trim() : '';
+  }
+
+  function getMountPoint(el){
+    return el && el.dataset ? String(el.dataset.mountPoint || '').trim() : '';
   }
 
   function safeString(v){ return String(v == null ? '' : v); }
@@ -97,6 +107,10 @@ func pluginMountHostHelperJS() string {
     var pluginCode = opts.pluginCode || getPluginCode(el);
     var plugin = PLUGINS[pluginCode];
     if (!plugin) return;
+    var componentKey = opts.componentKey || getComponentKey(el) || plugin.componentKey;
+    if (componentKey !== plugin.componentKey) return;
+    var mountPoint = opts.mountPoint || getMountPoint(el);
+    if (mountPoint && plugin.allowedMountPoints.indexOf(mountPoint) === -1) return;
 
     var area = opts.area || getArea(el);
     var communitySlug = (opts.communitySlug != null) ? String(opts.communitySlug) : getCommunitySlug(el);

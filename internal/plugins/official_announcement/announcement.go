@@ -6,10 +6,11 @@ const Code = "official_announcement"
 
 // Definition returns the built-in official announcement plugin registration.
 //
-// v1.8.1 scope:
-// - This is a built-in official plugin shipped with DevHub.
-// - Frontend mounting uses Host + iframe with postMessage (implemented outside this manifest).
-// - No third-party code execution; no remote iframe URL.
+// v1.8.3 scope:
+//   - This is a built-in official plugin shipped with DevHub.
+//   - Frontend mounting uses official allowlisted mount points and an official
+//     component key; the Host helper still serves the built-in iframe page.
+//   - No third-party code execution; no remote iframe URL.
 func Definition() domain.Plugin {
 	return domain.Plugin{
 		PluginManifest: domain.PluginManifest{
@@ -31,6 +32,11 @@ func Definition() domain.Plugin {
 				{PluginCode: Code, Area: "frontend", Method: "GET", Path: "/api/v1/plugins/official-announcement/context", Handler: "official_announcement.host_context"},
 				{PluginCode: Code, Area: "frontend", Method: "POST", Path: "/api/v1/plugins/official-announcement/audit-events", Handler: "official_announcement.audit_events"},
 				{PluginCode: Code, Area: "frontend", Method: "GET", Path: "/plugins/official-announcement/iframe", Handler: "official_announcement.iframe"},
+			},
+			FrontendMounts: []domain.FrontendMountDefinition{
+				{PluginCode: Code, MountPoint: "frontend.home.section", ComponentKey: "official.announcement.card", RenderMode: "official_component", ConfigRef: "resolved_config"},
+				{PluginCode: Code, MountPoint: "frontend.community.section", ComponentKey: "official.announcement.card", RenderMode: "official_component", ConfigRef: "resolved_config"},
+				{PluginCode: Code, MountPoint: "admin.plugin.detail.preview", ComponentKey: "official.announcement.card", RenderMode: "official_component", ConfigRef: "resolved_config"},
 			},
 			ConfigSchema: map[string]any{
 				"type":                 "object",

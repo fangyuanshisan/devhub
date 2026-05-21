@@ -4,6 +4,14 @@
 
 ### Documentation
 
+- v1.8.3-S22：前端插件挂载继续收口到官方 allowlist。manifest 现在可以声明 `frontend_mounts`，但只允许官方挂载点和官方组件 key；预检 / install dry-run / upgrade dry-run 会阻断未知挂载点、未知组件 key、unsupported render_mode、`iframe_url`、`script_url`、`remote_entry`、`external_js`、`inline_html`、`remote_component`、`eval` 和未白名单的可执行 JS 资产，运行时只渲染已启用、未归档、当前站点可用的 allowlist 挂载。后台插件详情前端挂载表格、官方公告插件样板和升级 diff 都已同步，不改变 API、Webhook 协议、Secret / Token 安全模型，也不开放任意远程 iframe、远程 JS 或第三方前端运行时。
+- v1.8.3-S21：补齐声明型插件开发者指南，并把 `official_links` 与 Webhook demo 固化为两个官方模板。新增 `docs/PLUGIN_DEVELOPER_GUIDE.md`、`examples/plugins/templates/declarative-content/` 和 `examples/plugins/templates/external-service-webhook/`；模板覆盖 content_type / 权限 / 菜单 / config_schema / migrations/ 与 external_service non-blocking Hook / health check / retry 验收，不包含运行时代码、真实 secret、远程 iframe 或 blocking Hook。
+- v1.8.3-S21 复查：开发者指南继续对齐 allowlist 前端挂载和升级失败阶段 / 下一步建议的说明，帮助插件开发者更快避坑；仍不执行第三方代码，不开放远程 iframe 或 blocking Hook。
+- v1.8.3-S21 再复查：开发者指南现在被当作声明型插件的默认起步入口，明确 `migrations/` 唯一入口、dry-run 不执行 SQL、`external_service` 仅是 non-blocking 子集；相关链接也同步到文档入口与路线图。
+- v1.8.3-S20：完成插件升级体验收口。`upgrade dry-run` 现在返回结构化版本计划、变更摘要、影响范围、风险项和回滚边界；`upgrade` 与基于 compat-check 的升级都要求 warning 显式确认，blocked 不可绕过；后台升级向导改为结构化展示，原始 JSON 收进技术详情折叠区。仍不执行第三方代码，不开放远程 iframe、不开放 blocking Hook，不改变 Webhook 协议或 Secret / Token 安全模型。
+- v1.8.3-S20 复查：warning 仍需显式确认，blocked 仍不可绕过；dry-run plan 过期或与当前包 checksum / migration plan 不一致时继续拒绝升级；升级失败继续返回 `failure_stage` / `failure_reason`，后台结果页保留下一步建议。
+- v1.8.3-S19：完成 external_service Webhook 可交付闭环。新增官方样板包 `examples/plugins/official_webhook_notify`、手动重试 API、后台 external_service 配置表单和 Webhook 治理“外部服务执行”入口；补充样板包 dry-run 守护测试和 Core 版本读取修正，保证样板包按当前 `VERSION` 通过现有预检；补充 API、使用方法、包规范、架构边界、测试验收、项目进度和 v1.8.3 release notes。仍不执行第三方代码、不开放 blocking Hook、不开放远程 iframe、不改变 Webhook Secret / Callback Token 安全模型。
+- external_service 后台配置表单复查：插件详情抽屉“运行记录 / 外部服务配置”继续覆盖 endpoint、token 写入、health_check_path、timeout_ms、failure_policy、enabled 和健康状态展示；Webhook 治理“外部服务执行”继续用于投递记录和失败重试。token 不回显，不进入日志 / 审计 / hook_executions 明文；插件 disabled / archived 时不调用 endpoint。
 - 新增 Webhook 插件使用方法文档 `docs/PLUGIN_WEBHOOK_USAGE.md`，把 external_service non-blocking 投递、Webhook Secret、Callback Token、健康检查、投递记录、异常处理和排障入口整理成管理员可执行流程；仅补文档，不改 API、Webhook 协议或安全模型。
 - 当前版本口径统一到 `v1.8.3`：`VERSION` 从 `v1.7.1` 更新为 `v1.8.3`，README、docs/README、AGENT_RULES、PROJECT_PROGRESS、PLUGIN_ARCHITECTURE、PLUGIN_SYSTEM_ROADMAP、PLUGIN_PACKAGE、PLUGIN_WEBHOOK_IMPLEMENTATION_PLAN 和 v1.8.3 release notes 已同步当前主线说明；历史 v1.7.x 文档保留为追溯背景。
 - v1.8.0：新增插件前端挂载模型设计文档（slots + iframe/sandbox + postMessage 协议与权限/状态 gating），明确官方公告插件作为首个前后台挂载验证方向（文档设计，未修改代码、未执行测试）。

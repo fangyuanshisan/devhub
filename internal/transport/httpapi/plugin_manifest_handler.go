@@ -45,7 +45,7 @@ func (s *Server) dryRunAdminPluginUpgrade(c *gin.Context) {
 	}
 	s.auditStructured(c, "system", "plugin.upgrade.previewed", fmt.Sprintf("plugins#%s", code), nil,
 		gin.H{"status": "previewed"},
-		gin.H{"plugin_code": code, "operation": "plugin_upgrade_preview", "compatibility_status": result.CompatibilityStatus, "changed_keys": result.ChangedKeys})
+		gin.H{"plugin_code": code, "operation": "plugin_upgrade_preview", "compatibility_status": result.CompatibilityStatus, "changed_keys": result.ChangedKeys, "risk_level": result.RiskLevel, "confirm_required": result.ConfirmRequired, "dry_run_summary": result.ChangeSummary})
 	c.JSON(http.StatusOK, result)
 }
 
@@ -61,6 +61,7 @@ func (s *Server) upgradeAdminPlugin(c *gin.Context) {
 		failAPIError(c, err)
 		return
 	}
+	confirmed := extractUpgradeConfirm(raw)
 	executor := auditActor(c)
 	preview, err := s.svc.PluginUpgradeDryRun(code, manifestJSON)
 	if err != nil {
@@ -72,19 +73,19 @@ func (s *Server) upgradeAdminPlugin(c *gin.Context) {
 	}
 	s.auditStructured(c, "system", "plugin.upgrade.started", fmt.Sprintf("plugins#%s", code), nil,
 		gin.H{"status": "pending"},
-		gin.H{"plugin_code": code, "operation": "plugin_upgrade", "actor": executor, "compatibility_status": preview.CompatibilityStatus, "changed_keys": preview.ChangedKeys})
-	result, err := s.svc.UpgradePluginManifest(code, manifestJSON)
+		gin.H{"plugin_code": code, "operation": "plugin_upgrade", "actor": executor, "compatibility_status": preview.CompatibilityStatus, "changed_keys": preview.ChangedKeys, "risk_level": preview.RiskLevel, "confirm_required": preview.ConfirmRequired, "confirm_used": confirmed, "dry_run_summary": preview.ChangeSummary})
+	result, err := s.svc.UpgradePluginManifestConfirmed(code, manifestJSON, confirmed)
 	if err != nil {
 		s.auditStructured(c, "system", "plugin.upgrade.failed", fmt.Sprintf("plugins#%s", code), nil,
 			gin.H{"status": "failed"},
-			mergeAuditMeta(gin.H{"plugin_code": code, "operation": "plugin_upgrade", "actor": executor, "error": err.Error(), "compatibility_status": preview.CompatibilityStatus}, auditAPIErrorFields(err)))
+			mergeAuditMeta(gin.H{"plugin_code": code, "operation": "plugin_upgrade", "actor": executor, "error": err.Error(), "compatibility_status": preview.CompatibilityStatus, "risk_level": preview.RiskLevel, "confirm_required": preview.ConfirmRequired, "confirm_used": confirmed, "failure_stage": "confirm_or_apply", "failure_reason": err.Error()}, auditAPIErrorFields(err)))
 		failAPIError(c, err)
 		return
 	}
 	s.auditStructured(c, "system", "plugin.upgraded", fmt.Sprintf("plugins#%s", code),
 		gin.H{"status": "pending"},
 		gin.H{"status": result.Plugin.Status},
-		gin.H{"plugin_code": code, "operation": "plugin_upgraded", "actor": executor, "current_version": preview.CurrentVersion, "new_version": preview.NewVersion, "compatibility_status": preview.CompatibilityStatus, "changed_keys": preview.ChangedKeys})
+		gin.H{"plugin_code": code, "operation": "plugin_upgraded", "actor": executor, "current_version": preview.CurrentVersion, "new_version": preview.NewVersion, "compatibility_status": preview.CompatibilityStatus, "changed_keys": preview.ChangedKeys, "risk_level": preview.RiskLevel, "confirm_required": preview.ConfirmRequired, "confirm_used": confirmed, "result_status": "success", "failure_stage": "", "failure_reason": ""})
 	c.JSON(http.StatusOK, result)
 }
 

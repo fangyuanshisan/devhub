@@ -1,10 +1,12 @@
 package service
 
 import (
+	"crypto/sha256"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
+	"path/filepath"
 	"sort"
 	"strings"
 	"sync"
@@ -119,6 +121,7 @@ type Repository interface {
 	PluginRemoteIndexBySourceID(sourceID string) (domain.PluginRemoteIndexSource, bool)
 	PluginRemoteIndexes(filter domain.PluginRemoteIndexFilter) ([]domain.PluginRemoteIndexSource, int, error)
 	AppendHookExecution(record domain.HookExecution) (domain.HookExecution, error)
+	HookExecutionByID(id int64) (domain.HookExecution, bool)
 	HookExecutions(pluginCode string, limit int) ([]domain.HookExecution, error)
 	HookStats(pluginCode string) ([]domain.HookStats, error)
 	HookExecutionsByFilter(filter domain.HookExecutionFilter) ([]domain.HookExecution, int, error)
@@ -926,19 +929,10 @@ func (s *Service) PluginUpgradeDryRun(code string, raw []byte) (domain.PluginUpg
 	currentManifest := current.PluginManifest
 	changedKeys := topLevelDiffKeys(normalizedManifest, currentManifest)
 	diffSections, diffSummary := buildPluginManifestDiff(currentManifest, normalizedManifest)
-	riskLevel := "low"
-	riskScore := 5
-	riskSummary := "升级差异未发现高风险变更"
-	if diffSummary.HighRisk > 0 {
-		riskLevel = "high"
-		riskScore = 70
-		riskSummary = fmt.Sprintf("升级差异包含 %d 个高风险变更", diffSummary.HighRisk)
-	}
-	if !validation.Valid || compatibility == pluginregistry.CompatibilityIncompatible {
-		riskLevel = "blocked"
-		riskScore = 100
-		riskSummary = "升级 dry-run 存在阻断项"
-	}
+	versionPlan := buildPluginUpgradeVersionPlan(code, current.Version, normalizedManifest.Code, normalizedManifest.Version)
+	packageSummary := buildPluginUpgradePackageSummary(current, normalizedManifest, checksum)
+	riskLevel, riskReport, riskItems, blockingItems, warningItems := buildPluginUpgradeRisk(code, validation, compatibility, diffSections, diffSummary, versionPlan)
+	confirmRequired := riskLevel == "warning"
 	diff := map[string]any{
 		"current": map[string]any{
 			"version":                 current.Version,
@@ -950,6 +944,8 @@ func (s *Service) PluginUpgradeDryRun(code string, raw []byte) (domain.PluginUpg
 			"hooks":                   current.Hooks,
 			"migrations":              current.Migrations,
 			"dependencies":            current.Dependencies,
+			"assets":                  current.Assets,
+			"external_service":        current.ExternalService,
 		},
 		"new": map[string]any{
 			"version":                 normalizedManifest.Version,
@@ -961,8 +957,11 @@ func (s *Service) PluginUpgradeDryRun(code string, raw []byte) (domain.PluginUpg
 			"hooks":                   normalizedManifest.Hooks,
 			"migrations":              normalizedManifest.Migrations,
 			"dependencies":            normalizedManifest.Dependencies,
+			"assets":                  normalizedManifest.Assets,
+			"external_service":        normalizedManifest.ExternalService,
 		},
 	}
+	impact, _ := s.repo.PluginImpact(code)
 	return domain.PluginUpgradeDryRunResult{
 		PluginCode:            code,
 		CurrentVersion:        current.Version,
@@ -974,21 +973,335 @@ func (s *Service) PluginUpgradeDryRun(code string, raw []byte) (domain.PluginUpg
 		Diff:                  diff,
 		DiffSections:          diffSections,
 		DiffSummary:           diffSummary,
-		RiskReport:            domain.PluginPackageRiskReport{Level: riskLevel, Score: riskScore, Summary: riskSummary},
+		RiskReport:            riskReport,
 		DependencyDiff:        pluginregistry.DependencyDiff(current.Dependencies, normalizedManifest.Dependencies),
 		Validation:            validation,
+		VersionPlan:           versionPlan,
+		PackageSummary:        packageSummary,
+		ChangeSummary:         buildPluginUpgradeChangeSummary(diffSections, diffSummary, riskLevel),
+		ImpactSummary:         buildPluginUpgradeImpactSummary(current, normalizedManifest, impact, diffSections, riskItems),
+		MigrationPlan:         buildPluginUpgradeSectionPlan(diffSections, "migrations"),
+		ConfigPlan:            buildPluginUpgradeSectionPlan(diffSections, "config_schema", "default_config"),
+		PermissionPlan:        buildPluginUpgradeSectionPlan(diffSections, "permissions"),
+		ContentTypePlan:       buildPluginUpgradeSectionPlan(diffSections, "content_types", "content_type_definitions"),
+		HookPlan:              buildPluginUpgradeSectionPlan(diffSections, "hooks", "external_service"),
+		FrontendMountPlan:     buildPluginUpgradeSectionPlan(diffSections, "frontend_mounts", "menus", "routes", "assets"),
+		RiskLevel:             riskLevel,
+		RiskItems:             riskItems,
+		BlockingItems:         blockingItems,
+		Warnings:              warningItems,
+		ConfirmRequired:       confirmRequired,
+		ConfirmToken:          buildPluginUpgradeConfirmToken(confirmRequired, code, current.Version, normalizedManifest.Version, checksum),
+		RollbackBoundary:      pluginUpgradeRollbackBoundary(),
 	}, nil
 }
 
+func buildPluginUpgradeVersionPlan(requestCode, currentVersion, targetCode, targetVersion string) domain.PluginUpgradeVersionPlan {
+	cmp := pluginregistry.CompareVersionStrings(strings.TrimSpace(targetVersion), strings.TrimSpace(currentVersion))
+	compare := "upgrade"
+	message := "目标版本高于当前版本，可进入升级预检。"
+	if cmp == 0 {
+		compare = "same_version"
+		message = "目标版本与当前版本相同，本轮不支持同版本重装。"
+	} else if cmp < 0 {
+		compare = "downgrade"
+		message = "目标版本低于当前版本，本轮默认禁止降级。"
+	}
+	if strings.TrimSpace(targetCode) != strings.TrimSpace(requestCode) {
+		message = "目标 manifest code 与当前插件不一致，禁止升级。"
+	}
+	return domain.PluginUpgradeVersionPlan{
+		FromVersion:        strings.TrimSpace(currentVersion),
+		ToVersion:          strings.TrimSpace(targetVersion),
+		Compare:            compare,
+		SameVersionAllowed: false,
+		DowngradeAllowed:   false,
+		CrossMajor:         majorVersion(currentVersion) != "" && majorVersion(targetVersion) != "" && majorVersion(currentVersion) != majorVersion(targetVersion),
+		CodeMatched:        strings.TrimSpace(targetCode) == strings.TrimSpace(requestCode),
+		Message:            message,
+	}
+}
+
+func buildPluginUpgradePackageSummary(current domain.Plugin, target domain.PluginManifest, targetChecksum string) domain.PluginUpgradePackageSummary {
+	currentChecksum := firstNonBlank(current.ManifestChecksum, current.PackageChecksum)
+	return domain.PluginUpgradePackageSummary{
+		Source:                  "manifest",
+		PluginCode:              target.Code,
+		Name:                    target.Name,
+		CurrentManifestChecksum: currentChecksum,
+		TargetManifestChecksum:  strings.TrimSpace(targetChecksum),
+		ChecksumChanged:         strings.TrimSpace(currentChecksum) != "" && strings.TrimSpace(targetChecksum) != "" && strings.TrimSpace(currentChecksum) != strings.TrimSpace(targetChecksum),
+		Publisher:               strings.TrimSpace(target.Author),
+		PublisherChanged:        strings.TrimSpace(current.Author) != "" && strings.TrimSpace(target.Author) != "" && strings.TrimSpace(current.Author) != strings.TrimSpace(target.Author),
+		SignatureStatus:         "manifest_only",
+		TrustStatus:             "manifest_only",
+	}
+}
+
+func buildPluginUpgradeRisk(code string, validation domain.PluginManifestValidationResult, compatibility string, sections []domain.PluginManifestDiffSection, summary domain.PluginUpgradeDiffSummary, versionPlan domain.PluginUpgradeVersionPlan) (string, domain.PluginPackageRiskReport, []domain.PluginPackageRiskItem, []domain.PluginPackageRiskItem, []domain.PluginPackageRiskItem) {
+	riskItems := []domain.PluginPackageRiskItem{}
+	blockingItems := []domain.PluginPackageRiskItem{}
+	warningItems := []domain.PluginPackageRiskItem{}
+	for _, msg := range validation.Errors {
+		item := domain.PluginPackageRiskItem{Code: "plugin_upgrade_validation_error", Level: "blocked", Message: strings.TrimSpace(msg), Suggestion: "请修复 manifest 后重新执行 dry-run。"}
+		blockingItems = append(blockingItems, item)
+	}
+	for _, msg := range validation.Warnings {
+		item := domain.PluginPackageRiskItem{Code: "plugin_upgrade_validation_warning", Level: "warning", Message: strings.TrimSpace(msg), Suggestion: "请确认该警告不会影响当前站点后再升级。"}
+		warningItems = append(warningItems, item)
+	}
+	if !versionPlan.CodeMatched {
+		blockingItems = append(blockingItems, domain.PluginPackageRiskItem{Code: "plugin_upgrade_code_mismatch", Level: "blocked", Path: "manifest.code", Message: "目标 manifest code 与当前插件不一致", Suggestion: "请选择同一 plugin_code 的升级包。"})
+	}
+	if versionPlan.Compare == "same_version" {
+		blockingItems = append(blockingItems, domain.PluginPackageRiskItem{Code: "plugin_upgrade_same_version_forbidden", Level: "blocked", Path: "manifest.version", Message: "目标版本与当前版本相同，本轮不支持同版本重装", Suggestion: "请提供更高版本，或使用后续专门的重装流程。"})
+	}
+	if versionPlan.Compare == "downgrade" {
+		blockingItems = append(blockingItems, domain.PluginPackageRiskItem{Code: "plugin_upgrade_downgrade_forbidden", Level: "blocked", Path: "manifest.version", Message: "目标版本低于当前版本，本轮默认禁止降级", Suggestion: "请选择更高版本升级；降级需要单独回滚方案。"})
+	}
+	if compatibility == pluginregistry.CompatibilityIncompatible {
+		blockingItems = append(blockingItems, domain.PluginPackageRiskItem{Code: "plugin_upgrade_core_incompatible", Level: "blocked", Path: "compatible_core_version", Message: "目标版本 Core 兼容性不满足", Suggestion: "请升级 DevHub Core 或选择兼容的插件版本。"})
+	}
+	if versionPlan.CrossMajor {
+		warningItems = append(warningItems, domain.PluginPackageRiskItem{Code: "plugin_upgrade_cross_major", Level: "warning", Path: "manifest.version", Message: "检测到跨大版本升级", Suggestion: "请确认数据库备份、迁移计划和插件包来源后再继续。"})
+	}
+	for _, section := range sections {
+		for _, item := range section.Items {
+			if item.RiskLevel == "blocked" {
+				blockingItems = append(blockingItems, domain.PluginPackageRiskItem{Code: "plugin_upgrade_diff_blocked", Level: "blocked", Path: item.Path, Message: firstNonBlank(item.Message, "升级差异包含阻断项"), Suggestion: "请修复该差异后重新执行 dry-run。"})
+				continue
+			}
+			if item.RiskLevel == "high" {
+				warningItems = append(warningItems, domain.PluginPackageRiskItem{Code: "plugin_upgrade_diff_high_risk", Level: "warning", Path: item.Path, Message: firstNonBlank(item.Message, "升级差异包含高风险变更"), Suggestion: "请在升级前确认影响范围。"})
+			}
+		}
+	}
+	riskItems = append(riskItems, warningItems...)
+	riskItems = append(riskItems, blockingItems...)
+	riskLevel := "safe"
+	reportLevel := "low"
+	score := 5
+	reportSummary := "升级差异未发现高风险变更"
+	if len(warningItems) > 0 || summary.HighRisk > 0 {
+		riskLevel = "warning"
+		reportLevel = "high"
+		score = 70
+		reportSummary = fmt.Sprintf("升级差异包含 %d 个需要确认的风险项", len(warningItems))
+	}
+	if len(blockingItems) > 0 || !validation.Valid || compatibility == pluginregistry.CompatibilityIncompatible || summary.Blocked > 0 {
+		riskLevel = "blocked"
+		reportLevel = "blocked"
+		score = 100
+		reportSummary = "升级 dry-run 存在阻断项，禁止升级"
+	}
+	_ = code
+	return riskLevel, domain.PluginPackageRiskReport{Level: reportLevel, Score: score, Summary: reportSummary, Items: riskItems}, uniqueRiskItems(riskItems), uniqueRiskItems(blockingItems), uniqueRiskItems(warningItems)
+}
+
+func buildPluginUpgradeChangeSummary(sections []domain.PluginManifestDiffSection, summary domain.PluginUpgradeDiffSummary, riskLevel string) domain.PluginUpgradeChangeSummary {
+	names := []string{}
+	for _, section := range sections {
+		if len(section.Items) > 0 {
+			names = append(names, section.Title)
+		}
+	}
+	return domain.PluginUpgradeChangeSummary{
+		Added:     summary.Added,
+		Removed:   summary.Removed,
+		Changed:   summary.Changed,
+		HighRisk:  summary.HighRisk,
+		Blocked:   summary.Blocked,
+		Sections:  uniqueStrings(names),
+		RiskLevel: riskLevel,
+		Message:   upgradeChangeSummaryMessage(summary, riskLevel),
+	}
+}
+
+func buildPluginUpgradeImpactSummary(current domain.Plugin, target domain.PluginManifest, impact domain.PluginImpact, sections []domain.PluginManifestDiffSection, riskItems []domain.PluginPackageRiskItem) domain.PluginUpgradeImpactSummary {
+	codes := []string{}
+	for _, item := range riskItems {
+		codes = append(codes, item.Code)
+	}
+	return domain.PluginUpgradeImpactSummary{
+		PluginStatus:              current.Status,
+		EnabledCommunitiesCount:   impact.EnabledCommunitiesCount,
+		AffectedContentTypesCount: countSectionItems(sections, "content_types", "content_type_definitions"),
+		AffectedPermissionsCount:  countSectionItems(sections, "permissions"),
+		AffectedConfigCount:       countSectionItems(sections, "config_schema", "default_config"),
+		AffectedHookCount:         countSectionItems(sections, "hooks", "external_service"),
+		ExternalServiceAffected:   countSectionItems(sections, "external_service") > 0 || externalServiceHookCount(target.Hooks) > 0 || target.ExternalService != nil,
+		MigrationAffected:         countSectionItems(sections, "migrations") > 0 || len(target.Migrations) > 0,
+		MenuRouteAffected:         countSectionItems(sections, "menus", "routes") > 0,
+		FrontendMountAffected:     countSectionItems(sections, "frontend_mounts", "menus", "routes", "assets") > 0,
+		DangerousChangeCodes:      uniqueStrings(codes),
+	}
+}
+
+func buildPluginUpgradeSectionPlan(sections []domain.PluginManifestDiffSection, keys ...string) domain.PluginUpgradeSectionPlan {
+	keySet := map[string]struct{}{}
+	for _, key := range keys {
+		keySet[key] = struct{}{}
+	}
+	plan := domain.PluginUpgradeSectionPlan{Section: strings.Join(keys, ","), Title: upgradePlanTitle(keys...), Message: "未发现该分区变更。"}
+	for _, section := range sections {
+		if _, ok := keySet[section.Section]; !ok {
+			continue
+		}
+		plan.Items = append(plan.Items, section.Items...)
+		for _, item := range section.Items {
+			switch item.Type {
+			case "added":
+				plan.Added++
+			case "removed":
+				plan.Removed++
+			default:
+				plan.Changed++
+			}
+			if item.RiskLevel == "high" {
+				plan.HighRisk++
+			}
+			if item.RiskLevel == "blocked" {
+				plan.Blocked++
+			}
+		}
+	}
+	if len(plan.Items) > 0 {
+		plan.Message = fmt.Sprintf("新增 %d、删除 %d、变更 %d。", plan.Added, plan.Removed, plan.Changed)
+	}
+	return plan
+}
+
+func pluginUpgradeRollbackBoundary() domain.PluginUpgradeRollbackBoundary {
+	return domain.PluginUpgradeRollbackBoundary{
+		DryRunExecutesSQL: false,
+		UpgradeAtomicSteps: []string{
+			"manifest / 配置声明 / 权限 / 菜单 / Hook 声明写入同一次插件记录保存",
+			"操作快照和审计记录会记录升级前后摘要",
+		},
+		BestEffortRollbackSteps: []string{
+			"写入 migration 记录失败时会尽量恢复升级前插件记录并清理目标版本迁移残留",
+		},
+		ManualHandlingRequired: []string{
+			"当前不提供完整自动回滚；涉及数据库迁移失败时需要管理员根据备份和迁移计划人工处理",
+			"migration down、配置版本回滚、assets 回滚、external_service 配置回滚本轮均不自动执行",
+		},
+		MigrationDownSupported:           false,
+		ConfigVersionRollbackSupported:   false,
+		ManifestRollbackSupported:        true,
+		AssetsRollbackSupported:          false,
+		ExternalServiceRollbackSupported: false,
+		Message:                          "当前不提供完整自动回滚；升级失败后会尽量保持已安装版本可见，并记录失败阶段和审计日志。涉及数据库迁移的失败需要管理员根据备份和迁移计划人工处理。",
+	}
+}
+
+func buildPluginUpgradeConfirmToken(required bool, code, fromVersion, toVersion, checksum string) string {
+	if !required {
+		return ""
+	}
+	sum := sha256.Sum256([]byte(strings.Join([]string{code, fromVersion, toVersion, checksum}, "|")))
+	return fmt.Sprintf("%x", sum)[:24]
+}
+
+func upgradeChangeSummaryMessage(summary domain.PluginUpgradeDiffSummary, riskLevel string) string {
+	if riskLevel == "blocked" {
+		return "升级差异存在阻断项，不能继续升级。"
+	}
+	if riskLevel == "warning" {
+		return "升级包含高风险变更，需要管理员确认后继续。"
+	}
+	if summary.Added+summary.Removed+summary.Changed == 0 {
+		return "manifest 未发现实质差异。"
+	}
+	return "升级差异未发现高风险变更。"
+}
+
+func upgradePlanTitle(keys ...string) string {
+	joined := strings.Join(keys, ",")
+	switch {
+	case strings.Contains(joined, "migrations"):
+		return "迁移计划"
+	case strings.Contains(joined, "config_schema"):
+		return "配置计划"
+	case strings.Contains(joined, "permissions"):
+		return "权限计划"
+	case strings.Contains(joined, "content_types"):
+		return "内容类型计划"
+	case strings.Contains(joined, "hooks"):
+		return "Webhook / Hook 计划"
+	case strings.Contains(joined, "menus"):
+		return "菜单 / 路由 / 前端挂载计划"
+	default:
+		return "升级计划"
+	}
+}
+
+func countSectionItems(sections []domain.PluginManifestDiffSection, keys ...string) int {
+	keySet := map[string]struct{}{}
+	for _, key := range keys {
+		keySet[key] = struct{}{}
+	}
+	n := 0
+	for _, section := range sections {
+		if _, ok := keySet[section.Section]; ok {
+			n += len(section.Items)
+		}
+	}
+	return n
+}
+
+func externalServiceHookCount(hooks []domain.HookDefinition) int {
+	n := 0
+	for _, hook := range hooks {
+		if strings.TrimSpace(hook.ServiceType) == "external_service" {
+			n++
+		}
+	}
+	return n
+}
+
+func majorVersion(version string) string {
+	version = strings.TrimPrefix(strings.TrimSpace(version), "v")
+	if version == "" {
+		return ""
+	}
+	parts := strings.Split(version, ".")
+	return strings.TrimSpace(parts[0])
+}
+
+func uniqueRiskItems(items []domain.PluginPackageRiskItem) []domain.PluginPackageRiskItem {
+	seen := map[string]struct{}{}
+	out := []domain.PluginPackageRiskItem{}
+	for _, item := range items {
+		key := strings.Join([]string{item.Code, item.Level, item.Path, item.Message}, "|")
+		if _, ok := seen[key]; ok {
+			continue
+		}
+		seen[key] = struct{}{}
+		out = append(out, item)
+	}
+	return out
+}
+
 func (s *Service) UpgradePluginManifest(code string, raw []byte) (domain.PluginUpgradeResult, error) {
-	return s.upgradePluginManifestWithOperation(PluginOperationOperator{}, 0, "", code, raw)
+	return s.upgradePluginManifestWithOperation(PluginOperationOperator{}, 0, "", code, raw, false)
+}
+
+func (s *Service) UpgradePluginManifestConfirmed(code string, raw []byte, confirmed bool) (domain.PluginUpgradeResult, error) {
+	return s.upgradePluginManifestWithOperation(PluginOperationOperator{}, 0, "", code, raw, confirmed)
 }
 
 func (s *Service) UpgradePluginManifestWithOperation(operator PluginOperationOperator, approvalID int64, operationID string, code string, raw []byte) (domain.PluginUpgradeResult, error) {
-	return s.upgradePluginManifestWithOperation(operator, approvalID, operationID, code, raw)
+	return s.upgradePluginManifestWithOperation(operator, approvalID, operationID, code, raw, approvalID > 0)
 }
 
-func (s *Service) upgradePluginManifestWithOperation(operator PluginOperationOperator, approvalID int64, operationID string, code string, raw []byte) (domain.PluginUpgradeResult, error) {
+func (s *Service) UpgradePluginManifestWithOperationConfirmed(operator PluginOperationOperator, approvalID int64, operationID string, code string, raw []byte, confirmed bool) (domain.PluginUpgradeResult, error) {
+	if approvalID > 0 {
+		confirmed = true
+	}
+	return s.upgradePluginManifestWithOperation(operator, approvalID, operationID, code, raw, confirmed)
+}
+
+func (s *Service) upgradePluginManifestWithOperation(operator PluginOperationOperator, approvalID int64, operationID string, code string, raw []byte, confirmed bool) (domain.PluginUpgradeResult, error) {
 	current, ok := s.repo.PluginByCode(code)
 	if !ok || current.Code == "" {
 		return domain.PluginUpgradeResult{}, pluginNotFound(code)
@@ -999,6 +1312,23 @@ func (s *Service) upgradePluginManifestWithOperation(operator PluginOperationOpe
 	preview, err := s.PluginUpgradeDryRun(code, raw)
 	if err != nil {
 		return domain.PluginUpgradeResult{}, err
+	}
+	if strings.TrimSpace(preview.RiskLevel) == "blocked" {
+		return domain.PluginUpgradeResult{}, domain.NewPluginError("plugin_upgrade_blocked", "升级 dry-run 存在阻断项，禁止升级").
+			WithStatus(400).
+			WithDetail("plugin_code", code).
+			WithDetail("blocking_items", preview.BlockingItems).
+			WithSuggestion("请先修复阻断项后重新执行 dry-run。")
+	}
+	if preview.ConfirmRequired && !confirmed {
+		return domain.PluginUpgradeResult{}, domain.NewPluginError("plugin_upgrade_confirm_required", "该升级包含高风险变更，必须显式确认后才能执行").
+			WithStatus(409).
+			WithDetail("plugin_code", code).
+			WithDetail("risk_level", preview.RiskLevel).
+			WithDetail("confirm_required", true).
+			WithDetail("confirm_token", preview.ConfirmToken).
+			WithDetail("risk_items", preview.RiskItems).
+			WithSuggestion("请确认已备份数据库、插件包来源可信，并在请求中携带 confirm=true 后重试。")
 	}
 	if !preview.Validation.Valid {
 		return domain.PluginUpgradeResult{}, domain.NewPluginError(PluginErrManifestInvalid, "manifest 校验失败").
@@ -1060,8 +1390,12 @@ func (s *Service) upgradePluginManifestWithOperation(operator PluginOperationOpe
 		Status:                 domain.PluginOperationStatusCreated,
 		CreatedBy:              operator.ID,
 		MetadataJSON: mustJSON(map[string]any{
-			"operator_name": strings.TrimSpace(operator.Name),
-			"approval_id":   approvalID,
+			"operator_name":     strings.TrimSpace(operator.Name),
+			"approval_id":       approvalID,
+			"risk_level":        preview.RiskLevel,
+			"confirm_required":  preview.ConfirmRequired,
+			"confirm_used":      confirmed,
+			"rollback_boundary": preview.RollbackBoundary,
 		}),
 	}
 	if saved, serr := s.repo.AppendPluginOperationSnapshot(snapshot); serr == nil {
@@ -1220,15 +1554,31 @@ func topLevelDiffKeys(newManifest, currentManifest domain.PluginManifest) []stri
 	appendIfDiff("routes", len(newManifest.Routes), len(currentManifest.Routes))
 	appendIfDiff("hooks", len(newManifest.Hooks), len(currentManifest.Hooks))
 	appendIfDiff("migrations", len(newManifest.Migrations), len(currentManifest.Migrations))
+	appendIfDiff("dependencies", len(newManifest.Dependencies), len(currentManifest.Dependencies))
+	appendIfDiff("assets", len(newManifest.Assets), len(currentManifest.Assets))
+	appendIfDiff("config_schema", newManifest.ConfigSchema, currentManifest.ConfigSchema)
+	appendIfDiff("external_service", newManifest.ExternalService, currentManifest.ExternalService)
 	sort.Strings(keys)
 	return keys
 }
 
 func currentCoreVersion() string {
-	if raw, err := os.ReadFile("VERSION"); err == nil {
-		if version := strings.TrimSpace(string(raw)); version != "" {
-			return version
+	dir, err := os.Getwd()
+	if err != nil {
+		dir = "."
+	}
+	for i := 0; i < 12; i++ {
+		versionPath := filepath.Join(dir, "VERSION")
+		if raw, err := os.ReadFile(versionPath); err == nil {
+			if version := strings.TrimSpace(string(raw)); version != "" {
+				return version
+			}
 		}
+		parent := filepath.Dir(dir)
+		if parent == dir {
+			break
+		}
+		dir = parent
 	}
 	return "v1.4.0"
 }
@@ -1518,6 +1868,13 @@ func (s *Service) RunAllPluginMigrations(pluginCode, executor string) ([]domain.
 
 func (s *Service) HookExecutions(pluginCode string, limit int) ([]domain.HookExecution, error) {
 	return s.repo.HookExecutions(pluginCode, limit)
+}
+
+func (s *Service) HookExecutionByID(id int64) (domain.HookExecution, bool) {
+	if s == nil || s.repo == nil {
+		return domain.HookExecution{}, false
+	}
+	return s.repo.HookExecutionByID(id)
 }
 
 func (s *Service) HookStats(pluginCode string) ([]domain.HookStats, error) {

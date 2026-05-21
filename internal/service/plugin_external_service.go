@@ -55,15 +55,20 @@ func (s *Service) UpdatePluginExternalServiceConfig(operator PluginExternalServi
 	if plugin.Status == pluginregistry.StatusArchived {
 		return domain.PluginExternalServiceConfig{}, pluginArchived(pluginCode)
 	}
-	if err := validateExternalServiceUpdateRequest(req); err != nil {
+	current, _ := s.repo.PluginExternalServiceConfig(pluginCode)
+	if err := validateExternalServiceUpdateRequest(req, current); err != nil {
 		return domain.PluginExternalServiceConfig{}, err
 	}
-
-	current, _ := s.repo.PluginExternalServiceConfig(pluginCode)
 	tokenRef := current.TokenRef
 	tokenCiphertext := current.TokenCiphertext
 	tokenHash := current.TokenHash
-	if strings.TrimSpace(req.Token) != "" {
+	authType := normalizeExternalServiceAuthType(req.AuthType)
+	if authType == externalServiceAuthNone {
+		tokenRef = ""
+		tokenCiphertext = ""
+		tokenHash = ""
+	}
+	if authType == externalServiceAuthBearer && strings.TrimSpace(req.Token) != "" {
 		if tokenRef == "" {
 			tokenRef = "extsvc_" + randomHex(12)
 		}
@@ -92,7 +97,7 @@ func (s *Service) UpdatePluginExternalServiceConfig(operator PluginExternalServi
 		HealthCheckPath:  normalizeHealthCheckPath(req.HealthCheckPath),
 		TimeoutMS:        normalizeExternalServiceTimeout(req.TimeoutMS),
 		FailurePolicy:    normalizeExternalServiceFailurePolicy(req.FailurePolicy),
-		AuthType:         normalizeExternalServiceAuthType(req.AuthType),
+		AuthType:         authType,
 		TokenRef:         tokenRef,
 		TokenCiphertext:  tokenCiphertext,
 		TokenHash:        tokenHash,
@@ -306,7 +311,7 @@ func (s *Service) recordExternalServiceHealth(operator PluginExternalServiceOper
 	}, nil
 }
 
-func validateExternalServiceUpdateRequest(req domain.PluginExternalServiceUpdateRequest) error {
+func validateExternalServiceUpdateRequest(req domain.PluginExternalServiceUpdateRequest, current domain.PluginExternalServiceConfig) error {
 	endpoint := strings.TrimSpace(req.EndpointURL)
 	if endpoint == "" {
 		return domain.NewPluginError("plugin_external_service_invalid_endpoint", "external_service.endpoint_url 不能为空").WithStatus(http.StatusBadRequest)
@@ -333,7 +338,7 @@ func validateExternalServiceUpdateRequest(req domain.PluginExternalServiceUpdate
 	if authType == "" {
 		return domain.NewPluginError("plugin_external_service_invalid_auth_type", "auth_type 不合法").WithStatus(http.StatusBadRequest)
 	}
-	if authType == externalServiceAuthBearer && strings.TrimSpace(req.Token) == "" {
+	if authType == externalServiceAuthBearer && strings.TrimSpace(req.Token) == "" && strings.TrimSpace(current.TokenCiphertext) == "" {
 		return domain.NewPluginError("plugin_external_service_invalid_token", "bearer token 不能为空").WithStatus(http.StatusBadRequest)
 	}
 	return nil

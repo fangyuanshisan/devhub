@@ -133,6 +133,7 @@ type externalServiceHookExecutionRecord struct {
 	DurationMS          int
 	HealthBefore        string
 	HealthAfter         string
+	ExtraMetadata       map[string]any
 }
 
 func (s *Service) deliverExternalServiceHook(event pluginregistry.HookEvent, plugin domain.Plugin, hook domain.HookDefinition, cfg domain.PluginExternalServiceConfig, pending domain.HookExecution, executionID, eventID, idempotencyKey string) {
@@ -309,6 +310,13 @@ func (s *Service) appendExternalServiceHookExecution(event pluginregistry.HookEv
 		"failure_policy":       externalServiceHookFailurePolicy(hook, cfg),
 		"health_status_before": rec.HealthBefore,
 		"health_status_after":  rec.HealthAfter,
+	}
+	for k, v := range rec.ExtraMetadata {
+		key := strings.TrimSpace(k)
+		if key == "" {
+			continue
+		}
+		metadata[key] = scrubAnyForSnapshot(v)
 	}
 	record := domain.HookExecution{
 		HookName:            hook.Name,
@@ -595,4 +603,211 @@ func externalServiceReasonText(reason string) string {
 	default:
 		return "外部服务投递已跳过"
 	}
+}
+
+func (s *Service) ManualRetryExternalServiceHookExecution(operator PluginExternalServiceOperator, pluginCode string, executionRecordID int64) (domain.PluginExternalServiceManualRetryResponse, error) {
+	pluginCode = strings.TrimSpace(pluginCode)
+	if pluginCode == "" || executionRecordID <= 0 {
+		return domain.PluginExternalServiceManualRetryResponse{}, domain.NewPluginError("plugin_webhook_retry_invalid", "重试参数不合法").WithStatus(http.StatusBadRequest)
+	}
+	source, ok := s.repo.HookExecutionByID(executionRecordID)
+	if !ok || source.ID == 0 {
+		return domain.PluginExternalServiceManualRetryResponse{}, domain.NewPluginError("plugin_hook_execution_not_found", "Hook 执行记录不存在").WithStatus(http.StatusNotFound)
+	}
+	if strings.TrimSpace(source.PluginCode) != pluginCode {
+		return domain.PluginExternalServiceManualRetryResponse{}, domain.NewPluginError("plugin_webhook_retry_cross_plugin", "不能跨插件重试 Hook 执行记录").WithStatus(http.StatusBadRequest).
+			WithDetail("plugin_code", pluginCode).
+			WithDetail("source_plugin_code", source.PluginCode)
+	}
+	if strings.TrimSpace(source.ServiceType) != externalServiceTypeExternal {
+		return domain.PluginExternalServiceManualRetryResponse{}, domain.NewPluginError("plugin_webhook_retry_not_external_service", "只允许重试 external_service Hook 执行记录").WithStatus(http.StatusBadRequest)
+	}
+	if source.Blocking || strings.TrimSpace(source.Mode) == string(pluginregistry.HookBlocking) {
+		return domain.PluginExternalServiceManualRetryResponse{}, domain.NewPluginError("plugin_webhook_retry_not_allowed", "internal/builtin Hook 不能手动重试").WithStatus(http.StatusBadRequest)
+	}
+	if !externalServiceManualRetryAllowed(source.Status, source.Success) {
+		return domain.PluginExternalServiceManualRetryResponse{}, domain.NewPluginError("plugin_webhook_retry_status_not_allowed", "当前 Hook 执行状态不允许手动重试").WithStatus(http.StatusBadRequest).
+			WithDetail("status", source.Status)
+	}
+	if source.HookName == "external_service.health_check" {
+		return domain.PluginExternalServiceManualRetryResponse{}, domain.NewPluginError("plugin_webhook_retry_health_check_not_allowed", "健康检查记录不能作为 Webhook 投递重试").WithStatus(http.StatusBadRequest)
+	}
+	plugin, ok := s.PluginByCode(pluginCode)
+	if !ok || plugin.Code == "" {
+		return domain.PluginExternalServiceManualRetryResponse{}, pluginNotFound(pluginCode)
+	}
+	switch strings.TrimSpace(plugin.Status) {
+	case pluginregistry.StatusArchived:
+		return domain.PluginExternalServiceManualRetryResponse{}, pluginArchived(pluginCode)
+	case pluginregistry.StatusDisabled, "soft_uninstalled":
+		return domain.PluginExternalServiceManualRetryResponse{}, pluginDisabled(pluginCode)
+	}
+	if plugin.Status != pluginregistry.StatusEnabled {
+		return domain.PluginExternalServiceManualRetryResponse{}, pluginDisabled(pluginCode)
+	}
+	cfg, hasConfig := s.repo.PluginExternalServiceConfig(pluginCode)
+	if !hasConfig || !cfg.Enabled {
+		return domain.PluginExternalServiceManualRetryResponse{}, domain.NewPluginError("plugin_external_service_disabled", "external_service 已停用，不能手动重试").WithStatus(http.StatusBadRequest)
+	}
+	hook, foundHook := findExternalServiceHook(plugin, source.HookName)
+	if !foundHook {
+		return domain.PluginExternalServiceManualRetryResponse{}, domain.NewPluginError("plugin_webhook_retry_hook_not_found", "未找到可重试的 external_service Hook 声明").WithStatus(http.StatusBadRequest).
+			WithDetail("hook_name", source.HookName)
+	}
+	event := hookEventFromExecution(source, pluginCode)
+	if reason := s.externalServiceDeliverySkipReason(event, plugin, hook, cfg, hasConfig); reason != "" {
+		return domain.PluginExternalServiceManualRetryResponse{}, domain.NewPluginError("plugin_webhook_retry_skipped", externalServiceReasonText(reason)).WithStatus(http.StatusBadRequest).
+			WithDetail("reason", reason)
+	}
+
+	executionID := "extsvc_retry_" + randomHex(12)
+	eventID := "evt_retry_" + randomHex(12)
+	idempotencyKey := executionID
+	if source.RequestID != "" {
+		idempotencyKey = source.RequestID + ":manual_retry:" + executionID
+	}
+	started := time.Now()
+	s.appendExternalServiceHookExecution(event, plugin, hook, cfg, externalServiceHookExecutionRecord{
+		ExecutionID:    executionID,
+		EventID:        eventID,
+		IdempotencyKey: idempotencyKey,
+		Status:         externalServiceHookStatusRunning,
+		Attempt:        1,
+		MaxAttempts:    1,
+		StartedAt:      started,
+		FinishedAt:     started,
+		HealthBefore:   cfg.LastHealthStatus,
+		HealthAfter:    cfg.LastHealthStatus,
+		ExtraMetadata:  manualRetryMetadata(operator, source),
+	})
+	result := s.performExternalServiceHookAttempt(event, plugin, hook, cfg, executionID, eventID, idempotencyKey)
+	result.Attempt = 1
+	result.MaxAttempts = 1
+	result.HealthBefore = cfg.LastHealthStatus
+	result.ExtraMetadata = manualRetryMetadata(operator, source)
+	success := result.Status == externalServiceHookStatusSuccess
+	if !success && externalServiceShouldRetry(result.Status, result.ResponseStatus, result.ErrorCode) {
+		result.Status = externalServiceHookStatusRetryExhausted
+	}
+	savedCfg := s.updateExternalServiceHealthFromDelivery(plugin.Code, cfg, success, result.ErrorCode, result.ErrorMessage)
+	result.HealthAfter = savedCfg.LastHealthStatus
+	savedExecution := s.appendExternalServiceHookExecution(event, plugin, hook, savedCfg, result)
+	s.auditExternalServiceDelivery(event, savedCfg, result)
+	s.repo.AppendAdminLog(domain.AdminLog{
+		Site:      "admin",
+		Type:      "system",
+		Actor:     firstNonEmpty(operator.Name, "system"),
+		ActorType: "admin_user",
+		ActorID:   operator.ID,
+		Action:    "plugin.webhook.manual_retry",
+		Target:    fmt.Sprintf("external_service#%s:%s", pluginCode, source.HookName),
+		Metadata: mustJSON(map[string]any{
+			"plugin_code":         pluginCode,
+			"hook_name":           source.HookName,
+			"source_record_id":    source.ID,
+			"source_execution_id": externalServiceExecutionIDFromRecord(source),
+			"retry_record_id":     savedExecution.ID,
+			"retry_execution_id":  executionID,
+			"status":              result.Status,
+			"request_id":          source.RequestID,
+			"manual_retry":        true,
+		}),
+		CreatedAt: Now(),
+	})
+	message := "手动重试已完成"
+	if result.Status != externalServiceHookStatusSuccess {
+		message = "手动重试已记录，请在执行记录中查看失败原因"
+	}
+	return domain.PluginExternalServiceManualRetryResponse{
+		PluginCode:        pluginCode,
+		SourceExecutionID: externalServiceExecutionIDFromRecord(source),
+		RetryExecutionID:  executionID,
+		RetryRecordID:     savedExecution.ID,
+		Status:            result.Status,
+		Message:           message,
+	}, nil
+}
+
+func externalServiceManualRetryAllowed(status string, success bool) bool {
+	if success || strings.TrimSpace(status) == externalServiceHookStatusSuccess {
+		return false
+	}
+	switch strings.TrimSpace(status) {
+	case externalServiceHookStatusFailed, externalServiceHookStatusTimeout, externalServiceHookStatusRetryScheduled, externalServiceHookStatusRetryExhausted:
+		return true
+	default:
+		return false
+	}
+}
+
+func findExternalServiceHook(plugin domain.Plugin, hookName string) (domain.HookDefinition, bool) {
+	for _, hook := range plugin.Hooks {
+		if strings.TrimSpace(hook.Name) != strings.TrimSpace(hookName) {
+			continue
+		}
+		if strings.TrimSpace(hook.ServiceType) != externalServiceTypeExternal {
+			continue
+		}
+		if hook.Enabled != nil && !*hook.Enabled {
+			continue
+		}
+		mode := strings.TrimSpace(hook.Mode)
+		if mode != "" && mode != string(pluginregistry.HookNonBlocking) {
+			continue
+		}
+		return hook, true
+	}
+	return domain.HookDefinition{}, false
+}
+
+func hookEventFromExecution(source domain.HookExecution, pluginCode string) pluginregistry.HookEvent {
+	event := pluginregistry.HookEvent{
+		Name: source.HookName,
+		Mode: pluginregistry.HookNonBlocking,
+		Ctx: pluginregistry.HookContext{
+			HookName:    source.HookName,
+			RequestID:   source.RequestID,
+			PluginCode:  pluginCode,
+			ContentType: source.ContentType,
+			CommunityID: source.CommunityID,
+			CategoryID:  source.CategoryID,
+			ContentID:   source.ContentID,
+			ActorType:   pluginregistry.HookActorType(source.ActorType),
+			ActorID:     source.ActorID,
+			UserID:      source.UserID,
+			AdminUserID: source.AdminUserID,
+			Metadata: map[string]any{
+				"manual_retry":        true,
+				"source_record_id":    source.ID,
+				"source_execution_id": externalServiceExecutionIDFromRecord(source),
+			},
+		},
+	}
+	if event.Ctx.ActorType == "" {
+		event.Ctx.ActorType = pluginregistry.HookActorSystem
+	}
+	return event
+}
+
+func manualRetryMetadata(operator PluginExternalServiceOperator, source domain.HookExecution) map[string]any {
+	return map[string]any{
+		"manual_retry":        true,
+		"source_record_id":    source.ID,
+		"source_execution_id": externalServiceExecutionIDFromRecord(source),
+		"operator_actor":      firstNonEmpty(operator.Name, "system"),
+		"operator_actor_id":   operator.ID,
+		"request_id":          source.RequestID,
+	}
+}
+
+func externalServiceExecutionIDFromRecord(record domain.HookExecution) string {
+	meta := map[string]any{}
+	_ = json.Unmarshal([]byte(record.Metadata), &meta)
+	if v, ok := meta["execution_id"].(string); ok && strings.TrimSpace(v) != "" {
+		return strings.TrimSpace(v)
+	}
+	if record.ID > 0 {
+		return strconv.FormatInt(record.ID, 10)
+	}
+	return ""
 }

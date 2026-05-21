@@ -123,6 +123,7 @@ export const updatePluginConfig = (code, payload) => http.put(`/admin/plugins/${
 export const pluginImpact = (code) => http.get(`/admin/plugins/${code}/impact`);
 export const pluginHooks = (code) => http.get(`/admin/plugins/${code}/hooks`);
 export const pluginHookExecutions = (code, params) => http.get(`/admin/plugins/${code}/hooks/executions`, { params });
+export const retryPluginHookExecution = (code, executionId) => http.post(`/admin/plugins/${encodeURIComponent(code)}/hooks/executions/${executionId}/retry`);
 export const getPluginExternalService = (code) => http.get(`/admin/plugins/${encodeURIComponent(code)}/external-service`);
 export const updatePluginExternalService = (code, payload) => http.put(`/admin/plugins/${encodeURIComponent(code)}/external-service`, payload);
 export const runPluginExternalServiceHealthCheck = (code) => http.post(`/admin/plugins/${encodeURIComponent(code)}/external-service/health-check`);

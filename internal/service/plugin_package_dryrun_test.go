@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"devhub-gin-backend/internal/domain"
+	pluginregistry "devhub-gin-backend/internal/plugins"
 	"devhub-gin-backend/internal/store"
 )
 
@@ -58,6 +59,93 @@ func TestDryRunPluginPackage_SafeExampleOK(t *testing.T) {
 	}
 	if !res.ManifestValidation.Valid {
 		t.Fatalf("expected manifest validation ok, got %#v", res.ManifestValidation)
+	}
+}
+
+func TestDryRunPluginPackage_OfficialWebhookNotifyExampleOK(t *testing.T) {
+	repo := store.NewMemoryStore()
+	svc := New(repo)
+
+	res, err := svc.DryRunPluginPackage("examples/plugins/official_webhook_notify")
+	if err != nil {
+		t.Fatalf("DryRunPluginPackage official_webhook_notify failed: %v", err)
+	}
+	if strings.EqualFold(res.Status, "blocked") {
+		t.Fatalf("official_webhook_notify should not be blocked: %#v", res)
+	}
+	if res.Package.Code != "official_webhook_notify" {
+		t.Fatalf("unexpected package code: %#v", res.Package)
+	}
+	found := false
+	for _, hook := range res.InstallDryRun.NormalizedManifest.Hooks {
+		if hook.Name == "AfterCreateContent" && hook.ServiceType == "external_service" && hook.Mode == string(pluginregistry.HookNonBlocking) {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatalf("expected external_service non-blocking AfterCreateContent hook: %#v", res.InstallDryRun.NormalizedManifest.Hooks)
+	}
+}
+
+func TestDryRunPluginPackage_OfficialTemplatesOK(t *testing.T) {
+	tests := []struct {
+		name            string
+		path            string
+		code            string
+		wantWebhookHook bool
+	}{
+		{
+			name: "declarative content template",
+			path: "examples/plugins/templates/declarative-content",
+			code: "official_links_template",
+		},
+		{
+			name:            "external service webhook template",
+			path:            "examples/plugins/templates/external-service-webhook",
+			code:            "official_webhook_notify_template",
+			wantWebhookHook: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			repo := store.NewMemoryStore()
+			svc := New(repo)
+
+			res, err := svc.DryRunPluginPackage(tt.path)
+			if err != nil {
+				t.Fatalf("DryRunPluginPackage(%s) failed: %v", tt.path, err)
+			}
+			if strings.EqualFold(res.Status, "blocked") {
+				t.Fatalf("template should not be blocked: %#v", res)
+			}
+			if res.Package.Code != tt.code {
+				t.Fatalf("unexpected package code: %#v", res.Package)
+			}
+			if len(res.FileScan.DangerousFiles) != 0 {
+				t.Fatalf("expected no dangerous files, got %#v", res.FileScan.DangerousFiles)
+			}
+			if !res.ManifestValidation.Valid {
+				t.Fatalf("expected manifest validation ok, got %#v", res.ManifestValidation)
+			}
+			for _, hook := range res.InstallDryRun.NormalizedManifest.Hooks {
+				if hook.Mode == string(pluginregistry.HookBlocking) || hook.Blocking {
+					t.Fatalf("official templates must not declare blocking hooks: %#v", hook)
+				}
+				if hook.ServiceType == "external_service" && hook.Mode != string(pluginregistry.HookNonBlocking) {
+					t.Fatalf("external_service hooks must be non-blocking: %#v", hook)
+				}
+			}
+			hasWebhookHook := false
+			for _, hook := range res.InstallDryRun.NormalizedManifest.Hooks {
+				if hook.Name == "AfterCreateContent" && hook.ServiceType == "external_service" && hook.Mode == string(pluginregistry.HookNonBlocking) {
+					hasWebhookHook = true
+				}
+			}
+			if tt.wantWebhookHook && !hasWebhookHook {
+				t.Fatalf("expected external_service non-blocking AfterCreateContent hook: %#v", res.InstallDryRun.NormalizedManifest.Hooks)
+			}
+		})
 	}
 }
 

@@ -672,6 +672,7 @@ v1.7.2 插件运行模型设计补充：外部 HTTP 插件服务接口（如 `GE
 - `dependencies` 为逐项检查结果，包含 `code`、`version`、`required`、`reason`、`status`、`satisfied`、`current_version`、`current_status`、`message`、`chain`。
 - `dependency_summary` 聚合 `total`、`required`、`optional`、`satisfied`、`warnings`、`blocking`、`missing`、`disabled`、`archived`、`version_issues`、`cycles`。
 - `compatibility` 包含 `core_version`、`min_core_version`、`compatible_core_version`、`status` 和 `messages`。`min_core_version` 高于当前 Core 会返回 `plugin_core_version_incompatible` 错误。
+- `impact_summary` 还会计入 `frontend_mounts_count`；如果 manifest 声明 `frontend_mounts`，只允许官方 allowlist 内的 `mount_point` 和 `component_key`，未知挂载点 / 未知组件 / 远程 iframe / 远程脚本 / inline HTML 会被 blocked，并返回 `FRONTEND_MOUNT_NOT_ALLOWED`、`FRONTEND_COMPONENT_NOT_ALLOWED`、`REMOTE_IFRAME_NOT_ALLOWED`、`REMOTE_SCRIPT_NOT_ALLOWED`、`INLINE_HTML_NOT_ALLOWED` 等中文友好错误码。
 
 `POST /api/v1/admin/plugins/dry-run`
 
@@ -703,6 +704,7 @@ v1.7.2 插件运行模型设计补充：外部 HTTP 插件服务接口（如 `GE
   - `.devhub/plugins/`
 - 返回：包含 `package`、`file_scan`、`checksum`、`signature`、`risk_report`、`manifest_validation`、`install_dry_run`、`migration_plan`、`status`、`blocked_code`、`blocked_reasons`、`warnings`、`errors`、`dry_run_id`、`generated_at`、`expires_at`。
 - `dry_run_id`：仅作为本地仓库包安装前的当前计划凭证，安装时必须随请求带回；服务端仍会重新执行 dry-run 并校验 path / plugin_code / version / manifest checksum / checksum status / migration plan hash / status / risk_level，不信任前端缓存。
+- 返回的 manifest / dry-run 结果也会包含 `frontend_mounts` 差异计划；新增未知挂载点或组件 key 会被 blocked，删除既有挂载会给出高风险或 warning 提示。
 - `status`：`ok|warning|blocked`。
 - `blocked_code`：当 `status=blocked` 时返回阻断原因代码（例如 `plugin_package_dangerous_file` / `plugin_package_manifest_invalid`）。
   - `blocked_reasons`：可选，返回所有阻断原因 code（用于 UI 逐项展示）。
@@ -1195,6 +1197,15 @@ Core 兼容：`min_core_version` 缺失为 warning；`min_core_version` 高于�
   - `diff.new`
   - `validation`
   - `dependency_diff`：包含新增依赖、删除依赖、版本约束变化、required 变化和 changed_dependencies。
+- 结构化增强返回（当前实现）：
+  - `version_plan`：当前 / 目标版本、是否同版本、是否降级、是否跨大版本、code 是否匹配。
+  - `package_summary`：当前 / 目标 checksum、发布者和签名 / 信任摘要（manifest-only 场景也会返回占位摘要）。
+  - `change_summary`：新增 / 删除 / 修改 / 高风险 / 阻断计数、风险级别和中文摘要。
+  - `impact_summary`：插件状态、受影响站点数、内容类型 / 权限 / 配置 / Hook 计数、菜单 / 路由 / 前端挂载 / migration / external_service 影响。
+  - `migration_plan` / `config_plan` / `permission_plan` / `content_type_plan` / `hook_plan` / `frontend_mount_plan`：按分区整理的升级计划。
+  - `risk_items` / `blocking_items` / `warnings`：中文友好的风险列表，敏感字段按路径脱敏。
+  - `confirm_required` / `confirm_token`：warning 升级需要显式确认；blocked 不可通过 confirm 绕过。
+  - `rollback_boundary`：当前升级边界说明，不提供完整自动回滚。
 - 阻断：新 manifest 的 required dependency 或 Core 兼容检查不满足时，预览返回 `validation.valid=false` / blocked 信息，不写入数据。
 
 `POST /api/v1/admin/plugins/:code/upgrade`
@@ -1202,8 +1213,8 @@ Core 兼容：`min_core_version` 缺失为 warning；`min_core_version` 高于�
 - 认证：后台 admin token。
 - 权限：`plugin.approve`（仅审批人可直接执行；普通管理员需先提交升级审批申请）。
 - 用途：执行 manifest + 配置型插件的安全升级。
-- 请求体：manifest JSON，要求 `code` 与路径中的 `:code` 一致，且 `version` 必须高于当前版本。
-- 阻断：required dependency 或 Core 兼容检查不满足时拒绝升级；不允许降级或同版本重复升级。
+- 请求体：manifest JSON 或 `{ "manifest": {...}, "confirm": true }` 包装体，要求 `code` 与路径中的 `:code` 一致，且 `version` 必须高于当前版本。
+- 阻断：required dependency 或 Core 兼容检查不满足时拒绝升级；不允许降级或同版本重复升级；warning 升级必须显式确认，blocked 项无法通过 confirm 绕过。
 - 行为：
   - 校验 manifest。
   - 校验版本兼容性。
@@ -1211,6 +1222,7 @@ Core 兼容：`min_core_version` 缺失为 warning；`min_core_version` 高于�
   - 为新增 migration 生成 `pending` 记录。
   - 保留历史配置、迁移记录和审计记录。
   - 不执行第三方代码，不执行外部 raw SQL。
+- 审计：`admin_logs` 会记录 `plugin_code`、`from_version`、`to_version`、`actor`、`request_id`、`dry_run_summary`、`risk_level`、`confirm_required`、`confirm_used`、`result_status`、`failure_stage` 和 `failure_reason`，敏感字段保持脱敏。
 - 返回：升级后的 `plugin` 对象，以及升级时使用的兼容矩阵 / diff / validation 摘要。
 
 常见错误：
@@ -1389,7 +1401,7 @@ manifest 中 `hooks[]` 可声明 external_service 投递目标：
 - `auth_type=bearer` 时只在实际 HTTP 请求中使用 Authorization Header，不写入 `hook_executions`、日志、审计或 API 响应。
 - timeout、5xx 和 429 可重试；4xx、401/403、token 缺失 / 无法解密、endpoint 非法不重试。
 - 插件 disabled / archived / soft_uninstalled、external_service disabled、子站 disabled 时不调用 endpoint，只记录 `skipped` 和原因。
-- 结果可通过 `GET /api/v1/admin/plugins/:code/hooks/executions?service_type=external_service` 查询；本轮未新增手动 retry API。
+- 结果可通过 `GET /api/v1/admin/plugins/:code/hooks/executions?service_type=external_service` 查询；失败类 external_service 执行记录可通过下方手动重试 API 重新投递一次。
 
 #### `GET /api/v1/admin/plugins/:code/external-service`
 
@@ -1434,6 +1446,54 @@ manifest 中 `hooks[]` 可声明 external_service 投递目标：
   "message": ""
 }
 ```
+
+#### `POST /api/v1/admin/plugins/:code/hooks/executions/:execution_id/retry`
+
+- 认证：后台 admin token。
+- 权限：`plugin.manage`。
+- 用途：对某条失败类 `hook_executions` 记录发起 external_service 手动重试。
+- 后台入口：插件详情抽屉“运行记录 / 外部服务配置”可查看来源执行记录；Webhook 治理页“外部服务执行”可直接对失败记录发起重试。
+- 请求体：无。
+- 允许重试：
+  - `service_type=external_service`
+  - `mode=non_blocking`
+  - `status=failed|timeout|retry_scheduled|retry_exhausted`
+  - 路径 `:code` 必须与执行记录 `plugin_code` 一致
+- 禁止重试：
+  - `success`
+  - `skipped`
+  - `pending/running`
+  - `external_service.health_check`
+  - internal/builtin Hook handler
+  - 非 external_service 执行记录
+  - 跨插件 code
+  - 插件 `disabled/archived/soft_uninstalled` 或 external_service disabled
+- 行为：
+  - 复用 external_service 投递逻辑和现有签名 / 追踪 header / payload 结构，不另写独立 HTTP 客户端。
+  - 本轮手动重试会创建新的 `hook_executions` 记录，metadata 标记 `manual_retry=true`、`source_record_id`、`source_execution_id`、operator 和 `request_id`。
+  - 成功或失败都会按现有 external_service health 规则更新健康状态，并写入 `admin_logs`，action 为 `plugin.webhook.manual_retry`。
+  - Authorization Header、Bearer token、Webhook Secret、Callback Token 和敏感 payload 不进入响应、日志、审计或 `hook_executions` 明文。
+- 返回示例：
+
+```json
+{
+  "plugin_code": "official_webhook_notify",
+  "source_execution_id": "extsvc_exec_xxx",
+  "retry_execution_id": "extsvc_retry_yyy",
+  "retry_record_id": 123,
+  "status": "success",
+  "message": "手动重试已完成"
+}
+```
+
+常见错误：
+
+- `plugin_hook_execution_not_found`：Hook 执行记录不存在。
+- `plugin_webhook_retry_cross_plugin`：不能跨插件重试。
+- `plugin_webhook_retry_not_external_service`：只允许重试 external_service 记录。
+- `plugin_webhook_retry_status_not_allowed`：当前状态不允许重试，例如 `success` 或 `skipped`。
+- `plugin_external_service_disabled`：external_service 已停用。
+- `plugin_disabled` / `plugin_archived`：插件当前状态不允许实际调用 endpoint。
 
 `POST /api/v1/admin/plugins/:code/hooks/:name/e2e-fail`
 
@@ -2683,7 +2743,7 @@ GET /api/v1/admin/plugins/remote-indexes/:id/plugins/:code
 行为与边界：
 
 - 只允许同 `plugin_code` 的更高版本升级；不支持降级。
-- 升级前会重新对目标包执行 dry-run（scan/checksum/risk/manifest validate/install preview），并阻断危险文件、checksum mismatch、risk blocked 等情况。
+- 升级前会重新对目标包执行 dry-run（scan/checksum/risk/manifest validate/install preview），并阻断危险文件、checksum mismatch、risk blocked 等情况；warning 升级后续执行需要 `confirm=true`。
 - 升级后插件默认进入 `disabled`；如果新版本声明 migrations，则会进入 `migration_pending`（但不会自动执行 migration）。
 - 升级后需要重新执行 enable-precheck，再由管理员决定是否启用。
 
@@ -2717,6 +2777,8 @@ GET /api/v1/admin/plugins/remote-indexes/:id/plugins/:code
 - `plugin_upgrade_target_package_missing`
 - `plugin_upgrade_target_dry_run_failed`
 - `plugin_upgrade_target_config_incompatible`
+- `plugin_upgrade_confirm_required`
+- `plugin_upgrade_blocked`
 - `plugin_upgrade_task_not_found`
 - `plugin_upgrade_task_invalid_status`
 

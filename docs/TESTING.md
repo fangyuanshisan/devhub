@@ -2,7 +2,7 @@
 
 [返回文档入口](README.md)
 
-更新时间：2026-05-20
+更新时间：2026-05-21
 
 本文档记录当前仓库滚动测试目标、已执行验收记录和后续补测项。历史版本测试只保留必要回归，不再展开旧版本完整矩阵。
 
@@ -143,6 +143,7 @@ bash -n dev.sh
 - `./scripts/check-admin-plugin-ia.sh`：通过，覆盖 5 个治理域、主要按钮点击、详情抽屉配置 / 能力 / 运行记录 / 技术详情、旧路由到新治理域 / Tab、标题 / 面包屑 / 页面不白屏；截图目录 `.devhub/screenshots/plugin-ia`。
 - `./scripts/check-frontend.sh --admin-only --quick`：通过，日志目录 `.devhub/checks/20260520-202752/`。
 - S18 追加复查：技术详情最小分组、启用检查可见入口、迁移重试 import、导出入口和原始声明折叠已纳入本节常规验收；`./scripts/check-admin-plugin-ia.sh` 单独重跑通过，截图目录 `.devhub/screenshots/plugin-ia`。
+- S20 / upgrade dry-run 复查：结构化差异、影响范围、风险等级、warning 确认和 blocked 阻断规则仍按当前实现生效；`go test ./internal/service -run 'TestBuildPluginManifestDiffFrontendMounts|TestFrontendMountsForRuntimeAllowlistAndStatus|TestValidatePluginManifestJSONFrontendMountAllowlist|TestUpgrade' -count=1`、`go test ./...`、`go build ./...`、`git diff --check`、`./scripts/check-frontend.sh --admin-only --quick` 均通过，前台 quick 额外生成站点和 topic 相关静态页面，未改 `/topics/:id` SEO 动态 HTML，也未删除 sites/posts 兼容 API；日志目录 `.devhub/checks/20260521-122006/`。
 
 验收项：
 
@@ -187,6 +188,119 @@ bash -n dev.sh
 39. 原始声明、配置模型、迁移明细、导出包结构应落到插件详情技术详情。
 40. 插件列表主按钮与行内动作应统一为任务语言，例如“看详情 / 处理配置 / 更多任务 / 去审计 / 去启用 / 去停用 / 做启用检查 / 去软卸载”。
 41. 插件列表顶部安装相关按钮应统一为任务语言，例如“校验清单 / 查看预检 / 去安装”。
+
+### v1.8.3-S22 前端插件挂载继续收口验收项
+
+说明：S22 继续收口前端插件挂载，只开放官方 allowlist 挂载点和官方组件 key；不开放任意远程 iframe、远程 JS、远程 CSS、inline HTML 或第三方前端运行时。不改变 API、插件逻辑、Webhook 协议或 Secret / Token 安全模型。
+
+建议命令：
+
+```bash
+go test ./internal/plugins ./internal/service -run 'TestValidatePluginManifestJSONFrontendMountAllowlist|TestFrontendMountsForRuntimeAllowlistAndStatus|TestBuildPluginManifestDiffFrontendMounts' -count=1
+go test ./...
+go build ./...
+git diff --check
+./scripts/check-frontend.sh --admin-only --quick
+./scripts/check-frontend.sh --frontend-only --quick
+```
+
+本轮执行结果：`gofmt` 已执行；定向前端挂载单测、`go test ./...`、`go build ./...`、`git diff --check`、后台 quick 和前台 quick 均通过。前后台 quick 日志目录为 `.devhub/checks/20260521-012440/`。
+
+验收项：
+
+1. manifest 可声明 `frontend_mounts`，但只允许官方 allowlist 内的挂载点和组件 key。
+2. 未知挂载点会 blocked。
+3. 未知组件 key 会 blocked。
+4. `iframe_url` / `script_url` / `remote_entry` / `remote_url` / `inline_html` 会 blocked。
+5. secret / token 不进入前端 props。
+6. 已启用插件的合法挂载可在运行时返回。
+7. disabled 插件不返回挂载。
+8. archived 插件不返回挂载。
+9. 子站未启用不返回挂载。
+10. 历史未知组件 key 会被跳过，不白屏。
+11. 后台插件详情能看到前端挂载状态、挂载点、组件 key 和说明。
+12. 预检失败能展示中文错误码和说明。
+13. upgrade dry-run 能展示 frontend_mounts 差异。
+14. 不会渲染插件声明的远程 iframe；官方内置同源 Host / helper 仍只能服务 allowlist 组件。
+15. 不会执行插件传入 HTML / JS。
+16. 页面标题、面包屑和左侧高亮保持正确。
+17. admin quick 检查通过。
+18. frontend quick 检查通过，前台 static build 仍生成站点和 topic 相关页面。
+19. 运行时只返回已安装、已启用 / running、未归档、未软卸载的插件挂载。
+20. 子站页面只返回当前子站 enabled 的插件挂载。
+21. 历史未知 component_key 会被跳过并返回 warning，不导致页面白屏。
+22. secret / token / authorization / password / credential 类 props 不会传给前端组件。
+23. 官方 helper 只创建内置同源 iframe，不读取插件声明的远程 iframe、远程脚本或 raw HTML。
+
+### v1.8.3-S20 插件升级 dry-run / confirm / 失败边界验收项
+
+建议命令：
+
+```bash
+./scripts/check-frontend.sh --admin-only --quick
+# 如需后端回归，再执行 go test ./... 和 go build ./...（按当前环境使用 Docker / dev.sh）
+```
+
+本轮执行结果：
+
+- `gofmt`：已通过 Docker `golang:1.22-bookworm` 执行。
+- `go test ./...`：通过。
+- `go build ./...`：通过。
+- `git diff --check`：通过。
+- `./scripts/check-frontend.sh --admin-only --quick`：通过，日志目录 `.devhub/checks/20260521-000711/`。
+
+1. 插件升级入口不白屏。
+2. upgrade dry-run 可展示结构化差异，不再只靠原始 JSON。
+3. upgrade dry-run 能展示版本计划、变更摘要、影响范围和回滚边界。
+4. warning 升级需要勾选确认，按钮不能直接放行。
+5. blocked 升级禁用确认按钮或直接拦截，不允许 confirm 绕过。
+6. 升级结果能展示 `from_version -> to_version`。
+7. 升级失败能展示 `failure_stage` / `failure_reason` / 审计建议。
+8. 原始 JSON 保留在技术详情折叠区。
+9. secret / token / Authorization / Webhook Secret 不回显。
+10. 旧路由、当前治理域入口和插件详情入口都能进入升级功能。
+11. 页面标题、面包屑、左侧高亮和 Tab 定位保持正确。
+12. 未实现的回滚能力有中文边界说明，不白屏。
+13. 升级 API 不会执行第三方代码、不开放远程 iframe、不开放 blocking Hook。
+14. upgrade confirm 只接受显式确认，不接受无确认的 warning 升级。
+15. blocked upgrade 即使 `confirm=true` 也会拒绝。
+16. upgrade dry-run 不执行 SQL，不执行 migration down，不改变插件记录。
+17. admin quick 检查通过。
+18. 2026-05-21 复查：warning 仍需显式确认，blocked 仍不可绕过；dry-run plan 过期或与当前包 checksum / migration plan 不一致时继续拒绝升级；升级失败仍返回 `failure_stage` / `failure_reason`，后台结果页保留下一步建议。
+
+### v1.8.3-S21 声明型插件开发者指南与官方模板验收项
+
+说明：S21 只固化开发者指南和两个官方插件模板，不开放第三方代码执行、Go plugin、JS 沙箱、远程 iframe、插件市场、远程在线安装或 blocking Hook。
+
+建议命令：
+
+```bash
+go test ./internal/service -run TestDryRunPluginPackage_OfficialTemplatesOK -count=1
+go test ./...
+go build ./...
+git diff --check
+```
+
+验收项：
+
+1. [声明型插件开发者指南](PLUGIN_DEVELOPER_GUIDE.md) 存在，并说明当前能做什么、不能做什么。
+2. 纯声明型内容插件模板存在：`examples/plugins/templates/declarative-content/`。
+3. external_service Webhook 插件模板存在：`examples/plugins/templates/external-service-webhook/`。
+4. 两个模板都包含 `manifest.json`、`README.md`、`config.example.json`、`migrations/` 和打包说明。
+5. Webhook 模板包含 `receiver.example.md`。
+6. 纯声明型模板可声明 content_type、permissions、menus、config_schema 和 migrations/。
+7. Webhook 模板可声明 `service_type=external_service`、`mode=non_blocking`、Hook path、method、timeout、retry 和 failure_policy。
+8. 两个模板的 manifest 能通过当前 package dry-run。
+9. 两个模板不包含真实 secret / token。
+10. 两个模板不包含可执行代码。
+11. 两个模板不包含远程 iframe URL。
+12. 两个模板不声明 blocking Hook。
+13. 两个模板不包含根目录 SQL；`migrations/` 仍是唯一迁移入口。
+14. 模板说明文件 `PACKAGING.md`、`package.example.md`、`receiver.example.md` 被包扫描器当作允许文档，不触发危险文件阻断。
+15. 文档中的命令、路径和接口名称与当前代码一致。
+16. 本轮不改变 API、不改变 Webhook 协议、不改变 Secret / Token 安全模型。
+17. 两个模板是官方推荐起点：先复制模板，再改 manifest、README、`config.example.json` 和 `migrations/`，不塞 package scripts、远程 iframe 或可执行资产。
+18. `frontend_mounts` 相关预检 / install dry-run 会阻断未知 mount_point、未知 component_key、unsupported render_mode、`iframe_url`、`script_url`、`remote_entry`、`external_js`、`inline_html`、`remote_component`、`eval` 和未白名单的可执行 JS 资产。
 
 插件后台路由兼容表：
 
@@ -291,6 +405,8 @@ bash -n dev.sh
 
 后端新增覆盖：`internal/service/plugin_external_service_test.go` 的 `TestExternalServiceHealthCheckWarningAndRecovery`、`TestExternalServiceValidationAndDisabledPluginSkipped`。
 
+2026-05-21 复查：后台表单入口位于插件详情抽屉“运行记录 / 外部服务配置”，Webhook 治理页“外部服务执行”用于查看投递记录和失败重试；已执行 `go test ./internal/service -run "TestExternalServiceHealthCheckWarningAndRecovery|TestExternalServiceValidationAndDisabledPluginSkipped" -count=1` 通过。
+
 1. external_service endpoint 可以配置。
 2. external_service timeout_ms 可以配置。
 3. external_service failure_policy 可以配置。
@@ -351,6 +467,45 @@ bash -n dev.sh
 28. 不开放动态加载。
 29. blocking Hook 仍未开放。
 30. 不改变 Secret / Callback Token 安全模型。
+
+### v1.8.3-S19 external_service Webhook 可交付闭环验收项
+
+官方样板包：`examples/plugins/official_webhook_notify`。
+
+后端新增覆盖：`internal/service/plugin_external_service_test.go` 的 `TestExternalServiceManualRetrySuccessAndForbiddenStates`、`TestExternalServiceManualRetryRejectsSkippedAndDisabledPlugin`；`internal/service/plugin_package_dryrun_test.go` 的 `TestDryRunPluginPackage_OfficialWebhookNotifyExampleOK` 固化官方样板包必须通过现有 package dry-run 规则。
+
+1. 官方样板包包含 `manifest.json`、`README.md`、`config.example.json`、`checksums.json` 和 `migrations/`。
+2. 样板包 manifest 声明 `AfterCreateContent`、`service_type=external_service`、`mode=non_blocking`、`method=POST`、`retry_enabled=true`、`max_attempts=3`、`failure_policy=warn`。
+3. 样板包不包含可执行代码、危险文件、真实 secret、用户数据、远程 iframe URL、根目录 SQL 或外部 SQL。
+4. 样板包可用于 upload -> precheck -> promote -> install dry-run -> install。
+5. 样板包可配合 `cmd/webhook-mock-receiver` 验证健康检查和内容创建后的 `/hooks/content.after_create` 投递。
+6. external_service 配置表单可在后台插件详情加载。
+7. external_service 配置表单可保存 endpoint、health_check_path、timeout_ms、failure_policy、auth_type、warning_threshold、error_threshold。
+8. `auth_type=none` 时 token 输入不要求填写。
+9. `auth_type=bearer` 时 token 只写入，不回显明文；已有 token 显示“已配置密钥 / 可替换”。
+10. external_service 健康检查按钮可触发并刷新健康摘要。
+11. 失败类 external_service hook_execution 显示“重试”按钮。
+12. success 记录不显示重试按钮，后端也拒绝重试。
+13. skipped 记录不显示重试按钮，后端也拒绝重试。
+14. internal/builtin Hook 不显示重试按钮，后端也拒绝重试。
+15. 跨插件 code 手动重试被后端拒绝。
+16. disabled / archived / soft_uninstalled 插件不实际调用 endpoint。
+17. 手动重试复用 external_service 投递逻辑。
+18. 手动重试创建新的 hook_execution，metadata 标记 `manual_retry=true` 和来源执行记录。
+19. 手动重试写入 `admin_logs`，action 为 `plugin.webhook.manual_retry`。
+20. 手动重试成功会更新 external_service health。
+21. 手动重试失败按现有 failure_policy / failure_count / warning_threshold / error_threshold 处理。
+22. Webhook 治理“外部服务执行”Tab 可按插件编码查看 external_service 执行记录。
+23. Webhook 治理失败记录可点击“重试”并刷新列表。
+24. Authorization Header、Bearer token、Webhook Secret、Callback Token 不进入 API 响应。
+25. Authorization Header、Bearer token、Webhook Secret、Callback Token 不进入 `hook_executions` 明文。
+26. Authorization Header、Bearer token、Webhook Secret、Callback Token 不进入 admin_logs 明文。
+27. 不改变 Webhook Secret / Callback Token 安全模型。
+28. 不开放远程 iframe URL。
+29. 不执行第三方插件代码。
+30. 不开放 blocking Hook。
+31. 不实现插件市场、远程自动安装或在线更新。
+32. `gofmt`、`go test ./...`、`go build ./...`、`git diff --check`、`./scripts/check-frontend.sh --admin-only --quick` 需执行；如本地缺少 Go / Node / Docker 环境，验收记录必须写明未执行原因，不能写成通过。
 
 ### v1.8.3-S15 真实声明型插件“安装到使用”闭环验收项
 
@@ -2028,7 +2183,7 @@ done
 5. staging download `status!=downloaded` 的包不能进入升级（`plugin_upgrade_target_download_invalid`）。
 6. `checksum_missing` 的包默认不能进入升级（`plugin_upgrade_target_checksum_missing`）。
 7. sha256 不一致不能进入升级（`plugin_upgrade_target_checksum_invalid`）。
-8. 升级执行：`POST /api/v1/admin/plugins/:code/upgrade-from-package` 会创建 `plugin_upgrade_tasks` 记录并写入审计 `plugin.upgrade.requested/started/success/failed`。
+8. 升级执行：`POST /api/v1/admin/plugins/:code/upgrade-from-package` 会创建 `plugin_upgrade_tasks` 记录并写入审计 `plugin.upgrade.requested/started/success/failed`，warning 升级需要显式 `confirm=true`。
 9. 升级前会重新对目标包执行 package dry-run，危险文件/blocked 风险/ checksum mismatch 会阻断升级。
 10. 升级成功后插件默认不自动启用；需要重新 enable-precheck + enable。
 11. 目标版本声明 migrations 时，升级后插件会进入 `migration_pending`（但不会自动执行 migration）。
@@ -2036,6 +2191,7 @@ done
 13. `POST /api/v1/admin/plugins/upgrade-tasks/:id/retry` 仅允许重试 `failed` 的任务。
 14. `DELETE /api/v1/admin/plugins/upgrade-tasks/:id` 仅标记 `deleted`，不影响插件当前状态与历史内容。
 15. 升级过程不执行插件代码/脚本、不加载 Go plugin、不执行 migration、不影响历史内容详情与 SEO（/topics/:id、/c/:slug）。
+16. blocked 升级即使勾选确认也不能继续。
 
 ## v1.7.0-P0-09 插件运行时治理验收（P0-01 ~ P0-08 链路）验收清单
 

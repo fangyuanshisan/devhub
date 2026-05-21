@@ -254,6 +254,114 @@ func TestDeclarativePluginManifestCapabilitiesClosedLoop(t *testing.T) {
 	}
 }
 
+func TestFrontendMountsForRuntimeAllowlistAndStatus(t *testing.T) {
+	repo := store.NewMemoryStore()
+	svc := New(repo)
+
+	raw := []byte(`{
+		"code": "frontsafe",
+		"name": "Frontend Safe",
+		"version": "1.0.0",
+		"frontend_mounts": [
+			{
+				"mount_point": "frontend.home.section",
+				"component_key": "official.announcement.card",
+				"render_mode": "official_component",
+				"config_ref": "resolved_config",
+				"props": {"title":"hello","token":"do-not-leak","webhook_secret":"hide"}
+			}
+		]
+	}`)
+	if _, _, err := svc.InstallPluginManifest(raw); err != nil {
+		t.Fatalf("install frontend manifest: %v", err)
+	}
+
+	disabled := svc.FrontendMountsForRuntime("frontend.home.section", 0)
+	if len(disabled.Items) == 0 {
+		t.Fatalf("expected at least one official mount at runtime: %#v", disabled)
+	}
+	for _, item := range disabled.Items {
+		if item.PluginCode == "frontsafe" {
+			t.Fatalf("disabled plugin should not render frontend mounts: %#v", disabled)
+		}
+	}
+
+	if _, err := svc.SetPluginStatus("frontsafe", plugins.StatusEnabled); err != nil {
+		t.Fatalf("enable frontend plugin: %v", err)
+	}
+	enabled := svc.FrontendMountsForRuntime("frontend.home.section", 0)
+	foundFrontsafe := false
+	for _, item := range enabled.Items {
+		if item.PluginCode != "frontsafe" {
+			continue
+		}
+		foundFrontsafe = true
+		if item.Props["token"] != nil || item.Props["webhook_secret"] != nil {
+			t.Fatalf("sensitive props leaked to frontend runtime: %#v", item.Props)
+		}
+		if item.Props["title"] != "hello" {
+			t.Fatalf("safe prop missing from frontend runtime: %#v", item.Props)
+		}
+	}
+	if !foundFrontsafe {
+		t.Fatalf("expected frontsafe mount after enable, got %#v", enabled.Items)
+	}
+
+	communityMissing := svc.FrontendMountsForRuntime("frontend.home.section", 1)
+	for _, item := range communityMissing.Items {
+		if item.PluginCode == "frontsafe" {
+			t.Fatalf("community without plugin enablement should not render frontsafe mounts: %#v", communityMissing)
+		}
+	}
+	if _, err := svc.SetCommunityPluginStatus(1, "frontsafe", plugins.StatusEnabled); err != nil {
+		t.Fatalf("enable frontend plugin for community: %v", err)
+	}
+	communityEnabled := svc.FrontendMountsForRuntime("frontend.home.section", 1)
+	foundCommunityFrontsafe := false
+	for _, item := range communityEnabled.Items {
+		if item.PluginCode == "frontsafe" {
+			foundCommunityFrontsafe = true
+		}
+	}
+	if !foundCommunityFrontsafe {
+		t.Fatalf("expected community enabled frontend mount, got %#v", communityEnabled.Items)
+	}
+
+	historical, _ := repo.SavePlugin(domain.Plugin{
+		PluginManifest: domain.PluginManifest{
+			Code:    "legacy_frontend",
+			Name:    "Legacy Frontend",
+			Version: "1.0.0",
+			FrontendMounts: []domain.FrontendMountDefinition{
+				{PluginCode: "legacy_frontend", MountPoint: "frontend.home.section", ComponentKey: "legacy.remote.widget"},
+			},
+		},
+		Status: plugins.StatusEnabled,
+	})
+	if historical.Code == "" {
+		t.Fatal("expected historical plugin to save")
+	}
+	withLegacy := svc.FrontendMountsForRuntime("frontend.home.section", 0)
+	for _, item := range withLegacy.Items {
+		if item.PluginCode == "legacy_frontend" {
+			t.Fatalf("unknown historical component should be skipped, got %#v", withLegacy)
+		}
+	}
+	if len(withLegacy.Warnings) == 0 {
+		t.Fatalf("expected warning for skipped historical mount")
+	}
+
+	if _, err := svc.ArchivePlugin("frontsafe"); err != nil {
+		t.Fatalf("archive frontend plugin: %v", err)
+	}
+	archived := svc.FrontendMountsForRuntime("frontend.home.section", 0)
+	for _, item := range archived.Items {
+		if item.PluginCode == "frontsafe" {
+			t.Fatalf("archived plugin should not render frontend mounts: %#v", archived)
+		}
+	}
+}
+
 func TestPluginUpgradeDryRun(t *testing.T) {
 	repo := store.NewMemoryStore()
 	svc := New(repo)
@@ -305,6 +413,105 @@ func TestPluginUpgradeDryRun(t *testing.T) {
 	}
 }
 
+func TestPluginUpgradeDryRunStructuredPlansAndConfirm(t *testing.T) {
+	repo := store.NewMemoryStore()
+	svc := New(repo)
+
+	base := []byte(`{
+		"code": "articles",
+		"name": "Articles",
+		"version": "1.0.0",
+		"compatible_core_version": ">=1.3.0",
+		"content_types": [{"type":"article","name":"Article","plugin_code":"articles","create_permission":"articles.create"}],
+		"permissions": [{"code":"articles.create","name":"Create","scope":"community"},{"code":"articles.delete","name":"Delete","scope":"community"}],
+		"menus": [{"code":"articles.frontend","title":"Articles","path":"/articles","location":"frontend","permission":"articles.create"}],
+		"routes": [{"area":"frontend","method":"GET","path":"/articles","permission":"articles.create"}],
+		"hooks": [{"name":"BeforeCreateContent","mode":"blocking","failure_policy":"block","timeout_ms":1000}],
+		"config_schema": {"type":"object","properties":{"token":{"type":"string"}}},
+		"migrations": []
+	}`)
+	if _, _, err := svc.InstallPluginManifest(base); err != nil {
+		t.Fatalf("install base failed: %v", err)
+	}
+	upgrade := []byte(`{
+		"code": "articles",
+		"name": "Articles v2",
+		"version": "2.0.0",
+		"compatible_core_version": ">=1.3.0",
+		"content_types": [
+			{"type":"article","name":"Article","plugin_code":"articles","create_permission":"articles.create"},
+			{"type":"featured_article","name":"Featured Article","plugin_code":"articles","create_permission":"articles.create"}
+		],
+		"permissions": [{"code":"articles.create","name":"Create","scope":"community"}],
+		"menus": [{"code":"articles.frontend","title":"Articles","path":"/articles","location":"frontend","permission":"articles.create"}],
+		"routes": [{"area":"frontend","method":"GET","path":"/articles","permission":"articles.create"}],
+		"hooks": [{"name":"AfterCreateContent","mode":"non_blocking","service_type":"external_service","path":"/hooks/articles.after_create","method":"POST","timeout_ms":3000,"retry_enabled":true,"max_attempts":3,"failure_policy":"warn","enabled":true}],
+		"config_schema": {"type":"object","properties":{"token":{"type":"number"},"endpoint_url":{"type":"string"}}},
+		"migrations": [{"plugin_code":"articles","migration_version":"2.0.0","migration_name":"articles_2","direction":"up","checksum":"sha256:test","rollback_supported":false}],
+		"assets": ["assets/articles.css"],
+		"external_service": {"endpoint":"https://example.com/hooks/articles","timeout_ms":3000,"failure_policy":"warn","retry_policy":"linear"}
+	}`)
+
+	preview, err := svc.PluginUpgradeDryRun("articles", upgrade)
+	if err != nil {
+		t.Fatalf("PluginUpgradeDryRun failed: %v", err)
+	}
+	if preview.RiskLevel != "warning" || !preview.ConfirmRequired {
+		t.Fatalf("expected warning confirm required preview, got %#v", preview)
+	}
+	if preview.VersionPlan.Compare != "upgrade" || !preview.VersionPlan.CodeMatched {
+		t.Fatalf("unexpected version plan: %#v", preview.VersionPlan)
+	}
+	if preview.ChangeSummary.HighRisk == 0 || preview.ImpactSummary.AffectedPermissionsCount == 0 {
+		t.Fatalf("expected structured change and impact summary, got %#v", preview)
+	}
+	if len(preview.MigrationPlan.Items) == 0 || len(preview.HookPlan.Items) == 0 {
+		t.Fatalf("expected migration and hook plans, got %#v", preview)
+	}
+	foundSecret := false
+	for _, section := range preview.DiffSections {
+		for _, item := range section.Items {
+			if item.Path == "config_schema.token" && item.After != "[REDACTED]" {
+				t.Fatalf("expected secret redaction, got %#v", item)
+			}
+			if item.Path == "config_schema.token" {
+				foundSecret = true
+			}
+		}
+	}
+	if !foundSecret {
+		t.Fatalf("expected secret field diff, got %#v", preview.DiffSections)
+	}
+	if _, err := svc.UpgradePluginManifestConfirmed("articles", upgrade, false); err == nil {
+		t.Fatal("expected confirm-required upgrade to fail without confirmation")
+	} else if apiErr, ok := err.(*domain.APIError); !ok || apiErr.Code != "plugin_upgrade_confirm_required" {
+		t.Fatalf("expected confirm-required error, got %v", err)
+	}
+	result, err := svc.UpgradePluginManifestConfirmed("articles", upgrade, true)
+	if err != nil {
+		t.Fatalf("confirmed upgrade failed: %v", err)
+	}
+	if result.Plugin.Version != "2.0.0" {
+		t.Fatalf("unexpected upgraded plugin: %#v", result.Plugin)
+	}
+}
+
+func TestPluginUpgradeDryRunBlocksSameVersionEvenWithConfirm(t *testing.T) {
+	repo := store.NewMemoryStore()
+	svc := New(repo)
+
+	base := []byte(`{"code":"notes","name":"Notes","version":"1.0.0","compatible_core_version":">=1.3.0","content_types":[],"permissions":[],"menus":[],"routes":[],"hooks":[],"config_schema":{"type":"object","properties":{}},"migrations":[]}`)
+	if _, _, err := svc.InstallPluginManifest(base); err != nil {
+		t.Fatalf("install base failed: %v", err)
+	}
+	same := []byte(`{"code":"notes","name":"Notes","version":"1.0.0","compatible_core_version":">=1.3.0","content_types":[],"permissions":[],"menus":[],"routes":[],"hooks":[],"config_schema":{"type":"object","properties":{}},"migrations":[]}`)
+	if _, err := svc.UpgradePluginManifestConfirmed("notes", same, true); err == nil {
+		t.Fatal("expected same-version upgrade to be blocked")
+	} else if apiErr, ok := err.(*domain.APIError); !ok || apiErr.Code != "plugin_upgrade_blocked" {
+		t.Fatalf("expected blocked error, got %v", err)
+	}
+}
+
 func TestUpgradePluginManifest(t *testing.T) {
 	repo := store.NewMemoryStore()
 	svc := New(repo)
@@ -342,7 +549,7 @@ func TestUpgradePluginManifest(t *testing.T) {
 		"migrations": []
 	}`)
 
-	result, err := svc.UpgradePluginManifest("notes", upgrade)
+	result, err := svc.UpgradePluginManifestConfirmed("notes", upgrade, true)
 	if err != nil {
 		t.Fatalf("UpgradePluginManifest failed: %v", err)
 	}

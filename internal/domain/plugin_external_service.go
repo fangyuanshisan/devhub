@@ -51,3 +51,13 @@ type PluginExternalServiceHealthCheckResponse struct {
 	DurationMS   int64  `json:"duration_ms,omitempty"`
 	Message      string `json:"message,omitempty"`
 }
+
+// PluginExternalServiceManualRetryResponse is returned after a manual external_service hook retry.
+type PluginExternalServiceManualRetryResponse struct {
+	PluginCode        string `json:"plugin_code"`
+	SourceExecutionID string `json:"source_execution_id"`
+	RetryExecutionID  string `json:"retry_execution_id"`
+	RetryRecordID     int64  `json:"retry_record_id,omitempty"`
+	Status            string `json:"status"`
+	Message           string `json:"message"`
+}

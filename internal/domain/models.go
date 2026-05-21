@@ -89,6 +89,19 @@ type RouteDefinition struct {
 	Permission string `json:"permission,omitempty"`
 }
 
+// FrontendMountDefinition describes a declarative frontend mount. DevHub only
+// accepts official allowlisted mount points and official component keys.
+type FrontendMountDefinition struct {
+	PluginCode   string         `json:"plugin_code,omitempty"`
+	MountPoint   string         `json:"mount_point,omitempty"`
+	Slot         string         `json:"slot,omitempty"`
+	ComponentKey string         `json:"component_key,omitempty"`
+	RenderMode   string         `json:"render_mode,omitempty"`
+	ConfigRef    string         `json:"config_ref,omitempty"`
+	PropsSchema  any            `json:"props_schema,omitempty"`
+	Props        map[string]any `json:"props,omitempty"`
+}
+
 // HookDefinition 描述插件可声明的扩展 Hook。
 type HookDefinition struct {
 	PluginCode       string `json:"plugin_code"`
@@ -127,6 +140,7 @@ type PluginManifest struct {
 	Permissions           []PermissionDefinition      `json:"permissions,omitempty"`
 	Menus                 []MenuDefinition            `json:"menus,omitempty"`
 	Routes                []RouteDefinition           `json:"routes,omitempty"`
+	FrontendMounts        []FrontendMountDefinition   `json:"frontend_mounts,omitempty"`
 	ConfigSchema          any                         `json:"config_schema,omitempty"`
 	Dependencies          []PluginDependency          `json:"dependencies,omitempty"`
 	MinCoreVersion        string                      `json:"min_core_version,omitempty"`
@@ -358,16 +372,107 @@ type PluginManifestValidationResult struct {
 	InstallPreview       map[string]any              `json:"install_preview,omitempty"`
 }
 
+type PluginFrontendMountRuntimeItem struct {
+	PluginCode   string         `json:"plugin_code"`
+	MountPoint   string         `json:"mount_point"`
+	ComponentKey string         `json:"component_key"`
+	Status       string         `json:"status"`
+	Message      string         `json:"message,omitempty"`
+	Props        map[string]any `json:"props,omitempty"`
+	ConfigRef    string         `json:"config_ref,omitempty"`
+}
+
+type PluginFrontendMountRuntimeResult struct {
+	MountPoint string                           `json:"mount_point"`
+	Items      []PluginFrontendMountRuntimeItem `json:"items"`
+	Warnings   []string                         `json:"warnings,omitempty"`
+}
+
 // PluginInstallImpact summarizes manifest dry-run / install impact.
 type PluginInstallImpact struct {
-	ContentTypesCount int      `json:"content_types_count"`
-	PermissionsCount  int      `json:"permissions_count"`
-	MenusCount        int      `json:"menus_count"`
-	RoutesCount       int      `json:"routes_count"`
-	HooksCount        int      `json:"hooks_count"`
-	MigrationsCount   int      `json:"migrations_count"`
-	Dependencies      []string `json:"dependencies,omitempty"`
-	SecurityWarnings  []string `json:"security_warnings,omitempty"`
+	ContentTypesCount   int      `json:"content_types_count"`
+	PermissionsCount    int      `json:"permissions_count"`
+	MenusCount          int      `json:"menus_count"`
+	RoutesCount         int      `json:"routes_count"`
+	FrontendMountsCount int      `json:"frontend_mounts_count"`
+	HooksCount          int      `json:"hooks_count"`
+	MigrationsCount     int      `json:"migrations_count"`
+	Dependencies        []string `json:"dependencies,omitempty"`
+	SecurityWarnings    []string `json:"security_warnings,omitempty"`
+}
+
+type PluginUpgradeVersionPlan struct {
+	FromVersion        string `json:"from_version"`
+	ToVersion          string `json:"to_version"`
+	Compare            string `json:"compare"`
+	SameVersionAllowed bool   `json:"same_version_allowed"`
+	DowngradeAllowed   bool   `json:"downgrade_allowed"`
+	CrossMajor         bool   `json:"cross_major"`
+	CodeMatched        bool   `json:"code_matched"`
+	Message            string `json:"message,omitempty"`
+}
+
+type PluginUpgradePackageSummary struct {
+	Source                  string `json:"source"`
+	PluginCode              string `json:"plugin_code"`
+	Name                    string `json:"name,omitempty"`
+	CurrentManifestChecksum string `json:"current_manifest_checksum,omitempty"`
+	TargetManifestChecksum  string `json:"target_manifest_checksum,omitempty"`
+	ChecksumChanged         bool   `json:"checksum_changed"`
+	Publisher               string `json:"publisher,omitempty"`
+	PublisherChanged        bool   `json:"publisher_changed"`
+	SignatureStatus         string `json:"signature_status"`
+	TrustStatus             string `json:"trust_status"`
+}
+
+type PluginUpgradeChangeSummary struct {
+	Added     int      `json:"added"`
+	Removed   int      `json:"removed"`
+	Changed   int      `json:"changed"`
+	HighRisk  int      `json:"high_risk"`
+	Blocked   int      `json:"blocked"`
+	Sections  []string `json:"sections,omitempty"`
+	RiskLevel string   `json:"risk_level"`
+	Message   string   `json:"message,omitempty"`
+}
+
+type PluginUpgradeImpactSummary struct {
+	PluginStatus              string   `json:"plugin_status"`
+	EnabledCommunitiesCount   int      `json:"enabled_communities_count"`
+	AffectedContentTypesCount int      `json:"affected_content_types_count"`
+	AffectedPermissionsCount  int      `json:"affected_permissions_count"`
+	AffectedConfigCount       int      `json:"affected_config_count"`
+	AffectedHookCount         int      `json:"affected_hook_count"`
+	ExternalServiceAffected   bool     `json:"external_service_affected"`
+	MigrationAffected         bool     `json:"migration_affected"`
+	MenuRouteAffected         bool     `json:"menu_route_affected"`
+	FrontendMountAffected     bool     `json:"frontend_mount_affected"`
+	DangerousChangeCodes      []string `json:"dangerous_change_codes,omitempty"`
+}
+
+type PluginUpgradeSectionPlan struct {
+	Section  string                   `json:"section"`
+	Title    string                   `json:"title"`
+	Added    int                      `json:"added"`
+	Removed  int                      `json:"removed"`
+	Changed  int                      `json:"changed"`
+	HighRisk int                      `json:"high_risk"`
+	Blocked  int                      `json:"blocked"`
+	Items    []PluginManifestDiffItem `json:"items,omitempty"`
+	Message  string                   `json:"message,omitempty"`
+}
+
+type PluginUpgradeRollbackBoundary struct {
+	DryRunExecutesSQL                bool     `json:"dry_run_executes_sql"`
+	UpgradeAtomicSteps               []string `json:"upgrade_atomic_steps,omitempty"`
+	BestEffortRollbackSteps          []string `json:"best_effort_rollback_steps,omitempty"`
+	ManualHandlingRequired           []string `json:"manual_handling_required,omitempty"`
+	MigrationDownSupported           bool     `json:"migration_down_supported"`
+	ConfigVersionRollbackSupported   bool     `json:"config_version_rollback_supported"`
+	ManifestRollbackSupported        bool     `json:"manifest_rollback_supported"`
+	AssetsRollbackSupported          bool     `json:"assets_rollback_supported"`
+	ExternalServiceRollbackSupported bool     `json:"external_service_rollback_supported"`
+	Message                          string   `json:"message"`
 }
 
 // PluginUpgradeDryRunResult summarizes an upgrade preview without mutating runtime state.
@@ -385,6 +490,23 @@ type PluginUpgradeDryRunResult struct {
 	RiskReport            PluginPackageRiskReport        `json:"risk_report,omitempty"`
 	DependencyDiff        PluginDependencyDiff           `json:"dependency_diff,omitempty"`
 	Validation            PluginManifestValidationResult `json:"validation"`
+	VersionPlan           PluginUpgradeVersionPlan       `json:"version_plan,omitempty"`
+	PackageSummary        PluginUpgradePackageSummary    `json:"package_summary,omitempty"`
+	ChangeSummary         PluginUpgradeChangeSummary     `json:"change_summary,omitempty"`
+	ImpactSummary         PluginUpgradeImpactSummary     `json:"impact_summary,omitempty"`
+	MigrationPlan         PluginUpgradeSectionPlan       `json:"migration_plan,omitempty"`
+	ConfigPlan            PluginUpgradeSectionPlan       `json:"config_plan,omitempty"`
+	PermissionPlan        PluginUpgradeSectionPlan       `json:"permission_plan,omitempty"`
+	ContentTypePlan       PluginUpgradeSectionPlan       `json:"content_type_plan,omitempty"`
+	HookPlan              PluginUpgradeSectionPlan       `json:"hook_plan,omitempty"`
+	FrontendMountPlan     PluginUpgradeSectionPlan       `json:"frontend_mount_plan,omitempty"`
+	RiskLevel             string                         `json:"risk_level,omitempty"`
+	RiskItems             []PluginPackageRiskItem        `json:"risk_items,omitempty"`
+	BlockingItems         []PluginPackageRiskItem        `json:"blocking_items,omitempty"`
+	Warnings              []PluginPackageRiskItem        `json:"warnings,omitempty"`
+	ConfirmRequired       bool                           `json:"confirm_required"`
+	ConfirmToken          string                         `json:"confirm_token,omitempty"`
+	RollbackBoundary      PluginUpgradeRollbackBoundary  `json:"rollback_boundary,omitempty"`
 }
 
 // PluginUpgradeResult is returned by upgrade execution APIs.

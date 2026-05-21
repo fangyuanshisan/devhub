@@ -447,11 +447,14 @@ func buildPluginManifestDiff(current, target domain.PluginManifest) ([]domain.Pl
 	builder.compareKeyed("permissions", "权限变化", keyPermissions(current.Permissions), keyPermissions(target.Permissions), permissionRisk)
 	builder.compareKeyed("menus", "菜单变化", keyMenus(current.Menus), keyMenus(target.Menus), highRiskRemoved)
 	builder.compareKeyed("routes", "路由变化", keyRoutes(current.Routes), keyRoutes(target.Routes), highRiskRemoved)
+	builder.compareKeyed("frontend_mounts", "前端挂载变化", keyFrontendMounts(current.FrontendMounts), keyFrontendMounts(target.FrontendMounts), frontendMountRisk)
 	builder.compareConfigSchema(current.ConfigSchema, target.ConfigSchema)
 	builder.compareAnyMap("default_config", "默认配置", pluginManifestDefaultConfig(current), pluginManifestDefaultConfig(target), "low")
 	builder.compareKeyed("dependencies", "依赖变化", keyDependencies(current.Dependencies), keyDependencies(target.Dependencies), dependencyRisk)
 	builder.compareKeyed("hooks", "Hook 变化", keyHooks(current.Hooks), keyHooks(target.Hooks), hookRisk)
+	builder.compareAnyMap("external_service", "External Service 配置声明", structToMap(current.ExternalService), structToMap(target.ExternalService), "high")
 	builder.compareKeyed("migrations", "迁移声明", keyMigrations(current.Migrations), keyMigrations(target.Migrations), migrationRisk)
+	builder.compareStringSet("assets", "资产声明", current.Assets, target.Assets, "high")
 	return builder.sections(), builder.summary
 }
 
@@ -515,14 +518,20 @@ func (b *manifestDiffBuilder) compareObjectFields(section, title string, before,
 func (b *manifestDiffBuilder) compareStringSet(section, title string, before, after []string, removeRisk string) {
 	beforeSet := stringSet(before)
 	afterSet := stringSet(after)
+	addMsg := "新增声明项"
+	removeMsg := "删除声明项可能影响现有入口或能力"
+	if section == "content_types" {
+		addMsg = "新增内容类型"
+		removeMsg = "删除内容类型可能影响历史内容治理"
+	}
 	for _, key := range sortedUnionStringSet(beforeSet, afterSet) {
 		_, hasBefore := beforeSet[key]
 		_, hasAfter := afterSet[key]
 		switch {
 		case !hasBefore && hasAfter:
-			b.add(section, title, section+"."+key, "added", "low", nil, key, "新增内容类型")
+			b.add(section, title, section+"."+key, "added", "low", nil, key, addMsg)
 		case hasBefore && !hasAfter:
-			b.add(section, title, section+"."+key, "removed", removeRisk, key, nil, "删除内容类型可能影响历史内容治理")
+			b.add(section, title, section+"."+key, "removed", removeRisk, key, nil, removeMsg)
 		}
 	}
 }
@@ -628,6 +637,14 @@ func keyRoutes(items []domain.RouteDefinition) map[string]any {
 	return out
 }
 
+func keyFrontendMounts(items []domain.FrontendMountDefinition) map[string]any {
+	out := map[string]any{}
+	for _, item := range items {
+		out[strings.Join([]string{item.MountPoint, item.ComponentKey}, " ")] = item
+	}
+	return out
+}
+
 func keyDependencies(items []domain.PluginDependency) map[string]any {
 	out := map[string]any{}
 	for _, item := range items {
@@ -695,14 +712,69 @@ func dependencyRisk(_ string, typ string, before, after any) (string, string) {
 }
 
 func hookRisk(_ string, typ string, before, after any) (string, string) {
+	if typ == "added" {
+		if hook, ok := after.(domain.HookDefinition); ok {
+			if hook.Blocking {
+				return "blocked", "本轮不开放 blocking Hook，禁止升级"
+			}
+			if hook.ServiceType == "external_service" && hook.Enabled != nil && *hook.Enabled {
+				return "high", "新增启用的 external_service Hook 会影响外部投递"
+			}
+		}
+	}
 	if typ == "changed" {
 		oldHook, oldOK := before.(domain.HookDefinition)
 		newHook, newOK := after.(domain.HookDefinition)
-		if oldOK && newOK && !oldHook.Blocking && newHook.Blocking {
-			return "high", "Hook 从 non-blocking 改为 blocking"
+		if oldOK && newOK {
+			if !oldHook.Blocking && newHook.Blocking {
+				return "blocked", "本轮不开放 blocking Hook，禁止升级"
+			}
+			if hookEnabled(oldHook) != hookEnabled(newHook) && hookEnabled(newHook) {
+				return "high", "Hook 从禁用改为启用，可能触发新的外部投递"
+			}
+			if strings.TrimSpace(oldHook.ServiceType) == "external_service" || strings.TrimSpace(newHook.ServiceType) == "external_service" {
+				if oldHook.Path != newHook.Path || oldHook.Method != newHook.Method || oldHook.FailurePolicy != newHook.FailurePolicy || oldHook.TimeoutMS != newHook.TimeoutMS {
+					return "high", "external_service Hook 投递路径、方法、超时或失败策略发生变化"
+				}
+			}
 		}
 	}
 	return "low", "Hook 声明发生变化"
+}
+
+func frontendMountRisk(_ string, typ string, before, after any) (string, string) {
+	if typ == "removed" {
+		return "high", "删除前端挂载会影响现有页面入口"
+	}
+	var mount domain.FrontendMountDefinition
+	if typ == "added" {
+		if next, ok := after.(domain.FrontendMountDefinition); ok {
+			mount = next
+		}
+	} else if next, ok := after.(domain.FrontendMountDefinition); ok {
+		mount = next
+	}
+	if mount.MountPoint != "" || mount.ComponentKey != "" {
+		if errs := pluginregistry.ValidateFrontendMount(mount); len(errs) > 0 {
+			return "blocked", strings.Join(errs, "；")
+		}
+	}
+	if typ == "changed" {
+		oldMount, oldOK := before.(domain.FrontendMountDefinition)
+		newMount, newOK := after.(domain.FrontendMountDefinition)
+		if oldOK && newOK && oldMount.ComponentKey != newMount.ComponentKey {
+			return "high", "前端组件 key 变化会影响页面展示"
+		}
+		return "high", "前端挂载声明发生变化"
+	}
+	return "low", "新增官方 allowlist 前端挂载"
+}
+
+func hookEnabled(hook domain.HookDefinition) bool {
+	if hook.Enabled == nil {
+		return true
+	}
+	return *hook.Enabled
 }
 
 func migrationRisk(_ string, typ string, _, _ any) (string, string) {
@@ -764,6 +836,19 @@ func requiredSet(schema any) map[string]struct{} {
 		for _, item := range arr {
 			out[fmt.Sprint(item)] = struct{}{}
 		}
+	}
+	return out
+}
+
+func structToMap(v any) map[string]any {
+	if v == nil {
+		return map[string]any{}
+	}
+	raw, _ := json.Marshal(v)
+	var out map[string]any
+	_ = json.Unmarshal(raw, &out)
+	if out == nil {
+		return map[string]any{}
 	}
 	return out
 }

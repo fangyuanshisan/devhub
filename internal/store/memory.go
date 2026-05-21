@@ -528,6 +528,21 @@ func (s *MemoryStore) AppendHookExecution(record domain.HookExecution) (domain.H
 	return record, nil
 }
 
+func (s *MemoryStore) HookExecutionByID(id int64) (domain.HookExecution, bool) {
+	if id <= 0 {
+		return domain.HookExecution{}, false
+	}
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	for i := len(s.hookExecutions) - 1; i >= 0; i-- {
+		record := s.hookExecutions[i]
+		if record.ID == id {
+			return record, true
+		}
+	}
+	return domain.HookExecution{}, false
+}
+
 func (s *MemoryStore) HookExecutions(pluginCode string, limit int) ([]domain.HookExecution, error) {
 	pluginCode = strings.TrimSpace(pluginCode)
 	if limit <= 0 || limit > 100 {

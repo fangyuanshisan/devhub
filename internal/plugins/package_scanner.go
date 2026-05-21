@@ -369,7 +369,9 @@ func classifyPluginPackageFile(rel string, info fs.FileInfo) (category string, r
 	}
 
 	// Allow list.
-	if base == "manifest.json" || base == "readme.md" || base == "license" || base == "config.example.json" || base == "checksums.json" || base == "publisher.json" || base == "signature.json" {
+	switch base {
+	case "manifest.json", "readme.md", "license", "config.example.json", "checksums.json",
+		"publisher.json", "signature.json", "packaging.md", "package.example.md", "receiver.example.md":
 		return "allowed", "allowed"
 	}
 	if strings.HasPrefix(lower, "docs/") && strings.HasSuffix(lower, ".md") {

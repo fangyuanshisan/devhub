@@ -29,6 +29,7 @@ DevHub 提供默认社区能力，但长期目标不是单一社区程序，而�
 - [BACKUP_AND_ROLLBACK.md](docs/BACKUP_AND_ROLLBACK.md)
 - [SEO.md](docs/SEO.md)
 - [PLUGIN_ARCHITECTURE.md](docs/PLUGIN_ARCHITECTURE.md)
+- [PLUGIN_DEVELOPER_GUIDE.md](docs/PLUGIN_DEVELOPER_GUIDE.md)
 - [PLUGIN_RUNTIME_MODEL.md](docs/PLUGIN_RUNTIME_MODEL.md)
 - [docs/releases/v1.8.3.md](docs/releases/v1.8.3.md)
 - [docs/releases/v1.8.2.md](docs/releases/v1.8.2.md)
@@ -45,7 +46,8 @@ DevHub 提供默认社区能力，但长期目标不是单一社区程序，而�
 
 - Core 通用能力：用户账号、前台 / 后台认证、角色权限、子站、板块、通用内容、分类、标签、评论、搜索、通知、关注、收藏、举报、后台管理基础框架、API、审计、SEO、安全边界和插件生命周期 / 插件包治理。
 - 内置系统插件：`qa` 提供 `question`，`docs` 提供 `document`，`wiki` 提供 `wiki_page`；`projects`、`jobs`、`ai_works` 已接管 `project`、`job`、`ai_work` 的插件归属。
-- 插件扩展能力：当前支持 manifest 声明、内容类型、权限、菜单、Hook、配置 schema、external_service 受控 health check 预备、插件包治理、远程索引只读镜像、staging 下载、安全预检、compat-check、安装 / 启用 / 软卸载 / 升级治理和签名验签；第三方插件运行模型仍在设计中，仍不执行第三方代码或开放动态加载。
+- 插件扩展能力：当前支持 manifest 声明、内容类型、权限、菜单、Hook、配置 schema、官方 allowlist 前端挂载、external_service 受控 health check 预备、插件包治理、远程索引只读镜像、staging 下载、安全预检、compat-check、安装 / 启用 / 软卸载 / 升级治理和签名验签；第三方插件运行模型仍在设计中，仍不执行第三方代码或开放动态加载、任意远程 iframe 或任意远程前端资源。
+- 插件开发模板：当前提供 [声明型插件开发者指南](docs/PLUGIN_DEVELOPER_GUIDE.md)、纯声明型内容插件模板 `examples/plugins/templates/declarative-content/` 和 external_service Webhook 插件模板 `examples/plugins/templates/external-service-webhook/`。建议先看指南，再复制模板；两个模板都只包含声明、配置示例和迁移入口说明，不包含运行时代码、真实 secret、远程 iframe 或 blocking Hook。
 - 插件后台治理体验：当前插件列表、详情抽屉、Webhook 治理、插件包治理、上传记录、远程插件包、审批中心、操作历史、配置版本历史、可信发布者和官方公告插件预览已按功能域与页内 Tab 做中文化整理；不改变底层生命周期、Webhook 协议或 Secret / Token 安全模型。
 - 插件状态：支持全局插件状态 `plugins.status` 和子站插件状态 `community_plugins.status`；禁用插件只影响新发布、导航、菜单和管理入口，不影响历史内容详情 SEO。
 - 兼容内容类型：`article`、`news` 等仍作为 Core 兼容内容类型存在；`project`、`job`、`ai_work` 已完成插件归属迁移，但专属扩展表和完整业务闭环仍留到后续版本。
@@ -58,7 +60,7 @@ DevHub 提供默认社区能力，但长期目标不是单一社区程序，而�
 
 DevHub 当前定位为 **Core + 插件 的开源服务底座**。Core 保持稳定、克制和通用，不承载过多垂直业务；插件扩展业务能力，但不能绕过 Core 的权限、安全、审计和生命周期治理。
 
-当前 `v1.8.3` 重点是后台插件治理稳定性、中文体验、声明型插件从安装到使用的真实闭环、插件包 upload -> promote -> install 验收、PluginRegistry 运行态刷新，以及 external_service non-blocking Webhook 子集。完整第三方代码执行、完整第三方运行模型、远程动态加载、远程 iframe、插件市场和 blocking Hook 仍未开放，详见 [插件系统路线图](docs/PLUGIN_SYSTEM_ROADMAP.md) 与 [v1.8.3 Release Notes](docs/releases/v1.8.3.md)。
+当前 `v1.8.3` 重点是后台插件治理稳定性、中文体验、声明型插件从安装到使用的真实闭环、插件包 upload -> promote -> install 验收、PluginRegistry 运行态刷新、官方 allowlist 前端挂载，以及 external_service non-blocking Webhook 子集。完整第三方代码执行、完整第三方运行模型、远程动态加载、任意远程 iframe、插件市场和 blocking Hook 仍未开放，详见 [插件系统路线图](docs/PLUGIN_SYSTEM_ROADMAP.md) 与 [v1.8.3 Release Notes](docs/releases/v1.8.3.md)。
 
 当前范围和限制以 [v1.8.3 Release Notes](docs/releases/v1.8.3.md) 为准，长期滚动状态见 [项目进度](docs/PROJECT_PROGRESS.md)。
 

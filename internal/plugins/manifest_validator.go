@@ -54,8 +54,12 @@ func DecodePluginManifestJSON(raw []byte) (domain.PluginManifest, string, error)
 	}
 	contentTypesRaw := fields["content_types"]
 	dependenciesRaw := fields["dependencies"]
+	frontendMountsRaw := fields["frontend_mounts"]
+	frontendRaw := fields["frontend"]
 	delete(fields, "content_types")
 	delete(fields, "dependencies")
+	delete(fields, "frontend_mounts")
+	delete(fields, "frontend")
 	normalizedRaw, _ := json.Marshal(fields)
 	var manifest domain.PluginManifest
 	if err := json.Unmarshal(normalizedRaw, &manifest); err != nil {
@@ -85,9 +89,33 @@ func DecodePluginManifestJSON(raw []byte) (domain.PluginManifest, string, error)
 		}
 		manifest.Dependencies = deps
 	}
+	if len(frontendMountsRaw) > 0 {
+		mounts, err := decodeFrontendMounts(frontendMountsRaw)
+		if err != nil {
+			return domain.PluginManifest{}, "", err
+		}
+		manifest.FrontendMounts = append(manifest.FrontendMounts, mounts...)
+	}
+	if len(frontendRaw) > 0 {
+		var wire struct {
+			Mounts []domain.FrontendMountDefinition `json:"mounts"`
+		}
+		if err := json.Unmarshal(frontendRaw, &wire); err != nil {
+			return domain.PluginManifest{}, "", fmt.Errorf("frontend 必须是合法对象")
+		}
+		manifest.FrontendMounts = append(manifest.FrontendMounts, wire.Mounts...)
+	}
 	manifest = NormalizeManifest(manifest)
 	checksum := ManifestChecksum(manifest)
 	return manifest, checksum, nil
+}
+
+func decodeFrontendMounts(raw json.RawMessage) ([]domain.FrontendMountDefinition, error) {
+	var mounts []domain.FrontendMountDefinition
+	if err := json.Unmarshal(raw, &mounts); err != nil {
+		return nil, fmt.Errorf("frontend_mounts 必须是挂载声明数组")
+	}
+	return mounts, nil
 }
 
 func decodeDependencies(raw json.RawMessage) ([]domain.PluginDependency, error) {
@@ -210,6 +238,9 @@ func NormalizeManifest(manifest domain.PluginManifest) domain.PluginManifest {
 		manifest.Routes[i].PluginCode = firstNonBlank(manifest.Routes[i].PluginCode, manifest.Code)
 		manifest.Routes[i].Method = strings.ToUpper(strings.TrimSpace(manifest.Routes[i].Method))
 	}
+	for i := range manifest.FrontendMounts {
+		manifest.FrontendMounts[i] = NormalizeFrontendMount(manifest.FrontendMounts[i], manifest.Code)
+	}
 	for i := range manifest.Hooks {
 		manifest.Hooks[i].PluginCode = firstNonBlank(manifest.Hooks[i].PluginCode, manifest.Code)
 		manifest.Hooks[i].Mode = strings.TrimSpace(manifest.Hooks[i].Mode)
@@ -248,13 +279,14 @@ func ValidatePluginManifest(manifest domain.PluginManifest, existing []domain.Pl
 		},
 	}
 	result.ImpactSummary = domain.PluginInstallImpact{
-		ContentTypesCount: len(manifest.ContentTypes),
-		PermissionsCount:  len(manifest.Permissions),
-		MenusCount:        len(manifest.Menus),
-		RoutesCount:       len(manifest.Routes),
-		HooksCount:        len(manifest.Hooks),
-		MigrationsCount:   len(manifest.Migrations),
-		Dependencies:      dependencyCodes(manifest.Dependencies),
+		ContentTypesCount:   len(manifest.ContentTypes),
+		PermissionsCount:    len(manifest.Permissions),
+		MenusCount:          len(manifest.Menus),
+		RoutesCount:         len(manifest.Routes),
+		FrontendMountsCount: len(manifest.FrontendMounts),
+		HooksCount:          len(manifest.Hooks),
+		MigrationsCount:     len(manifest.Migrations),
+		Dependencies:        dependencyCodes(manifest.Dependencies),
 	}
 	addError := func(format string, args ...any) {
 		result.Errors = append(result.Errors, fmt.Sprintf(format, args...))
@@ -360,6 +392,16 @@ func ValidatePluginManifest(manifest domain.PluginManifest, existing []domain.Pl
 			addError("路由 %s 引用了未声明权限：%s", route.Path, route.Permission)
 		}
 	}
+	for _, mount := range manifest.FrontendMounts {
+		for _, msg := range ValidateFrontendMount(mount) {
+			addError("%s", msg)
+		}
+		if schema, ok := mount.PropsSchema.(map[string]any); ok {
+			if err := validateSchemaShape(schema, "frontend_mounts."+mount.MountPoint+".props_schema"); err != nil {
+				addError("frontend_mounts props_schema 不合法：%s", err.Error())
+			}
+		}
+	}
 	for _, hook := range manifest.Hooks {
 		if !manifestAllowedHooks[hook.Name] {
 			addError("Hook 名称不支持：%s", hook.Name)
@@ -414,6 +456,9 @@ func ValidatePluginManifest(manifest domain.PluginManifest, existing []domain.Pl
 		if isDangerousAsset(asset) {
 			addError("asset 不允许使用危险可执行文件：%s", asset)
 		}
+		if isRemoteAsset(asset) {
+			addError("REMOTE_SCRIPT_NOT_ALLOWED：当前版本不支持通过 assets 声明远程前端资源：%s", asset)
+		}
 	}
 	if manifest.ExternalService != nil {
 		validateExternalService(manifest.ExternalService, addError, addWarning)
@@ -451,6 +496,11 @@ func ValidatePluginManifestJSON(raw []byte, existing []domain.Plugin, currentCor
 	}
 	result := ValidatePluginManifest(manifest, existing, currentCoreVersion)
 	result.Checksum = checksum
+	for _, msg := range frontendDangerousManifestFieldErrors(raw) {
+		result.Errors = append(result.Errors, msg)
+		result.Valid = false
+	}
+	sort.Strings(result.Errors)
 	return result
 }
 
@@ -547,10 +597,63 @@ func atoiLoose(s string) int {
 
 func isDangerousAsset(path string) bool {
 	lower := strings.ToLower(path)
-	for _, suffix := range []string{".sh", ".bash", ".exe", ".dll", ".so", ".dylib", ".bat", ".cmd"} {
+	for _, suffix := range []string{".sh", ".bash", ".exe", ".dll", ".so", ".dylib", ".bat", ".cmd", ".js", ".mjs", ".jsx", ".ts", ".tsx", ".wasm"} {
 		if strings.HasSuffix(lower, suffix) {
 			return true
 		}
 	}
 	return false
+}
+
+func isRemoteAsset(path string) bool {
+	lower := strings.ToLower(strings.TrimSpace(path))
+	return strings.HasPrefix(lower, "http://") || strings.HasPrefix(lower, "https://") || strings.HasPrefix(lower, "//")
+}
+
+func frontendDangerousManifestFieldErrors(raw []byte) []string {
+	var data any
+	if err := json.Unmarshal(raw, &data); err != nil {
+		return nil
+	}
+	seen := map[string]bool{}
+	var out []string
+	var walk func(any)
+	walk = func(value any) {
+		switch typed := value.(type) {
+		case map[string]any:
+			for key, child := range typed {
+				if code, message, ok := classifyDangerousFrontendField(key); ok {
+					msg := code + "：" + message
+					if !seen[msg] {
+						seen[msg] = true
+						out = append(out, msg)
+					}
+				}
+				walk(child)
+			}
+		case []any:
+			for _, item := range typed {
+				walk(item)
+			}
+		}
+	}
+	walk(data)
+	sort.Strings(out)
+	return out
+}
+
+func classifyDangerousFrontendField(key string) (string, string, bool) {
+	normalized := strings.ToLower(strings.ReplaceAll(strings.ReplaceAll(strings.TrimSpace(key), "-", "_"), " ", "_"))
+	normalized = strings.ReplaceAll(normalized, "__", "_")
+	switch normalized {
+	case "iframe_url", "iframeurl", "remote_iframe", "remote_iframe_url", "remote_url":
+		return "REMOTE_IFRAME_NOT_ALLOWED", "当前版本不支持远程 iframe", true
+	case "script_url", "scripturl", "remote_entry", "remoteentry", "external_js", "externaljs", "remote_script", "entry":
+		return "REMOTE_SCRIPT_NOT_ALLOWED", "当前版本不支持远程脚本", true
+	case "inline_html", "inlinehtml", "inner_html", "innerhtml", "html":
+		return "INLINE_HTML_NOT_ALLOWED", "当前版本不支持插件注入 HTML", true
+	case "inline_script", "inlinescript", "eval", "remote_component", "remotecomponent":
+		return "REMOTE_SCRIPT_NOT_ALLOWED", "当前版本不支持远程组件或内联脚本", true
+	}
+	return "", "", false
 }

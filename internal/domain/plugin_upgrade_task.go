@@ -47,6 +47,9 @@ type PluginUpgradeTask struct {
 	ErrorsJSON      string `json:"errors_json,omitempty"`
 	WarningsJSON    string `json:"warnings_json,omitempty"`
 	RollbackLogJSON string `json:"rollback_log_json,omitempty"`
+	FailureStage    string `json:"failure_stage,omitempty"`
+	FailureReason   string `json:"failure_reason,omitempty"`
+	NextStep        string `json:"next_step,omitempty"`
 
 	StartedAt   string `json:"started_at,omitempty"`
 	FinishedAt  string `json:"finished_at,omitempty"`

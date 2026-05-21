@@ -323,6 +323,199 @@ func TestExternalServiceManifestRejectsBlockingHook(t *testing.T) {
 	}
 }
 
+func TestExternalServiceManualRetrySuccessAndForbiddenStates(t *testing.T) {
+	repo := store.NewMemoryStore()
+	svc := New(repo)
+	_ = installExternalServiceFixturePlugin(t, svc, "fixture_ext_manual", "fixture_ext_manual.note", "fixture_ext_manual.note.create", []domain.HookDefinition{
+		{
+			Name:          pluginregistry.HookAfterCreateContent,
+			Mode:          string(pluginregistry.HookNonBlocking),
+			ServiceType:   "external_service",
+			Path:          "/hooks/content.after_create",
+			Method:        "POST",
+			TimeoutMS:     800,
+			RetryEnabled:  true,
+			MaxAttempts:   2,
+			FailurePolicy: "warn",
+		},
+	})
+	fail := true
+	requests := 0
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		requests++
+		if strings.Contains(strings.ToLower(r.Header.Get("Authorization")), "bearer") {
+			t.Fatal("auth_type=none should not send Authorization")
+		}
+		if fail {
+			http.Error(w, "temporary failure", http.StatusInternalServerError)
+			return
+		}
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte("ok"))
+	}))
+	defer server.Close()
+
+	enabled := true
+	if _, err := svc.UpdatePluginExternalServiceConfig(PluginExternalServiceOperator{Name: "tester"}, "fixture_ext_manual", domain.PluginExternalServiceUpdateRequest{
+		EndpointURL:      server.URL,
+		TimeoutMS:        800,
+		FailurePolicy:    "warn",
+		AuthType:         "none",
+		Enabled:          &enabled,
+		WarningThreshold: 1,
+		ErrorThreshold:   2,
+	}); err != nil {
+		t.Fatalf("save external_service config: %v", err)
+	}
+	if err := svc.DispatchHook(pluginregistry.HookEvent{
+		Name: pluginregistry.HookAfterCreateContent,
+		Mode: pluginregistry.HookNonBlocking,
+		Ctx: pluginregistry.HookContext{
+			PluginCode:  "fixture_ext_manual",
+			ContentType: "fixture_ext_manual.note",
+			CommunityID: 1,
+			ContentID:   100,
+			RequestID:   "req-manual-retry",
+			ActorType:   pluginregistry.HookActorSystem,
+		},
+	}); err != nil {
+		t.Fatalf("dispatch hook: %v", err)
+	}
+	rows := waitExternalServiceExecutions(t, repo, "fixture_ext_manual", func(rows []domain.HookExecution) bool {
+		return hasHookExecutionStatus(rows, "retry_exhausted")
+	})
+	var failed domain.HookExecution
+	for _, row := range rows {
+		if row.Status == "retry_exhausted" {
+			failed = row
+			break
+		}
+	}
+	if failed.ID == 0 {
+		t.Fatal("expected failed source execution")
+	}
+
+	fail = false
+	resp, err := svc.ManualRetryExternalServiceHookExecution(PluginExternalServiceOperator{Name: "operator", ID: 7}, "fixture_ext_manual", failed.ID)
+	if err != nil {
+		t.Fatalf("manual retry should succeed: %v", err)
+	}
+	if resp.Status != "success" || resp.RetryExecutionID == "" || resp.SourceExecutionID == "" {
+		t.Fatalf("unexpected retry response: %#v", resp)
+	}
+	rows = waitExternalServiceExecutions(t, repo, "fixture_ext_manual", func(rows []domain.HookExecution) bool {
+		return hasHookExecutionStatus(rows, "success")
+	})
+	assertNoSensitiveExecutionData(t, rows)
+	if requests == 0 {
+		t.Fatal("expected retry to call mock receiver")
+	}
+
+	var success domain.HookExecution
+	for _, row := range rows {
+		if row.Status == "success" {
+			success = row
+			break
+		}
+	}
+	if _, err := svc.ManualRetryExternalServiceHookExecution(PluginExternalServiceOperator{Name: "operator"}, "fixture_ext_manual", success.ID); err == nil {
+		t.Fatal("success execution should not be retryable")
+	}
+	if _, err := svc.ManualRetryExternalServiceHookExecution(PluginExternalServiceOperator{Name: "operator"}, "qa", failed.ID); err == nil {
+		t.Fatal("cross-plugin retry should be rejected")
+	}
+}
+
+func TestExternalServiceManualRetryRejectsSkippedAndDisabledPlugin(t *testing.T) {
+	repo := store.NewMemoryStore()
+	svc := New(repo)
+	_ = installExternalServiceFixturePlugin(t, svc, "fixture_ext_manual_guard", "fixture_ext_manual_guard.note", "fixture_ext_manual_guard.note.create", []domain.HookDefinition{
+		{
+			Name:          pluginregistry.HookAfterCreateContent,
+			Mode:          string(pluginregistry.HookNonBlocking),
+			ServiceType:   "external_service",
+			Path:          "/hooks/content.after_create",
+			Method:        "POST",
+			TimeoutMS:     800,
+			RetryEnabled:  true,
+			MaxAttempts:   1,
+			FailurePolicy: "warn",
+		},
+	})
+	enabled := true
+	if _, err := svc.UpdatePluginExternalServiceConfig(PluginExternalServiceOperator{Name: "tester"}, "fixture_ext_manual_guard", domain.PluginExternalServiceUpdateRequest{
+		EndpointURL:      "http://127.0.0.1:65535",
+		TimeoutMS:        800,
+		FailurePolicy:    "warn",
+		AuthType:         "none",
+		Enabled:          &enabled,
+		WarningThreshold: 1,
+		ErrorThreshold:   2,
+	}); err != nil {
+		t.Fatalf("save external_service config: %v", err)
+	}
+	if _, err := svc.SetPluginStatus("fixture_ext_manual_guard", pluginregistry.StatusDisabled); err != nil {
+		t.Fatalf("disable plugin: %v", err)
+	}
+	if err := svc.DispatchHook(pluginregistry.HookEvent{
+		Name: pluginregistry.HookAfterCreateContent,
+		Mode: pluginregistry.HookNonBlocking,
+		Ctx: pluginregistry.HookContext{
+			PluginCode:  "fixture_ext_manual_guard",
+			ContentType: "fixture_ext_manual_guard.note",
+			CommunityID: 1,
+			ContentID:   101,
+			ActorType:   pluginregistry.HookActorSystem,
+		},
+	}); err != nil {
+		t.Fatalf("dispatch disabled hook: %v", err)
+	}
+	rows := waitExternalServiceExecutions(t, repo, "fixture_ext_manual_guard", func(rows []domain.HookExecution) bool {
+		return hasHookExecutionStatus(rows, "skipped")
+	})
+	var skipped domain.HookExecution
+	for _, row := range rows {
+		if row.Status == "skipped" {
+			skipped = row
+			break
+		}
+	}
+	if _, err := svc.ManualRetryExternalServiceHookExecution(PluginExternalServiceOperator{Name: "operator"}, "fixture_ext_manual_guard", skipped.ID); err == nil {
+		t.Fatal("skipped execution should not be retryable")
+	}
+
+	if _, err := svc.SetPluginStatus("fixture_ext_manual_guard", pluginregistry.StatusEnabled); err != nil {
+		t.Fatalf("enable plugin: %v", err)
+	}
+	failed, err := repo.AppendHookExecution(domain.HookExecution{
+		HookName:    pluginregistry.HookAfterCreateContent,
+		PluginCode:  "fixture_ext_manual_guard",
+		ServiceType: "external_service",
+		Mode:        string(pluginregistry.HookNonBlocking),
+		Status:      "failed",
+		Success:     false,
+		Metadata:    `{"execution_id":"source-disabled"}`,
+	})
+	if err != nil {
+		t.Fatalf("append failed execution: %v", err)
+	}
+	if _, err := svc.SetPluginStatus("fixture_ext_manual_guard", pluginregistry.StatusDisabled); err != nil {
+		t.Fatalf("disable plugin again: %v", err)
+	}
+	before := len(rows)
+	_, err = svc.ManualRetryExternalServiceHookExecution(PluginExternalServiceOperator{Name: "operator"}, "fixture_ext_manual_guard", failed.ID)
+	if err == nil {
+		t.Fatal("disabled plugin should reject manual retry")
+	}
+	afterRows, _, err := repo.HookExecutionsByFilter(domain.HookExecutionFilter{PluginCode: "fixture_ext_manual_guard", ServiceType: "external_service", Page: 1, PageSize: 100})
+	if err != nil {
+		t.Fatalf("query executions: %v", err)
+	}
+	if len(afterRows) != before+1 {
+		t.Fatalf("disabled retry should not create a new delivery record, before=%d after=%d", before, len(afterRows))
+	}
+}
+
 func installExternalServiceFixturePlugin(t *testing.T, svc *Service, code, contentType, permission string, hooks []domain.HookDefinition) int64 {
 	t.Helper()
 	manifest := domain.PluginManifest{

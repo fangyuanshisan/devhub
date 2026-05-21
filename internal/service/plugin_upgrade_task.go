@@ -170,6 +170,14 @@ func (s *Service) PluginUpgradeImpact(operator PluginUpgradeOperator, code strin
 		ConfigDiff:           map[string]any{"note": "本轮仅做兼容校验；diff 细化留到后续增强", "current_config_valid": true},
 		MigrationDiff:        migDiff,
 	}
+	if summary.Blocked > 0 {
+		resp.Status = "blocked"
+		resp.CanUpgrade = false
+		resp.Errors = append(resp.Errors, "升级差异存在阻断项，禁止升级")
+	} else if summary.HighRisk > 0 {
+		resp.Status = "warning"
+		resp.Warnings = append(resp.Warnings, "升级差异包含高风险变更，需要管理员确认后继续")
+	}
 
 	s.repo.AppendAdminLog(domain.AdminLog{
 		Site:      "admin",
@@ -192,6 +200,7 @@ func (s *Service) PluginUpgradeImpact(operator PluginUpgradeOperator, code strin
 type PluginUpgradeRequest struct {
 	TargetCompatCheckID int64  `json:"target_compat_check_id"`
 	Reason              string `json:"reason,omitempty"`
+	Confirm             bool   `json:"confirm,omitempty"`
 }
 
 func (s *Service) UpgradePluginFromCompatCheckAs(operator PluginUpgradeOperator, code string, req PluginUpgradeRequest) (domain.PluginUpgradeTaskResponse, error) {
@@ -210,6 +219,14 @@ func (s *Service) UpgradePluginFromCompatCheckAs(operator PluginUpgradeOperator,
 			WithStatus(400).
 			WithDetail("plugin_code", code).
 			WithDetail("target_compat_check_id", req.TargetCompatCheckID)
+	}
+	if strings.ToLower(strings.TrimSpace(impact.Status)) == "warning" && !req.Confirm {
+		return domain.PluginUpgradeTaskResponse{}, domain.NewPluginError("plugin_upgrade_confirm_required", "该升级包含高风险变更，必须显式确认后才能执行").
+			WithStatus(409).
+			WithDetail("plugin_code", code).
+			WithDetail("target_compat_check_id", req.TargetCompatCheckID).
+			WithDetail("confirm_required", true).
+			WithSuggestion("请确认已备份数据库并勾选确认后重试。")
 	}
 
 	plugin, _ := s.repo.PluginByCode(code)
@@ -263,6 +280,8 @@ func (s *Service) UpgradePluginFromCompatCheckAs(operator PluginUpgradeOperator,
 			"target_compat_check_id": compat.ID,
 			"upgrade_task_id":        task.ID,
 			"reason":                 req.Reason,
+			"confirm_used":           req.Confirm,
+			"confirm_required":       strings.ToLower(strings.TrimSpace(impact.Status)) == "warning",
 		}),
 		CreatedAt: Now(),
 	})
@@ -279,42 +298,42 @@ func (s *Service) UpgradePluginFromCompatCheckAs(operator PluginUpgradeOperator,
 
 	// Ensure project root is resolvable (used by package path normalization).
 	if _, rerr := serviceProjectRoot(); rerr != nil {
-		return s.failUpgradeTask(task, operator, "plugin_upgrade_failed", "读取项目根目录失败", rerr)
+		return s.failUpgradeTask(task, operator, "project_root", "plugin_upgrade_failed", "读取项目根目录失败", rerr)
 	}
 	// Determine package source path to upgrade from.
 	relPkg := strings.TrimSpace(precheck.PackagePath)
 	if relPkg == "" {
-		return s.failUpgradeTask(task, operator, "plugin_upgrade_target_package_missing", "目标包缺少 package_path，不能升级", errors.New("missing package_path"))
+		return s.failUpgradeTask(task, operator, "precheck", "plugin_upgrade_target_package_missing", "目标包缺少 package_path，不能升级", errors.New("missing package_path"))
 	}
 	absPkg, cleanPkg, nerr := pluginregistry.NormalizePluginPackagePath(relPkg)
 	if nerr != nil {
-		return s.failUpgradeTask(task, operator, nerr.(*domain.APIError).Code, "目标包路径不合法，不能升级", nerr)
+		return s.failUpgradeTask(task, operator, "path_validate", nerr.(*domain.APIError).Code, "目标包路径不合法，不能升级", nerr)
 	}
 	_ = cleanPkg
 	manifestRaw, readErr := os.ReadFile(filepath.Join(absPkg, "manifest.json"))
 	if readErr != nil {
-		return s.failUpgradeTask(task, operator, "plugin_upgrade_target_manifest_missing", "读取目标 manifest.json 失败", readErr)
+		return s.failUpgradeTask(task, operator, "read_manifest", "plugin_upgrade_target_manifest_missing", "读取目标 manifest.json 失败", readErr)
 	}
 	manifest, _, derr := pluginregistry.DecodePluginManifestJSON(manifestRaw)
 	if derr != nil {
-		return s.failUpgradeTask(task, operator, "plugin_upgrade_target_manifest_invalid", "目标 manifest.json 不合法", derr)
+		return s.failUpgradeTask(task, operator, "parse_manifest", "plugin_upgrade_target_manifest_invalid", "目标 manifest.json 不合法", derr)
 	}
 	manifest = pluginregistry.NormalizeManifest(manifest)
 	if strings.TrimSpace(manifest.Code) != code {
-		return s.failUpgradeTask(task, operator, "plugin_upgrade_target_code_mismatch", "目标包 plugin_code 不匹配，禁止升级", errors.New("code mismatch"))
+		return s.failUpgradeTask(task, operator, "verify_code", "plugin_upgrade_target_code_mismatch", "目标包 plugin_code 不匹配，禁止升级", errors.New("code mismatch"))
 	}
 
 	// Ensure file integrity for local_package: re-run scan+checksum and block if dangerous/mismatch.
 	// This reuses v1.5/1.6 package dry-run pipeline.
 	dry, dryErr := s.DryRunPluginPackage(relPkg)
 	if dryErr != nil {
-		return s.failUpgradeTask(task, operator, "plugin_upgrade_target_dry_run_failed", "目标包 dry-run 失败，禁止升级", dryErr)
+		return s.failUpgradeTask(task, operator, "dry_run", "plugin_upgrade_target_dry_run_failed", "目标包 dry-run 失败，禁止升级", dryErr)
 	}
 	if strings.ToLower(dry.Status) == "blocked" || strings.ToLower(dry.RiskReport.Level) == "blocked" {
-		return s.failUpgradeTask(task, operator, firstNonEmpty(dry.BlockedCode, "plugin_upgrade_target_blocked"), "目标包风险阻断，禁止升级", errors.New(strings.Join(dry.BlockedReasons, "; ")))
+		return s.failUpgradeTask(task, operator, "dry_run", firstNonEmpty(dry.BlockedCode, "plugin_upgrade_target_blocked"), "目标包风险阻断，禁止升级", errors.New(strings.Join(dry.BlockedReasons, "; ")))
 	}
 	if dry.Package.ChecksumFound && strings.ToLower(dry.Checksum.Status) != "ok" {
-		return s.failUpgradeTask(task, operator, "plugin_package_checksum_mismatch", "目标包 checksum 校验未通过，禁止升级", errors.New(dry.Checksum.Status))
+		return s.failUpgradeTask(task, operator, "checksum", "plugin_package_checksum_mismatch", "目标包 checksum 校验未通过，禁止升级", errors.New(dry.Checksum.Status))
 	}
 
 	// Diff snapshot.
@@ -331,7 +350,7 @@ func (s *Service) UpgradePluginFromCompatCheckAs(operator PluginUpgradeOperator,
 	// Config compatibility again (must be safe).
 	nextDef := domain.Plugin{PluginManifest: manifest}
 	if err := pluginregistry.ValidateConfigJSON(nextDef, plugin.ConfigJSON); err != nil {
-		return s.failUpgradeTask(task, operator, "plugin_upgrade_target_config_incompatible", "现有配置不兼容目标版本 schema，禁止升级", err)
+		return s.failUpgradeTask(task, operator, "config_validate", "plugin_upgrade_target_config_incompatible", "现有配置不兼容目标版本 schema，禁止升级", err)
 	}
 	task.ConfigDiffJSON = mustJSON(map[string]any{"note": "仅做兼容校验；旧配置可通过新 schema", "current_config_valid": true})
 
@@ -339,16 +358,16 @@ func (s *Service) UpgradePluginFromCompatCheckAs(operator PluginUpgradeOperator,
 	records, _ := s.repo.PluginMigrations(code)
 	for _, it := range records {
 		if strings.TrimSpace(it.Status) == "failed" {
-			return s.failUpgradeTask(task, operator, "plugin_migration_failed", "存在失败迁移，禁止升级", errors.New(it.MigrationName))
+			return s.failUpgradeTask(task, operator, "migration_check", "plugin_migration_failed", "存在失败迁移，禁止升级", errors.New(it.MigrationName))
 		}
 	}
 
 	// Apply upgrade by reusing existing UpgradePluginManifest (DB-only manifest upgrade with operation snapshot).
 	// This keeps existing behavior: status remains same or becomes disabled; it does not auto-enable.
 	// NOTE: This repo does not persist installed filesystem snapshots; upgrade is governance-level manifest swap.
-	res, uerr := s.UpgradePluginManifestWithOperation(PluginOperationOperator{ID: operator.ID, Name: operator.Name}, 0, "", code, manifestRaw)
+	res, uerr := s.UpgradePluginManifestWithOperationConfirmed(PluginOperationOperator{ID: operator.ID, Name: operator.Name}, 0, "", code, manifestRaw, req.Confirm)
 	if uerr != nil {
-		return s.failUpgradeTask(task, operator, "plugin_upgrade_failed", "升级写入失败", uerr)
+		return s.failUpgradeTask(task, operator, "apply_upgrade", "plugin_upgrade_failed", "升级写入失败", uerr)
 	}
 	_ = res
 
@@ -380,7 +399,7 @@ func (s *Service) UpgradePluginFromCompatCheckAs(operator PluginUpgradeOperator,
 		NewVersion: task.NewVersion,
 		Status:     nextStatus,
 	}); rerr != nil {
-		return s.failUpgradeTask(task, operator, "plugin_registry_reload_failed", "插件升级已写入，但运行态刷新失败", rerr)
+		return s.failUpgradeTask(task, operator, "refresh_registry", "plugin_registry_reload_failed", "插件升级已写入，但运行态刷新失败", rerr)
 	}
 
 	task.Status = domain.PluginUpgradeTaskStatusUpgraded
@@ -404,6 +423,7 @@ func (s *Service) UpgradePluginFromCompatCheckAs(operator PluginUpgradeOperator,
 			"new_version":       task.NewVersion,
 			"upgrade_task_id":   task.ID,
 			"new_plugin_status": task.NewPluginStatus,
+			"confirm_used":      req.Confirm,
 		}),
 		CreatedAt: Now(),
 	})
@@ -411,8 +431,11 @@ func (s *Service) UpgradePluginFromCompatCheckAs(operator PluginUpgradeOperator,
 	return upgradeTaskResponse(task), nil
 }
 
-func (s *Service) failUpgradeTask(task domain.PluginUpgradeTask, operator PluginUpgradeOperator, code, message string, err error) (domain.PluginUpgradeTaskResponse, error) {
+func (s *Service) failUpgradeTask(task domain.PluginUpgradeTask, operator PluginUpgradeOperator, stage, code, message string, err error) (domain.PluginUpgradeTaskResponse, error) {
 	task.Status = domain.PluginUpgradeTaskStatusFailed
+	task.FailureStage = strings.TrimSpace(stage)
+	task.FailureReason = firstNonEmpty(errString(err), message)
+	task.NextStep = pluginUpgradeFailureNextStep(stage, code, message)
 	task.FinishedAt = Now()
 	if start, ok := ParseTimeLayout(task.StartedAt); ok {
 		task.DurationMS = int64(time.Since(start).Milliseconds())
@@ -435,6 +458,8 @@ func (s *Service) failUpgradeTask(task domain.PluginUpgradeTask, operator Plugin
 			"upgrade_task_id": task.ID,
 			"error_code":      code,
 			"error":           firstNonEmpty(errString(err), message),
+			"failure_stage":   stage,
+			"failure_reason":  firstNonEmpty(errString(err), message),
 		}),
 		CreatedAt: Now(),
 	})
@@ -449,6 +474,42 @@ func (s *Service) failUpgradeTask(task domain.PluginUpgradeTask, operator Plugin
 		WithDetail("plugin_code", task.PluginCode).
 		WithDetail("upgrade_task_id", task.ID).
 		WithSuggestion("请先查看 upgrade impact / compat-check 结果，并修复 blockers 后重试。")
+}
+
+func pluginUpgradeFailureNextStep(stage, code, message string) string {
+	stage = strings.TrimSpace(stage)
+	switch stage {
+	case "project_root":
+		return "检查仓库根目录和 devhub 项目路径，确认升级任务能读取当前仓库。"
+	case "precheck", "dry_run":
+		return "重新执行目标包 dry-run，先修复包风险、checksum 或 manifest 问题。"
+	case "path_validate":
+		return "修正目标包路径后重新选择本地仓库包。"
+	case "read_manifest", "parse_manifest":
+		return "检查目标包 manifest.json 是否存在且可解析。"
+	case "verify_code":
+		return "确认目标包 plugin_code 与当前插件一致。"
+	case "checksum":
+		return "重新校验目标包 checksum，确认包内容未被改动。"
+	case "config_validate":
+		return "先调整现有配置，使其满足目标版本的 config_schema。"
+	case "migration_check":
+		return "先处理失败迁移，再重新执行升级。"
+	case "refresh_registry":
+		return "重试运行态刷新，必要时查看插件注册表和后台日志。"
+	case "apply_upgrade":
+		return "检查兼容校验、package dry-run 和升级输入是否一致，确认后重试。"
+	case "confirm_or_apply":
+		return "补充显式确认后重试，或先修复阻断项再继续。"
+	default:
+		if strings.TrimSpace(message) != "" {
+			return "请查看错误详情并按升级预检 / 审计建议处理。"
+		}
+		if strings.TrimSpace(code) != "" {
+			return "请根据错误码继续排障。"
+		}
+		return "请根据升级任务详情和审计记录继续排障。"
+	}
 }
 
 func errString(err error) string {

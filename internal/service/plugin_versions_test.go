@@ -128,3 +128,39 @@ func TestBuildPluginManifestDiffHighRiskAndSensitiveRedaction(t *testing.T) {
 		t.Fatalf("expected sensitive config diff redaction, got %#v", sections)
 	}
 }
+
+func TestBuildPluginManifestDiffFrontendMounts(t *testing.T) {
+	current := domain.PluginManifest{
+		Code:    "frontdiff",
+		Name:    "Front Diff",
+		Version: "1.0.0",
+		FrontendMounts: []domain.FrontendMountDefinition{
+			{PluginCode: "frontdiff", MountPoint: "frontend.home.section", ComponentKey: "official.announcement.card", RenderMode: "official_component"},
+		},
+	}
+	target := domain.PluginManifest{
+		Code:    "frontdiff",
+		Name:    "Front Diff",
+		Version: "1.1.0",
+		FrontendMounts: []domain.FrontendMountDefinition{
+			{PluginCode: "frontdiff", MountPoint: "frontend.community.section", ComponentKey: "official.announcement.card", RenderMode: "official_component"},
+			{PluginCode: "frontdiff", MountPoint: "frontend.home.section", ComponentKey: "third.party.widget"},
+		},
+	}
+	sections, summary := buildPluginManifestDiff(current, target)
+	if summary.Blocked == 0 {
+		t.Fatalf("unknown component should be blocked, summary=%#v sections=%#v", summary, sections)
+	}
+	found := false
+	for _, section := range sections {
+		if section.Section == "frontend_mounts" {
+			found = true
+			if section.RiskLevel != "blocked" {
+				t.Fatalf("expected frontend_mounts section to contain blocked item: %#v", section)
+			}
+		}
+	}
+	if !found {
+		t.Fatalf("expected frontend_mounts diff section, got %#v", sections)
+	}
+}

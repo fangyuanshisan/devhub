@@ -34,6 +34,7 @@ func (s *Server) upgradeAdminPluginFromCompat(c *gin.Context) {
 	var req struct {
 		TargetCompatCheckID int64  `json:"target_compat_check_id"`
 		Reason              string `json:"reason,omitempty"`
+		Confirm             bool   `json:"confirm,omitempty"`
 	}
 	if err := c.ShouldBindJSON(&req); err != nil {
 		fail(c, http.StatusBadRequest, "request json 不合法")
@@ -47,13 +48,14 @@ func (s *Server) upgradeAdminPluginFromCompat(c *gin.Context) {
 	res, err := s.svc.UpgradePluginFromCompatCheckAs(op, code, service.PluginUpgradeRequest{
 		TargetCompatCheckID: req.TargetCompatCheckID,
 		Reason:              req.Reason,
+		Confirm:             req.Confirm,
 	})
 	if err != nil {
 		failAPIError(c, err)
 		return
 	}
 	s.auditStructured(c, "system", "plugin.upgrade.success", fmt.Sprintf("plugins#%s", code), nil, gin.H{"status": "upgraded"},
-		gin.H{"plugin_code": code, "operation": "plugin_upgrade", "upgrade_task_id": res.ID, "old_version": res.OldVersion, "new_version": res.NewVersion})
+		gin.H{"plugin_code": code, "operation": "plugin_upgrade", "upgrade_task_id": res.ID, "old_version": res.OldVersion, "new_version": res.NewVersion, "confirm_used": req.Confirm})
 	c.JSON(http.StatusOK, res)
 }
 

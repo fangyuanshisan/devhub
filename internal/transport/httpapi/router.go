@@ -304,6 +304,7 @@ func NewRouter(svc *service.Service) *gin.Engine {
 			protected.GET("/plugins/:code/impact", srv.requirePermission("plugin.read"), srv.adminPluginImpact)
 			protected.GET("/plugins/:code/hooks", srv.requirePermission("plugin.read"), srv.adminPluginHooks)
 			protected.GET("/plugins/:code/hooks/executions", srv.requirePermission("plugin.read"), srv.adminPluginHookExecutions)
+			protected.POST("/plugins/:code/hooks/executions/:execution_id/retry", srv.requirePermission("plugin.manage"), srv.retryAdminPluginHookExecution)
 			protected.GET("/plugins/:code/external-service", srv.requirePermission("plugin.read"), srv.adminPluginExternalService)
 			protected.PUT("/plugins/:code/external-service", srv.requirePermission("plugin.manage"), srv.updateAdminPluginExternalService)
 			protected.POST("/plugins/:code/external-service/health-check", srv.requirePermission("plugin.manage"), srv.checkAdminPluginExternalServiceHealth)
@@ -1569,12 +1570,10 @@ func (s *Server) listBoards(c *gin.Context) {
 }
 
 func (s *Server) plugins(c *gin.Context) {
-	items := []domain.Plugin{}
+	items := []map[string]any{}
 	for _, plugin := range s.svc.Plugins() {
 		if plugin.Status == pluginregistry.StatusEnabled {
-			plugin.ConfigJSON = ""
-			plugin.ResolvedConfig = nil
-			items = append(items, plugin)
+			items = append(items, publicPluginView(plugin))
 		}
 	}
 	c.JSON(http.StatusOK, gin.H{"items": items})
@@ -2443,6 +2442,20 @@ func extractManifestJSON(raw []byte) ([]byte, error) {
 	return trimmed, nil
 }
 
+func extractUpgradeConfirm(raw []byte) bool {
+	trimmed := bytes.TrimSpace(raw)
+	if len(trimmed) == 0 {
+		return false
+	}
+	var wrapper struct {
+		Confirm bool `json:"confirm"`
+	}
+	if err := json.Unmarshal(trimmed, &wrapper); err == nil && wrapper.Confirm {
+		return true
+	}
+	return false
+}
+
 func (s *Server) adminPluginImpact(c *gin.Context) {
 	code := strings.TrimSpace(c.Param("code"))
 	impact, err := s.svc.PluginImpact(code)
@@ -2510,6 +2523,25 @@ func (s *Server) adminPluginHookExecutions(c *gin.Context) {
 		return
 	}
 	c.JSON(http.StatusOK, gin.H{"items": items, "total": total, "page": filter.Page, "page_size": filter.PageSize})
+}
+
+func (s *Server) retryAdminPluginHookExecution(c *gin.Context) {
+	code := strings.TrimSpace(c.Param("code"))
+	if _, ok := s.svc.PluginByCode(code); !ok {
+		failAPIError(c, domain.NewPluginError("plugin_not_found", "插件不存在").WithStatus(404).WithDetail("plugin_code", code))
+		return
+	}
+	executionID, err := strconv.ParseInt(strings.TrimSpace(c.Param("execution_id")), 10, 64)
+	if err != nil || executionID <= 0 {
+		failAPIError(c, domain.NewPluginError("plugin_hook_execution_not_found", "Hook 执行记录不存在").WithStatus(http.StatusNotFound))
+		return
+	}
+	resp, err := s.svc.ManualRetryExternalServiceHookExecution(pluginExternalServiceOperator(c), code, executionID)
+	if err != nil {
+		failAPIError(c, err)
+		return
+	}
+	c.JSON(http.StatusOK, resp)
 }
 
 func (s *Server) injectFailedAdminPluginHookForTest(c *gin.Context) {
@@ -5749,17 +5781,23 @@ func (s *Server) communityPlugins(c *gin.Context) {
 		fail(c, http.StatusBadRequest, err.Error())
 		return
 	}
-	enabled := make([]domain.Plugin, 0, len(items))
+	enabled := make([]map[string]any, 0, len(items))
 	for _, plugin := range items {
 		if plugin.Status == pluginregistry.StatusEnabled {
-			plugin.GlobalStatus = ""
-			plugin.CommunityStatus = ""
-			plugin.ConfigJSON = ""
-			plugin.ResolvedConfig = nil
-			enabled = append(enabled, plugin)
+			enabled = append(enabled, publicPluginView(plugin))
 		}
 	}
 	c.JSON(http.StatusOK, gin.H{"items": enabled})
+}
+
+func publicPluginView(plugin domain.Plugin) map[string]any {
+	raw, _ := json.Marshal(plugin)
+	var view map[string]any
+	_ = json.Unmarshal(raw, &view)
+	delete(view, "config_json")
+	delete(view, "resolved_config")
+	delete(view, "frontend_mounts")
+	return view
 }
 
 type navigationEntry struct {

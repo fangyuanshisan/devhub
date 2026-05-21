@@ -12,12 +12,15 @@ DevHub 的长期目标是 **Core + 插件 的开源服务底座**。Core 稳定�
 
 `VERSION` 当前为 `v1.8.3`；当前实现已从早期插件包治理 / 签名验签 / 运行模型设计推进到后台插件治理稳定性、声明型插件真实业务闭环、插件包真实 zip 验收、PluginRegistry reload、external_service non-blocking Webhook 和中文状态提示收口。远程包、声明型插件和 external_service 仍不执行第三方代码、不开放动态加载、不开放远程 iframe、不做 blocking Hook。
 
+补充：`v1.8.3-S21` 已把 [声明型插件开发者指南](PLUGIN_DEVELOPER_GUIDE.md) 和两个官方模板固化为开发者入口；当前插件生态的入门路径已经从“看设计”推进到“看指南、复制模板、按预检 / dry-run 验收”。
+
 当前实现快照：
 
 - 已完成：v1.5 本地插件包规范、dry-run、checksum / risk_report、本地仓库扫描、本地包安装、配置版本历史、敏感配置加密、审批流、签名草案、已安装声明型插件目录导出。
 - 已完成：v1.6 zip 上传安全沙箱、上传包生命周期列表 / 详情 / rescan / approval / promote / cancel / delete / cleanup、真实签名验签、可信发布者 CRUD / block / revoke / restore、远程索引只读镜像、版本仓库、升级差异、操作历史 / recover dry-run / cleanup、配置密钥轮换 dry-run / re-encrypt、后台插件治理按功能域分层导航与 E2E helper（导航入口见 `web/admin-app/src/router/adminNav.js`）。
 - 已完成：v1.7-P0-01 远程插件包下载到 `storage/plugins/staging/downloads/`，包含 HTTPS-only、SSRF 防护、重定向复检、大小限制、sha256 校验、失败清理和审计记录。
 - 已完成：v1.7-P0-05 插件启用前安全检查（enable-precheck）：基于已安装插件二次复检文件/manifest/依赖/配置/迁移/冲突，产出 `can_enable` 结论并持久化记录；本轮只检查不真正启用或注册运行时。
+- 已完成：v1.8.3-S21 声明型插件开发者指南与官方模板固化。新增 `docs/PLUGIN_DEVELOPER_GUIDE.md`，并把 `official_links` 与 `official_webhook_notify` 两个场景分别沉淀为纯声明型内容插件模板和 external_service Webhook 模板，作为插件开发者的稳定起点。
 - 部分完成：操作快照和恢复以 dry-run / cleanup / 人工恢复建议为主，不提供全量业务数据自动回滚；配置历史默认不做批量 re-encrypt；插件包导出当前是目录包导出，不提供 zip 下载与正式签名打包。
 - 仍未完成 / 后置：远程包解压预校验、远程安装、在线更新、自动安装依赖、远程可信源同步、完整 PKI / CA、动态加载、脚本沙箱、第三方代码执行、外部 raw SQL 自动执行、hard uninstall、migration down、完整远程插件市场交易 / 评分 / 评论系统。
 

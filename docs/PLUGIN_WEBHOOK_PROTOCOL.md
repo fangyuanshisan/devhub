@@ -14,6 +14,8 @@
 - v1.7.7 已实现“插件服务回调 Core API”的最小通道：callback token（Bearer）+ scope 白名单 + community scope 校验 + callback request 记录与审计（不等于完整插件 SDK/运行时）。
 - v1.7.8 已补齐 Webhook 后台治理的 Events 视图（Admin API + UI Tab），并提供仓库内官方 mock receiver（`cmd/webhook-mock-receiver`）用于端到端验签/失败注入/重试熔断验证（不执行第三方代码）。
 - v1.8.3-S11 已实现 external_service 运行时预备：管理员可配置插件外部服务 endpoint / timeout / failure_policy / auth_type / token_ref，DevHub 可执行受控 health check，并将结果写入 `hook_executions(service_type=external_service)` 与插件健康摘要。该能力只做 HTTP 探活和治理记录，不执行第三方代码、不开放动态加载、不实现 blocking Hook。
+- v1.8.3-S19 已新增官方样板包 `examples/plugins/official_webhook_notify`，用于验证 external_service non-blocking Webhook 的 upload -> precheck -> promote -> install dry-run -> install、后台配置、健康检查、投递记录和手动重试闭环；它只是官方示例插件包，不是第三方运行时。
+- 配套的可复制模板位于 `examples/plugins/templates/external-service-webhook/`；模板只承载声明、配置示例、`receiver.example.md` 和 `migrations/` 说明，不会在 DevHub 内运行任何第三方代码。
 
 重要边界：
 
@@ -50,6 +52,7 @@ Webhook / HTTP 插件服务是 DevHub 第三方插件运行模型的推荐方向
 当前实现不是完整远程 Hook 投递，只提供外部服务配置、受控健康检查和执行记录：
 
 - 配置：`plugin_external_services` 保存 `plugin_code`、`service_type=external_service`、`endpoint_url`、`health_check_path`、`timeout_ms`、`failure_policy`、`auth_type`、`token_ref`、加密 token、健康状态、最近检查时间和失败计数。
+- 后台入口：插件详情抽屉“运行记录 / 外部服务配置”可保存 endpoint、token、health_check_path、timeout_ms、failure_policy 和 enabled 状态；Webhook 治理页“外部服务执行”用于查看 `hook_executions(service_type=external_service)`、失败原因和手动重试。
 - endpoint 校验：只允许 HTTPS；本地开发允许 `http://localhost` / `http://127.0.0.1` / `http://[::1]`；拒绝 `javascript:`、`data:`、`file:`、`ftp:`。
 - health check：`GET {endpoint_url}{health_check_path}`，默认 `/health`，必须有 timeout；2xx 为 healthy，3xx 记为 warning，4xx/5xx/timeout/DNS/TLS/连接错误记为 failure。
 - 执行记录：每次 health check 写入 `hook_executions`，`service_type=external_service`、`hook_name=external_service.health_check`，保存响应状态、响应摘要、错误码、耗时和健康状态前后变化。
