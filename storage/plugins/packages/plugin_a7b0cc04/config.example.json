@@ -1,0 +1,7 @@
+{
+  "enabled": false,
+  "endpoint_url": "https://example.com",
+  "failure_policy": "warn",
+  "health_check_path": "/health",
+  "timeout_ms": 3000
+}

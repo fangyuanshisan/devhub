@@ -1,0 +1,65 @@
+services:
+  devhub:
+    image: golang:1.22-bookworm
+    working_dir: /workspace
+    command:
+      - bash
+      - -c
+      - >
+        /usr/local/go/bin/go build -buildvcs=false -o /tmp/devhub . &&
+        PORT=8090 CMS_STORE=memory exec /tmp/devhub
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - >
+          bash -ec 'exec 3<>/dev/tcp/127.0.0.1/8090;
+          printf "GET /api/v1/health HTTP/1.1\r\nHost: 127.0.0.1\r\nConnection: close\r\n\r\n" >&3;
+          grep -q "200 OK" <&3'
+      interval: 2s
+      timeout: 2s
+      retries: 60
+      start_period: 10s
+    volumes:
+      - .:/workspace
+      - go_mod_cache:/go/pkg/mod
+      - go_build_cache:/root/.cache/go-build
+
+  admin-e2e:
+    build:
+      context: ./web/admin-app
+      dockerfile: Dockerfile.e2e
+    user: "${DEVHUB_DOCKER_UID:-1000}:${DEVHUB_DOCKER_GID:-1000}"
+    working_dir: /workspace/web/admin-app
+    depends_on:
+      devhub:
+        condition: service_healthy
+    environment:
+      DEVHUB_E2E_ORIGIN: ${DEVHUB_E2E_ORIGIN:-http://devhub:8090}
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    volumes:
+      - .:/workspace
+      - admin_e2e_node_modules:/workspace/web/admin-app/node_modules
+
+  frontend-e2e:
+    build:
+      context: ./web/frontend-app
+      dockerfile: Dockerfile.e2e
+    user: "${DEVHUB_DOCKER_UID:-1000}:${DEVHUB_DOCKER_GID:-1000}"
+    working_dir: /workspace/web/frontend-app
+    depends_on:
+      devhub:
+        condition: service_healthy
+    environment:
+      DEVHUB_E2E_ORIGIN: ${DEVHUB_E2E_ORIGIN:-http://devhub:8090}
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    volumes:
+      - .:/workspace
+      - frontend_e2e_node_modules:/workspace/web/frontend-app/node_modules
+
+volumes:
+  admin_e2e_node_modules:
+  frontend_e2e_node_modules:
+  go_mod_cache:
+  go_build_cache:

@@ -1,0 +1,29 @@
+{
+  "algorithm": "sha256",
+  "files": [
+    {
+      "path": "PACKAGING.md",
+      "sha256": "949c8a8f35a982b7b76cb4ad13475f549f4c0e646afa1bcd7269331e224d1cb3"
+    },
+    {
+      "path": "README.md",
+      "sha256": "464e400964c7412ca71e11a7c64565dd5bc4721aea37bc545a3b519bf4e04476"
+    },
+    {
+      "path": "config.example.json",
+      "sha256": "1541fb55f910a444aabdcae1c915d1d079e476e5c13446f17ada68101b9a2ea7"
+    },
+    {
+      "path": "manifest.json",
+      "sha256": "6bd889f7ac56f59b8d704c29b6a379cf1b61a9e8656ce7f836c736f8c5c355ff"
+    },
+    {
+      "path": "migrations/000_noop.json",
+      "sha256": "03884a903523ad10a48eee85ab0a61d7569df73e8fc741b9245ecbe98089a7b6"
+    },
+    {
+      "path": "receiver.example.md",
+      "sha256": "c9e2a3a02ebad20e323f4023137e0ffb4761f2ee78d930b91fe57db1ee180c6b"
+    }
+  ]
+}

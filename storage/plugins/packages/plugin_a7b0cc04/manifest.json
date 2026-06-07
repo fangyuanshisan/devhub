@@ -1,0 +1,237 @@
+{
+  "code": "plugin_a7b0cc04",
+  "name": "飞书链接插件",
+  "version": "1.4.1",
+  "description": "声明型飞书链接内容插件：复用 Core topics/categories 存储飞书链接内容，并在创建后通过 external_service 投递 webhook。",
+  "author": "DevHub Official (Example)",
+  "compatible_core_version": ">=1.4.0",
+  "min_core_version": "1.4.0",
+  "is_system": false,
+  "content_types": [
+    "feishu_link"
+  ],
+  "content_type_definitions": [
+    {
+      "type": "feishu_link",
+      "name": "飞书链接",
+      "plugin_code": "plugin_a7b0cc04",
+      "create_permission": "plugin_a7b0cc04.link.create",
+      "edit_permission": "plugin_a7b0cc04.link.edit",
+      "delete_permission": "plugin_a7b0cc04.link.delete",
+      "audit_permission": "plugin_a7b0cc04.link.audit",
+      "default_status": "publish",
+      "allow_comment": false,
+      "allow_like": true,
+      "allow_favorite": true,
+      "seo_type": "Article"
+    }
+  ],
+  "permissions": [
+    {
+      "plugin_code": "plugin_a7b0cc04",
+      "code": "plugin_a7b0cc04.manage",
+      "name": "管理飞书链接插件",
+      "description": "允许管理飞书链接插件生命周期、运行配置和治理入口。",
+      "scope": "global"
+    },
+    {
+      "plugin_code": "plugin_a7b0cc04",
+      "code": "plugin_a7b0cc04.configure",
+      "name": "配置飞书链接插件",
+      "description": "允许配置飞书链接插件 external_service。",
+      "scope": "global"
+    },
+    {
+      "plugin_code": "plugin_a7b0cc04",
+      "code": "plugin_a7b0cc04.menu.view",
+      "name": "访问飞书链接插件菜单",
+      "description": "允许访问飞书链接插件后台和前台入口。",
+      "scope": "community"
+    },
+    {
+      "plugin_code": "plugin_a7b0cc04",
+      "code": "plugin_a7b0cc04.link.create",
+      "name": "创建飞书链接",
+      "description": "允许在已启用子站发布飞书链接内容。",
+      "scope": "community"
+    },
+    {
+      "plugin_code": "plugin_a7b0cc04",
+      "code": "plugin_a7b0cc04.link.edit",
+      "name": "编辑飞书链接",
+      "description": "允许编辑飞书链接内容。",
+      "scope": "community"
+    },
+    {
+      "plugin_code": "plugin_a7b0cc04",
+      "code": "plugin_a7b0cc04.link.delete",
+      "name": "删除飞书链接",
+      "description": "允许删除或下线飞书链接内容。",
+      "scope": "community"
+    },
+    {
+      "plugin_code": "plugin_a7b0cc04",
+      "code": "plugin_a7b0cc04.link.audit",
+      "name": "审核飞书链接",
+      "description": "允许审核、隐藏、恢复、置顶和加精飞书链接内容。",
+      "scope": "community"
+    }
+  ],
+  "menus": [
+    {
+      "plugin_code": "plugin_a7b0cc04",
+      "code": "plugin_a7b0cc04.admin.links",
+      "title": "飞书链接管理",
+      "path": "/admin-next/feishu-links",
+      "location": "admin",
+      "area": "admin",
+      "permission": "plugin_a7b0cc04.link.audit",
+      "content_type": "feishu_link",
+      "visible_when": [
+        "plugin_enabled",
+        "community_enabled",
+        "config_valid"
+      ],
+      "sort_order": 320
+    },
+    {
+      "plugin_code": "plugin_a7b0cc04",
+      "code": "plugin_a7b0cc04.external_service",
+      "title": "飞书 Webhook 配置",
+      "path": "/admin-next/plugins/plugin_a7b0cc04/external-service",
+      "location": "admin",
+      "area": "admin",
+      "permission": "plugin_a7b0cc04.configure",
+      "sort_order": 321
+    },
+    {
+      "plugin_code": "plugin_a7b0cc04",
+      "code": "plugin_a7b0cc04.frontend.links",
+      "title": "飞书链接",
+      "path": "/search/?content_type=feishu_link",
+      "route": "/search/?content_type=feishu_link",
+      "location": "frontend",
+      "area": "frontend",
+      "content_type": "feishu_link",
+      "require_community_enabled": true,
+      "require_category_binding": true,
+      "visible_when": [
+        "plugin_enabled",
+        "community_enabled",
+        "config_valid"
+      ],
+      "sort_order": 320
+    }
+  ],
+  "routes": [
+    {
+      "plugin_code": "plugin_a7b0cc04",
+      "area": "admin",
+      "method": "GET",
+      "path": "/admin-next/feishu-links",
+      "handler": "reserved:plugin_content.feishu_links",
+      "auth": "admin",
+      "permission": "plugin_a7b0cc04.link.audit"
+    }
+  ],
+  "config_schema": {
+    "type": "object",
+    "additionalProperties": false,
+    "required": [
+      "enabled",
+      "endpoint_url"
+    ],
+    "properties": {
+      "enabled": {
+        "default": false,
+        "title": "启用外部服务",
+        "type": "boolean"
+      },
+      "endpoint_url": {
+        "default": "http://172.17.0.1:18081",
+        "format": "uri",
+        "title": "服务地址",
+        "type": "string"
+      },
+      "failure_policy": {
+        "default": "warn",
+        "enum": [
+          "warn",
+          "ignore",
+          "error",
+          "disable_hook"
+        ],
+        "title": "失败策略",
+        "type": "string"
+      },
+      "health_check_path": {
+        "default": "/health",
+        "pattern": "^/(?:[^/\\s][^\\s]*)?$",
+        "title": "健康检查路径",
+        "type": "string"
+      },
+      "timeout_ms": {
+        "default": 3000,
+        "maximum": 10000,
+        "minimum": 100,
+        "title": "超时时间",
+        "type": "integer"
+      }
+    }
+  },
+  "default_config": {
+    "enabled": false,
+    "endpoint_url": "http://172.17.0.1:18081",
+    "failure_policy": "warn",
+    "health_check_path": "/health",
+    "timeout_ms": 3000
+  },
+  "hooks": [
+    {
+      "plugin_code": "plugin_a7b0cc04",
+      "name": "AfterCreateContent",
+      "description": "飞书链接创建后投递到外部服务。",
+      "mode": "non_blocking",
+      "service_type": "external_service",
+      "path": "/hooks/content.after_create",
+      "method": "POST",
+      "retry_enabled": true,
+      "max_attempts": 3,
+      "enabled": true,
+      "blocking": false,
+      "critical": false,
+      "failure_policy": "warn",
+      "timeout_ms": 3000
+    }
+  ],
+  "external_service": {
+    "endpoint": "http://172.17.0.1:18081",
+    "health_check_path": "/health",
+    "subscribed_hooks": [
+      "AfterCreateContent"
+    ],
+    "timeout_ms": 3000,
+    "failure_policy": "warn",
+    "retry_policy": "linear",
+    "signature_algorithm": "hmac-sha256"
+  },
+  "migrations": [
+    {
+      "plugin_code": "plugin_a7b0cc04",
+      "migration_version": "1.4.1",
+      "migration_name": "plugin_a7b0cc04_core_content_type",
+      "direction": "up",
+      "checksum": "sha256:no-sql-core-content-type",
+      "tables": [
+        "topics",
+        "categories",
+        "plugin_configs",
+        "plugin_external_services",
+        "hook_executions",
+        "admin_logs"
+      ],
+      "rollback_supported": false,
+      "description": "plugin_a7b0cc04 使用 Core topics 存储 feishu_link content_type；不创建插件私有业务表。"
+    }
+  ]
+}

@@ -1,0 +1,325 @@
+---
+import type { Site } from '../lib/types';
+import { communityNavItems, defaultSiteKey } from '../lib/site-config';
+
+type Props = {
+  sites: Site[];
+  activeSite?: string;
+};
+
+const { sites, activeSite = defaultSiteKey } = Astro.props;
+const active = sites.find((site) => site.key === activeSite) || sites.find((site) => site.key === defaultSiteKey) || sites[0];
+const scopedSite = activeSite || defaultSiteKey;
+const searchScope = scopedSite === 'portal' ? 'scope=all' : `scope=community&community_slug=${encodeURIComponent(scopedSite)}`;
+const navHref = (contentType: string) => `/search/?${searchScope}&content_type=${contentType}`;
+const publishHref = scopedSite === defaultSiteKey ? '/topics/new/' : `/c/${scopedSite}/topics/new/`;
+const publishFeishuHref = scopedSite === defaultSiteKey ? '/topics/new/?type=feishu_link' : `/c/${scopedSite}/topics/new/?type=feishu_link`;
+---
+<header class="site-header" data-testid="frontend-site-header">
+  <div class="top-accent"></div>
+  <div class="header-inner">
+    <div class="brand-menu" data-site-switcher>
+      <a class="brand" href="/">
+        <span>DH</span>
+        <strong>{active?.name || 'DevHub'}</strong>
+      </a>
+      <button class="nav-caret" type="button" aria-label="切换站点" aria-expanded="false" data-site-switcher-button>⌄</button>
+      <div class="site-dropdown">
+        <a class={activeSite === defaultSiteKey ? 'active' : ''} href="/">总站</a>
+        {sites.filter((site) => site.key !== defaultSiteKey).map((site) => (
+          <a class={activeSite === site.key ? 'active' : ''} href={`/c/${site.key}/`}>
+            <span style={`--site-color:${site.color}`}>{site.logo || site.name.slice(0, 2)}</span>
+            {site.name}
+          </a>
+        ))}
+      </div>
+    </div>
+
+    <nav class="site-nav" aria-label="主导航" data-testid="frontend-site-nav">
+      {communityNavItems.map((item) => <a href={navHref(item.contentType)} data-plugin-nav={item.contentType}>{item.label}</a>)}
+    </nav>
+
+    <form class="header-search" action="/search/" method="get" role="search" data-header-search>
+      <select name="community_slug" aria-label="搜索范围">
+        <option value="" selected={scopedSite === defaultSiteKey}>全站</option>
+        {scopedSite !== defaultSiteKey && <option value={scopedSite} selected>当前子站</option>}
+        {sites.filter((site) => site.key !== defaultSiteKey && site.key !== scopedSite).map((site) => (
+          <option value={site.key}>{site.name}</option>
+        ))}
+      </select>
+      <input type="hidden" name="scope" value={scopedSite === defaultSiteKey ? 'all' : 'community'} data-header-search-scope />
+      <input type="search" name="keyword" placeholder={scopedSite === defaultSiteKey ? '搜索全站内容' : `搜索 ${active?.name || scopedSite} 内容`} />
+      <button type="submit" aria-label="搜索">⌕</button>
+    </form>
+
+    <div class="header-actions">
+      <a class="publish-link" href={publishHref} data-testid="frontend-publish-link">发布内容</a>
+      <a class="publish-link" href={publishFeishuHref} data-publish-feishu-link data-plugin-gated-type="feishu_link" data-testid="frontend-publish-feishu-link">发布飞书</a>
+      <a class="notice-link" href="/notifications" aria-label="通知" data-notice-count>0</a>
+      <div class="auth-links" data-guest-only>
+        <a href="/#login" data-testid="frontend-login-link">登录</a>
+        <a class="register-link" href="/#register">注册</a>
+      </div>
+      <div class="user-menu is-hidden" data-auth-only data-testid="frontend-user-menu">
+        <button type="button" aria-label="用户菜单">
+          <span class="avatar" data-user-avatar>U</span>
+          <strong data-user-name>用户</strong>
+          <span>⌄</span>
+        </button>
+        <div class="user-dropdown">
+          <a href="/me/activities">我的动态</a>
+          <a href="/me/favorites">我的收藏</a>
+          <a href="/me/follows">我的关注</a>
+          <a href="/notifications">通知中心</a>
+          <a class="is-hidden" href="/moderator" data-moderator-entry>版主工作台</a>
+          <a href="/search/?sort=featured">精华内容</a>
+          <button type="button" data-logout>退出登录</button>
+        </div>
+      </div>
+      <button class="theme-toggle" type="button" aria-label="切换夜间模式" data-theme-toggle>☾</button>
+    </div>
+  </div>
+  <script is:inline>
+    (() => {
+      const key = 'devhub-theme';
+      const root = document.documentElement;
+      const button = document.querySelector('[data-theme-toggle]');
+      const switcher = document.querySelector('[data-site-switcher]');
+      const switcherButton = document.querySelector('[data-site-switcher-button]');
+      const headerSearch = document.querySelector('[data-header-search]');
+      const headerSearchCommunity = headerSearch?.querySelector('select[name="community_slug"]');
+      const headerSearchScope = headerSearch?.querySelector('[data-header-search-scope]');
+      const pluginNavItems = [...document.querySelectorAll('[data-plugin-nav]')];
+      const pluginGatedItems = [...document.querySelectorAll('[data-plugin-gated-type]')];
+      const allPluginGatedItems = [...pluginNavItems, ...pluginGatedItems];
+      const publishFeishuLink = document.querySelector('[data-publish-feishu-link]');
+      const apply = (theme) => {
+        root.dataset.theme = theme;
+        if (button) button.textContent = theme === 'dark' ? '☀' : '☾';
+      };
+      const saved = localStorage.getItem(key);
+      const preferred = window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
+      apply(saved || preferred);
+      button?.addEventListener('click', () => {
+        const next = root.dataset.theme === 'dark' ? 'light' : 'dark';
+        localStorage.setItem(key, next);
+        apply(next);
+      });
+      switcherButton?.addEventListener('click', (event) => {
+        event.stopPropagation();
+        const nextOpen = !switcher?.classList.contains('is-open');
+        switcher?.classList.toggle('is-open', nextOpen);
+        switcherButton.setAttribute('aria-expanded', String(nextOpen));
+      });
+      document.addEventListener('click', (event) => {
+        if (switcher && !switcher.contains(event.target)) {
+          switcher.classList.remove('is-open');
+          switcherButton?.setAttribute('aria-expanded', 'false');
+        }
+      });
+      const syncHeaderSearchScope = () => {
+        if (!headerSearchScope || !headerSearchCommunity) return;
+        headerSearchScope.value = headerSearchCommunity.value ? 'community' : 'all';
+      };
+      headerSearchCommunity?.addEventListener('change', syncHeaderSearchScope);
+      headerSearch?.addEventListener('submit', syncHeaderSearchScope);
+
+      const normalizeType = (value) => value === 'doc' ? 'document' : value === 'wiki' ? 'wiki_page' : value;
+      const pluginCodeForType = (type) => {
+        switch (normalizeType(type)) {
+          case 'question':
+            return 'qa';
+          case 'document':
+            return 'docs';
+          case 'wiki_page':
+            return 'wiki';
+          case 'project':
+            return 'projects';
+          case 'job':
+            return 'jobs';
+          case 'ai_work':
+            return 'ai_works';
+          case 'friend_link':
+            return 'official_links';
+          case 'feishu_link':
+            return 'plugin_a7b0cc04';
+          default:
+            return 'core';
+        }
+      };
+      const refreshPluginNav = () => {
+        const community = (headerSearchCommunity?.value || '').trim();
+        if (!community) {
+          allPluginGatedItems.forEach((item) => item.classList.remove('is-hidden'));
+          return;
+        }
+        fetch(`/api/v1/communities/${encodeURIComponent(community)}/navigation`)
+          .then((response) => response.ok ? response.json() : Promise.reject())
+          .then((data) => {
+            const nav = Array.isArray(data.items) ? data.items : [];
+            const visiblePluginCodes = new Set(nav.filter((n) => n.visible !== false).map((n) => String(n.plugin_code || '').trim()).filter(Boolean));
+            allPluginGatedItems.forEach((item) => {
+              const plugin = pluginCodeForType(item.dataset.pluginNav || item.dataset.pluginGatedType || '');
+              item.classList.toggle('is-hidden', plugin !== 'core' && !visiblePluginCodes.has(plugin));
+            });
+          })
+          .catch(() => {
+            // Fall back to old behavior: only hide when community plugins API is available.
+            fetch(`/api/v1/communities/${encodeURIComponent(community)}/plugins`)
+              .then((response) => response.ok ? response.json() : Promise.reject())
+              .then((data) => {
+                const enabled = new Set((data.items || []).map((item) => item.code));
+                allPluginGatedItems.forEach((item) => {
+                  const plugin = pluginCodeForType(item.dataset.pluginNav || item.dataset.pluginGatedType || '');
+                  item.classList.toggle('is-hidden', plugin !== 'core' && !enabled.has(plugin));
+                });
+              })
+              .catch(() => {
+                allPluginGatedItems.forEach((item) => item.classList.remove('is-hidden'));
+              });
+          });
+      };
+      publishFeishuLink?.addEventListener('click', (event) => {
+        const href = publishFeishuLink.getAttribute('href');
+        if (!href) return;
+        if (event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
+        event.preventDefault();
+        window.location.assign(href);
+      });
+      headerSearchCommunity?.addEventListener('change', refreshPluginNav);
+      refreshPluginNav();
+    })();
+
+    (() => {
+      const accessKey = 'devhub_user_token';
+      const refreshKey = 'devhub_user_refresh_token';
+      const legacyAccessKey = 'devhub_access_token';
+      const legacyRefreshKey = 'devhub_refresh_token';
+      const userKey = 'devhub_user';
+      const readToken = (key, legacyKey) => {
+        const value = localStorage.getItem(key) || localStorage.getItem(legacyKey) || '';
+        if (value && !localStorage.getItem(key)) localStorage.setItem(key, value);
+        return value;
+      };
+      const token = () => readToken(accessKey, legacyAccessKey);
+      const refreshToken = () => readToken(refreshKey, legacyRefreshKey);
+      const authOnly = document.querySelectorAll('[data-auth-only]');
+      const guestOnly = document.querySelectorAll('[data-guest-only]');
+      const userName = document.querySelector('[data-user-name]');
+      const userAvatar = document.querySelector('[data-user-avatar]');
+      const logout = document.querySelector('[data-logout]');
+      const noticeCount = document.querySelector('[data-notice-count]');
+      const moderatorEntry = document.querySelector('[data-moderator-entry]');
+      const getStoredUser = () => {
+        try {
+          return JSON.parse(localStorage.getItem(userKey) || 'null');
+        } catch {
+          return null;
+        }
+      };
+      const saveSession = (session) => {
+        const access = session?.access_token || session?.token || '';
+        if (access) localStorage.setItem(accessKey, access);
+        if (session?.refresh_token) localStorage.setItem(refreshKey, session.refresh_token);
+        localStorage.removeItem(legacyAccessKey);
+        localStorage.removeItem(legacyRefreshKey);
+        if (session?.user) localStorage.setItem(userKey, JSON.stringify(session.user));
+        return session?.user || getStoredUser();
+      };
+      const clearSession = () => {
+        localStorage.removeItem(accessKey);
+        localStorage.removeItem(refreshKey);
+        localStorage.removeItem(legacyAccessKey);
+        localStorage.removeItem(legacyRefreshKey);
+        localStorage.removeItem(userKey);
+        setGuest();
+        window.dispatchEvent(new CustomEvent('devhub:session-change', { detail: { user: null, token: '' } }));
+      };
+      const setAuthed = (user) => {
+        const name = user?.nickname || user?.username || user?.name || '用户';
+        authOnly.forEach((item) => item.classList.remove('is-hidden'));
+        guestOnly.forEach((item) => item.classList.add('is-hidden'));
+        if (userName) userName.textContent = name;
+        if (userAvatar) userAvatar.textContent = name.slice(0, 1).toUpperCase();
+        moderatorEntry?.classList.toggle('is-hidden', !Boolean(user?.is_moderator));
+        localStorage.setItem(userKey, JSON.stringify(user));
+      };
+      const setGuest = () => {
+        authOnly.forEach((item) => item.classList.add('is-hidden'));
+        guestOnly.forEach((item) => item.classList.remove('is-hidden'));
+        moderatorEntry?.classList.add('is-hidden');
+      };
+      const syncNoticeCount = () => {
+        fetch('/api/v1/me/notifications?page_size=1', { headers: token() ? { Authorization: `Bearer ${token()}` } : {} })
+          .then((response) => response.ok ? response.json() : Promise.reject())
+          .then((data) => {
+            const count = Number(data.unread_count || 0);
+            if (!noticeCount) return;
+            noticeCount.textContent = String(count);
+            noticeCount.classList.toggle('is-muted', count <= 0);
+            noticeCount.setAttribute('aria-label', count > 0 ? `${count} 条未读通知` : '通知');
+          })
+          .catch(() => {
+            if (noticeCount) noticeCount.classList.add('is-muted');
+          });
+      };
+      const fetchMe = () => fetch('/api/v1/auth/me', { headers: { Authorization: `Bearer ${token()}` } })
+        .then((response) => response.ok ? response.json() : Promise.reject())
+        .then((user) => {
+          setAuthed(user);
+          syncNoticeCount();
+          window.dispatchEvent(new CustomEvent('devhub:session-change', { detail: { user, token: token() } }));
+          return user;
+        });
+      const refresh = () => {
+        if (!refreshToken()) return Promise.reject();
+        return fetch('/api/v1/auth/refresh', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ refresh_token: refreshToken() }),
+        }).then((response) => response.ok ? response.json() : Promise.reject())
+          .then((session) => {
+            const user = saveSession(session);
+            if (user) setAuthed(user);
+            return session;
+          });
+      };
+      const restore = () => {
+        const cachedUser = getStoredUser();
+        if (cachedUser && token()) setAuthed(cachedUser);
+        if (!token() && !refreshToken()) {
+          setGuest();
+          return;
+        }
+        fetchMe().catch(() => refresh().then(fetchMe).catch(clearSession));
+      };
+      if (!token() && !refreshToken()) {
+        setGuest();
+      }
+      restore();
+      syncNoticeCount();
+      window.addEventListener('devhub:session-change', (event) => {
+        const user = event.detail?.user || getStoredUser();
+        if (event.detail?.token || token()) {
+          if (user) {
+            setAuthed(user);
+            if (user.is_moderator === undefined) fetchMe().catch(() => {});
+          } else {
+            restore();
+          }
+          syncNoticeCount();
+        } else {
+          setGuest();
+          syncNoticeCount();
+        }
+      });
+      logout?.addEventListener('click', () => {
+        fetch('/api/v1/auth/logout', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ refresh_token: refreshToken() }),
+        }).finally(clearSession);
+      });
+    })();
+  </script>
+</header>

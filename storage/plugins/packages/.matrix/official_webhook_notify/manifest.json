@@ -1,0 +1,80 @@
+{
+  "code": "official_webhook_notify",
+  "name": "Official Webhook Notify",
+  "version": "1.0.1",
+  "description": "DevHub 官方 external_service Webhook 示例插件，只声明 non-blocking HTTP 投递，不包含运行时代码。",
+  "author": "DevHub Team",
+  "compatible_core_version": ">=1.8.3",
+  "min_core_version": "1.8.3",
+  "is_system": false,
+  "content_types": [],
+  "permissions": [
+    {
+      "plugin_code": "official_webhook_notify",
+      "code": "official_webhook_notify.manage",
+      "name": "管理官方 Webhook 示例插件",
+      "description": "允许在后台配置 external_service endpoint、健康检查和投递记录排障。",
+      "scope": "global"
+    }
+  ],
+  "menus": [
+    {
+      "plugin_code": "official_webhook_notify",
+      "code": "official_webhook_notify.admin.webhooks",
+      "title": "Webhook 示例治理",
+      "path": "/admin-next/plugins/webhooks?plugin_code=official_webhook_notify",
+      "location": "admin",
+      "area": "admin",
+      "permission": "official_webhook_notify.manage",
+      "sort_order": 370
+    }
+  ],
+  "config_schema": {
+    "type": "object",
+    "additionalProperties": false,
+    "properties": {
+      "enabled": {
+        "type": "boolean",
+        "title": "启用示例",
+        "default": true
+      },
+      "receiver_note": {
+        "type": "string",
+        "title": "接收端备注",
+        "default": "local mock receiver"
+      }
+    }
+  },
+  "default_config": {
+    "enabled": true,
+    "receiver_note": "local mock receiver"
+  },
+  "hooks": [
+    {
+      "plugin_code": "official_webhook_notify",
+      "name": "AfterCreateContent",
+      "description": "内容创建后异步投递到外部服务。DevHub 不执行插件包代码，只发送声明的 HTTP 请求。",
+      "mode": "non_blocking",
+      "service_type": "external_service",
+      "path": "/hooks/content.after_create",
+      "method": "POST",
+      "timeout_ms": 3000,
+      "retry_enabled": true,
+      "max_attempts": 3,
+      "failure_policy": "warn",
+      "enabled": true,
+      "blocking": false,
+      "critical": false
+    }
+  ],
+  "external_service": {
+    "endpoint": "https://example.com",
+    "subscribed_hooks": [
+      "AfterCreateContent"
+    ],
+    "timeout_ms": 3000,
+    "failure_policy": "warn",
+    "retry_policy": "linear"
+  },
+  "migrations": []
+}

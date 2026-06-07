@@ -1,0 +1,17 @@
+---
+import SiteHeader from '../../components/SiteHeader.astro';
+import ModeratorWorkbench from '../../components/ModeratorWorkbench.astro';
+import SeoLayout from '../../layouts/SeoLayout.astro';
+import { devhubSites as sites } from '../../lib/sites';
+---
+<SeoLayout title="举报处理 - 版主工作台 - DevHub" description="DevHub 子站版主处理自己负责子站的举报。" canonical="/moderator/reports/">
+  <SiteHeader sites={sites} activeSite="portal" />
+  <main>
+    <section class="page-title">
+      <span>Moderator Workspace</span>
+      <h1>举报处理</h1>
+      <p>只显示当前版主负责子站的举报。</p>
+    </section>
+    <ModeratorWorkbench />
+  </main>
+</SeoLayout>

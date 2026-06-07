@@ -1,0 +1,21 @@
+{
+  "algorithm": "sha256",
+  "files": [
+    {
+      "path": "manifest.json",
+      "sha256": "bb7eaedd232fe7cc37b425a374d3e84620a5d69adcb6b44a175420a3cf55c441"
+    },
+    {
+      "path": "README.md",
+      "sha256": "34bef91629ff002243d73b56dcc4d493271b533ecd3e3e8d786b6e87080a9730"
+    },
+    {
+      "path": "config.example.json",
+      "sha256": "ac4b4b2377ad99d346e1f89068ceafb06e234bfb965d4e7103824481eab4c441"
+    },
+    {
+      "path": "migrations/README.md",
+      "sha256": "16017084faf47883bd9bd02e179805ef71035442556c231e0d0e6b0997412992"
+    }
+  ]
+}

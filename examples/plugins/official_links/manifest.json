@@ -1,0 +1,187 @@
+{
+  "code": "official_links",
+  "name": "官方友情链接",
+  "version": "1.0.0",
+  "description": "DevHub 官方友情链接插件，基于声明型 content_type 提供友情链接管理、配置、权限、菜单和子站启用能力，不包含运行时代码。",
+  "author": "DevHub Team",
+  "compatible_core_version": ">=1.8.4",
+  "min_core_version": "1.8.4",
+  "is_system": false,
+  "content_types": [
+    "friend_link"
+  ],
+  "content_type_definitions": [
+    {
+      "type": "friend_link",
+      "name": "友情链接",
+      "plugin_code": "official_links",
+      "create_permission": "official_links.link.create",
+      "edit_permission": "official_links.link.manage",
+      "delete_permission": "official_links.link.manage",
+      "audit_permission": "official_links.link.manage",
+      "default_status": "publish",
+      "allow_comment": false,
+      "allow_like": false,
+      "allow_favorite": false,
+      "seo_type": "Article"
+    }
+  ],
+  "permissions": [
+    {
+      "plugin_code": "official_links",
+      "code": "official_links.menu.view",
+      "name": "查看友情链接菜单",
+      "description": "允许看到官方友情链接后台和前台入口。",
+      "scope": "community"
+    },
+    {
+      "plugin_code": "official_links",
+      "code": "official_links.link.create",
+      "name": "新增友情链接",
+      "description": "允许在已启用子站创建友情链接内容。",
+      "scope": "community"
+    },
+    {
+      "plugin_code": "official_links",
+      "code": "official_links.link.manage",
+      "name": "管理友情链接",
+      "description": "允许编辑、禁用、恢复、排序或删除友情链接内容。",
+      "scope": "community"
+    },
+    {
+      "plugin_code": "official_links",
+      "code": "official_links.config.manage",
+      "name": "配置友情链接插件",
+      "description": "允许读取和保存官方友情链接配置。",
+      "scope": "global"
+    }
+  ],
+  "menus": [
+    {
+      "plugin_code": "official_links",
+      "code": "official_links.admin.links",
+      "title": "友情链接管理",
+      "path": "/admin-next/official-links",
+      "location": "admin",
+      "area": "admin",
+      "permission": "official_links.link.manage",
+      "content_type": "friend_link",
+      "visible_when": [
+        "plugin_enabled",
+        "community_enabled",
+        "config_valid"
+      ],
+      "sort_order": 365
+    },
+    {
+      "plugin_code": "official_links",
+      "code": "official_links.frontend.links",
+      "title": "友情链接",
+      "path": "/search/?content_type=friend_link",
+      "route": "/search/?content_type=friend_link",
+      "location": "frontend",
+      "area": "frontend",
+      "content_type": "friend_link",
+      "require_community_enabled": true,
+      "require_category_binding": true,
+      "visible_when": [
+        "plugin_enabled",
+        "community_enabled",
+        "config_valid"
+      ],
+      "sort_order": 365
+    }
+  ],
+  "routes": [
+    {
+      "plugin_code": "official_links",
+      "area": "admin",
+      "method": "GET",
+      "path": "/admin-next/official-links",
+      "handler": "reserved:official_links.admin.links",
+      "auth": "admin",
+      "permission": "official_links.link.manage"
+    }
+  ],
+  "config_schema": {
+    "type": "object",
+    "additionalProperties": false,
+    "required": [
+      "enabled",
+      "title",
+      "display_position",
+      "max_links",
+      "show_logo",
+      "open_in_new_tab"
+    ],
+    "properties": {
+      "enabled": {
+        "type": "boolean",
+        "title": "启用友情链接展示",
+        "default": true
+      },
+      "title": {
+        "type": "string",
+        "title": "展示标题",
+        "default": "友情链接",
+        "minLength": 2,
+        "maxLength": 30
+      },
+      "display_position": {
+        "type": "string",
+        "title": "展示位置",
+        "enum": [
+          "sidebar",
+          "footer"
+        ],
+        "enumNames": [
+          "侧边栏",
+          "页脚"
+        ],
+        "default": "sidebar"
+      },
+      "max_links": {
+        "type": "integer",
+        "title": "最大展示数量",
+        "default": 10,
+        "minimum": 1,
+        "maximum": 100
+      },
+      "show_logo": {
+        "type": "boolean",
+        "title": "显示 Logo",
+        "default": false
+      },
+      "open_in_new_tab": {
+        "type": "boolean",
+        "title": "新窗口打开",
+        "default": true
+      }
+    }
+  },
+  "default_config": {
+    "enabled": true,
+    "title": "友情链接",
+    "display_position": "sidebar",
+    "max_links": 10,
+    "show_logo": false,
+    "open_in_new_tab": true
+  },
+  "migrations": [
+    {
+      "plugin_code": "official_links",
+      "migration_version": "1.0.0",
+      "migration_name": "official_links_core_content_type",
+      "direction": "up",
+      "checksum": "sha256:no-sql-core-content-type",
+      "tables": [
+        "topics",
+        "categories",
+        "plugin_configs",
+        "admin_logs"
+      ],
+      "rollback_supported": false,
+      "description": "official_links 使用 Core topics 存储 friend_link content_type；包内 migrations/001_init.sql 是 no-op 计划文件，不创建私有表。"
+    }
+  ]
+}

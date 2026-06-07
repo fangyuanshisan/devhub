@@ -1,0 +1,335 @@
+---
+import SiteHeader from '../components/SiteHeader.astro';
+import SeoLayout from '../layouts/SeoLayout.astro';
+import { searchCategories as categories, sortTabs } from '../lib/site-config';
+import { devhubSites as sites } from '../lib/sites';
+
+const boards = [
+  { key: 'community', name: '社区' },
+  { key: 'qa', name: '问答中心' },
+  { key: 'opensource', name: '开源项目' },
+  { key: 'ai', name: '智能作品' },
+  { key: 'jobs', name: '招聘内推' },
+  { key: 'wiki', name: 'Wiki' },
+  { key: 'docs', name: '文档' },
+];
+const typeLabels = {
+  article: '社区',
+  question: '问答中心',
+  project: '开源项目',
+  ai_work: '智能作品',
+  job: '招聘内推',
+  wiki: 'Wiki',
+  wiki_page: 'Wiki',
+  doc: '文档',
+  document: '文档',
+  friend_link: '友情链接',
+  feishu_link: '飞书链接',
+  news: '动态',
+};
+const typeToBoard = { article: 'community', question: 'qa', project: 'opensource', ai_work: 'ai', job: 'jobs', wiki: 'wiki', wiki_page: 'wiki', doc: 'docs', document: 'docs', friend_link: 'community', feishu_link: 'community', news: 'community' };
+---
+<SeoLayout title="搜索 - DevHub" description="搜索 DevHub 开源社区中的文章、问答、文档和项目内容。" canonical="/search/">
+  <SiteHeader sites={sites} activeSite="portal" />
+  <main>
+    <section class="search-panel">
+      <h1>搜索内容</h1>
+      <form action="/search/" method="get" data-search-form data-testid="frontend-search-form">
+        <select name="scope" aria-label="搜索范围">
+          <option value="all">全站</option>
+          <option value="current">当前子站</option>
+          <option value="community">指定子站</option>
+        </select>
+        <select name="community_slug" aria-label="指定子站">
+          <option value="">全部子站</option>
+          {sites.filter((item) => item.key !== 'portal').map((item) => <option value={item.key}>{item.name}</option>)}
+        </select>
+        <input type="search" name="keyword" placeholder="输入关键词" data-testid="frontend-search-input" />
+        <select name="content_type">
+          {categories.map((item) => <option value={item.type}>{item.name}</option>)}
+        </select>
+        <select name="sort">
+          {sortTabs.map((item) => <option value={item.key}>{item.name}</option>)}
+        </select>
+        <input type="hidden" name="tag" />
+        <input type="hidden" name="tag_id" />
+        <input type="hidden" name="category_id" />
+        <input type="hidden" name="page_size" value="20" />
+        <button type="submit" data-testid="frontend-search-submit">搜索</button>
+      </form>
+    </section>
+
+    <section class="search-summary" data-search-summary>
+      <strong>正在加载搜索结果</strong>
+    </section>
+
+    <section class="search-layout">
+      <aside class="search-filters">
+        <h2>分类筛选</h2>
+        {categories.map((item) => (
+          <a data-filter-type={item.type} href="/search/">{item.name}</a>
+        ))}
+      </aside>
+      <div>
+        <div class="section-head">
+          <h2 data-result-title>搜索结果</h2>
+          <span data-result-meta>正在读取 URL 条件</span>
+        </div>
+        <div class="sort-tabs" aria-label="排序">
+          {sortTabs.map((item) => <a data-sort={item.key} href="/search/">{item.name}</a>)}
+        </div>
+        <div class="post-list" data-result-list data-testid="frontend-search-results">
+          <div class="empty-state">正在加载搜索结果...</div>
+        </div>
+        <nav class="pager" aria-label="搜索分页" data-pager>
+          <span>上一页</span>
+          <span>第 1 页</span>
+          <span>下一页</span>
+        </nav>
+      </div>
+    </section>
+  </main>
+  <script define:vars={{ sites, boards, categories, sortTabs, typeLabels, typeToBoard }}>
+    (() => {
+      const communityIDToSite = { 1: 'php', 2: 'go', 3: 'java', 4: 'ai', 5: 'frontend' };
+      const validScopes = new Set(['all', 'current', 'community']);
+      const validSorts = new Set(sortTabs.map((item) => item.key));
+      const siteMap = new Map(sites.map((site) => [site.key, site]));
+      const boardMap = new Map(boards.map((board) => [board.key, board]));
+      const categoryMap = new Map(categories.map((item) => [item.type, item]));
+
+      const form = document.querySelector('[data-search-form]');
+      const summary = document.querySelector('[data-search-summary]');
+      const resultTitle = document.querySelector('[data-result-title]');
+      const resultMeta = document.querySelector('[data-result-meta]');
+      const resultList = document.querySelector('[data-result-list]');
+      const pager = document.querySelector('[data-pager]');
+      const scopeSelect = form?.querySelector('[name="scope"]');
+      const communitySelect = form?.querySelector('[name="community_slug"]');
+
+      const escapeHTML = (value) => String(value ?? '').replace(/[&<>"']/g, (char) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[char]));
+      const normalizePage = (value) => Math.max(1, Number(value || 1) || 1);
+      const normalizePageSize = (value) => Math.min(50, Math.max(1, Number(value || 20) || 20));
+
+      function currentState() {
+        const params = new URLSearchParams(window.location.search);
+        const legacySite = params.get('site') || '';
+        let scope = params.get('scope') || (legacySite && legacySite !== 'portal' ? 'community' : 'all');
+        if (!validScopes.has(scope)) scope = 'all';
+        let communitySlug = params.get('community_slug') || (legacySite === 'portal' ? '' : legacySite);
+        if (scope === 'all') communitySlug = '';
+        if ((scope === 'community' || scope === 'current') && !communitySlug) scope = 'all';
+        let sort = params.get('sort') || 'latest';
+        if (!validSorts.has(sort)) sort = 'latest';
+        return {
+          keyword: params.get('keyword') || params.get('q') || '',
+          scope,
+          community_slug: communitySlug,
+          content_type: params.get('content_type') || '',
+          tag: params.get('tag') || '',
+          tag_id: Number(params.get('tag_id') || 0) || 0,
+          category_id: Number(params.get('category_id') || 0) || 0,
+          sort,
+          page: normalizePage(params.get('page')),
+          page_size: normalizePageSize(params.get('page_size')),
+        };
+      }
+
+      function buildURL(next = {}) {
+        const state = { ...currentState(), ...next };
+        if (next.clearTag) {
+          state.tag = '';
+          state.tag_id = 0;
+        }
+        const params = new URLSearchParams();
+        if (state.keyword) params.set('keyword', state.keyword);
+        params.set('scope', state.scope || 'all');
+        if (state.scope !== 'all' && state.community_slug) params.set('community_slug', state.community_slug);
+        if (state.content_type) params.set('content_type', state.content_type);
+        if (state.tag) params.set('tag', state.tag);
+        if (state.tag_id > 0) params.set('tag_id', String(state.tag_id));
+        if (state.category_id > 0) params.set('category_id', String(state.category_id));
+        params.set('sort', state.sort || 'latest');
+        if ((state.page || 1) > 1) params.set('page', String(state.page));
+        params.set('page_size', String(state.page_size || 20));
+        return `/search/?${params.toString()}`;
+      }
+
+      function apiQuery(state) {
+        const params = new URLSearchParams();
+        if (state.keyword) params.set('keyword', state.keyword);
+        params.set('scope', state.scope);
+        if (state.community_slug) params.set('community_slug', state.community_slug);
+        if (state.content_type) params.set('content_type', state.content_type);
+        if (state.tag) params.set('tag', state.tag);
+        if (state.tag_id > 0) params.set('tag_id', String(state.tag_id));
+        if (state.category_id > 0) params.set('category_id', String(state.category_id));
+        params.set('sort', state.sort);
+        params.set('page', String(state.page));
+        params.set('page_size', String(state.page_size));
+        return params;
+      }
+
+      function syncForm(state) {
+        if (!form) return;
+        form.keyword.value = state.keyword;
+        form.scope.value = state.scope;
+        form.community_slug.value = state.community_slug;
+        form.content_type.value = state.content_type;
+        form.sort.value = state.sort;
+        form.tag.value = state.tag;
+        form.tag_id.value = state.tag_id > 0 ? String(state.tag_id) : '';
+        form.category_id.value = state.category_id > 0 ? String(state.category_id) : '';
+        form.page_size.value = String(state.page_size);
+      }
+
+	      function renderPost(topic) {
+	        const siteKey = communityIDToSite[topic.community_id] || 'portal';
+	        const site = siteMap.get(siteKey);
+	        const boardKey = typeToBoard[topic.content_type] || 'community';
+	        const board = boardMap.get(boardKey);
+	        const tags = (topic.tags || []).slice(0, 5).map((tag) => {
+	          const slug = encodeURIComponent(String(tag).trim().toLowerCase().replace(/\s+/g, '-'));
+	          const href = siteKey === 'portal' ? `/tags/${slug}/` : `/c/${encodeURIComponent(siteKey)}/tags/${slug}/`;
+	          return `<a href="${href}">${escapeHTML(tag)}</a>`;
+	        }).join('');
+	        const qaState = topic.content_type === 'question'
+	          ? (topic.is_solved ? '<span class="state-pill solved">已解决</span>' : '<span class="state-pill unsolved">未解决</span>')
+	          : '';
+	        const commentLabel = topic.content_type === 'question' ? '回答' : '评论';
+	        return `<article class="post-card">
+	          <div class="post-card-top">
+	            <span class="type-pill">${escapeHTML(typeLabels[topic.content_type] || '内容')}</span>
+	            <a class="site-pill" href="/c/${encodeURIComponent(siteKey)}/">${escapeHTML(site?.name || siteKey)}</a>
+	            <span>${escapeHTML(board?.name || boardKey)}</span>
+	            ${topic.is_pinned ? '<span class="state-pill">置顶</span>' : ''}
+	            ${topic.is_featured ? '<span class="state-pill">精华</span>' : ''}
+	            ${qaState}
+          </div>
+          <h2><a href="/topics/${Number(topic.id)}/">${escapeHTML(topic.title)}</a></h2>
+          <p>${escapeHTML(topic.summary || String(topic.content || '').slice(0, 120))}</p>
+          ${tags ? `<div class="post-tags">${tags}</div>` : ''}
+          <footer>
+            <span>社区用户</span>
+            <span>${escapeHTML(topic.created_at || '刚刚')} 发布</span>
+            <span>${escapeHTML(topic.last_active_at || topic.updated_at || topic.created_at || '刚刚')} 活跃</span>
+            <span>${Number(topic.view_count || 0)} 浏览</span>
+            <span>${Number(topic.like_count || 0)} 赞</span>
+            <span>${Number(topic.favorite_count || 0)} 收藏</span>
+	            <span>${Number(topic.comment_count || 0)} ${commentLabel}</span>
+	          </footer>
+	        </article>`;
+	      }
+
+      function namesFor(state) {
+        const activeSiteName = state.scope === 'all' ? '全站' : siteMap.get(state.community_slug)?.name || state.community_slug || '全站';
+        const activeCategoryName = categoryMap.get(state.content_type)?.name || '全部';
+        const activeSortName = sortTabs.find((item) => item.key === state.sort)?.name || '最新';
+        return { activeSiteName, activeCategoryName, activeSortName };
+      }
+
+      function updateLinks(state) {
+        document.querySelectorAll('[data-filter-type]').forEach((link) => {
+          const type = link.dataset.filterType || '';
+          link.classList.toggle('active', type === state.content_type);
+          link.href = buildURL({ content_type: type, page: 1 });
+        });
+        document.querySelectorAll('[data-sort]').forEach((link) => {
+          const sort = link.dataset.sort || 'latest';
+          link.classList.toggle('active', sort === state.sort);
+          link.href = buildURL({ sort, page: 1 });
+        });
+      }
+
+      function renderSummary(state, total) {
+        const { activeSiteName, activeCategoryName, activeSortName } = namesFor(state);
+        summary.innerHTML = [
+          `<strong>${state.keyword ? `正在搜索：${escapeHTML(state.keyword)}` : '浏览全部内容'}</strong>`,
+          `<span>范围：${escapeHTML(activeSiteName)}</span>`,
+          `<span>分类：${escapeHTML(activeCategoryName)}</span>`,
+          `<span>排序：${escapeHTML(activeSortName)}</span>`,
+          state.tag || state.tag_id > 0 ? `<span>标签：${escapeHTML(state.tag || `#${state.tag_id}`)}</span>` : '',
+          `<span>共找到 ${Number(total || 0)} 条结果</span>`,
+          state.tag || state.tag_id > 0 ? `<a href="${buildURL({ clearTag: true, page: 1 })}">清除标签</a>` : '',
+        ].filter(Boolean).join('');
+        resultTitle.textContent = `${activeSiteName}搜索结果`;
+        resultMeta.textContent = `${Number(total || 0)} 条 · ${activeCategoryName} · ${activeSortName}${state.keyword ? ` · ${state.keyword}` : ''}${state.tag ? ` · #${state.tag}` : ''}`;
+      }
+
+      function renderEmpty(state) {
+        const { activeSiteName, activeCategoryName, activeSortName } = namesFor(state);
+        const publishType = state.content_type ? `?type=${encodeURIComponent(state.content_type)}` : '';
+        const publishURL = state.community_slug ? `/c/${encodeURIComponent(state.community_slug)}/topics/new/${publishType}` : `/topics/new/${publishType}`;
+        resultList.innerHTML = `<div class="empty-state">
+          没有找到相关内容。当前条件：${escapeHTML(state.keyword || '无关键词')} · ${escapeHTML(activeSiteName)} · ${escapeHTML(activeCategoryName)}${state.tag ? ` · #${escapeHTML(state.tag)}` : ''} · ${escapeHTML(activeSortName)}
+          <a href="/search/?scope=all&sort=latest&page_size=20">清除筛选</a>
+          <a href="${publishURL}">发布内容</a>
+        </div>`;
+      }
+
+      function renderPager(state, data) {
+        const total = Number(data.total || 0);
+        const hasPrev = state.page > 1;
+        const hasNext = Boolean(data.has_more) || state.page * state.page_size < total;
+        pager.innerHTML = `
+          ${hasPrev ? `<a href="${buildURL({ page: state.page - 1 })}">上一页</a>` : '<span>上一页</span>'}
+          <span>第 ${state.page} 页</span>
+          ${hasNext ? `<a href="${buildURL({ page: state.page + 1 })}">下一页</a>` : '<span>下一页</span>'}
+        `;
+      }
+
+      async function loadSearch() {
+        const state = currentState();
+        syncForm(state);
+        updateLinks(state);
+        resultList.innerHTML = '<div class="empty-state">正在加载搜索结果...</div>';
+        try {
+          const response = await fetch(`/api/v1/search/topics?${apiQuery(state).toString()}`);
+          if (!response.ok) throw new Error(`HTTP ${response.status}`);
+          const data = await response.json();
+          const items = data.items || [];
+          renderSummary(state, data.total || items.length);
+          resultList.innerHTML = items.length ? items.map(renderPost).join('') : '';
+          if (!items.length) renderEmpty(state);
+          renderPager(state, data);
+        } catch (error) {
+          renderSummary(state, 0);
+          resultList.innerHTML = `<div class="empty-state">搜索接口暂时不可用，请稍后重试。<a href="${buildURL({ page: state.page })}">重试</a></div>`;
+          renderPager(state, { total: 0, has_more: false });
+        }
+      }
+
+      scopeSelect?.addEventListener('change', () => {
+        if (scopeSelect.value === 'all' && communitySelect) communitySelect.value = '';
+        if ((scopeSelect.value === 'community' || scopeSelect.value === 'current') && communitySelect && !communitySelect.value) {
+          const first = communitySelect.querySelector('option[value]:not([value=""])');
+          if (first) communitySelect.value = first.value;
+        }
+      });
+      communitySelect?.addEventListener('change', () => {
+        if (scopeSelect && communitySelect.value && scopeSelect.value === 'all') scopeSelect.value = 'community';
+      });
+
+      form?.addEventListener('submit', (event) => {
+        event.preventDefault();
+        const data = new FormData(form);
+        const scope = String(data.get('scope') || 'all');
+        const communitySlug = String(data.get('community_slug') || '');
+        window.location.href = buildURL({
+          keyword: String(data.get('keyword') || '').trim(),
+          scope: scope === 'all' || !communitySlug ? 'all' : scope,
+          community_slug: communitySlug,
+          content_type: String(data.get('content_type') || ''),
+          sort: String(data.get('sort') || 'latest'),
+          tag: String(data.get('tag') || ''),
+          tag_id: Number(data.get('tag_id') || 0) || 0,
+          category_id: Number(data.get('category_id') || 0) || 0,
+          page: 1,
+          page_size: normalizePageSize(data.get('page_size')),
+        });
+      });
+
+      loadSearch();
+    })();
+  </script>
+</SeoLayout>

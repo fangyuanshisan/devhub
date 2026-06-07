@@ -1,0 +1,7 @@
+{
+  "enabled": true,
+  "observed_content_types": [
+    "article"
+  ],
+  "receiver_note": "local article audit logger"
+}

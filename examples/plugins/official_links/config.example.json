@@ -1,0 +1,8 @@
+{
+  "enabled": true,
+  "title": "友情链接",
+  "display_position": "sidebar",
+  "max_links": 10,
+  "show_logo": false,
+  "open_in_new_tab": true
+}

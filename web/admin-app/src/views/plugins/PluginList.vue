@@ -1,0 +1,590 @@
+<template>
+  <section class="plugin-page" data-testid="admin-plugins-page">
+    <AdminPageHeader
+      :title="t('plugin.title')"
+      :description="t('plugin.description')"
+      :breadcrumbs="[t('plugin.pageEyebrow')]"
+      testid="plugin-list-page-header"
+    >
+      <template #actions>
+        <el-button type="primary" plain data-testid="plugin-manifest-validate" @click="goInstall">校验清单</el-button>
+        <el-button type="primary" plain data-testid="plugin-manifest-dry-run" @click="goInstall">查看预检</el-button>
+        <el-button type="success" plain data-testid="plugin-manifest-install" @click="goInstall">去安装</el-button>
+      </template>
+    </AdminPageHeader>
+
+    <el-tabs :model-value="statusTab" class="page-tabs" data-testid="plugin-status-tabs" @tab-change="applyStatusTab">
+      <el-tab-pane name="all" label="全部插件" />
+      <el-tab-pane name="enabled" label="已启用" />
+      <el-tab-pane name="disabled" label="已停用" />
+      <el-tab-pane name="archived" label="回收站" />
+      <el-tab-pane name="abnormal" label="异常插件" />
+    </el-tabs>
+
+    <div class="dh-admin-metrics compact-stats" data-testid="plugin-stats">
+      <AdminMetricCard :label="t('plugin.stats.total')" :value="stats.total" clickable @click="applyStatusTab('all')" />
+      <AdminMetricCard :label="t('plugin.stats.enabled')" :value="stats.enabled" status="enabled" clickable @click="applyStatusTab('enabled')" />
+      <AdminMetricCard :label="t('plugin.stats.disabled')" :value="stats.disabled" status="disabled" clickable @click="applyStatusTab('disabled')" />
+      <AdminMetricCard :label="t('plugin.stats.archived')" :value="stats.archived" status="archived" clickable @click="applyStatusTab('archived')" />
+      <AdminMetricCard :label="t('plugin.stats.abnormal')" :value="stats.abnormal" status="error" clickable @click="applyStatusTab('abnormal')" />
+    </div>
+
+    <el-collapse v-model="healthPanels" class="health-collapse compact-collapse">
+      <el-collapse-item name="health">
+        <template #title>
+          <div class="collapse-title">
+            <strong>{{ t('plugin.healthOverview') }}</strong>
+            <span class="muted">默认收起，需要排障时展开</span>
+          </div>
+        </template>
+        <div class="health-grid" data-testid="plugin-health-summary">
+          <button v-for="card in healthCards" :key="card.key" class="stat-card stat-button health-card" type="button" @click="applyHealth(card.key)">
+            <div class="stat-k">{{ card.label }}</div>
+            <div class="stat-v">{{ card.value }}</div>
+            <div class="stat-sub">{{ card.tip }}</div>
+          </button>
+        </div>
+      </el-collapse-item>
+    </el-collapse>
+
+    <PluginErrorAlert v-if="error" class="mb" :message="error" data-testid="plugin-list-error" />
+
+    <PluginFilterBar :title="t('plugin.filters.title')" :tip="t('plugin.filters.tip')" testid="plugin-filter-panel">
+      <el-input v-model="filters.q" data-testid="plugin-search" :placeholder="t('plugin.filters.searchPlaceholder')" clearable />
+      <el-select v-model="filters.status" :placeholder="t('plugin.filters.status')" clearable>
+        <el-option :label="t('common.all')" value="all" />
+        <el-option :label="pluginStatusLabel('enabled')" value="enabled" />
+        <el-option :label="pluginStatusLabel('disabled')" value="disabled" />
+        <el-option :label="pluginStatusLabel('archived')" value="archived" />
+      </el-select>
+      <el-select v-model="filters.health" :placeholder="t('plugin.filters.health')" clearable>
+        <el-option :label="t('common.all')" value="all" />
+        <el-option v-for="card in healthCards" :key="card.key" :label="card.label" :value="card.key" />
+      </el-select>
+      <el-select v-model="filters.contentType" :placeholder="t('plugin.contentType')" clearable filterable>
+        <el-option v-for="ct in allContentTypes" :key="ct" :label="ct" :value="ct" />
+      </el-select>
+      <el-select v-model="filters.capability" :placeholder="t('plugin.filters.capability')" clearable>
+        <el-option :label="t('common.all')" value="all" />
+        <el-option :label="t('plugin.tabs.frontendMount')" value="menus" />
+        <el-option label="Webhook" value="hooks" />
+        <el-option :label="t('plugin.filters.hasSchema')" value="schema" />
+        <el-option :label="t('plugin.capability.permissions')" value="permissions" />
+      </el-select>
+      <el-button data-testid="plugin-filter-reset" @click="resetFilters">{{ t('common.reset') }}</el-button>
+      <el-button type="primary" data-testid="plugin-filter-refresh" @click="load">{{ t('common.refresh') }}</el-button>
+      <template #actions>
+        <el-button link type="primary" data-testid="plugin-filter-advanced-toggle" @click="advancedFiltersOpen = !advancedFiltersOpen">
+          {{ advancedFiltersOpen ? '收起高级筛选' : '展开高级筛选' }}
+        </el-button>
+      </template>
+      <template v-if="advancedFiltersOpen" #advanced>
+      <el-select v-model="filters.system" :placeholder="t('plugin.system')" clearable>
+        <el-option :label="t('common.all')" value="all" />
+        <el-option :label="t('plugin.filters.onlySystem')" value="yes" />
+        <el-option :label="t('plugin.filters.nonSystem')" value="no" />
+      </el-select>
+      <el-select v-model="filters.hasSchema" :placeholder="t('plugin.config.schema')" clearable>
+        <el-option :label="t('common.all')" value="all" />
+        <el-option :label="t('plugin.filters.hasSchema')" value="yes" />
+        <el-option :label="t('plugin.filters.noSchema')" value="no" />
+      </el-select>
+      </template>
+    </PluginFilterBar>
+
+    <PluginEmptyState v-if="!loading && !error && !filteredItems.length" testid="plugin-empty-state" description="暂无符合条件的插件" />
+
+    <div v-if="selectedRows.length" class="batch-panel" data-testid="plugin-batch-panel">
+      <span class="muted">{{ t('common.selected') }} {{ selectedRows.length }} {{ t('common.selectedItems') }}</span>
+      <div class="batch-actions">
+        <el-button type="warning" plain :disabled="!selectedRows.length" data-testid="plugin-bulk-archive" @click="openBulkDialog('archive')">{{ t('plugin.ops.bulkArchive') }}</el-button>
+        <el-button type="success" plain :disabled="!selectedRows.length" data-testid="plugin-bulk-restore" @click="openBulkDialog('restore')">{{ t('plugin.ops.bulkRestore') }}</el-button>
+      </div>
+    </div>
+
+    <el-table v-loading="loading" :data="filteredItems" border stripe data-testid="plugin-table" @selection-change="onSelectionChange">
+      <el-table-column type="selection" width="48" />
+      <el-table-column :label="t('plugin.pluginColumn')" min-width="250">
+        <template #default="{ row }">
+          <div class="plugin-title">
+            <strong>{{ displayPluginName(row) }}</strong>
+            <span class="mono">{{ row.code }}</span>
+          </div>
+          <div class="tag-wrap">
+            <el-tag v-if="row.is_system" type="info" effect="plain">{{ t('plugin.filters.onlySystem') }}</el-tag>
+            <el-tag v-if="row.code === 'official_announcement'" type="success" effect="plain">官方公告插件</el-tag>
+            <el-tag type="info" effect="plain">{{ pluginTypeLabel(row) }}</el-tag>
+            <AdminStatusTag :value="row.status" />
+            <AdminStatusTag :value="row.health?.status" />
+          </div>
+        </template>
+      </el-table-column>
+      <el-table-column prop="version" :label="t('plugin.version')" width="110" />
+      <el-table-column :label="t('plugin.capabilitySummary')" min-width="260">
+        <template #default="{ row }">
+          <div class="metric-line">
+            <el-tag :type="(row.menus || []).length ? 'success' : 'info'" effect="plain">{{ t('plugin.tabs.frontendMount') }} {{ (row.menus || []).length }}</el-tag>
+            <el-tag :type="hasConfigSchema(row) ? 'success' : 'info'" effect="plain">{{ t('plugin.capability.schema') }} {{ hasConfigSchema(row) ? t('common.yes') : t('common.no') }}</el-tag>
+            <el-tag :type="(row.hooks || []).length ? 'success' : 'info'" effect="plain">Webhook {{ (row.hooks || []).length }}</el-tag>
+            <el-tag v-if="row.code === 'official_announcement'" type="success" effect="plain">iframe 预览</el-tag>
+          </div>
+        </template>
+      </el-table-column>
+      <el-table-column :label="t('plugin.recentOperation')" min-width="180">
+        <template #default="{ row }">
+          <div>{{ recentOperationText(row) }}</div>
+          <div v-if="row.health?.recent_error" class="muted">{{ row.health.recent_error }}</div>
+        </template>
+      </el-table-column>
+      <el-table-column :label="t('plugin.action')" fixed="right" width="220">
+        <template #default="{ row }">
+          <div class="row-actions">
+            <el-button link type="primary" :data-testid="`plugin-detail-${row.code}`" @click="openPlugin(row)">看详情</el-button>
+            <el-button link type="primary" @click="openPlugin(row, 'config')">处理配置</el-button>
+            <el-dropdown trigger="click" @command="(command) => handlePluginCommand(row, command)">
+              <el-button link type="info">更多任务</el-button>
+              <template #dropdown>
+                <el-dropdown-menu>
+                  <el-dropdown-item command="permissions">看权限</el-dropdown-item>
+                  <el-dropdown-item command="menus">看挂载</el-dropdown-item>
+                  <el-dropdown-item command="dependencies">看依赖</el-dropdown-item>
+                  <el-dropdown-item command="hooks">看 Hook</el-dropdown-item>
+                  <el-dropdown-item command="migrations">看迁移</el-dropdown-item>
+                  <el-dropdown-item command="runtime">看运行</el-dropdown-item>
+                  <el-dropdown-item command="audit">去审计</el-dropdown-item>
+                  <el-dropdown-item v-if="row.status !== 'enabled' && row.status !== 'archived'" command="enable" :data-testid="`plugin-enable-${row.code}`">去启用</el-dropdown-item>
+                  <el-dropdown-item v-if="row.status === 'enabled'" command="disable" :data-testid="`plugin-disable-${row.code}`">去停用</el-dropdown-item>
+                  <el-dropdown-item command="readiness">做启用检查</el-dropdown-item>
+                  <el-dropdown-item v-if="row.status !== 'archived'" command="archive" :data-testid="`plugin-archive-${row.code}`" divided>去软卸载</el-dropdown-item>
+                  <el-dropdown-item v-if="row.status === 'archived'" command="restore" :data-testid="`plugin-restore-${row.code}`" divided>恢复入口</el-dropdown-item>
+                </el-dropdown-menu>
+              </template>
+            </el-dropdown>
+          </div>
+        </template>
+      </el-table-column>
+    </el-table>
+
+    <el-drawer v-model="bulkDialogVisible" append-to-body destroy-on-close size="780px" :with-header="false" class="plugin-action-drawer">
+      <section class="action-panel in-drawer" data-testid="plugin-bulk-result-panel">
+        <div class="action-panel-header">
+          <div>
+            <h3>{{ bulkMode === 'archive' ? t('plugin.ops.bulkArchive') : t('plugin.ops.bulkRestore') }}</h3>
+            <p>{{ bulkStep === 'preview' ? t('plugin.ops.bulkPreviewTip') : t('plugin.ops.bulkResultTip') }}</p>
+          </div>
+          <div class="action-panel-tools">
+            <el-button data-testid="plugin-result-close" @click="bulkDialogVisible = false">{{ t('common.close') }}</el-button>
+            <el-button v-if="bulkStep === 'result'" type="success" plain data-testid="plugin-result-audit" @click="openAuditLogs">去审计日志</el-button>
+            <el-button v-if="bulkStep === 'preview'" :loading="bulkLoading" type="warning" data-testid="plugin-bulk-confirm" @click="confirmBulkAction">{{ bulkMode === 'archive' ? t('plugin.ops.confirmBulkArchive') : t('plugin.ops.confirmBulkRestore') }}</el-button>
+          </div>
+        </div>
+        <template v-if="bulkStep === 'preview'">
+          <el-alert :title="t('plugin.ops.bulkConfirmTip')" type="warning" show-icon :closable="false" class="mb" />
+          <el-table v-loading="bulkLoading" :data="bulkPreviewRows" border stripe>
+            <el-table-column prop="name" :label="t('plugin.name')" min-width="160" />
+            <el-table-column prop="code" :label="t('plugin.code')" min-width="150" />
+            <el-table-column :label="t('plugin.status')" width="110">
+              <template #default="{ row }">{{ pluginStatusLabel(row.status) }}</template>
+            </el-table-column>
+            <el-table-column prop="contents" :label="t('plugin.impact.existingContents')" width="120" />
+            <el-table-column prop="communities" :label="t('plugin.impact.enabledCommunities')" width="130" />
+            <el-table-column prop="categories" :label="t('plugin.impact.blockedCategories')" width="140" />
+            <el-table-column prop="migrations" :label="t('plugin.impact.pendingMigrations')" width="120" />
+            <el-table-column prop="hookErrors" :label="t('plugin.impact.recentHookErrors')" width="130" />
+          </el-table>
+        </template>
+        <template v-else>
+          <el-descriptions :column="2" border class="mb" data-testid="plugin-result-summary">
+            <el-descriptions-item :label="t('plugin.ops.succeededCount')">{{ (bulkResult.succeeded || []).length }}</el-descriptions-item>
+            <el-descriptions-item :label="t('plugin.ops.failedCount')">{{ (bulkResult.failed || []).length }}</el-descriptions-item>
+          </el-descriptions>
+          <div class="result-grid">
+            <div class="result-box">
+              <h4>{{ t('plugin.ops.succeeded') }}</h4>
+              <el-table :data="bulkResult.succeeded || []" border stripe :empty-text="t('common.none')">
+                <el-table-column prop="plugin_code" :label="t('plugin.code')" min-width="160" />
+                <el-table-column prop="status" :label="t('plugin.status')" width="120" />
+              </el-table>
+            </div>
+            <div class="result-box">
+              <h4>{{ t('plugin.ops.failed') }}</h4>
+              <el-table :data="bulkResult.failed || []" border stripe :empty-text="t('common.none')">
+                <el-table-column prop="plugin_code" :label="t('plugin.code')" min-width="160" />
+                <el-table-column prop="error" :label="t('plugin.ops.error')" min-width="240" />
+              </el-table>
+            </div>
+          </div>
+        </template>
+      </section>
+    </el-drawer>
+
+    <PluginDetailDrawer v-model="drawerVisible" :plugin="drawerPlugin" :plugins="items" :initial-tab="drawerTab" @refresh="load" @open-plugin="openByCode" />
+  </section>
+</template>
+
+<script setup>
+import { computed, onMounted, reactive, ref, watch } from 'vue';
+import { ElMessage } from 'element-plus';
+import { useRoute, useRouter } from 'vue-router';
+import { archivePlugin, bulkArchivePlugins, bulkRestorePlugins, disablePlugin, enablePlugin, pluginImpact, plugins, restorePlugin } from '@/api/admin';
+import PluginDetailDrawer from '@/components/plugin/PluginDetailDrawer.vue';
+import { AdminMetricCard, AdminPageHeader, AdminStatusTag } from '@/components/admin';
+import { t } from '@/i18n';
+import { pluginHealthLabel, pluginStatusLabel } from '@/i18n/formatters';
+import { usePluginData } from './usePluginData';
+import PluginEmptyState from './components/PluginEmptyState.vue';
+import PluginErrorAlert from './components/PluginErrorAlert.vue';
+import PluginFilterBar from './components/PluginFilterBar.vue';
+import { confirmDanger, confirmInfo } from './components/useDangerConfirm';
+
+const router = useRouter();
+const route = useRoute();
+
+const { items, healthSummary, loading, error, load } = usePluginData();
+
+const filters = reactive({
+  q: '',
+  status: 'all',
+  health: 'all',
+  contentType: '',
+  capability: 'all',
+  system: 'all',
+  hasSchema: 'all',
+});
+
+const selectedRows = ref([]);
+const healthPanels = ref([]);
+const advancedFiltersOpen = ref(false);
+const drawerVisible = ref(false);
+const drawerPlugin = ref(null);
+const drawerTab = ref('overview');
+
+const bulkDialogVisible = ref(false);
+const bulkMode = ref('archive');
+const bulkStep = ref('preview');
+const bulkLoading = ref(false);
+const bulkPreviewRows = ref([]);
+const bulkResult = ref({ succeeded: [], failed: [] });
+const bulkCodes = ref([]);
+const resultAuditQuery = ref(null);
+
+onMounted(async () => {
+  await load();
+  openFromRouteQuery();
+});
+
+watch(
+  () => route.query,
+  (q) => {
+    if (q?.status) filters.status = String(q.status);
+    if (q?.health) filters.health = String(q.health);
+    openFromRouteQuery();
+  },
+  { immediate: true },
+);
+
+watch(
+  () => items.value,
+  () => openFromRouteQuery(),
+);
+
+const stats = computed(() => {
+  const list = items.value || [];
+  const enabled = list.filter((p) => p.status === 'enabled').length;
+  const disabled = list.filter((p) => p.status === 'disabled').length;
+  const archived = list.filter((p) => p.status === 'archived').length;
+  const abnormal = list.filter((p) => p.health?.status === 'error' || p.health?.status === 'hook_error').length;
+  return { total: list.length, enabled, disabled, archived, abnormal };
+});
+
+const allContentTypes = computed(() => {
+  const set = new Set();
+  (items.value || []).forEach((p) => (p.content_types || []).forEach((ct) => set.add(ct)));
+  return Array.from(set);
+});
+
+const healthCards = computed(() => {
+  const summary = healthSummary.value || {};
+  const tip = t('plugin.healthCard.tip');
+  return [
+    { key: 'healthy', label: pluginHealthLabel('healthy'), value: summary.healthy || 0, tip },
+    { key: 'warning', label: pluginHealthLabel('warning'), value: summary.warning || 0, tip },
+    { key: 'error', label: pluginHealthLabel('error'), value: summary.error || 0, tip },
+    { key: 'disabled', label: pluginHealthLabel('disabled'), value: summary.disabled || 0, tip },
+    { key: 'archived', label: pluginHealthLabel('archived'), value: summary.archived || 0, tip },
+    { key: 'migration_pending', label: pluginHealthLabel('migration_pending'), value: summary.migration_pending || 0, tip },
+    { key: 'config_invalid', label: pluginHealthLabel('config_invalid'), value: summary.config_invalid || 0, tip },
+    { key: 'dependency_missing', label: pluginHealthLabel('dependency_missing'), value: summary.dependency_missing || 0, tip },
+    { key: 'hook_error', label: pluginHealthLabel('hook_error'), value: summary.hook_error || 0, tip },
+  ];
+});
+
+const statusTab = computed(() => {
+  if (filters.health === 'error') return 'abnormal';
+  return filters.status || 'all';
+});
+
+const filteredItems = computed(() => {
+  const q = String(filters.q || '').trim().toLowerCase();
+  return (items.value || []).filter((p) => {
+    if (filters.status && filters.status !== 'all' && p.status !== filters.status) return false;
+    if (filters.health && filters.health !== 'all') {
+      if (filters.health === 'error') {
+        if (!(p.health?.status === 'error' || p.health?.status === 'hook_error')) return false;
+      } else if (p.health?.status !== filters.health) return false;
+    }
+    if (filters.contentType) {
+      const types = p.content_types || [];
+      if (!types.includes(filters.contentType)) return false;
+    }
+    if (filters.capability && filters.capability !== 'all') {
+      if (filters.capability === 'menus' && !(p.menus || []).length) return false;
+      if (filters.capability === 'hooks' && !(p.hooks || []).length) return false;
+      if (filters.capability === 'schema' && !hasConfigSchema(p)) return false;
+      if (filters.capability === 'permissions' && !(p.permissions || []).length) return false;
+    }
+    if (filters.system && filters.system !== 'all') {
+      if (filters.system === 'yes' && !p.is_system) return false;
+      if (filters.system === 'no' && p.is_system) return false;
+    }
+    if (filters.hasSchema && filters.hasSchema !== 'all') {
+      const has = hasConfigSchema(p);
+      if (filters.hasSchema === 'yes' && !has) return false;
+      if (filters.hasSchema === 'no' && has) return false;
+    }
+    if (q) {
+      const hay = `${p.name || ''} ${p.code || ''}`.toLowerCase();
+      if (!hay.includes(q)) return false;
+    }
+    return true;
+  });
+});
+
+function applyStatusTab(value) {
+  if (!value) return;
+  if (value === 'abnormal') {
+    filters.status = 'all';
+    filters.health = 'error';
+  } else {
+    filters.status = value;
+    if (filters.health === 'error') filters.health = 'all';
+  }
+  const next = { ...route.query };
+  if (filters.status && filters.status !== 'all') next.status = filters.status;
+  else delete next.status;
+  if (filters.health && filters.health !== 'all') next.health = filters.health;
+  else delete next.health;
+  router.replace({ query: next });
+}
+
+function applyHealth(value) {
+  if (!value) return;
+  filters.health = value;
+  const next = { ...route.query };
+  if (filters.status && filters.status !== 'all') next.status = filters.status;
+  else delete next.status;
+  if (filters.health && filters.health !== 'all') next.health = filters.health;
+  else delete next.health;
+  router.replace({ query: next });
+}
+
+function hasConfigSchema(row) {
+  return row && row.config_schema && Object.keys(row.config_schema || {}).length > 0;
+}
+
+function pluginTypeLabel(row) {
+  if (row?.code === 'official_announcement') return t('plugin.type.officialBuiltin');
+  if (row?.is_system) return t('plugin.type.system');
+  const source = String(row?.source_type || row?.install_source || '').toLowerCase();
+  if (source.includes('remote')) return t('plugin.type.remote');
+  if (source.includes('local_package') || source.includes('package')) return t('plugin.type.localPackage');
+  if (source.includes('manifest')) return t('plugin.type.manifest');
+  return t('plugin.type.unknown');
+}
+
+function displayPluginName(row) {
+  if (row?.code === 'official_announcement') return '官方公告插件';
+  return row?.name || row?.code || '未命名插件';
+}
+
+function recentOperationText(row) {
+  return row?.last_operated_at || row?.updated_at || row?.enabled_at || row?.installed_at || row?.created_at || '-';
+}
+
+function firstNumber(...values) {
+  for (const value of values) {
+    const n = Number(value);
+    if (Number.isFinite(n)) return n;
+  }
+  return null;
+}
+
+function statusTagType(status) {
+  if (status === 'enabled') return 'success';
+  if (status === 'disabled') return 'warning';
+  if (status === 'archived') return 'info';
+  return 'info';
+}
+
+function healthType(status) {
+  if (!status || status === 'healthy') return 'success';
+  if (status === 'hook_warning') return 'warning';
+  if (status === 'hook_error') return 'danger';
+  if (status === 'dependency_missing') return 'warning';
+  if (status === 'config_invalid') return 'danger';
+  if (status === 'migration_pending') return 'warning';
+  if (status === 'error') return 'danger';
+  return 'info';
+}
+
+function resetFilters() {
+  filters.q = '';
+  filters.status = 'all';
+  filters.health = 'all';
+  filters.contentType = '';
+  filters.capability = 'all';
+  filters.system = 'all';
+  filters.hasSchema = 'all';
+}
+
+function onSelectionChange(rows) {
+  selectedRows.value = Array.isArray(rows) ? rows : [];
+}
+
+function openPlugin(row, tab = 'overview') {
+  if (!row || !(row.code || row.plugin_code)) {
+    ElMessage.warning('当前插件数据不完整，无法打开详情');
+    return;
+  }
+  drawerPlugin.value = row;
+  drawerTab.value = tab;
+  drawerVisible.value = true;
+}
+
+function openByCode(code, tab = 'overview') {
+  const target = (items.value || []).find((p) => (p.code || p.plugin_code) === code);
+  if (!target) return;
+  openPlugin(target, tab);
+}
+
+function openFromRouteQuery() {
+  const code = String(route.query.plugin_code || '').trim();
+  if (!code || drawerVisible.value) return;
+  const tab = String(route.query.detail_tab || route.query.drawer_tab || 'overview').trim() || 'overview';
+  const target = (items.value || []).find((p) => (p.code || p.plugin_code) === code);
+  if (!target) return;
+  openPlugin(target, tab);
+}
+
+function goInstall() {
+  router.push('/plugins/install');
+}
+
+async function impactLines(row) {
+  const res = await pluginImpact(row.code).catch(() => null);
+  const impact = res || {};
+  const lines = [
+    `${t('plugin.impact.existingContents')}: ${impact.existing_contents ?? '-'}`,
+    `${t('plugin.impact.enabledCommunities')}: ${impact.enabled_communities ?? '-'}`,
+    `${t('plugin.impact.blockedCategories')}: ${impact.blocked_categories ?? '-'}`,
+    `${t('plugin.impact.pendingMigrations')}: ${impact.pending_migrations ?? '-'}`,
+    `${t('plugin.impact.recentHookErrors')}: ${impact.recent_hook_errors ?? '-'}`,
+  ];
+  return lines;
+}
+
+async function setStatus(row, status) {
+  if (status === 'disabled') {
+    const lines = await impactLines(row);
+    await confirmDanger(
+      `${t('plugin.disableConfirmPrefix')}\n\n${lines.join('\n')}`,
+      t('plugin.disableConfirmTitle'),
+      { type: 'warning', confirmButtonText: t('plugin.confirmDisable'), cancelButtonText: t('common.cancel') },
+    );
+  } else {
+    await confirmInfo(t('plugin.enableConfirmText'), t('plugin.enableConfirmTitle'), {
+      confirmButtonText: t('plugin.confirmEnable'),
+      cancelButtonText: t('common.cancel'),
+    });
+  }
+  if (status === 'enabled') await enablePlugin(row.code);
+  else await disablePlugin(row.code);
+  ElMessage.success(t('plugin.statusUpdated'));
+  await load();
+}
+
+async function archive(row) {
+  const lines = await impactLines(row);
+  await confirmDanger(
+    `${t('plugin.archiveConfirmPrefix')}\n\n${lines.join('\n')}`,
+    t('plugin.archiveConfirmTitle'),
+    { type: 'warning', confirmButtonText: t('plugin.confirmArchive'), cancelButtonText: t('common.cancel') },
+  );
+  await archivePlugin(row.code);
+  ElMessage.success(t('plugin.archivedDone'));
+  await load();
+}
+
+async function restore(row) {
+  await confirmInfo(t('plugin.restoreConfirmText'), t('plugin.restoreConfirmTitle'), {
+    confirmButtonText: t('plugin.confirmRestore'),
+    cancelButtonText: t('common.cancel'),
+  });
+  await restorePlugin(row.code);
+  ElMessage.success(t('plugin.restoredDone'));
+  await load();
+}
+
+async function handlePluginCommand(row, command) {
+  if (command === 'enable') return setStatus(row, 'enabled');
+  if (command === 'disable') return setStatus(row, 'disabled');
+  if (command === 'archive') return archive(row);
+  if (command === 'restore') return restore(row);
+  return openPlugin(row, command);
+}
+
+function openBulkDialog(mode) {
+  bulkMode.value = mode;
+  bulkStep.value = 'preview';
+  bulkDialogVisible.value = true;
+  bulkCodes.value = (selectedRows.value || []).filter((r) => r?.code).map((r) => r.code);
+  bulkPreviewRows.value = [];
+  bulkResult.value = { succeeded: [], failed: [] };
+  resultAuditQuery.value = null;
+  confirmBulkPreview();
+}
+
+async function confirmBulkPreview() {
+  bulkLoading.value = true;
+  try {
+    if (bulkMode.value === 'archive') {
+      const res = await bulkArchivePlugins({ codes: bulkCodes.value, preview: true });
+      bulkPreviewRows.value = res.items || [];
+    } else {
+      const res = await bulkRestorePlugins({ codes: bulkCodes.value, preview: true });
+      bulkPreviewRows.value = res.items || [];
+    }
+  } finally {
+    bulkLoading.value = false;
+  }
+}
+
+async function confirmBulkAction() {
+  bulkLoading.value = true;
+  try {
+    let res;
+    if (bulkMode.value === 'archive') res = await bulkArchivePlugins({ codes: bulkCodes.value });
+    else res = await bulkRestorePlugins({ codes: bulkCodes.value });
+    bulkResult.value = res || { succeeded: [], failed: [] };
+    resultAuditQuery.value = res?.audit_query || null;
+    bulkStep.value = 'result';
+    await load();
+  } finally {
+    bulkLoading.value = false;
+  }
+}
+
+function openAuditLogs() {
+  router.push({ path: '/audit-logs', query: resultAuditQuery.value || {} });
+}
+</script>

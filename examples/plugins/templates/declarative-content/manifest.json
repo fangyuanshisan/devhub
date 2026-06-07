@@ -1,0 +1,155 @@
+{
+  "code": "official_links_template",
+  "name": "Official Links Template",
+  "version": "1.0.0",
+  "description": "DevHub 官方纯声明型内容插件模板，用于声明友情链接类 content_type、菜单、权限和配置，不包含运行时代码。",
+  "author": "DevHub Team",
+  "compatible_core_version": ">=1.8.3",
+  "min_core_version": "1.8.3",
+  "is_system": false,
+  "content_types": [
+    "friend_link_template"
+  ],
+  "content_type_definitions": [
+    {
+      "type": "friend_link_template",
+      "name": "友情链接",
+      "plugin_code": "official_links_template",
+      "create_permission": "official_links_template.link.create",
+      "edit_permission": "official_links_template.link.manage",
+      "delete_permission": "official_links_template.link.manage",
+      "audit_permission": "official_links_template.link.manage",
+      "default_status": "draft",
+      "allow_comment": false,
+      "allow_like": false,
+      "allow_favorite": false,
+      "seo_type": "Article"
+    }
+  ],
+  "permissions": [
+    {
+      "plugin_code": "official_links_template",
+      "code": "official_links_template.link.create",
+      "name": "创建友情链接",
+      "description": "允许创建友情链接内容。",
+      "scope": "community"
+    },
+    {
+      "plugin_code": "official_links_template",
+      "code": "official_links_template.link.manage",
+      "name": "管理友情链接",
+      "description": "允许审核、编辑、隐藏或删除友情链接内容。",
+      "scope": "community"
+    },
+    {
+      "plugin_code": "official_links_template",
+      "code": "official_links_template.config.manage",
+      "name": "配置友情链接插件",
+      "description": "允许维护友情链接插件的展示配置。",
+      "scope": "global"
+    },
+    {
+      "plugin_code": "official_links_template",
+      "code": "official_links_template.menu.view",
+      "name": "查看友情链接菜单",
+      "description": "允许在后台或前台看到友情链接入口。",
+      "scope": "community"
+    }
+  ],
+  "menus": [
+    {
+      "plugin_code": "official_links_template",
+      "code": "official_links_template.admin.links",
+      "title": "友情链接",
+      "path": "/admin-next/plugins/overview?tab=content&plugin_code=official_links_template",
+      "location": "admin",
+      "area": "admin",
+      "permission": "official_links_template.link.manage",
+      "sort_order": 340
+    },
+    {
+      "plugin_code": "official_links_template",
+      "code": "official_links_template.frontend.links",
+      "title": "友情链接",
+      "path": "/links",
+      "location": "frontend",
+      "area": "frontend",
+      "permission": "official_links_template.menu.view",
+      "sort_order": 340
+    }
+  ],
+  "routes": [
+    {
+      "plugin_code": "official_links_template",
+      "area": "admin",
+      "method": "GET",
+      "path": "/api/v1/admin/plugins/official_links_template/links",
+      "handler": "reserved:official_links_template.admin.links",
+      "auth": "admin",
+      "permission": "official_links_template.link.manage"
+    }
+  ],
+  "config_schema": {
+    "type": "object",
+    "additionalProperties": false,
+    "required": [
+      "enabled",
+      "title",
+      "max_links",
+      "display_position"
+    ],
+    "properties": {
+      "enabled": {
+        "type": "boolean",
+        "title": "启用友情链接",
+        "default": true
+      },
+      "title": {
+        "type": "string",
+        "title": "展示标题",
+        "default": "友情链接"
+      },
+      "max_links": {
+        "type": "integer",
+        "title": "最大链接数",
+        "default": 10,
+        "minimum": 1,
+        "maximum": 100
+      },
+      "display_position": {
+        "type": "string",
+        "title": "展示位置",
+        "enum": [
+          "sidebar",
+          "footer"
+        ],
+        "enumNames": [
+          "侧边栏",
+          "页脚"
+        ],
+        "default": "sidebar"
+      }
+    }
+  },
+  "default_config": {
+    "enabled": true,
+    "title": "友情链接",
+    "max_links": 10,
+    "display_position": "sidebar"
+  },
+  "hooks": [],
+  "migrations": [
+    {
+      "plugin_code": "official_links_template",
+      "migration_version": "1.0.0",
+      "migration_name": "official_links_template_init",
+      "direction": "up",
+      "checksum": "sha256:template",
+      "tables": [
+        "official_links_template_items"
+      ],
+      "rollback_supported": false,
+      "description": "声明友情链接最小业务表；dry-run 只生成计划，真实迁移入口只能位于 migrations/。"
+    }
+  ]
+}

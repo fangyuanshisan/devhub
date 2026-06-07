@@ -1,0 +1,24 @@
+---
+import SiteHeader from '../../../../components/SiteHeader.astro';
+import TopicPublishForm from '../../../../components/TopicPublishForm.vue';
+import SeoLayout from '../../../../layouts/SeoLayout.astro';
+import { communitySiteKeys, devhubSites as sites, findSiteByKey } from '../../../../lib/sites';
+
+export function getStaticPaths() {
+  return communitySiteKeys.map((site) => ({ params: { site } }));
+}
+
+const siteKey = Astro.params.site || '';
+const site = findSiteByKey(siteKey) || sites[0];
+---
+<SeoLayout title={`在 ${site.name} 发布 - DevHub`} description={`在 DevHub ${site.name} 子站发布内容。`} canonical={`/site/${siteKey}/topics/new/`}>
+  <SiteHeader sites={sites} activeSite={site.key} />
+  <main>
+    <section class="page-title">
+      <span>发布</span>
+      <h1>在当前子站发布</h1>
+      <p>{site.description}</p>
+    </section>
+    <TopicPublishForm client:load defaultCommunity={siteKey} />
+  </main>
+</SeoLayout>

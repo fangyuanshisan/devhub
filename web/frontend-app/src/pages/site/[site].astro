@@ -1,0 +1,206 @@
+---
+import SiteHeader from '../../components/SiteHeader.astro';
+import SeoLayout from '../../layouts/SeoLayout.astro';
+import { sortTabs } from '../../lib/site-config';
+import { communitySiteKeys, devhubSites as sites, findSiteByKey } from '../../lib/sites';
+
+export function getStaticPaths() {
+  return communitySiteKeys.map((site) => ({ params: { site } }));
+}
+
+const siteKey = Astro.params.site || 'php';
+const site = findSiteByKey(siteKey) || sites[1];
+const typeLabels = {
+  article: '社区',
+  question: '问答中心',
+  project: '开源项目',
+  ai_work: '智能作品',
+  job: '招聘内推',
+  wiki: 'Wiki',
+  wiki_page: 'Wiki',
+  doc: '文档',
+  document: '文档',
+  friend_link: '友情链接',
+  feishu_link: '飞书链接',
+  news: '动态',
+};
+---
+<SeoLayout title={`${site.title} - DevHub`} description={site.description} site={site} canonical={`/c/${site.key}/`}>
+  <SiteHeader sites={sites} activeSite={site.key} />
+  <main>
+    <section class="site-hero" style={`--accent:${site.color}`} data-community-hero data-community={site.key}>
+      <span>{site.pub}</span>
+      <h1>{site.title}</h1>
+      <p>{site.sub || site.description}</p>
+      <div class="hero-actions">
+        <a class="primary-link" href={`/c/${site.key}/topics/new/`} data-publish-link>在当前子站发布</a>
+        <button class="secondary-action" type="button" data-community-follow>关注子站</button>
+      </div>
+    </section>
+    <nav class="board-tabs js-board-tabs" aria-label="板块" data-category-tabs>
+      <a class="active" data-content-type="" href={`/c/${site.key}/`}>全部</a>
+    </nav>
+    <div class="sort-tabs" data-plugin-nav>
+      <span>正在加载插件入口...</span>
+    </div>
+    <section class="content-layout">
+      <div>
+        <div class="section-head">
+          <h2 data-community-title>{site.name} 内容</h2>
+          <span data-topic-count>正在加载</span>
+        </div>
+        <div class="sort-tabs" aria-label="排序">
+          {sortTabs.map((item) => <a data-sort={item.key} href={`/c/${site.key}/?sort=${item.key}`}>{item.name}</a>)}
+        </div>
+        <div class="post-list" data-topic-list data-community={site.key}>
+          <div class="empty-state">正在加载子站内容...</div>
+        </div>
+      </div>
+      <aside class="sidebar">
+        <section>
+          <h2>当前子站搜索</h2>
+          <form class="sidebar-search" action="/search/" method="get">
+            <input type="hidden" name="scope" value="community" />
+            <input type="hidden" name="community_slug" value={site.key} data-search-community />
+            <input type="search" name="keyword" placeholder={`搜索 ${site.name} 内容`} />
+            <button type="submit">搜索</button>
+          </form>
+        </section>
+        <section>
+          <h2>站点标签</h2>
+          <div class="tag-cloud" data-community-tags data-community={site.key}>
+            <span>正在加载标签...</span>
+          </div>
+        </section>
+        <section>
+          <h2>热门内容</h2>
+          <ol class="hot-list" data-hot-topics data-community={site.key}></ol>
+        </section>
+        <section class="community-rules">
+          <h2>社区规则</h2>
+          <p>围绕真实社区问题和实践经验讨论，标题清晰，内容可复现。不同内容请发布到对应板块。</p>
+        </section>
+        <section class="community-rules">
+          <h2>版主信息</h2>
+          <p>社区维护组 · <span data-moderator-site>{site.name}</span> 子站协作团队</p>
+        </section>
+      </aside>
+    </section>
+  </main>
+  <script define:vars={{ typeLabels }}>
+    (() => {
+      const pathMatch = window.location.pathname.match(/^\/(?:c|site)\/([^/]+)/);
+      const community = pathMatch?.[1] || document.querySelector('[data-topic-list]')?.dataset.community || 'php';
+      const params = new URLSearchParams(window.location.search);
+      const activeType = params.get('content_type') || '';
+      const activeSort = params.get('sort') || 'latest';
+      const escapeHTML = (value) => String(value ?? '').replace(/[&<>"']/g, (char) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[char]));
+      const getJSON = (url) => fetch(url).then((response) => response.ok ? response.json() : Promise.reject());
+      const token = () => localStorage.getItem('devhub_user_token') || localStorage.getItem('devhub_access_token') || '';
+      const authHeaders = (extra = {}) => token() ? { ...extra, Authorization: `Bearer ${token()}` } : extra;
+      const postJSON = (url, body) => fetch(url, { method: 'POST', headers: authHeaders({ 'Content-Type': 'application/json' }), body: JSON.stringify(body) }).then((response) => response.ok ? response.json() : response.json().then((data) => Promise.reject(data)));
+      const tagURL = (tag) => `/c/${encodeURIComponent(community)}/tags/${encodeURIComponent(String(tag).trim().toLowerCase().replace(/\s+/g, '-'))}/`;
+      const pluginNav = document.querySelector('[data-plugin-nav]');
+      const buildURL = (next = {}) => {
+        const search = new URLSearchParams();
+        const type = next.content_type ?? activeType;
+        const sort = next.sort ?? activeSort;
+        if (type) search.set('content_type', type);
+        if (sort && sort !== 'latest') search.set('sort', sort);
+        const qs = search.toString();
+        return `/c/${encodeURIComponent(community)}/${qs ? `?${qs}` : ''}`;
+	      };
+	      const renderTopic = (topic) => {
+	        const tags = (topic.tags || []).slice(0, 5).map((tag) => `<a href="${tagURL(tag)}">${escapeHTML(tag)}</a>`).join('');
+	        const qaState = topic.content_type === 'question'
+	          ? (topic.is_solved ? '<span class="state-pill solved">已解决</span>' : '<span class="state-pill unsolved">未解决</span>')
+	          : '';
+	        const commentLabel = topic.content_type === 'question' ? '回答' : '评论';
+	        return `<article class="post-card">
+	          <div class="post-card-top"><span class="type-pill">${escapeHTML(typeLabels[topic.content_type] || '内容')}</span><a class="site-pill" href="/c/${encodeURIComponent(community)}/">${escapeHTML(community)}</a>${topic.is_pinned ? '<span class="state-pill">置顶</span>' : ''}${topic.is_featured ? '<span class="state-pill">精华</span>' : ''}${qaState}</div>
+	          <h2><a href="/topics/${Number(topic.id)}/">${escapeHTML(topic.title)}</a></h2>
+	          <p>${escapeHTML(topic.summary || String(topic.content || '').slice(0, 120))}</p>
+	          ${tags ? `<div class="post-tags">${tags}</div>` : ''}
+	          <footer><span>社区用户</span><span>${escapeHTML(topic.created_at || '刚刚')} 发布</span><span>${escapeHTML(topic.last_active_at || topic.updated_at || topic.created_at || '刚刚')} 活跃</span><span>${Number(topic.view_count || 0)} 浏览</span><span>${Number(topic.like_count || 0)} 赞</span><span>${Number(topic.comment_count || 0)} ${commentLabel}</span></footer>
+	        </article>`;
+	      };
+
+      document.querySelectorAll('.sort-tabs a').forEach((link) => {
+        const sort = link.dataset.sort || 'latest';
+        link.classList.toggle('active', sort === activeSort);
+        link.href = buildURL({ sort });
+      });
+      document.querySelector('[data-search-community]')?.setAttribute('value', community);
+      document.querySelector('[data-publish-link]')?.setAttribute('href', `/c/${encodeURIComponent(community)}/topics/new/`);
+
+      getJSON(`/api/v1/communities/${encodeURIComponent(community)}`).then((site) => {
+        document.querySelector('[data-community-hero] span').textContent = `${site.name} 子站`;
+        document.querySelector('[data-community-hero] h1').textContent = `${site.name} 开发者站`;
+        document.querySelector('[data-community-hero] p').textContent = site.description || `${site.name} 技术社区`;
+        document.querySelector('[data-community-title]').textContent = `${site.name} 内容`;
+        document.querySelector('[data-moderator-site]').textContent = site.name;
+        const button = document.querySelector('[data-community-follow]');
+        button?.addEventListener('click', () => {
+          if (!token()) {
+            button.textContent = '请先登录';
+            return;
+          }
+          button.disabled = true;
+          postJSON('/api/v1/follows/toggle', { target_type: 'community', target_id: Number(site.id) })
+            .then((data) => { button.textContent = data.followed ? '已关注子站' : '关注子站'; })
+            .catch(() => { button.textContent = '操作失败'; })
+            .finally(() => { button.disabled = false; });
+        });
+      }).catch(() => {});
+
+      getJSON(`/api/v1/communities/${encodeURIComponent(community)}/categories`).then((data) => {
+        const tabs = document.querySelector('[data-category-tabs]');
+        const categories = data.items || [];
+        if (tabs) {
+          tabs.innerHTML = `<a data-content-type="" class="${activeType === '' ? 'active' : ''}" href="${buildURL({ content_type: '' })}">全部</a>` + categories.map((cat) => `<a data-content-type="${escapeHTML(cat.type)}" class="${activeType === cat.type ? 'active' : ''}" href="${buildURL({ content_type: cat.type })}">${escapeHTML(cat.name)}</a>`).join('');
+        }
+      }).catch(() => {});
+
+      getJSON(`/api/v1/communities/${encodeURIComponent(community)}/plugins`).then((data) => {
+        const items = data.items || [];
+        const links = [];
+        if (items.some((item) => item.code === 'qa')) links.push(`<a href="/search/?scope=community&community_slug=${encodeURIComponent(community)}&content_type=question">问答</a>`);
+        if (items.some((item) => item.code === 'docs')) links.push(`<a href="/search/?scope=community&community_slug=${encodeURIComponent(community)}&content_type=document">文档</a>`);
+        if (items.some((item) => item.code === 'wiki')) links.push(`<a href="/search/?scope=community&community_slug=${encodeURIComponent(community)}&content_type=wiki_page">Wiki</a>`);
+        if (items.some((item) => item.code === 'projects')) links.push(`<a href="/search/?scope=community&community_slug=${encodeURIComponent(community)}&content_type=project">开源项目</a>`);
+        if (items.some((item) => item.code === 'jobs')) links.push(`<a href="/search/?scope=community&community_slug=${encodeURIComponent(community)}&content_type=job">招聘内推</a>`);
+        if (items.some((item) => item.code === 'ai_works')) links.push(`<a href="/search/?scope=community&community_slug=${encodeURIComponent(community)}&content_type=ai_work">AI作品</a>`);
+        if (items.some((item) => item.code === 'official_links')) links.push(`<a href="/search/?scope=community&community_slug=${encodeURIComponent(community)}&content_type=friend_link">友情链接</a>`);
+        if (items.some((item) => item.code === 'plugin_a7b0cc04')) {
+          links.push(`<a href="/search/?scope=community&community_slug=${encodeURIComponent(community)}&content_type=feishu_link">飞书链接</a>`);
+          links.push(`<a href="/c/${encodeURIComponent(community)}/topics/new/?type=feishu_link">发布飞书链接</a>`);
+        }
+        if (pluginNav) pluginNav.innerHTML = links.length ? links.join('') : '<span>当前子站暂无插件入口</span>';
+      }).catch(() => {
+        if (pluginNav) pluginNav.innerHTML = '<span>当前子站暂无插件入口</span>';
+      });
+
+	      const topicQuery = new URLSearchParams({ community_slug: community, sort: activeSort, page_size: '24' });
+	      if (activeSort === 'unsolved') topicQuery.set('content_type', 'question');
+	      if (activeType) topicQuery.set('content_type', activeType);
+      getJSON(`/api/v1/topics?${topicQuery.toString()}`).then((data) => {
+        const list = document.querySelector('[data-topic-list]');
+        const count = document.querySelector('[data-topic-count]');
+        const items = data.items || [];
+        if (count) count.textContent = `${Number(data.total || items.length)} 篇`;
+        const publishType = activeType ? `?type=${encodeURIComponent(activeType)}` : '';
+        if (list) list.innerHTML = items.length ? items.map(renderTopic).join('') : `<div class="empty-state">当前子站还没有内容。<a href="/c/${encodeURIComponent(community)}/topics/new/${publishType}">发布第一篇内容</a></div>`;
+      }).catch(() => {});
+
+      getJSON(`/api/v1/topics?community_slug=${encodeURIComponent(community)}&sort=hot&page_size=5`).then((data) => {
+        const list = document.querySelector('[data-hot-topics]');
+        if (list) list.innerHTML = (data.items || []).map((topic) => `<li><a href="/topics/${Number(topic.id)}/">${escapeHTML(topic.title)}</a></li>`).join('');
+      }).catch(() => {});
+      getJSON(`/api/v1/communities/${encodeURIComponent(community)}/tags`).then((data) => {
+        const cloud = document.querySelector('[data-community-tags]');
+        const tags = data.items || [];
+        if (cloud) cloud.innerHTML = tags.length ? tags.map((tag) => `<a href="/c/${encodeURIComponent(community)}/tags/${encodeURIComponent(tag.slug || String(tag.name).trim().toLowerCase().replace(/\s+/g, '-'))}/">${escapeHTML(tag.name)}<span>${Number(tag.count || tag.topic_count || 0)}</span></a>`).join('') : '<span>暂无标签</span>';
+      }).catch(() => {});
+    })();
+  </script>
+</SeoLayout>

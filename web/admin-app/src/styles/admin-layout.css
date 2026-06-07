@@ -1,0 +1,62 @@
+.admin-main-surface,
+.plugin-page,
+.plugin-domain-page,
+.plugin-content-page,
+.system-page {
+  max-width: var(--dh-admin-page-max);
+  margin: 0 auto;
+}
+
+.main,
+.workbench {
+  background: var(--dh-admin-bg);
+}
+
+.dh-admin-stack {
+  display: flex;
+  flex-direction: column;
+  gap: var(--dh-admin-page-gap);
+}
+
+.dh-admin-metrics {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(170px, 1fr));
+  gap: var(--dh-admin-section-gap);
+}
+
+.dh-admin-table-wrap {
+  border: 1px solid var(--dh-admin-border);
+  border-radius: var(--dh-admin-radius);
+  background: var(--dh-admin-panel);
+  box-shadow: var(--dh-admin-shadow-card);
+  overflow: hidden;
+}
+
+.dh-admin-table-wrap .el-table {
+  --el-table-header-bg-color: var(--dh-admin-panel-muted);
+}
+
+.dh-admin-table-wrap .el-table__cell {
+  padding: 8px 0;
+}
+
+.dh-admin-filter-wrap,
+.filter-panel,
+.plugin-filter-bar {
+  border: 1px solid var(--dh-admin-border);
+  border-radius: var(--dh-admin-radius);
+  background: var(--dh-admin-panel);
+  box-shadow: var(--dh-admin-shadow-card);
+}
+
+.el-drawer.plugin-detail-drawer,
+.el-drawer.admin-detail-drawer {
+  --el-drawer-padding-primary: 0;
+}
+
+.admin-detail-drawer .el-drawer__header,
+.plugin-detail-drawer .el-drawer__header {
+  margin-bottom: 0;
+  padding: 16px 20px;
+  border-bottom: 1px solid var(--dh-admin-border);
+}

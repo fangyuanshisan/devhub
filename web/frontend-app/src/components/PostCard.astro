@@ -1,0 +1,43 @@
+---
+import type { Board, Post, Site } from '../lib/types';
+import { contentTypeCommentLabel, contentTypeLabel, tagSegment } from '../lib/site-config';
+
+type Props = {
+  post: Post;
+  sites: Site[];
+  boards: Board[];
+};
+
+const { post, sites, boards } = Astro.props;
+const site = sites.find((item) => item.key === post.site);
+const board = boards.find((item) => item.key === post.board);
+const isQuestion = post.content_type === 'question';
+const commentLabel = contentTypeCommentLabel(post.content_type || 'article');
+const tagHref = (tag: string) => post.site === 'portal' ? `/tags/${tagSegment(tag)}/` : `/c/${encodeURIComponent(post.site)}/tags/${tagSegment(tag)}/`;
+---
+<article class="post-card">
+  <div class="post-card-top">
+    <span class="type-pill">{contentTypeLabel(post.content_type || 'article')}</span>
+    <a class="site-pill" href={`/c/${post.site}/`}>{site?.name || post.site}</a>
+    <span>{board?.name || post.board}</span>
+    {post.pinned && <span class="state-pill">置顶</span>}
+    {post.recommended && <span class="state-pill">精华</span>}
+    {isQuestion && (post.solved ? <span class="state-pill solved">已解决</span> : <span class="state-pill unsolved">未解决</span>)}
+  </div>
+  <h2><a href={`/topics/${post.id}/`}>{post.title}</a></h2>
+  <p>{post.summary || post.content.slice(0, 120)}</p>
+  {post.tags?.length > 0 && (
+    <div class="post-tags">
+      {post.tags.slice(0, 5).map((tag) => <a href={tagHref(tag)}>{tag}</a>)}
+    </div>
+  )}
+  <footer>
+    <span>{post.author}</span>
+    <span>{post.created_at || '刚刚'} 发布</span>
+    <span>{post.last_active_at || post.updated_at || post.created_at} 活跃</span>
+    <span>{post.views} 浏览</span>
+    <span>{post.likes} 赞</span>
+    <span>{post.favorite_count || 0} 收藏</span>
+    <span>{post.comments} {commentLabel}</span>
+  </footer>
+</article>

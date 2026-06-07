@@ -1,0 +1,99 @@
+{
+  "code": "official_links_s15_1780070799068",
+  "name": "声明型友情链接插件",
+  "version": "1.0.0",
+  "description": "DevHub S15 真实声明型插件 fixture，用于验证安装到使用的完整业务闭环。",
+  "author": "DevHub Fixture",
+  "compatible_core_version": ">=1.4.0",
+  "is_system": false,
+  "content_types": ["friend_link_s15_1780070799068"],
+  "content_type_definitions": [
+    {
+      "type": "friend_link_s15_1780070799068",
+      "name": "友情链接",
+      "plugin_code": "official_links_s15_1780070799068",
+      "create_permission": "official_links_s15_1780070799068.link.create",
+      "edit_permission": "official_links_s15_1780070799068.link.manage",
+      "delete_permission": "official_links_s15_1780070799068.link.manage",
+      "audit_permission": "official_links_s15_1780070799068.link.manage",
+      "default_status": "publish",
+      "allow_comment": false,
+      "allow_like": false,
+      "allow_favorite": true,
+      "seo_type": "Article"
+    }
+  ],
+  "permissions": [
+    { "plugin_code": "official_links_s15_1780070799068", "code": "official_links_s15_1780070799068.link.create", "name": "创建友情链接", "description": "允许在已启用子站创建友情链接内容", "scope": "community" },
+    { "plugin_code": "official_links_s15_1780070799068", "code": "official_links_s15_1780070799068.link.manage", "name": "管理友情链接", "description": "允许管理友情链接内容", "scope": "community" },
+    { "plugin_code": "official_links_s15_1780070799068", "code": "official_links_s15_1780070799068.config.manage", "name": "管理友情链接配置", "description": "允许读取和保存插件配置", "scope": "global" },
+    { "plugin_code": "official_links_s15_1780070799068", "code": "official_links_s15_1780070799068.menu.view", "name": "查看友情链接菜单", "description": "允许查看插件声明菜单", "scope": "community" }
+  ],
+  "menus": [
+    {
+      "plugin_code": "official_links_s15_1780070799068",
+      "code": "official_links_s15_1780070799068.admin.links",
+      "title": "友情链接管理",
+      "path": "/admin-next/plugins/overview?tab=list",
+      "location": "admin",
+      "area": "admin",
+      "permission": "official_links_s15_1780070799068.menu.view",
+      "sort_order": 365
+    },
+    {
+      "plugin_code": "official_links_s15_1780070799068",
+      "code": "official_links_s15_1780070799068.frontend.links",
+      "title": "友情链接",
+      "path": "/c/php/",
+      "route": "/c/php/",
+      "location": "frontend",
+      "area": "frontend",
+      "permission": "official_links_s15_1780070799068.menu.view",
+      "content_type": "friend_link_s15_1780070799068",
+      "require_community_enabled": true,
+      "require_category_binding": true,
+      "visible_when": ["plugin_enabled", "community_enabled", "config_valid"],
+      "sort_order": 120
+    }
+  ],
+  "routes": [
+    {
+      "plugin_code": "official_links_s15_1780070799068",
+      "area": "admin",
+      "method": "GET",
+      "path": "/api/v1/admin/plugins/overview?tab=list",
+      "handler": "reserved:official_links_s15_1780070799068.admin.links",
+      "auth": "admin",
+      "permission": "official_links_s15_1780070799068.menu.view"
+    }
+  ],
+  "config_schema": {
+    "type": "object",
+    "additionalProperties": false,
+    "required": ["enabled", "title", "max_links", "display_position"],
+    "properties": {
+      "enabled": { "type": "boolean", "title": "启用友情链接", "default": true },
+      "title": { "type": "string", "title": "展示标题", "default": "友情链接", "minLength": 2, "maxLength": 30 },
+      "max_links": { "type": "integer", "title": "最大链接数", "default": 10, "minimum": 1, "maximum": 100 },
+      "display_position": { "type": "string", "title": "展示位置", "enum": ["sidebar", "footer"], "enumNames": ["侧边栏", "页脚"], "default": "sidebar" }
+    }
+  },
+  "default_config": {
+    "enabled": true,
+    "title": "友情链接",
+    "max_links": 10,
+    "display_position": "sidebar"
+  },
+  "migrations": [
+    {
+      "plugin_code": "official_links_s15_1780070799068",
+      "migration_version": "1.0.0",
+      "migration_name": "official_links_init",
+      "direction": "up",
+      "checksum": "sha256:fixture",
+      "tables": ["official_links_items_s15_1780070799068"],
+      "rollback_supported": false,
+      "description": "创建友情链接最小业务表；install 只基于 migrations/ 计划处理。"
+    }
+  ]
+}

@@ -1,0 +1,82 @@
+---
+import SiteHeader from '../../components/SiteHeader.astro';
+import SeoLayout from '../../layouts/SeoLayout.astro';
+import { devhubSites as sites } from '../../lib/sites';
+---
+<SeoLayout title="我的动态 - DevHub" description="查看 DevHub 当前用户的发布、点赞、收藏和关注动态。" canonical="/me/activities/">
+  <SiteHeader sites={sites} activeSite="portal" />
+  <main>
+    <section class="page-title">
+      <h1>我的动态</h1>
+      <p>最近的发布、点赞、收藏和关注行为按时间倒序展示。</p>
+    </section>
+    <section class="tabs-line" data-activity-tabs>
+      <a class="active" href="/me/activities/" data-action="">全部</a>
+      <a href="/me/activities/?action=created_topic" data-action="created_topic">发布</a>
+      <a href="/me/activities/?action=liked" data-action="liked">点赞</a>
+      <a href="/me/activities/?action=favorited" data-action="favorited">收藏</a>
+      <a href="/me/activities/?action=followed" data-action="followed">关注</a>
+    </section>
+    <section class="content-layout narrow">
+      <div>
+        <div class="section-head">
+          <h2>动态流</h2>
+          <span data-activity-count>正在加载</span>
+        </div>
+        <div class="activity-list" data-activity-list>
+          <div class="empty-state">正在加载动态...</div>
+        </div>
+      </div>
+      <aside class="sidebar">
+        <section>
+          <h2>继续探索</h2>
+          <div class="quick-links">
+            <a href="/topics/new/">发布内容</a>
+            <a href="/me/favorites">我的收藏</a>
+            <a href="/notifications">通知中心</a>
+          </div>
+        </section>
+      </aside>
+    </section>
+  </main>
+  <script is:inline>
+    (() => {
+      const params = new URLSearchParams(window.location.search);
+      const activeAction = params.get('action') || '';
+      const list = document.querySelector('[data-activity-list]');
+      const count = document.querySelector('[data-activity-count]');
+      const escapeHTML = (value) => String(value ?? '').replace(/[&<>"']/g, (char) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[char]));
+      const actionText = { created_topic: '你发布了主题', commented: '你评论了主题', liked: '你点赞了主题', favorited: '你收藏了主题', followed: '你关注了', accepted_answer: '你采纳了回答' };
+      const token = () => localStorage.getItem('devhub_user_token') || localStorage.getItem('devhub_access_token') || '';
+      const authHeaders = () => token() ? { Authorization: `Bearer ${token()}` } : {};
+      document.querySelectorAll('[data-action]').forEach((link) => link.classList.toggle('active', (link.dataset.action || '') === activeAction));
+      const render = (item) => {
+        const title = item.target_title || item.remark || `${item.target_type} #${item.target_id}`;
+        const href = item.target_url || (item.target_type === 'topic' ? `/topics/${Number(item.target_id)}/` : '/');
+        const prefix = actionText[item.action] || item.action;
+        return `<article class="activity-item">
+          <span>${escapeHTML(item.created_at || '')}</span>
+          <h2>${escapeHTML(prefix)} <a href="${escapeHTML(href)}">《${escapeHTML(title)}》</a></h2>
+          <p>${escapeHTML(item.community || item.target_type || 'DevHub')}</p>
+        </article>`;
+      };
+      function load() {
+        if (!token()) {
+          if (count) count.textContent = '未登录';
+          if (list) list.innerHTML = '<div class="empty-state">请先登录后查看我的动态。<a href="/#login">去登录</a></div>';
+          return;
+        }
+        const query = new URLSearchParams({ page_size: '20' });
+        if (activeAction) query.set('action', activeAction);
+        fetch(`/api/v1/me/activities?${query.toString()}`, { headers: authHeaders() }).then((response) => response.ok ? response.json() : Promise.reject()).then((data) => {
+          const items = data.items || [];
+          if (count) count.textContent = `${Number(data.total || items.length)} 条`;
+          if (list) list.innerHTML = items.length ? items.map(render).join('') : '<div class="empty-state">还没有动态。<a href="/topics/new/">发布第一篇内容</a></div>';
+        }).catch(() => {
+          if (list) list.innerHTML = '<div class="empty-state">动态暂时不可用。<a href="/">返回首页</a></div>';
+        });
+      }
+      load();
+    })();
+  </script>
+</SeoLayout>

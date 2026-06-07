@@ -1,0 +1,15 @@
+FROM mcr.microsoft.com/playwright:v1.59.1-noble
+
+WORKDIR /app
+
+COPY package.json package-lock.json ./
+RUN npm ci
+
+COPY . .
+COPY docker/e2e-entrypoint.sh /usr/local/bin/admin-e2e-entrypoint
+RUN chmod +x /usr/local/bin/admin-e2e-entrypoint
+
+ENV DEVHUB_E2E_ORIGIN=http://host.docker.internal:8090
+
+ENTRYPOINT ["admin-e2e-entrypoint"]
+CMD ["npm", "run", "test:e2e"]

@@ -1,0 +1,17 @@
+---
+import SiteHeader from '../../components/SiteHeader.astro';
+import TopicPublishForm from '../../components/TopicPublishForm.vue';
+import SeoLayout from '../../layouts/SeoLayout.astro';
+import { devhubSites as sites } from '../../lib/sites';
+---
+<SeoLayout title="发布内容 - DevHub" description="在 DevHub 发布社区帖子、问答、项目、Wiki 或文档。" canonical="/topics/new/">
+  <SiteHeader sites={sites} activeSite="portal" />
+  <main>
+    <section class="page-title">
+      <span>发布</span>
+      <h1>发布内容</h1>
+      <p>选择社区子站和板块，把内容沉淀到 DevHub。</p>
+    </section>
+    <TopicPublishForm client:load />
+  </main>
+</SeoLayout>

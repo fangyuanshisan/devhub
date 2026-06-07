@@ -1,0 +1,107 @@
+{
+  "code": "article_audit_logger",
+  "name": "Article Audit Logger",
+  "version": "1.0.0",
+  "description": "独立运行的文章发布审计日志插件，使用 external_service Webhook 订阅内容创建事件，为后续多内容审计系统预留入口。",
+  "author": "DevHub Team",
+  "compatible_core_version": ">=1.8.3",
+  "min_core_version": "1.8.3",
+  "is_system": false,
+  "content_types": [],
+  "content_type_definitions": [],
+  "permissions": [
+    {
+      "plugin_code": "article_audit_logger",
+      "code": "article_audit_logger.manage",
+      "name": "管理文章审计日志插件",
+      "description": "允许配置文章审计日志外部服务、查看投递记录并执行重试。",
+      "scope": "global"
+    },
+    {
+      "plugin_code": "article_audit_logger",
+      "code": "article_audit_logger.configure",
+      "name": "配置文章审计日志插件",
+      "description": "允许配置文章审计日志插件。",
+      "scope": "global"
+    }
+  ],
+  "menus": [
+    {
+      "plugin_code": "article_audit_logger",
+      "code": "article_audit_logger.webhooks",
+      "title": "文章审计日志",
+      "path": "/admin-next/plugins/webhooks?plugin_code=article_audit_logger",
+      "location": "admin",
+      "area": "admin",
+      "permission": "article_audit_logger.manage",
+      "sort_order": 380
+    }
+  ],
+  "config_schema": {
+    "type": "object",
+    "additionalProperties": false,
+    "required": [
+      "enabled",
+      "observed_content_types"
+    ],
+    "properties": {
+      "enabled": {
+        "type": "boolean",
+        "title": "启用审计日志",
+        "default": true
+      },
+      "observed_content_types": {
+        "type": "array",
+        "title": "监听内容类型",
+        "items": {
+          "type": "string"
+        },
+        "default": [
+          "article"
+        ]
+      },
+      "receiver_note": {
+        "type": "string",
+        "title": "接收端备注",
+        "default": "local article audit logger"
+      }
+    }
+  },
+  "default_config": {
+    "enabled": true,
+    "observed_content_types": [
+      "article"
+    ],
+    "receiver_note": "local article audit logger"
+  },
+  "hooks": [
+    {
+      "plugin_code": "article_audit_logger",
+      "name": "AfterCreateContent",
+      "description": "内容创建后异步投递到独立文章审计日志服务。接收端默认只记录 article，可扩展为多内容审计。",
+      "mode": "non_blocking",
+      "service_type": "external_service",
+      "path": "/hooks/content.after_create",
+      "method": "POST",
+      "timeout_ms": 3000,
+      "retry_enabled": true,
+      "max_attempts": 3,
+      "enabled": true,
+      "blocking": false,
+      "critical": false,
+      "failure_policy": "warn"
+    }
+  ],
+  "external_service": {
+    "endpoint": "http://127.0.0.1:18110",
+    "subscribed_hooks": [
+      "AfterCreateContent"
+    ],
+    "timeout_ms": 3000,
+    "failure_policy": "warn",
+    "retry_policy": "linear",
+    "signature_algorithm": "none"
+  },
+  "migrations": [],
+  "assets": []
+}

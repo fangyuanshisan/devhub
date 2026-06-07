@@ -1,0 +1,288 @@
+package service
+
+import (
+	"fmt"
+	"os"
+	"path/filepath"
+	"strings"
+
+	"devhub-gin-backend/internal/domain"
+	pluginregistry "devhub-gin-backend/internal/plugins"
+)
+
+// InstallPluginPackage installs a plugin from a local package directory.
+//
+// It only accepts packages from the local repository, requires a fresh install
+// dry-run token, always re-runs dry-run server-side, and never executes plugin
+// code / package scripts / raw SQL / frontend assets.
+//
+// The installed plugin status is always disabled.
+func (s *Service) InstallPluginPackage(operator PluginOperationOperator, req domain.PluginPackageInstallRequest) (domain.PluginPackageInstallResponse, error) {
+	path := strings.TrimSpace(req.Path)
+	if path == "" {
+		return domain.PluginPackageInstallResponse{}, domain.NewPluginError("plugin_package_path_invalid", "缺少插件包路径").
+			WithStatus(400).
+			WithSuggestion("请提供 path，例如 storage/plugins/packages/demo_notice。")
+	}
+	if !strings.HasPrefix(filepath.ToSlash(path), pluginPackagePromoteRoot+"/") {
+		return domain.PluginPackageInstallResponse{}, domain.NewPluginError("plugin_package_install_source_invalid", "该包尚未提升到本地仓库，不能安装").
+			WithStatus(400).
+			WithDetail("path", path).
+			WithSuggestion("请先通过上传包 promote 将插件包转入 storage/plugins/packages/，再执行安装 dry-run 和安装。")
+	}
+
+	// Always re-run dry-run on backend; do not trust previous UI results.
+	dry, err := s.DryRunPluginPackage(path)
+	if err != nil {
+		return domain.PluginPackageInstallResponse{}, err
+	}
+	if err := s.verifyPluginPackageInstallDryRunID(dry, req.DryRunID); err != nil {
+		return domain.PluginPackageInstallResponse{}, err
+	}
+
+	// Reject duplicate install by code; suggest upgrade.
+	code := strings.TrimSpace(dry.Package.Code)
+	if code != "" {
+		if _, ok := s.repo.PluginByCode(code); ok {
+			return domain.PluginPackageInstallResponse{}, domain.NewPluginError("plugin_package_already_installed", "同编码插件已安装，不能重复安装").
+				WithStatus(400).
+				WithDetail("plugin_code", code).
+				WithDetail("actions", []string{"view_installed_plugin", "open_plugin_detail", "configure_plugin", "configure_external_service", "view_versions", "view_upgrade_diff", "submit_upgrade_approval"}).
+				WithSuggestion("该插件已经安装。更新配置请打开已安装插件详情；修改 Webhook 投递地址请进入 external_service 配置；升级版本请到版本仓库查看版本、升级差异并提交升级审批。")
+		}
+	}
+
+	// Hard blocks.
+	if strings.ToLower(dry.Status) == "blocked" || strings.ToLower(dry.RiskReport.Level) == "blocked" {
+		code := "plugin_package_install_blocked"
+		switch strings.TrimSpace(dry.BlockedCode) {
+		case "plugin_package_dangerous_file":
+			code = "plugin_package_dangerous_file"
+		case "plugin_package_signature_invalid",
+			"plugin_package_signature_unsupported_algorithm",
+			"plugin_package_signature_verification_failed",
+			"plugin_package_signature_payload_invalid",
+			"plugin_package_signature_manifest_unsigned",
+			"plugin_package_signature_signed_file_missing",
+			"plugin_package_signature_path_invalid",
+			"plugin_package_signature_publisher_blocked",
+			"plugin_package_signature_publisher_revoked",
+			"plugin_package_publisher_invalid",
+			"plugin_package_publisher_blocked",
+			"plugin_package_publisher_revoked":
+			code = strings.TrimSpace(dry.BlockedCode)
+		case "plugin_package_checksum_invalid", "plugin_package_checksum_mismatch", "plugin_package_checksum_file_missing", "plugin_package_checksum_duplicate_path", "plugin_package_checksum_unsupported_algorithm":
+			code = strings.TrimSpace(dry.BlockedCode)
+		case "plugin_package_manifest_invalid", "plugin_package_manifest_missing":
+			code = strings.TrimSpace(dry.BlockedCode)
+		}
+		return domain.PluginPackageInstallResponse{}, domain.NewPluginError(code, "插件包风险校验未通过，禁止安装").
+			WithStatus(400).
+			WithDetail("path", dry.Package.Path).
+			WithDetail("risk_level", dry.RiskReport.Level).
+			WithDetail("blocked_code", dry.BlockedCode).
+			WithDetail("blocked_reasons", dry.BlockedReasons).
+			WithSuggestion("请先根据风险报告修复阻断项，再重新扫描并安装。")
+	}
+
+	// checksums.json exists => checksum must be ok.
+	if dry.Package.ChecksumFound {
+		if strings.ToLower(dry.Checksum.Status) != "ok" {
+			code := "plugin_package_checksum_mismatch"
+			if strings.ToLower(dry.Checksum.Status) == "missing" {
+				code = "plugin_package_checksum_missing"
+			}
+			return domain.PluginPackageInstallResponse{}, domain.NewPluginError(code, "插件包 checksum 校验未通过，禁止安装").
+				WithStatus(400).
+				WithDetail("path", dry.Package.Path).
+				WithDetail("checksum_status", dry.Checksum.Status).
+				WithSuggestion("请修复 checksums.json 或移除被篡改文件后重试。")
+		}
+	}
+
+	// manifest validation + install preview must pass.
+	if !dry.ManifestValidation.Valid || !dry.InstallDryRun.Valid {
+		if strings.ToLower(strings.TrimSpace(dry.InstallDryRun.Compatibility.Status)) == pluginregistry.CompatibilityIncompatible {
+			return domain.PluginPackageInstallResponse{}, domain.NewPluginError("plugin_package_core_incompatible", "插件要求的 Core 版本不兼容，无法安装").
+				WithStatus(400).
+				WithDetail("path", dry.Package.Path).
+				WithDetail("core_version", dry.InstallDryRun.Compatibility.CoreVersion).
+				WithDetail("min_core_version", dry.InstallDryRun.Compatibility.MinCoreVersion).
+				WithDetail("compatible_core_version", dry.InstallDryRun.Compatibility.CompatibleCoreVersion).
+				WithDetail("messages", dry.InstallDryRun.Compatibility.Messages).
+				WithSuggestion("请升级 Core 或选择兼容的插件包版本后重试。")
+		}
+		requiredDeps := []string{}
+		for _, dep := range dry.InstallDryRun.Dependencies {
+			if dep.Required && strings.ToLower(dep.Status) != pluginregistry.DependencySatisfied {
+				requiredDeps = append(requiredDeps, dep.Code)
+			}
+		}
+		if len(requiredDeps) > 0 {
+			return domain.PluginPackageInstallResponse{}, domain.NewPluginError("plugin_package_dependency_missing", "插件包 required 依赖未满足，无法安装").
+				WithStatus(400).
+				WithDetail("path", dry.Package.Path).
+				WithDetail("dependencies", requiredDeps).
+				WithSuggestion("请先安装并启用 required 依赖插件后重试。")
+		}
+		return domain.PluginPackageInstallResponse{}, domain.NewPluginError("plugin_package_manifest_invalid", "插件包 manifest 校验未通过，无法安装").
+			WithStatus(400).
+			WithDetail("path", dry.Package.Path).
+			WithDetail("errors", append([]string(nil), dry.ManifestValidation.Errors...)).
+			WithSuggestion("请修复 manifest.json 后重试。")
+	}
+
+	// Require explicit confirmation when risk level is not low.
+	actualRisk := strings.ToLower(strings.TrimSpace(dry.RiskReport.Level))
+	confirm := strings.ToLower(strings.TrimSpace(req.ConfirmRiskLevel))
+	if actualRisk != "" && actualRisk != "low" {
+		if confirm == "" || confirm != actualRisk {
+			return domain.PluginPackageInstallResponse{}, domain.NewPluginError("plugin_package_install_blocked", "插件包存在风险项，需要确认风险等级后才能安装").
+				WithStatus(400).
+				WithDetail("path", dry.Package.Path).
+				WithDetail("risk_level", actualRisk).
+				WithSuggestion(fmt.Sprintf("请在确认弹窗中选择 confirm_risk_level=%s 后重试。", actualRisk))
+		}
+	}
+
+	if code == "" {
+		return domain.PluginPackageInstallResponse{}, domain.NewPluginError("plugin_package_manifest_invalid", "插件包 manifest 缺少 code，无法安装").
+			WithStatus(400).
+			WithDetail("path", dry.Package.Path).
+			WithSuggestion("请在 manifest.json 中补充 code 后重试。")
+	}
+
+	// Load raw manifest.json and install via existing manifest install logic.
+	abs, _, nerr := pluginregistry.NormalizePluginPackagePath(path)
+	if nerr != nil {
+		return domain.PluginPackageInstallResponse{}, nerr
+	}
+	manifestRaw, rerr := os.ReadFile(filepath.Join(abs, "manifest.json"))
+	if rerr != nil {
+		return domain.PluginPackageInstallResponse{}, fmt.Errorf("读取 manifest.json 失败：%w", rerr)
+	}
+
+	opID := strings.TrimSpace(req.OperationID)
+	if opID == "" {
+		opID = newPluginOperationID()
+	}
+	snapshot := domain.PluginOperationSnapshot{
+		OperationID:       opID,
+		OperationType:     domain.PluginOperationTypeInstall,
+		PluginCode:        code,
+		FromVersion:       "",
+		ToVersion:         strings.TrimSpace(dry.Package.Version),
+		PackagePath:       strings.TrimSpace(dry.Package.Path),
+		PackageSource:     string(domain.PluginVersionSourceLocalPackage),
+		ApprovalID:        req.ApprovalID,
+		BeforeStatus:      "",
+		AfterManifestJSON: scrubManifestJSONForSnapshot(string(manifestRaw)),
+		DryRunJSON: mustJSON(scrubAnyForSnapshot(map[string]any{
+			"package":             dry.Package,
+			"file_scan":           dry.FileScan,
+			"checksum":            dry.Checksum,
+			"signature":           dry.Signature,
+			"manifest_validation": dry.ManifestValidation,
+			"install_dry_run":     dry.InstallDryRun,
+			"migration_plan":      dry.MigrationPlan,
+			"risk_report":         dry.RiskReport,
+			"status":              dry.Status,
+			"blocked_code":        dry.BlockedCode,
+			"blocked_reasons":     dry.BlockedReasons,
+			"errors":              dry.Errors,
+			"warnings":            dry.Warnings,
+		})),
+		RiskReportJSON:       mustJSON(scrubAnyForSnapshot(dry.RiskReport)),
+		ChecksumSummaryJSON:  mustJSON(scrubAnyForSnapshot(dry.Checksum)),
+		SignatureSummaryJSON: mustJSON(scrubAnyForSnapshot(dry.Signature)),
+		Status:               domain.PluginOperationStatusCreated,
+		CreatedBy:            operator.ID,
+		MetadataJSON: mustJSON(map[string]any{
+			"operator_name":      strings.TrimSpace(operator.Name),
+			"confirm_risk_level": strings.TrimSpace(req.ConfirmRiskLevel),
+			"approval_id":        req.ApprovalID,
+		}),
+	}
+	if saved, serr := s.repo.AppendPluginOperationSnapshot(snapshot); serr == nil {
+		snapshot = saved
+	}
+
+	packageManifestChecksum := findChecksumSHA256(dry.Checksum.Matched, "manifest.json")
+	plugin, validation, ierr := s.installPluginManifestInternal(manifestRaw, "local_package", packageManifestChecksum)
+	if ierr != nil {
+		snapshot.Status = domain.PluginOperationStatusFailed
+		if apiErr, ok := ierr.(*domain.APIError); ok && apiErr != nil {
+			snapshot.ErrorCode = apiErr.Code
+			snapshot.ErrorMessage = apiErr.Message
+		} else {
+			snapshot.ErrorCode = "plugin_package_install_failed"
+			snapshot.ErrorMessage = ierr.Error()
+		}
+		_, _ = s.repo.SavePluginOperationSnapshot(snapshot)
+		// Ensure a stable error code for UI.
+		if apiErr, ok := ierr.(*domain.APIError); ok && apiErr != nil {
+			return domain.PluginPackageInstallResponse{}, apiErr
+		}
+		return domain.PluginPackageInstallResponse{}, domain.NewPluginError("plugin_package_install_failed", "插件安装失败").
+			WithStatus(500).
+			WithDetail("plugin_code", code).
+			WithDetail("operation_id", snapshot.OperationID).
+			WithSuggestion("请到“系统插件 -> 操作历史”查看失败详情，并按恢复预览执行 cleanup。")
+	}
+	if rerr := s.refreshPluginRegistry(pluginRegistryRefreshEvent{
+		Trigger:    "after_install",
+		PluginCode: plugin.Code,
+		ActorType:  "admin_user",
+		ActorID:    operator.ID,
+		ActorName:  firstNonEmpty(operator.Name, "system"),
+		NewVersion: plugin.Version,
+		Status:     plugin.Status,
+	}); rerr != nil {
+		snapshot.Status = domain.PluginOperationStatusFailed
+		snapshot.ErrorCode = "plugin_registry_reload_failed"
+		snapshot.ErrorMessage = rerr.Error()
+		_, _ = s.repo.SavePluginOperationSnapshot(snapshot)
+		return domain.PluginPackageInstallResponse{}, domain.NewPluginError("plugin_registry_reload_failed", "插件已安装，但运行态刷新失败").
+			WithStatus(500).
+			WithDetail("plugin_code", code).
+			WithDetail("operation_id", snapshot.OperationID).
+			WithSuggestion("请查看审计日志后重试运行态刷新。")
+	}
+
+	createdMigrations := len(validation.NormalizedManifest.Migrations)
+	resp := domain.PluginPackageInstallResponse{
+		Message:     "插件已从本地插件包安装完成（默认 disabled）",
+		OperationID: snapshot.OperationID,
+		Plugin:      plugin,
+		Package:     dry.Package,
+		Checksum:    dry.Checksum,
+		RiskLevel:   dry.RiskReport.Level,
+		InstallResult: domain.PluginPackageInstallResult{
+			Installed:          true,
+			CreatedConfig:      true,
+			CreatedMigrations:  createdMigrations,
+			CreatedPermissions: len(validation.NormalizedManifest.Permissions),
+			CreatedMenus:       len(validation.NormalizedManifest.Menus),
+			CreatedRoutes:      len(validation.NormalizedManifest.Routes),
+		},
+		Warnings: dry.Warnings,
+	}
+	snapshot.Status = domain.PluginOperationStatusApplied
+	snapshot.FromVersion = ""
+	snapshot.ToVersion = plugin.Version
+	snapshot.BeforeStatus = ""
+	snapshot.ErrorCode = ""
+	snapshot.ErrorMessage = ""
+	_, _ = s.repo.SavePluginOperationSnapshot(snapshot)
+	_ = validation
+	return resp, nil
+}
+
+func findChecksumSHA256(files []domain.PluginPackageChecksumFile, path string) string {
+	for _, it := range files {
+		if strings.TrimSpace(it.Path) == path && strings.TrimSpace(it.SHA256) != "" {
+			return strings.TrimSpace(it.SHA256)
+		}
+	}
+	return ""
+}

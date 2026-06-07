@@ -1,0 +1,197 @@
+---
+import SiteHeader from '../components/SiteHeader.astro';
+import AuthPanel from '../components/AuthPanel.vue';
+import SeoLayout from '../layouts/SeoLayout.astro';
+import { devhubSites as sites, portalSite as portal } from '../lib/sites';
+
+const channelCards = [
+  { title: '社区', desc: '讨论工程经验和线上问题', href: '/search/?scope=all&content_type=article' },
+  { title: '问答', desc: '沉淀具体问题的可复用答案', href: '/search/?scope=all&content_type=question' },
+  { title: '文档', desc: '教程、部署手册和实践指南', href: '/search/?scope=all&content_type=document' },
+  { title: '开源', desc: '项目推荐和维护经验', href: '/search/?scope=all&content_type=project' },
+];
+const jsonLd = {
+  '@context': 'https://schema.org',
+  '@type': 'WebSite',
+  name: 'DevHub',
+  url: new URL('/', Astro.site || Astro.url).toString(),
+  potentialAction: {
+    '@type': 'SearchAction',
+    target: new URL('/search/?keyword={search_term_string}', Astro.site || Astro.url).toString(),
+    'query-input': 'required name=search_term_string',
+  },
+};
+const typeLabels = {
+  article: '社区',
+  question: '问答中心',
+  project: '开源项目',
+  ai_work: '智能作品',
+  job: '招聘内推',
+  wiki: 'Wiki',
+  wiki_page: 'Wiki',
+  doc: '文档',
+  document: '文档',
+  friend_link: '友情链接',
+  feishu_link: '飞书链接',
+  news: '动态',
+};
+---
+<SeoLayout title="DevHub 开发者社区" description={portal.description} site={portal} jsonLd={jsonLd}>
+  <SiteHeader sites={sites} activeSite="portal" />
+  <main>
+    <section class="home-shell">
+      <div class="home-main">
+        <section class="community-hero">
+          <div>
+            <span class="eyebrow">总站聚合</span>
+            <h1>汇总各社区子站推荐内容</h1>
+            <p>{portal.description}</p>
+          </div>
+          <div class="hero-actions">
+            <a class="primary-link" href="/topics/new/">发布内容</a>
+            <a href="/search/?scope=all&content_type=document">浏览文档</a>
+          </div>
+        </section>
+
+        <section class="channel-grid" aria-label="内容频道">
+          {channelCards.map((channel) => (
+            <a class="channel-card" href={channel.href}>
+              <span>{channel.title}</span>
+              <strong>{channel.title}</strong>
+              <p>{channel.desc}</p>
+            </a>
+          ))}
+        </section>
+
+        <section class="featured-strip">
+          <div class="section-head">
+            <h2>全站精选</h2>
+            <a href="/search/?scope=all&sort=featured">更多精选</a>
+          </div>
+          <div class="featured-grid" data-home-featured>
+            <div class="empty-state">正在加载精选内容...</div>
+          </div>
+        </section>
+
+        <section class="site-recommendations">
+          <div class="section-head">
+            <h2>子站推荐</h2>
+            <span>来自不同社区子站的活跃内容</span>
+          </div>
+          <section
+            data-devhub-plugin-mount
+            data-plugin-code="official_announcement"
+            data-component-key="official.announcement.card"
+            data-mount-point="frontend.home.section"
+            data-area="frontend"
+            style="margin: 12px 0;"
+          ></section>
+          <div class="recommend-grid" data-home-recommendations>
+            <div class="empty-state">正在加载子站推荐...</div>
+          </div>
+        </section>
+
+        <div class="section-head">
+          <h2>全站动态</h2>
+          <a href="/search/?scope=all">查看更多</a>
+        </div>
+        <div class="post-list" data-home-latest>
+          <div class="empty-state">正在加载最新内容...</div>
+        </div>
+      </div>
+      <aside class="home-sidebar">
+        <AuthPanel client:load />
+        <section>
+          <h2>技术子站</h2>
+          <div class="site-list" data-home-communities>
+            <div class="empty-state">正在加载子站...</div>
+          </div>
+        </section>
+        <section>
+          <h2>热门内容</h2>
+          <ol class="hot-list" data-home-hot></ol>
+        </section>
+        <section>
+          <h2>热门标签</h2>
+          <div class="tag-cloud" data-home-tags>
+            <span>正在加载标签...</span>
+          </div>
+        </section>
+      </aside>
+    </section>
+  </main>
+  <script src="/plugins/assets/devhub-plugin-mount-host.js" defer></script>
+  <script define:vars={{ typeLabels }}>
+    (() => {
+      const communityIDToSite = { 1: 'php', 2: 'go', 3: 'java', 4: 'ai', 5: 'frontend' };
+      const communityNames = { php: 'PHP', go: 'Go', java: 'Java', ai: 'AI', frontend: 'Frontend', portal: '全站' };
+      const escapeHTML = (value) => String(value ?? '').replace(/[&<>"']/g, (char) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[char]));
+      const topicSite = (topic) => communityIDToSite[topic.community_id] || 'portal';
+      const tagSegment = (tag) => encodeURIComponent(String(tag).trim().toLowerCase().replace(/\s+/g, '-'));
+      const tagURL = (tag, site) => site === 'portal' ? `/tags/${tagSegment(tag)}/` : `/c/${encodeURIComponent(site)}/tags/${tagSegment(tag)}/`;
+	      const renderTopic = (topic) => {
+	        const site = topicSite(topic);
+	        const tags = (topic.tags || []).slice(0, 5).map((tag) => `<a href="${tagURL(tag, site)}">${escapeHTML(tag)}</a>`).join('');
+	        const qaState = topic.content_type === 'question'
+	          ? (topic.is_solved ? '<span class="state-pill solved">已解决</span>' : '<span class="state-pill unsolved">未解决</span>')
+	          : '';
+	        const commentLabel = topic.content_type === 'question' ? '回答' : '评论';
+	        return `<article class="post-card">
+	          <div class="post-card-top">
+	            <span class="type-pill">${escapeHTML(typeLabels[topic.content_type] || '内容')}</span>
+	            <a class="site-pill" href="/c/${encodeURIComponent(site)}/">${escapeHTML(communityNames[site] || site)}</a>
+	            ${topic.is_pinned ? '<span class="state-pill">置顶</span>' : ''}
+	            ${topic.is_featured ? '<span class="state-pill">精华</span>' : ''}
+	            ${qaState}
+	          </div>
+	          <h2><a href="/topics/${Number(topic.id)}/">${escapeHTML(topic.title)}</a></h2>
+	          <p>${escapeHTML(topic.summary || String(topic.content || '').slice(0, 120))}</p>
+	          ${tags ? `<div class="post-tags">${tags}</div>` : ''}
+	          <footer><span>社区用户</span><span>${escapeHTML(topic.created_at || '刚刚')} 发布</span><span>${escapeHTML(topic.last_active_at || topic.updated_at || topic.created_at || '刚刚')} 活跃</span><span>${Number(topic.view_count || 0)} 浏览</span><span>${Number(topic.like_count || 0)} 赞</span><span>${Number(topic.comment_count || 0)} ${commentLabel}</span></footer>
+	        </article>`;
+	      };
+      const renderFeature = (topic) => `<article class="featured-card"><span>${escapeHTML(typeLabels[topic.content_type] || '内容')}</span><h3><a href="/topics/${Number(topic.id)}/">${escapeHTML(topic.title)}</a></h3><p>${escapeHTML(topic.summary || String(topic.content || '').slice(0, 90))}</p></article>`;
+      const getJSON = (url) => fetch(url).then((response) => response.ok ? response.json() : Promise.reject());
+
+      // v1.8.2: official plugins iframe mounts are handled by shared helper:
+      // GET /plugins/assets/devhub-plugin-mount-host.js
+
+      getJSON('/api/v1/communities').then((data) => {
+        const list = document.querySelector('[data-home-communities]');
+        const recommend = document.querySelector('[data-home-recommendations]');
+        const communities = data.items || [];
+        if (list && communities.length) {
+          list.innerHTML = communities.map((site) => `<a href="/c/${encodeURIComponent(site.slug)}/"><span>${escapeHTML(site.logo || site.name.slice(0, 2))}</span><div><strong>${escapeHTML(site.name)}</strong><p>${escapeHTML(site.description)}</p></div></a>`).join('');
+        }
+        if (recommend && communities.length) {
+          recommend.innerHTML = communities.map((site) => `<section class="recommend-card"><header><span>${escapeHTML(site.logo || site.name.slice(0, 2))}</span><div><strong>${escapeHTML(site.name)}</strong><a href="/c/${encodeURIComponent(site.slug)}/">进入子站</a></div></header><ul data-rec-list="${escapeHTML(site.slug)}"><li>正在加载...</li></ul></section>`).join('');
+          communities.forEach((site) => getJSON(`/api/v1/topics?community_slug=${encodeURIComponent(site.slug)}&sort=latest&page_size=3`).then((topicData) => {
+            const ul = document.querySelector(`[data-rec-list="${CSS.escape(site.slug)}"]`);
+            const items = topicData.items || [];
+            if (ul) ul.innerHTML = items.length ? items.map((topic) => `<li><a href="/topics/${Number(topic.id)}/">${escapeHTML(topic.title)}</a></li>`).join('') : '<li>暂无内容</li>';
+          }).catch(() => {}));
+        }
+      }).catch(() => {});
+
+      getJSON('/api/v1/topics?sort=latest&page_size=12').then((data) => {
+        const list = document.querySelector('[data-home-latest]');
+        if (list) list.innerHTML = (data.items || []).length ? data.items.map(renderTopic).join('') : '<div class="empty-state">暂无内容。<a href="/topics/new/">发布第一篇内容</a></div>';
+      }).catch(() => {});
+      getJSON('/api/v1/topics?sort=hot&page_size=6').then((data) => {
+        const list = document.querySelector('[data-home-hot]');
+        if (list) list.innerHTML = (data.items || []).map((topic) => `<li><a href="/topics/${Number(topic.id)}/">${escapeHTML(topic.title)}</a></li>`).join('');
+      }).catch(() => {});
+      getJSON('/api/v1/topics?sort=featured&page_size=4').then((data) => {
+        const list = document.querySelector('[data-home-featured]');
+        if (list) list.innerHTML = (data.items || []).length ? data.items.map(renderFeature).join('') : '<div class="empty-state">暂无精选内容。</div>';
+      }).catch(() => {});
+      getJSON('/api/v1/tags/hot').then((data) => {
+        const cloud = document.querySelector('[data-home-tags]');
+        const tags = data.items || [];
+        if (cloud) cloud.innerHTML = tags.length ? tags.map((tag) => `<a href="${tag.community_slug ? `/c/${encodeURIComponent(tag.community_slug)}/tags/${encodeURIComponent(tag.slug || String(tag.name).trim().toLowerCase().replace(/\s+/g, '-'))}/` : `/tags/${encodeURIComponent(tag.slug || String(tag.name).trim().toLowerCase().replace(/\s+/g, '-'))}/`}">${escapeHTML(tag.name)}<span>${Number(tag.topic_count || tag.count || 0)}</span></a>`).join('') : '<span>暂无标签</span>';
+      }).catch(() => {});
+
+      // The helper auto-mounts on DOMContentLoaded.
+    })();
+  </script>
+</SeoLayout>

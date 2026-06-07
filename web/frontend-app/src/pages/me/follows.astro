@@ -1,0 +1,94 @@
+---
+import SiteHeader from '../../components/SiteHeader.astro';
+import SeoLayout from '../../layouts/SeoLayout.astro';
+import { devhubSites as sites } from '../../lib/sites';
+---
+<SeoLayout title="我的关注 - DevHub" description="查看 DevHub 中当前用户关注的子站、标签、用户和主题。" canonical="/me/follows/">
+  <SiteHeader sites={sites} activeSite="portal" />
+  <main>
+    <section class="page-title">
+      <h1>我的关注</h1>
+      <p>关注的子站、标签、用户和主题会集中显示。</p>
+    </section>
+    <section class="tabs-line" data-follow-tabs>
+      <a class="active" href="/me/follows/" data-target-type="">全部</a>
+      <a href="/me/follows/?target_type=community" data-target-type="community">子站</a>
+      <a href="/me/follows/?target_type=tag" data-target-type="tag">标签</a>
+      <a href="/me/follows/?target_type=user" data-target-type="user">用户</a>
+      <a href="/me/follows/?target_type=topic" data-target-type="topic">内容</a>
+    </section>
+    <section class="content-layout narrow">
+      <div>
+        <div class="section-head">
+          <h2>关注列表</h2>
+          <span data-follow-count>正在加载</span>
+        </div>
+        <div class="post-list" data-follow-list>
+          <div class="empty-state">正在加载关注列表...</div>
+        </div>
+      </div>
+      <aside class="sidebar">
+        <section>
+          <h2>浏览</h2>
+          <div class="quick-links">
+            <a href="/">浏览子站</a>
+            <a href="/search/">搜索内容</a>
+            <a href="/me/favorites">我的收藏</a>
+          </div>
+        </section>
+      </aside>
+    </section>
+  </main>
+  <script is:inline>
+    (() => {
+      const params = new URLSearchParams(window.location.search);
+      const activeType = params.get('target_type') || '';
+      const list = document.querySelector('[data-follow-list]');
+      const count = document.querySelector('[data-follow-count]');
+      const escapeHTML = (value) => String(value ?? '').replace(/[&<>"']/g, (char) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[char]));
+      const token = () => localStorage.getItem('devhub_user_token') || localStorage.getItem('devhub_access_token') || '';
+      const authHeaders = (extra = {}) => token() ? { ...extra, Authorization: `Bearer ${token()}` } : extra;
+      const request = (url, options = {}) => fetch(url, { ...options, headers: authHeaders(options.headers || {}) }).then((response) => response.ok ? response.json() : response.json().then((data) => Promise.reject(data)));
+      document.querySelectorAll('[data-target-type]').forEach((link) => link.classList.toggle('active', (link.dataset.targetType || '') === activeType));
+      const typeLabel = { community: '子站', tag: '标签', user: '用户', topic: '内容' };
+      const render = (item) => {
+        const title = item.target_title || item.target_name || `#${item.target_id}`;
+        const href = item.target_url || '/';
+        return `<article class="post-card" data-follow-item="${Number(item.target_id)}">
+          <div class="post-card-top"><span class="type-pill">${escapeHTML(typeLabel[item.target_type] || item.target_type)}</span><span>${escapeHTML(item.created_at || '')} 关注</span></div>
+          <h2><a href="${escapeHTML(href)}">${escapeHTML(title)}</a></h2>
+          <p>${escapeHTML(item.description || item.topic?.summary || item.community?.description || '暂无简介')}</p>
+          <footer><span>${escapeHTML(item.community?.name || item.target_slug || '')}</span><button type="button" data-unfollow-type="${escapeHTML(item.target_type)}" data-unfollow-id="${Number(item.target_id)}">取消关注</button></footer>
+        </article>`;
+      };
+      function load() {
+        if (!token()) {
+          if (count) count.textContent = '未登录';
+          if (list) list.innerHTML = '<div class="empty-state">请先登录后查看我的关注。<a href="/#login">去登录</a></div>';
+          return;
+        }
+        const query = new URLSearchParams({ page_size: '20' });
+        if (activeType) query.set('target_type', activeType);
+        request(`/api/v1/me/follows?${query.toString()}`).then((data) => {
+          const items = data.items || [];
+          if (count) count.textContent = `${Number(data.total || items.length)} 条`;
+          if (!list) return;
+          list.innerHTML = items.length ? items.map(render).join('') : '<div class="empty-state">还没有关注任何内容。<a href="/">浏览子站</a></div>';
+        }).catch(() => {
+          if (list) list.innerHTML = '<div class="empty-state">关注列表暂时不可用。<a href="/">浏览子站</a></div>';
+        });
+      }
+      list?.addEventListener('click', (event) => {
+        const button = event.target.closest('[data-unfollow-id]');
+        if (!button) return;
+        button.disabled = true;
+        request('/api/v1/follows/toggle', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ target_type: button.dataset.unfollowType, target_id: Number(button.dataset.unfollowId) }),
+        }).then(load).catch(() => { button.disabled = false; });
+      });
+      load();
+    })();
+  </script>
+</SeoLayout>

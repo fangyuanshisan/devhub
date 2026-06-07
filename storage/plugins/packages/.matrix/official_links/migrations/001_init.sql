@@ -1,0 +1,6 @@
+-- official_links v1.0.0
+-- This official plugin stores friend links in DevHub Core topics:
+--   topics.plugin_code = 'official_links'
+--   topics.content_type = 'friend_link'
+-- No private table is required in v1.8.4-S1.
+-- DevHub package dry-run records this file in migration_plan with will_execute=false.

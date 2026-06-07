@@ -1,0 +1,61 @@
+services:
+  mysql:
+    image: mysql:8.0
+    restart: unless-stopped
+    environment:
+      MYSQL_ROOT_PASSWORD: ${DEVHUB_MYSQL_ROOT_PASSWORD}
+      MYSQL_DATABASE: ${DEVHUB_MYSQL_DATABASE:-devhub}
+      MYSQL_USER: ${DEVHUB_MYSQL_USER:-devhub}
+      MYSQL_PASSWORD: ${DEVHUB_MYSQL_PASSWORD}
+    command:
+      - --character-set-server=utf8mb4
+      - --collation-server=utf8mb4_unicode_ci
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - mysqladmin ping -h127.0.0.1 -u"$${MYSQL_USER}" -p"$${MYSQL_PASSWORD}" --silent
+      interval: 5s
+      timeout: 3s
+      retries: 40
+      start_period: 20s
+    volumes:
+      - devhub_mysql_data:/var/lib/mysql
+
+  devhub:
+    image: ${DEVHUB_IMAGE:-devhub:latest}
+    build:
+      context: .
+      dockerfile: Dockerfile
+      args:
+        NPM_CONFIG_REGISTRY: ${NPM_CONFIG_REGISTRY:-https://registry.npmmirror.com}
+        GOPROXY: ${GOPROXY:-https://goproxy.cn,direct}
+        GOSUMDB: ${GOSUMDB:-sum.golang.google.cn}
+        FRONTEND_SITE_URL: ${DEVHUB_PUBLIC_URL:-http://127.0.0.1:8090}
+        FRONTEND_API_BASE: ${DEVHUB_FRONTEND_API_BASE:-}
+    restart: unless-stopped
+    depends_on:
+      mysql:
+        condition: service_healthy
+    environment:
+      PORT: 8090
+      CMS_STORE: mysql
+      DB_HOST: mysql
+      DB_PORT: 3306
+      DB_USER: ${DEVHUB_MYSQL_USER:-devhub}
+      DB_PASSWORD: ${DEVHUB_MYSQL_PASSWORD}
+      DB_NAME: ${DEVHUB_MYSQL_DATABASE:-devhub}
+      DEVHUB_EXTERNAL_SERVICE_HTTP_ALLOWLIST: ${DEVHUB_EXTERNAL_SERVICE_HTTP_ALLOWLIST:-}
+      DEVHUB_PLUGIN_CONFIG_KEYS: ${DEVHUB_PLUGIN_CONFIG_KEYS:-}
+      DEVHUB_PLUGIN_CONFIG_KEY_ID: ${DEVHUB_PLUGIN_CONFIG_KEY_ID:-}
+      DEVHUB_PLUGIN_CONFIG_KEY: ${DEVHUB_PLUGIN_CONFIG_KEY:-}
+      DEVHUB_PLUGIN_CONFIG_OLD_KEYS: ${DEVHUB_PLUGIN_CONFIG_OLD_KEYS:-}
+    ports:
+      - "${DEVHUB_HTTP_PORT:-8090}:8090"
+    volumes:
+      - devhub_storage:/app/storage
+      - devhub_plugins_local:/app/plugins-local
+
+volumes:
+  devhub_mysql_data:
+  devhub_storage:
+  devhub_plugins_local:

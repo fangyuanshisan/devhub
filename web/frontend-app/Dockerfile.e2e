@@ -1,0 +1,15 @@
+FROM mcr.microsoft.com/playwright:v1.59.1-noble
+
+WORKDIR /app
+
+COPY package.json package-lock.json ./
+RUN npm ci --fetch-retries=5 --fetch-timeout=600000 --fetch-retry-mintimeout=20000 --fetch-retry-maxtimeout=120000
+
+COPY . .
+COPY docker/e2e-entrypoint.sh /usr/local/bin/frontend-e2e-entrypoint
+RUN chmod +x /usr/local/bin/frontend-e2e-entrypoint
+
+ENV DEVHUB_E2E_ORIGIN=http://host.docker.internal:8090
+
+ENTRYPOINT ["frontend-e2e-entrypoint"]
+CMD ["npm", "run", "test:e2e"]

@@ -1,0 +1,200 @@
+{
+  "code": "demo_links",
+  "name": "Demo Links",
+  "version": "1.0.0",
+  "description": "用于展示 DevHub 声明型插件模板的示例。",
+  "author": "DevHub Team",
+  "compatible_core_version": ">=1.4.0",
+  "is_system": false,
+  "content_types": [
+    "demo_link"
+  ],
+  "content_type_definitions": [
+    {
+      "type": "demo_link",
+      "name": "演示链接",
+      "plugin_code": "demo_links",
+      "create_permission": "demo_links.demo.link.create",
+      "edit_permission": "demo_links.demo.link.edit",
+      "delete_permission": "demo_links.demo.link.delete",
+      "audit_permission": "demo_links.demo.link.audit",
+      "default_status": "draft",
+      "allow_comment": true,
+      "allow_like": true,
+      "allow_favorite": true,
+      "seo_type": "Article"
+    }
+  ],
+  "permissions": [
+    {
+      "plugin_code": "demo_links",
+      "code": "demo_links.demo.link.create",
+      "name": "创建演示链接",
+      "description": "允许创建演示链接内容。",
+      "scope": "community"
+    },
+    {
+      "plugin_code": "demo_links",
+      "code": "demo_links.demo.link.edit",
+      "name": "编辑演示链接",
+      "description": "允许编辑演示链接内容。",
+      "scope": "own"
+    },
+    {
+      "plugin_code": "demo_links",
+      "code": "demo_links.demo.link.delete",
+      "name": "删除演示链接",
+      "description": "允许删除演示链接内容。",
+      "scope": "own"
+    },
+    {
+      "plugin_code": "demo_links",
+      "code": "demo_links.demo.link.audit",
+      "name": "审核演示链接",
+      "description": "允许审核演示链接内容。",
+      "scope": "community"
+    },
+    {
+      "plugin_code": "demo_links",
+      "code": "demo_links.manage",
+      "name": "管理Demo Links",
+      "description": "允许管理Demo Links插件内容和治理入口。",
+      "scope": "global"
+    },
+    {
+      "plugin_code": "demo_links",
+      "code": "demo_links.configure",
+      "name": "配置Demo Links",
+      "description": "允许配置Demo Links插件。",
+      "scope": "global"
+    }
+  ],
+  "menus": [
+    {
+      "plugin_code": "demo_links",
+      "code": "demo_links.admin",
+      "title": "Demo Links",
+      "path": "/admin-next/demo_links",
+      "location": "admin",
+      "area": "admin",
+      "permission": "demo_links.manage",
+      "sort_order": 300
+    },
+    {
+      "plugin_code": "demo_links",
+      "code": "demo_links.moderator",
+      "title": "Demo Links",
+      "path": "/moderator/demo_links",
+      "location": "moderator",
+      "area": "moderator",
+      "permission": "demo_links.demo.link.audit",
+      "sort_order": 300
+    },
+    {
+      "plugin_code": "demo_links",
+      "code": "demo_links.frontend",
+      "title": "Demo Links",
+      "path": "/demo_links",
+      "location": "frontend",
+      "area": "frontend",
+      "permission": "demo_links.demo.link.create",
+      "sort_order": 300
+    }
+  ],
+  "routes": [
+    {
+      "plugin_code": "demo_links",
+      "area": "admin",
+      "method": "GET",
+      "path": "/api/v1/admin/demo_links",
+      "handler": "reserved:demo_links.admin.list",
+      "auth": "admin",
+      "permission": "demo_links.manage"
+    },
+    {
+      "plugin_code": "demo_links",
+      "area": "frontend",
+      "method": "GET",
+      "path": "/demo_links",
+      "handler": "reserved:demo_links.frontend.index",
+      "auth": "optional",
+      "permission": "demo_links.demo.link.create"
+    }
+  ],
+  "config_schema": {
+    "additionalProperties": false,
+    "properties": {
+      "display_mode": {
+        "default": "standard",
+        "description": "示例枚举配置。",
+        "enum": [
+          "compact",
+          "standard"
+        ],
+        "title": "展示模式",
+        "type": "string"
+      },
+      "enabled": {
+        "default": true,
+        "description": "控制插件声明功能是否在配置层启用。",
+        "title": "启用扩展功能",
+        "type": "boolean"
+      },
+      "items_per_page": {
+        "default": 20,
+        "description": "列表类页面每页展示数量。",
+        "max": 100,
+        "min": 1,
+        "title": "每页数量",
+        "type": "integer"
+      }
+    },
+    "required": [
+      "enabled",
+      "items_per_page"
+    ],
+    "type": "object"
+  },
+  "min_core_version": "1.4.0",
+  "hooks": [
+    {
+      "plugin_code": "demo_links",
+      "name": "BeforeCreateContent",
+      "description": "声明创建内容前的 blocking Hook；当前不会动态加载第三方处理器。",
+      "mode": "blocking",
+      "blocking": true,
+      "critical": true,
+      "failure_policy": "block",
+      "timeout_ms": 3000,
+      "failure_threshold": 1
+    },
+    {
+      "plugin_code": "demo_links",
+      "name": "AfterCreateContent",
+      "description": "声明创建内容后的 non-blocking Hook；当前不会动态加载第三方处理器。",
+      "mode": "non_blocking",
+      "blocking": false,
+      "critical": false,
+      "failure_policy": "log",
+      "timeout_ms": 3000,
+      "failure_threshold": 3
+    }
+  ],
+  "migrations": [
+    {
+      "plugin_code": "demo_links",
+      "migration_version": "1.0.0",
+      "migration_name": "demo_links_init",
+      "direction": "up",
+      "checksum": "sha256:declaration-only",
+      "tables": [
+        "demo_links_items"
+      ],
+      "rollback_supported": false,
+      "description": "声明型迁移示例。当前不会执行外部 raw SQL。"
+    }
+  ],
+  "assets": [
+    "assets/icon.svg"
+  ]
+}

@@ -1,0 +1,137 @@
+{
+  "code": "export_test_plugin",
+  "plugin_code": "export_test_plugin",
+  "name": "Export Test Plugin",
+  "version": "1.0.0",
+  "description": "Export test plugin.",
+  "author": "DevHub Test",
+  "compatible_core_version": "\u003e=1.4.0",
+  "is_system": false,
+  "source_type": "manifest",
+  "content_types": [
+    "export_test_item"
+  ],
+  "content_type_definitions": [
+    {
+      "type": "export_test_item",
+      "name": "Export Test Item",
+      "plugin_code": "export_test_plugin",
+      "create_permission": "export_test_plugin.item.create",
+      "edit_permission": "export_test_plugin.item.edit",
+      "delete_permission": "export_test_plugin.item.delete",
+      "audit_permission": "export_test_plugin.item.audit",
+      "default_status": "draft",
+      "allow_comment": true,
+      "allow_like": true,
+      "allow_favorite": true,
+      "seo_type": "Article"
+    }
+  ],
+  "permissions": [
+    {
+      "plugin_code": "export_test_plugin",
+      "code": "export_test_plugin.item.create",
+      "name": "Create",
+      "scope": "community"
+    },
+    {
+      "plugin_code": "export_test_plugin",
+      "code": "export_test_plugin.item.edit",
+      "name": "Edit",
+      "scope": "own"
+    },
+    {
+      "plugin_code": "export_test_plugin",
+      "code": "export_test_plugin.item.delete",
+      "name": "Delete",
+      "scope": "own"
+    },
+    {
+      "plugin_code": "export_test_plugin",
+      "code": "export_test_plugin.item.audit",
+      "name": "Audit",
+      "scope": "community"
+    },
+    {
+      "plugin_code": "export_test_plugin",
+      "code": "export_test_plugin.manage",
+      "name": "Manage",
+      "scope": "global"
+    },
+    {
+      "plugin_code": "export_test_plugin",
+      "code": "export_test_plugin.configure",
+      "name": "Configure",
+      "scope": "global"
+    }
+  ],
+  "menus": [
+    {
+      "plugin_code": "export_test_plugin",
+      "code": "export_test_plugin.admin",
+      "title": "Export Test",
+      "path": "/admin-next/export-test",
+      "location": "admin",
+      "area": "admin",
+      "permission": "export_test_plugin.manage",
+      "sort_order": 300
+    }
+  ],
+  "routes": [
+    {
+      "plugin_code": "export_test_plugin",
+      "area": "admin",
+      "method": "GET",
+      "path": "/api/v1/admin/export-test",
+      "handler": "reserved:export_test_plugin.list",
+      "auth": "admin",
+      "permission": "export_test_plugin.manage"
+    }
+  ],
+  "config_schema": {
+    "properties": {
+      "app_secret": {
+        "default": "real-secret",
+        "format": "password",
+        "type": "string"
+      },
+      "enabled": {
+        "default": true,
+        "type": "boolean"
+      },
+      "oauth": {
+        "properties": {
+          "client_secret": {
+            "default": "nested-secret",
+            "type": "string",
+            "x-sensitive": true
+          }
+        },
+        "type": "object"
+      },
+      "title_prefix": {
+        "default": "[Export]",
+        "type": "string"
+      }
+    },
+    "required": [
+      "enabled",
+      "app_secret"
+    ],
+    "type": "object"
+  },
+  "migrations": [
+    {
+      "plugin_code": "export_test_plugin",
+      "migration_version": "1.0.0",
+      "migration_name": "export_test_init",
+      "direction": "up",
+      "checksum": "sha256:declaration-only",
+      "tables": [
+        "export_test_items"
+      ],
+      "rollback_supported": false,
+      "description": "declaration only"
+    }
+  ]
+}

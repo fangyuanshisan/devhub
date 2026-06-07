@@ -1,0 +1,3564 @@
+# DevHub API 文档
+
+[返回文档入口](README.md)
+
+更新时间：2026-05-30（v1.9.0 已完成发布归档与发布后 targeted smoke；本轮仅同步当前稳定版本口径，未新增 API）
+
+本文档只记录当前仓库真实可用 API。接口路径以 `internal/transport/httpapi/router.go` 为准；未实现能力集中放在“规划 / 未完成”小节，不写入当前真实 API 主体。
+
+## API 定位
+
+DevHub 当前目标是 **Core + 插件 的开源服务底座**。API 属于 Core 基础能力的一部分：Core 通过认证、权限、审计、生命周期和安全边界约束所有读写入口；插件后续只能通过受控 API、HookBus 和明确的运行模型扩展系统，不能绕过 API 直接操作数据库。
+
+本文档只描述已实现接口。第三方插件运行时 API、HTTP 插件服务协议、前端插件挂载 API、远程市场 API 和动态加载 API 仍是规划项；未实现接口不得写入当前真实 API 主体。
+
+v1.9.0 发布归档补充：当前稳定版本为 `v1.9.0` 官方插件生态稳定版，发布归档与发布后 targeted smoke 已完成，P0=0、P1=0、P2=0。v1.9.0 冻结后不再追加新 API；`v1.9.1` 仅作为维护候选，`v1.10.0` 仍是规划阶段。第三方代码执行、Go plugin、JS sandbox、WASM、Lua、远程 iframe、remote component、任意远程 JS、插件市场、远程在线安装、blocking Hook、package scripts、自动安装和自动启用仍未开放。
+
+v1.7.2 插件运行模型设计补充：外部 HTTP 插件服务接口（如 `GET /health`、`GET /manifest`、`POST /hooks/:hookName`、`POST /actions/:actionName`、`POST /config/validate`）以及插件受控 API token / scopes 当前仅记录在 [插件运行模型设计](PLUGIN_RUNTIME_MODEL.md)，不属于本 API 文档的已实现接口。
+
+v1.9.0-S1 回归补充：本轮未新增 API，也未改变 external_service、SecretCenter、`hook_executions`、manual retry 或 `admin_logs` 返回语义；只是用 MySQLStore + fresh receiver 重新验证 `GET/PUT /api/v1/admin/plugins/:code/external-service`、`POST /external-service/health-check`、`GET /hooks/executions`、`POST /hooks/executions/:execution_id/retry` 和 `GET /api/v1/admin/audit-logs` 的既有闭环。Bearer token 仍只在写入请求中出现一次，保存后仅以 `token_ref=secret://external_service/{plugin_code}/token` 与 `token_secret` 元数据展示；响应、审计和执行记录不回显 token / Authorization / `encrypted_value` / token_hash。
+
+v1.9.0-S3 补充：`GET /api/v1/admin/system/effective-config` 继续作为当前生效配置和排障视图的聚合入口，新增的字段均为脱敏只读字段，不新增路由、不改 schema。响应会给出 root key 只读状态（不含 env 示例）、SecretCenter 状态、HTTP Allowlist 来源、Webhook / Callback 安全摘要、external_service endpoint origin 与 allowlist 匹配结果、token_ref 来源元数据、quick links 和 `diagnostic_text`。复制诊断文本不包含 token / secret / Authorization / root key / `DEVHUB_PLUGIN_CONFIG_KEYS` / `encrypted_value` / token_hash。
+
+## 通用规则
+
+- API 前缀：`/api/v1`。
+- 认证方式：`Authorization: Bearer <access_token>`。
+- 前台用户 token：`token_type=user`，用于发帖、评论、关注、举报、用户中心和 `/api/v1/moderator/*`。
+- 后台管理员 token：`token_type=admin`，用于 `/api/v1/admin/*`。
+- 错误响应：兼容旧结构 `{"error":"错误信息"}`，插件治理相关接口新增结构化错误字段（不会移除 `error` 字段）：
+
+```json
+{
+  "error": "插件依赖未满足，无法启用",
+  "code": "plugin_dependency_disabled",
+  "message": "插件依赖未满足，无法启用",
+  "details": {
+    "plugin_code": "docs",
+    "dependency_code": "qa",
+    "current_status": "disabled",
+    "required_version": ">=1.0.0"
+  },
+  "suggestion": "请先启用 qa 插件后重试",
+  "diagnostics": [
+    {
+      "type": "endpoint_safety_rejected",
+      "endpoint_url": "http://172.17.0.1:18081",
+      "needs_allowlist": true
+    }
+  ]
+}
+```
+
+### 插件治理统一错误码（v1.4.0-P1-10）
+
+说明：
+
+- 插件治理接口在返回 `{"error": "..."} ` 的同时，会尽量补充 `code/message/details/suggestion/diagnostics`，供后台统一 UI 展示与可操作诊断。
+- `message` 面向用户可读；`details` 和 `diagnostics` 只放诊断信息（不得包含 token/secret/password/Authorization 等敏感值）；diagnostics 中的 endpoint 会脱敏 userinfo 和敏感 query key；`suggestion` 提供可执行的修复建议。
+- external_service 的 endpoint 保存、健康检查和投递都会按当前运行时环境重新执行 HTTP 安全策略：HTTPS 默认允许，localhost / `127.0.0.1` / `::1` 的 HTTP 默认允许，非 localhost HTTP 必须通过 `DEVHUB_EXTERNAL_SERVICE_HTTP_ALLOWLIST` 显式放行。
+- 回归说明（v1.8.4-S12，2026-05-28）：已验证 Docker 后端下 `http://127.0.0.1:*` 会返回 `network_connection_refused` 并给出容器 loopback 诊断；`http://172.17.0.1:*` 在未 allowlist 时会返回 `endpoint_safety_rejected` 并附带推荐命令；allowlist 生效后保存配置与 health check 都会按运行时配置执行。
+
+错误码清单：
+
+| code | 含义（示例 message） | 常见 details 字段 | 典型修复建议 |
+| --- | --- | --- | --- |
+| `plugin_not_found` | 插件不存在 | `plugin_code` | 检查插件编码，或先执行 manifest 安装 |
+| `plugin_not_installed` | 插件尚未安装 | `plugin_code` | 先在安装向导中安装插件 |
+| `plugin_archived` | 插件已归档 | `plugin_code` | 先恢复插件后重试 |
+| `plugin_disabled` | 插件未启用 | `plugin_code` | 先启用插件后重试 |
+| `plugin_config_invalid` | 插件配置无效 | `plugin_code`,`reason` | 修复配置后重试 |
+| `plugin_migration_failed` | 插件迁移失败 | `plugin_code`,`migration_name` | 到“迁移”Tab 重试或处理失败原因 |
+| `plugin_dependency_missing` | 依赖缺失 | `plugin_code`,`dependency_code`,`required`,`required_version`,`current_status`,`dependency_chain` | 安装并启用依赖插件 |
+| `plugin_dependency_disabled` | 依赖未启用 | 同上 | 先启用依赖插件 |
+| `plugin_dependency_archived` | 依赖已归档 | 同上 | 先恢复依赖插件 |
+| `plugin_dependency_version_mismatch` | 依赖版本不满足 | 同上 | 升级/降级依赖插件到兼容版本 |
+| `plugin_dependency_cycle` | 循环依赖/自依赖 | `plugin_code`,`dependency_chain` | 调整依赖关系避免环 |
+| `plugin_core_version_incompatible` | Core 版本不兼容 | `plugin_code`,`core_version`,`min_core_version`,`compatible_core_version`,`messages` | 升级 Core 或选择兼容版本插件 |
+| `plugin_permission_denied` | 权限不足（插件治理） | `permission_code` | 为当前账号/角色补齐权限后重试 |
+| `plugin_config_permission_denied` | 缺少插件配置权限 | `permission_code` | 为当前账号/角色补齐配置相关权限 |
+| `plugin_content_permission_denied` | 缺少内容治理权限 | `permission_code` | 为当前账号/角色补齐治理权限 |
+| `plugin_hook_blocked` | blocking Hook 阻断 | `plugin_code`,`hook_name`,`blocking` | 查看 Hooks Tab 最近失败记录 |
+| `plugin_hook_failed` | non-blocking Hook 失败 | 同上 | 查看 Hooks Tab 最近失败记录 |
+| `plugin_config_schema_invalid` | config_schema 校验失败 | `plugin_code`,`path`,`reason` | 按字段路径修复配置后重试 |
+| `plugin_manifest_invalid` | manifest 校验失败 | `errors` | 按 errors 修复 manifest 后重试 |
+| `plugin_package_path_invalid` | 插件包路径不合法 | `path`,`allowed_roots` | 使用允许目录内的相对路径 |
+| `plugin_package_not_found` | 插件包目录不存在 | `path` | 检查路径或先创建插件包目录 |
+| `plugin_package_template_invalid` | 插件包模板初始化参数无效 | `reason` | 修复 code/content_type/name/plugin_type 等字段后重试 |
+| `plugin_package_template_exists` | 初始化目标目录已存在 | `path` | 换用新 code；当前后台初始化不暴露 force 覆盖 |
+| `plugin_package_template_conflict` | 插件模板命名存在冲突 | `conflicts` | 按冲突提示修改 code/content_type/权限/菜单/挂载声明后重试 |
+| `plugin_package_upload_invalid_type` | 上传包类型不允许 | `filename` | 仅上传 `.zip`；不支持 tar/gz/rar/7z |
+| `plugin_package_upload_too_large` | 上传 zip 超过大小限制 | `max_bytes` | 将 zip 控制在 20MB 以内 |
+| `plugin_package_zip_invalid` | zip 文件无法解析 | - | 重新打包为合法 zip |
+| `plugin_package_zip_entry_path_invalid` | zip entry 路径不合法 | `entry` | 使用普通包内相对路径 |
+| `plugin_package_zip_slip_detected` | 检测到 zip slip / 路径穿越 | `entry` | 移除 `../`、绝对路径或 Windows 盘符路径 |
+| `plugin_package_zip_bomb_detected` | 检测到 zip bomb 风险 | `entry` | 移除重复 entry 或异常压缩结构 |
+| `plugin_package_zip_too_many_files` | zip 解压文件数量超过限制 | `max_files` | 文件数控制在 300 个以内 |
+| `plugin_package_zip_file_too_large` | zip 内单文件超过限制 | `entry`,`max_bytes` | 单文件控制在 5MB 以内 |
+| `plugin_package_zip_total_size_exceeded` | zip 解压后总大小超过限制 | `max_bytes` | 解压总大小控制在 50MB 以内 |
+| `plugin_package_zip_nested_archive_forbidden` | zip 内嵌压缩包被禁止 | `entry` | 移除内嵌 zip/tar/gz/rar/7z 等压缩包 |
+| `plugin_package_zip_symlink_forbidden` | zip 包含 symlink | `entry` | 移除软链接后重新打包 |
+| `plugin_package_zip_multiple_manifests` | zip 中发现多个 manifest.json | `manifests` | 本轮每次只上传一个插件包 |
+| `plugin_package_zip_manifest_missing` | zip 中找不到可用 manifest.json | `manifest` | 在 zip 根目录或单一顶层目录放置 manifest.json |
+| `plugin_package_upload_extract_failed` | zip 解压失败 | `entry` | 重新打包后上传 |
+| `plugin_package_upload_blocked` | 上传包扫描后被阻断 | `upload_id` | 根据风险报告修复后重新上传 |
+| `plugin_package_upload_not_found` | 上传记录不存在 | `upload_id` | 刷新上传记录或重新上传 |
+| `plugin_package_upload_invalid_status` | 上传包当前状态不允许该动作 | `upload_id`,`status` | 按可执行动作列表处理 |
+| `plugin_package_upload_lifecycle_invalid` | 生命周期流转不合法 | `upload_id`,`status` | 刷新详情后按当前状态重新操作 |
+| `plugin_package_upload_rescan_failed` | 上传包重新扫描失败 | `upload_id` | 检查 staging 文件是否仍存在 |
+| `plugin_package_upload_cancel_failed` | 上传包取消失败 | `upload_id` | 刷新详情后重试 |
+| `plugin_package_upload_delete_failed` | 上传包删除失败 | `upload_id` | 检查文件权限后重试 |
+| `plugin_package_upload_cleanup_failed` | 上传包清理失败 | - | 检查 storage 权限与磁盘状态 |
+| `plugin_package_upload_expired` | 上传包已过期 | `upload_id`,`expires_at` | 重新上传插件包 |
+| `plugin_package_upload_already_deleted` | 上传包已删除 | `upload_id` | 查看审计记录或重新上传 |
+| `plugin_package_upload_delete_not_allowed` | 上传包状态不允许删除 | `status` | 仅删除 uploaded / staged / blocked / failed / expired |
+| `plugin_package_cleanup_confirm_required` | cleanup 缺少确认 token | - | 先提交 `dry_run=true` 获取 `confirm_token` |
+| `plugin_package_cleanup_confirm_invalid` | cleanup 确认 token 无效 | - | 重新 dry-run 后再确认 |
+| `plugin_package_delete_path_forbidden` | 删除路径不在允许目录 | `path` | 仅允许 uploads / staging / quarantine / packages |
+| `plugin_package_upload_approval_required` | 上传包导入需要审批 | `upload_id`,`risk_level` | 先提交导入审批 |
+| `plugin_package_upload_approval_blocked` | 当前上传包不能提交导入审批 | `upload_id`,`status` | 修复阻断项或重新上传 |
+| `plugin_package_upload_promote_requires_approval` | promote 前需要导入审批 | `upload_id` | 审批通过后再 promote |
+| `plugin_package_upload_promote_failed` | 上传包 promote 失败 | `upload_id` | 查看详情中的错误码和建议 |
+| `plugin_package_upload_promote_target_exists` | 上传包 promote 目标已存在 | `path` | 更换 code 或清理目标目录 |
+| `plugin_package_upload_action_not_allowed` | 当前动作不可用 | `action`,`status` | 查看详情 actions 中的 reason |
+| `plugin_package_upload_status_conflict` | 状态冲突 | `status` | 先完成或取消正在进行的审批 |
+| `plugin_package_download_invalid_request` | 远程插件包下载请求无效 | `plugin_code`,`version` | 补齐合法 plugin_code、version、package_url |
+| `plugin_package_download_url_invalid` | 远程插件包 URL 不合法 | `scheme`,`url` | 仅使用公网 HTTPS 插件包 URL |
+| `plugin_package_download_url_forbidden` | URL 指向本机、内网或禁止地址 | `host` | 使用公网 HTTPS 地址，禁止 localhost/内网/IP 回环 |
+| `plugin_package_download_type_unsupported` | 远程插件包格式不受支持 | `package_url` | 当前仅允许 `.zip`、`.tar.gz`、`.tgz` |
+| `plugin_package_download_redirect_blocked` | 重定向次数过多或跳转到禁止地址 | `final_url` | 确认每次跳转仍为公网 HTTPS |
+| `plugin_package_download_too_large` | 远程插件包超过下载大小限制 | `max_bytes` | 默认最大 20MB，可通过受控配置调整 |
+| `plugin_package_download_checksum_invalid` | 请求中的 sha256 格式不合法 | `sha256` | 提供 64 位十六进制 sha256 |
+| `plugin_package_download_checksum_mismatch` | 下载后 sha256 不一致 | `sha256_expected`,`sha256_actual` | 核对远程索引和包内容，重新发布或重新下载 |
+| `plugin_package_download_failed` | 远程插件包下载失败 | `status_code`,`reason` | 检查网络、TLS 证书、远程包地址和大小限制 |
+| `plugin_package_download_path_invalid` | staging 文件路径非法 | `staging_path` | 检查 plugin_code/version 是否含非法字符 |
+| `plugin_package_staging_not_found` | staging 包记录不存在 | `id` | 刷新 staging 列表后重试 |
+| `plugin_package_staging_delete_failed` | 删除 staging 包失败 | `id` | 检查 storage 目录权限 |
+| `plugin_package_promote_blocked` | 上传包禁止转入本地仓库 | `upload_id`,`status` | 修复 blocked 风险、checksum 或 manifest 错误 |
+| `plugin_package_promote_target_exists` | 本地仓库目标目录已存在 | `path` | 删除/更名已有目录后重试；默认不覆盖 |
+| `plugin_package_promote_failed` | 转入本地仓库失败 | `path` | 检查目录权限和磁盘空间 |
+| `plugin_package_manifest_missing` | 缺少 manifest.json | `path` | 在插件包根目录补充 manifest.json |
+| `plugin_package_manifest_invalid` | manifest.json 非法 | `path`,`reason` | 修复 manifest 后重试 |
+| `plugin_package_dangerous_file` | 检测到危险文件 | `path` | 移除 `.sh/.sql/.js/.ts` 等危险文件 |
+| `plugin_package_file_too_large` | 单文件超过大小限制 | `path`,`size` | 缩小单文件大小 |
+| `plugin_package_too_large` | 插件包总大小超过限制 | `path`,`total_size` | 缩小包体积 |
+| `plugin_package_too_many_files` | 文件数量超过限制 | `path`,`total_files` | 减少文件数量 |
+| `plugin_package_unknown_files` | 发现未知文件 | `path`,`unknown_files` | 检查未知文件是否应加入 allow 列表 |
+| `plugin_package_dry_run_blocked` | 本地插件包 dry-run 被阻断 | `path` | 根据 blocking 原因修复后重试 |
+| `plugin_package_checksum_missing` | checksums.json 缺失（warning） | `path` | 建议补充 checksums.json（sha256） |
+| `plugin_package_checksum_invalid` | checksums.json 非法 | `path`,`reason` | 修复 checksums.json 后重试 |
+| `plugin_package_checksum_unsupported_algorithm` | checksum algorithm 不支持 | `algorithm` | 当前仅支持 sha256 |
+| `plugin_package_checksum_duplicate_path` | checksums.json path 重复 | `path` | 移除重复项后重试 |
+| `plugin_package_checksum_file_missing` | checksums.json 声明文件不存在 | `path` | 补齐文件或修复 files 列表 |
+| `plugin_package_checksum_mismatch` | checksum 不匹配 | `mismatched` | 重新生成 checksums.json 或修复文件内容 |
+| `plugin_package_file_not_covered` | 存在未被 checksum 覆盖文件（warning） | `extra` | 建议补齐 checksums 覆盖范围 |
+| `plugin_package_symlink_forbidden` | 插件包包含软链接（禁止） | `path` | 移除软链接文件 |
+| `plugin_package_size_limit_exceeded` | 文件大小超限（禁止） | `path` | 缩小文件体积或移除大文件 |
+| `plugin_package_file_count_exceeded` | 文件数量超限（禁止） | `total_files` | 减少文件数量 |
+| `plugin_package_risk_blocked` | 风险评估阻断 dry-run | `items` | 根据风险项修复后重试 |
+| `plugin_package_signature_invalid` | signature.json 非法或签名字段不合法 | `path`,`reason` | 修复 signature.json 后重试 |
+| `plugin_package_signature_unsupported_algorithm` | 不支持的签名算法 | `algorithm` | 当前仅支持 ed25519 |
+| `plugin_package_signature_verification_failed` | 签名验签失败 | `publisher_id`,`public_key_id` | 检查 checksums.json/签名是否匹配，必要时重新生成签名 |
+| `plugin_package_signature_payload_invalid` | signature payload / payload_algorithm 不支持 | `payload`,`payload_algorithm` | 当前仅支持 `payload=checksums.json` 与 `payload_algorithm=sha256` |
+| `plugin_package_signature_signed_file_missing` | signature.json 声明的签名文件不存在 | `path` | 补齐文件或修复 signed_files 列表 |
+| `plugin_package_signature_path_invalid` | signature.json signed_files 路径不合法 | `path` | 使用包内相对路径且禁止 `..` |
+| `plugin_package_signature_manifest_unsigned` | signature.json 未签名 manifest/checksums | `missing` | 在 signed_files 中补齐 manifest.json 与 checksums.json |
+| `plugin_package_signature_publisher_unknown` | 签名发布者未建立本地可信关系 | `publisher_id`,`public_key_id` | 在可信发布者页面维护公钥或仅在测试环境使用 |
+| `plugin_package_signature_publisher_blocked` | 签名发布者被本地策略 blocked | `publisher_id`,`public_key_id` | 更换发布者或恢复可信发布者状态 |
+| `plugin_package_signature_publisher_revoked` | 签名发布者被本地策略 revoked | `publisher_id`,`public_key_id` | 更换发布者签名或移除插件包 |
+| `plugin_package_signature_invalid_request` | detached signature 验签请求不合法 | `precheck_id` | 仅对 precheck passed 记录执行验签 |
+| `plugin_package_signature_url_invalid` | signature_url 不合法或不允许 | `scheme`,`url` | 仅允许公网 HTTPS `.json` 签名文件 URL |
+| `plugin_package_signature_redirect_blocked` | signature_url 重定向次数过多或跳转到禁止地址 | `final_url` | 确认每次跳转仍为公网 HTTPS |
+| `plugin_package_signature_response_too_large` | signature_url 签名文件过大 | `max_bytes` | 默认限制 64KB，可通过受控配置调整 |
+| `plugin_package_signature_precheck_not_passed` | 只有 precheck passed 的包才能验签 | `precheck_id`,`precheck_status` | 先修复预检错误并重新预检 |
+| `plugin_package_signature_source_missing` | 预检记录缺少下载来源，无法验签 | `precheck_id` | 请从 staging 下载链路创建预检记录 |
+| `plugin_package_signature_source_invalid` | staging 包未通过 sha256 校验，禁止验签 | `download_id`,`download_status` | 请提供 sha256 并确保下载校验通过 |
+| `plugin_package_signature_key_expired` | 可信发布者公钥已过期（detached） | `publisher_id`,`key_id`,`expires_at` | 更新/更换公钥后重新验签 |
+| `plugin_package_signature_missing` | 缺少验签记录或未提供 detached signature | `precheck_id` | 先提供 `devhub-signature.json` 并执行验签 |
+| `plugin_package_signature_not_verified` | detached signature 未通过验签，禁止进入安装/升级链路 | `signature_id`,`signature_status` | 修复签名/可信发布者状态后重试 |
+| `plugin_package_publisher_invalid` | publisher.json 非法 | `path`,`reason` | 修复 publisher.json 后重试 |
+| `plugin_package_trusted_publishers_unavailable` | trusted_publishers 配置不可用（warning） | `path`,`reason` | 检查 `storage/plugins/trusted_publishers.json` 访问权限与 JSON 格式 |
+| `plugin_trusted_publisher_not_found` | 可信发布者不存在 | `id` | 刷新列表后重试 |
+| `plugin_trusted_publisher_duplicate` | publisher_id + public_key_id 重复 | `publisher_id`,`public_key_id` | 使用新的 key id 或编辑已有记录 |
+| `plugin_trusted_publisher_invalid_key` | 可信发布者公钥不合法 | `public_key_algorithm`,`public_key` | 当前仅支持 32 字节 Ed25519 公钥 base64 |
+| `plugin_trusted_publisher_invalid_status` | 可信发布者状态不合法 | `status` | 使用 trusted / blocked / revoked |
+| `plugin_trusted_publisher_permission_denied` | 缺少可信发布者管理权限 | `permission_code` | 需要 `plugin.manage` |
+| `plugin_package_repository_not_found` | 插件包仓库目录不存在 | `root` | 创建仓库目录或检查路径 |
+| `plugin_package_repository_forbidden` | 插件包仓库路径不允许 | `root`,`allowed_roots` | 使用白名单目录下的仓库路径 |
+| `plugin_package_repository_installed` | 本地仓库包已安装，不能删除 | `path`,`plugin_code` | 先归档 / 软卸载插件 |
+| `plugin_package_repository_enabled` | 本地仓库包正在被 enabled / running 插件使用 | `path`,`plugin_code` | 先停用或走正式归档 / 软卸载流程 |
+| `plugin_package_cleanup_active_task` | 有正在执行的插件任务，cleanup 已跳过 | `plugin_code` | 等待 enable / upgrade / uninstall 任务完成后重试 |
+| `plugin_package_repository_not_promoted` | 本地仓库包不是可删除来源 | `path` | 仅删除 `storage/plugins/packages/` 下未安装包 |
+| `plugin_package_repository_path_forbidden` | 本地仓库包删除路径不允许 | `path` | 仅允许 `storage/plugins/packages/` 子目录 |
+| `plugin_package_scan_failed` | 插件包仓库扫描失败 | `root`,`reason` | 检查目录权限或文件状态 |
+| `plugin_package_invalid` | 插件包无效 | `path` | 补齐 manifest/checksum 后重试 |
+| `plugin_package_detail_not_found` | 插件包详情不存在 | `path` | 检查路径或先扫描仓库 |
+| `plugin_package_install_blocked` | 插件包安装被阻断 | `path`,`risk_level`,`blocked_code` | 修复阻断原因后重试 |
+| `plugin_package_install_source_invalid` | 非本地仓库包不能安装 | `path` | 先 upload / precheck / promote 到 `storage/plugins/packages/` |
+| `plugin_package_install_dry_run_required` | 缺少安装 dry-run 计划 | `path` | 先执行本地仓库包安装 dry-run |
+| `plugin_package_install_dry_run_expired` | 安装 dry-run 计划已过期 | `path` | 重新执行安装 dry-run |
+| `plugin_package_install_dry_run_mismatch` | dry-run 计划与当前包不一致 | `path`,`plugin_code`,`version` | 插件包内容或 migration plan 已变化，重新 dry-run |
+| `plugin_package_install_failed` | 插件包安装失败 | `plugin_code` | 查看后台日志后重试 |
+| `plugin_package_already_installed` | 同编码插件已安装 | `plugin_code` | 不重复安装；进入插件详情配置插件或 external_service，或在版本仓库查看升级差异并走审批流程 |
+| `plugin_package_dependency_missing` | required 依赖未满足 | `dependencies` | 先安装并启用 required 依赖插件 |
+| `plugin_package_core_incompatible` | Core 版本不兼容 | `core_version`,`min_core_version`,`compatible_core_version` | 升级 Core 或选择兼容版本插件包 |
+| `plugin_config_version_not_found` | 配置版本不存在 | `version_id` | 刷新版本列表后重试 |
+| `plugin_config_version_invalid_scope` | 配置版本 scope 不匹配 | `scope`,`actual_scope` | 从正确 scope 打开版本 |
+| `plugin_config_version_schema_invalid` | 目标版本配置未通过 schema（用于 rollback dry-run 的 `blocked_code`） | `schema_validation.errors` | 修复配置或选择其他版本 |
+| `plugin_config_encryption_key_missing` | 缺少插件配置加密密钥（敏感字段无法保存） | - | 配置 `DEVHUB_PLUGIN_CONFIG_KEYS` 或 `DEVHUB_PLUGIN_CONFIG_KEY_ID/DEVHUB_PLUGIN_CONFIG_KEY` 后重试 |
+| `plugin_config_encryption_key_invalid` | 插件配置加密密钥不合法 | - | 检查密钥长度/格式（推荐 base64 32 bytes）与 key_id 配置 |
+| `plugin_config_encrypt_failed` | 敏感字段加密失败 | `plugin_code` | 检查密钥配置后重试 |
+| `plugin_config_decrypt_failed` | 敏感字段解密失败 | `plugin_code` | 检查密钥是否变更；避免轮换导致旧密文不可读 |
+| `plugin_config_key_missing` | 插件配置密钥缺失 | - | 配置 `DEVHUB_PLUGIN_CONFIG_KEYS` 或 split 环境变量后重试 |
+| `webhook_secret_encryption_key_missing` | 缺少 Webhook Secret 加密密钥（无法创建/轮换） | - | 只能在启动环境变量配置；后台不会保存或生成；修改后需重启。参考 `/api/v1/admin/plugins/config-keys/status` 的 env_examples。 |
+| `plugin_config_key_invalid` | 插件配置密钥配置不合法 | - | 检查 JSON/split 配置格式与 key 长度 |
+| `plugin_config_key_current_missing` | 缺少 current key | - | 确保 current key_id 存在且 keys 中包含该 key_id |
+| `plugin_config_key_not_found` | 指定 key_id 不存在 | `key_id` | 补齐 old keys 或修复密文 key_id |
+| `plugin_config_cipher_invalid` | 密文格式不合法或发现敏感明文 | `field_path` | 修复密文格式或重新写入敏感字段 |
+| `plugin_config_cipher_version_unsupported` | 不支持的密文版本 | `cipher_version` | 升级到支持该版本的 Core 或重新加密 |
+| `plugin_config_cipher_key_missing` | 密文缺少 key_id 或缺少解密 key | `key_id` | 补齐旧 key 后重试 |
+| `plugin_config_cipher_decrypt_failed` | 密文解密失败 | `key_id` | 检查 key 是否正确；避免误删旧 key |
+| `plugin_config_rotation_dry_run_blocked` | 密钥轮换 dry-run 被阻断 | `decrypt_failed`,`missing_key` | 先修复阻断项（补齐 old keys / 修复密文）后重试 |
+| `plugin_config_rotation_reencrypt_failed` | 密钥轮换 re-encrypt 失败 | `plugin_code` | 查看日志并修复后重试 |
+| `plugin_config_rotation_confirm_key_mismatch` | confirm_current_key_id 与当前 key 不匹配 | `current_key_id` | 刷新页面后重新确认 |
+| `plugin_config_rotation_history_unsupported` | 暂不支持配置历史轮换 | - | 本版本默认只轮换当前配置；历史轮换后续补齐 |
+| `plugin_config_rotation_permission_denied` | 缺少密钥轮换权限 | `permission_code` | 需要 `plugin.manage` |
+| `plugin_approval_not_found` | 审批记录不存在 | `id` | 刷新审批列表后重试 |
+| `plugin_approval_invalid_action` | 不支持的审批动作 | `action` | action 仅支持 install / upgrade |
+| `plugin_approval_invalid_status` | 状态不允许该操作 | `status` | 检查状态流转后重试 |
+| `plugin_approval_create_blocked` | 创建审批被阻断 | `blocked_code`,`blocked_reasons` | 先修复 dry-run 阻断项再提交审批 |
+| `plugin_approval_permission_denied` | 无权限执行该审批动作 | `requested_by` | 使用申请人或具备更高权限账号处理 |
+| `plugin_approval_reject_reason_required` | 拒绝原因必填 | - | 提交 comment 后重试 |
+| `plugin_approval_execute_blocked` | 执行前重新校验阻断 | `blocked_code`,`blocked_reasons` | 修复后重新提交审批 |
+| `plugin_approval_execute_failed` | 审批执行失败 | `error_code` | 查看后台日志，修复后重试 |
+| `plugin_approval_already_executed` | 审批已执行 | `id` | 无需重复执行 |
+| `plugin_approval_already_canceled` | 审批已撤销 | `id` | 重新提交审批 |
+| `plugin_export_not_supported` | 插件不支持导出 | `plugin_code`,`reason` | 仅导出声明型插件；运行时代码/用户数据不在导出范围 |
+| `plugin_export_dry_run_failed` | 导出 dry-run 失败 | `plugin_code`,`reason` | 根据预览错误修复后重试 |
+| `plugin_export_failed` | 导出写入失败 | `plugin_code`,`output_dir`,`reason` | 检查导出目录权限和磁盘状态 |
+| `plugin_export_path_invalid` | 导出目录不合法 | `output_dir` | 使用 `storage/plugins/exports/` 下的相对目录 |
+| `plugin_export_output_exists` | 导出目录已存在 | `output_dir` | 换一个目录或使用 `force=true` |
+| `plugin_export_manifest_invalid` | 导出 manifest 校验失败 | `plugin_code`,`errors` | 修复插件 manifest 声明后重试 |
+| `plugin_export_sensitive_value_detected` | 检测到敏感配置泄露风险 | `plugin_code`,`paths` | 仅导出脱敏示例配置，不导出真实配置 |
+| `plugin_export_user_data_forbidden` | 检测到用户数据导出风险 | `plugin_code` | 移除用户内容/通知/审计等业务数据 |
+| `plugin_export_checksum_failed` | checksums.json 生成失败 | `output_dir`,`reason` | 检查文件写入结果后重试 |
+| `plugin_export_package_dry_run_failed` | 导出后包自检失败 | `output_dir`,`status` | 根据 package dry-run warning/error 修复导出内容 |
+| `plugin_export_permission_denied` | 缺少插件导出权限 | `permission_code` | 查看预览需 `plugin.read`，正式导出需 `plugin.write` |
+- 权限错误统一返回 `403`，典型格式为 `{"error":"无权限"}` 或 `{"error":"缺少权限 <permission_code>，不能创建该类型内容"}`；插件内容创建必须以 `ContentTypeDefinition.create_permission` 为准，`post.create` 只作为 `core.topic.create` 的历史兼容桥。
+- 分页参数：`page`、`page_size`，默认按接口实现处理，建议 `page_size <= 50`。
+
+## 插件 API
+
+说明：后台全局插件管理页、子站插件配置抽屉和版主插件菜单均继续使用本节现有接口。2026-05-11 插件系统专项验收未新增 API，也未改变返回字段语义；验收重点是确认现有插件启停、impact、config、Hook、audit、migration 和通用插件内容治理接口可支撑后台治理中心与 E2E 回归。2026-05-11 MySQLStore / 老库升级专项同样未新增生产 API，验证的是 MySQLStore 下这些接口背后的状态、迁移、Hook、审计与配置校验链路和 MemoryStore 口径一致。
+
+### 前台导航与发布入口解析（v1.4.0-P1-11）
+
+说明：
+
+- 这组接口用于前台统一“导航入口 / 发布入口”的可见性治理，尽量由后端复用插件状态、子站插件状态、依赖、配置、迁移与权限判断，避免前端重复拼接规则。
+- 这些接口只影响“入口是否显示/是否可点击/原因提示”，不绕过后端真实写操作校验；用户直接访问创建 API 时仍会被后端强校验拦截。
+
+`GET /api/v1/navigation`
+
+- 认证：可选（guest 可访问；登录后会按权限/登录态过滤可见性）。
+- 用途：总站级导航入口（不包含子站板块绑定判断）。
+- 返回：`items` 列表，字段包括 `location/title/route/plugin_code/content_type/required_permission/visible/reason/reason_code/details`。
+
+`GET /api/v1/communities/:slug/navigation`
+
+- 认证：可选（登录态影响 `require_login/permission` 相关入口）。
+- 用途：子站级导航入口（包含子站插件启用、依赖/配置/迁移、板块绑定等判断）。
+- 返回：同上，额外返回 `community_slug`。
+
+`GET /api/v1/communities/:slug/create-options`
+
+- 认证：可选（guest 仍可访问，但会返回 `visible=false` + `plugin_login_required` 的原因提示）。
+- 用途：前台“发布内容 / 创建内容类型”候选列表；前台发布页应只展示 `visible=true` 的内容类型，并在不可见时展示可操作原因。
+- 返回：`items` 列表，字段包括 `content_type/plugin_code/title/route/required_permission/visible/reason/reason_code/details`。
+
+`GET /api/v1/admin/plugins/:code/menus/preview`
+
+- 认证：后台 admin token（不允许 user token / moderator token）。
+- 权限：`plugin.read`。
+- 用途：后台插件详情页“前台入口预览”，用于诊断某插件声明的前台菜单在指定子站/分类上下文下为什么不可见。
+- 查询参数：
+  - `community_slug`：可选
+  - `category_id`：可选
+- 返回：`items` 列表，字段包括 `location/title/route/content_type/required_permission/visible/reason/reason_code/details`。
+
+### 全局插件 API
+
+`GET /api/v1/plugins`
+
+- 认证：不需要。
+- 返回：只返回全局 `enabled` 插件。
+- 用途：前台判断系统可用插件能力。
+- 说明：当前返回的是内置系统插件统一 manifest 视图，包括内容类型、权限、菜单、路由声明与 `config_schema` 预留字段。
+- 安全处理：公共接口不返回 `config_json` 和 `resolved_config`。
+
+响应示例：
+
+```json
+{
+  "items": [
+    {
+      "code": "qa",
+      "plugin_code": "qa",
+      "name": "问答",
+      "version": "1.0.0",
+      "status": "enabled",
+      "content_types": ["question"]
+    }
+  ]
+}
+```
+
+`GET /api/v1/admin/plugins`
+
+- 认证：后台 admin token。
+- 权限：`plugin.read`。
+- 返回：全部注册插件，包括插件状态、`config_schema`、`config_json`、`resolved_config` 和轻量 `health` 摘要。
+- 状态口径：`plugins.status` 当前接受 `discovered`、`installed`、`migrated`、`configured`、`enabled`、`disabled`、`running`、`archived`、`config_invalid`、`migration_pending`、`migration_failed`、`dependency_missing`；但发布可用性仍只以 `enabled` 为通过状态，其余状态均不会放行新建内容。
+- 生命周期字段：返回对象会派生 `install_status`、`lifecycle_status`、`status_reason`、`installed_at`、`archived_at`、`last_health_check_at`，用于后台展示插件安装生命周期。当前这些字段由 `plugins.status`、时间戳、迁移和健康状态派生；manifest + 配置型安装、插件包 zip / staging 治理和远程包下载到 staging 已可写入治理记录，但远程自动安装、插件市场和动态加载仍未实现。
+- `health` 字段：后台治理摘要，由全局状态、配置校验、迁移记录、依赖状态和 Hook 失败统计计算；不是 Prometheus / Grafana 级监控。
+
+`health` 示例：
+
+```json
+{
+  "status": "hook_warning",
+  "status_reason": "存在 Hook 失败记录",
+  "config_status": "valid",
+  "migration_status": "ok",
+  "hook_status": "hook_warning",
+  "dependency_status": "ok",
+  "recent_error": "qa 插件仅允许创建 question",
+  "suggested_action": "查看 Hooks Tab 的最近失败记录",
+  "pending_migrations_count": 0,
+  "failed_migrations_count": 0,
+  "hook_failure_count": 1,
+  "last_hook_error": "qa 插件仅允许创建 question"
+}
+```
+
+健康状态当前支持：
+
+- `healthy`：配置、迁移、依赖和 Hook 摘要均正常。
+- `disabled`：全局插件已禁用，只影响新发布和入口展示，不影响历史内容。
+- `archived`：插件已归档 / 软卸载，禁止新发布和子站启用；历史内容、配置、迁移记录、审计记录和 SEO 保留。
+- `config_invalid`：插件配置未通过 `config_schema` 校验或被显式标记为配置无效。
+- `migration_pending`：存在待处理迁移记录；当前内置 no-op pending 不阻断启用，但会提示治理风险。
+- `error`：存在 failed migration 等阻断性异常。
+- `dependency_missing`：依赖插件缺失或未启用。
+- `hook_warning`：存在 Hook 失败记录，但尚未达到错误阈值。
+- `hook_error`：Hook 失败次数达到当前轻量阈值（当前为失败次数 `>= 3`）。
+
+说明：`health.status_reason` 会返回当前主要状态原因，供后台运行状态 Tab 展示。该健康摘要是轻量治理提示，不是完整监控系统。
+
+`GET /api/v1/admin/plugins/health`
+
+- 认证：后台 admin token。
+- 权限：`plugin.read`。
+- 用途：插件治理中心健康总览。
+- 返回：`items` 为全部插件的 `PluginHealth` 摘要，`summary` 为按状态聚合的计数。
+- 计数口径：当前包含 `healthy`、`warning`、`error`、`disabled`、`migration_pending`、`config_invalid`、`dependency_missing`、`hook_warning`、`hook_error`、`archived`。这是轻量治理摘要，不是监控告警系统。
+
+响应示例：
+
+```json
+{
+  "items": [
+    {
+      "plugin_code": "qa",
+      "status": "healthy",
+      "status_reason": "无需处理",
+      "config_status": "valid",
+      "migration_status": "ok",
+      "hook_status": "ok",
+      "dependency_status": "ok"
+    }
+  ],
+  "summary": {
+    "healthy": 6,
+    "archived": 0,
+    "hook_error": 0
+  }
+}
+```
+
+`GET /api/v1/admin/plugins/:code/health`
+
+- 认证：后台 admin token。
+- 权限：`plugin.read`。
+- 用途：查询单个插件的健康摘要。
+- 返回：单个 `PluginHealth` 对象，字段同 `GET /api/v1/admin/plugins` 中的 `health`。
+
+`GET /api/v1/admin/plugins/:code/readiness`
+
+- 认证：后台 admin token。
+- 权限：`plugin.read`。
+- 用途：Readiness Check / 操作阻断原因诊断接口。用于后台在“为什么不能启用/升级/配置保存”等场景下提供可操作提示；该接口只做诊断，不替代真实操作校验。
+- 查询参数：
+  - `action`：可选，默认 `enable`。当前实现优先覆盖 `enable`（其余 action 后续补齐）。
+- 返回：
+
+```json
+{
+  "plugin_code": "docs",
+  "action": "enable",
+  "status": "blocked",
+  "checks": [
+    {
+      "key": "dependency.qa",
+      "title": "依赖插件 qa",
+      "status": "blocked",
+      "reason": "依赖插件 qa 当前状态为 disabled",
+      "suggestion": "请先启用依赖插件后重试",
+      "code": "plugin_dependency_disabled",
+      "dependency_code": "qa"
+    }
+  ]
+}
+```
+
+说明：
+
+- `status`：`pass / warning / blocked`。
+- `checks[].status`：同上；warning 表示可操作但存在风险提示（例如可选依赖缺失、待处理迁移等）。
+- `checks[].code`：统一插件治理错误码，可用于后台统一 UI 提示与高亮。
+
+`POST /api/v1/admin/plugins/:code/enable`
+
+- 认证：后台 admin token。
+- 权限：`plugin.write`。
+- 路径参数：`code` 为插件 code，例如 `qa`、`docs`、`wiki`。
+- 启用前检查：Service 层会校验插件存在、全局配置符合 `config_schema`、依赖插件已启用、没有 `failed` 迁移记录。
+- 归档限制：`archived` 插件不能直接启用，必须先恢复为 disabled / installed 状态，再由管理员手动启用。
+- 迁移策略：当前内置 migration 是 up/no-op 记录型迁移，`pending` migration 会通过健康状态和迁移 Tab 提示，但不阻断启用；`failed` migration 会阻断启用。
+- 返回：更新后的插件对象。
+- 审计：写入插件状态变更审计日志。
+
+`POST /api/v1/admin/plugins/:code/disable`
+
+- 认证：后台 admin token。
+- 权限：`plugin.write`。
+- 影响：禁用全局插件后，所有子站都不能继续发布该插件内容；已有内容详情不应受影响。
+- 返回：更新后的插件对象。
+- 审计：写入插件状态变更审计日志。
+  当前同时写入 `admin_logs.target` 文本摘要和 `old_value` / `new_value` / `metadata_json` 结构化字段。
+
+常见错误：
+
+- `400 {"error":"插件不存在"}`
+- `400 {"error":"插件状态不合法"}`
+- `401 {"error":"未登录"}`
+- `403 {"error":"无权限"}`
+
+`POST /api/v1/admin/plugins/:code/archive`
+
+- 认证：后台 admin token。
+- 权限：`plugin.write`。
+- 用途：软卸载 / 归档插件。
+- 行为：将全局插件状态置为 `archived`；禁止该插件新建内容、前台入口、后台管理入口和子站启用；保留历史内容、配置、迁移记录和审计记录。
+- 影响分析：后台归档确认会复用 `GET /api/v1/admin/plugins/:code/impact` 展示历史内容、启用子站、绑定板块、待迁移和 Hook 异常计数。
+- 审计：成功写入 `plugin.archived`；失败写入 `plugin.archive.failed`。
+
+### 插件软卸载任务（v1.7.0-P0-07）
+
+> 说明：仓库已有 `archived` 状态作为“软卸载”语义，本轮在此基础上补齐“软卸载任务记录 + 影响分析 + 依赖阻断 + 可重试”闭环。
+> 软卸载不会删除插件文件、配置、迁移记录、审计日志和历史内容，也不会执行 migration down。
+
+`GET /api/v1/admin/plugins/:code/uninstall-impact`
+
+- 认证：后台 admin token。
+- 权限：`plugin.read`。
+- 用途：软卸载前影响分析与依赖阻断预检。
+- 返回：包含 `impact`（复用 `GET /plugins/:code/impact` 轻量计数）与 `dependents`（哪些 enabled 插件依赖当前插件）。
+
+`POST /api/v1/admin/plugins/:code/soft-uninstall`
+
+- 认证：后台 admin token。
+- 权限：`plugin.write`。
+- 用途：执行软卸载（归档）。
+- 请求：
+
+```json
+{
+  "version": "1.0.0",
+  "reason": "不再使用该插件"
+}
+```
+
+- 依赖阻断：若存在 enabled 插件对该插件声明 `required=true` 依赖，返回 `400 plugin_soft_uninstall_dependency_blocked`。
+- 返回：软卸载任务记录（`plugin_uninstall_tasks`）。
+- 审计：写入 `plugin.soft_uninstall.requested/started/success/failed` 与 `plugin.runtime.unregistered`。
+
+`GET /api/v1/admin/plugins/uninstall-tasks`
+
+- 认证：后台 admin token。
+- 权限：`plugin.read`。
+- 查询参数：`status`、`plugin_code`、`keyword`、`page`、`page_size`。
+- 返回：`items/pagination`。
+
+`GET /api/v1/admin/plugins/uninstall-tasks/:id`
+
+- 认证：后台 admin token。
+- 权限：`plugin.read`。
+- 返回：任务详情。
+
+`POST /api/v1/admin/plugins/uninstall-tasks/:id/retry`
+
+- 认证：后台 admin token。
+- 权限：`plugin.write`。
+- 用途：重试失败的软卸载任务（会重新执行依赖阻断与归档）。
+
+`DELETE /api/v1/admin/plugins/uninstall-tasks/:id`
+
+- 认证：后台 admin token。
+- 权限：`plugin.write`。
+- 用途：标记任务为 deleted（不删除插件文件/数据）。
+
+`POST /api/v1/admin/plugins/:code/restore`
+
+- 认证：后台 admin token。
+- 权限：`plugin.write`。
+- 用途：恢复已归档插件。
+- 行为：恢复前校验配置、依赖和 failed migration；成功后状态变为 `disabled`，不会自动启用。管理员需要再次执行 `enable`。
+- 常见错误：存在 failed migration 时返回 `400 {"error":"插件存在失败迁移 ... 请先重试或处理迁移错误"}`。
+- 审计：成功写入 `plugin.restored`；失败写入 `plugin.restore.failed`。
+
+`POST /api/v1/admin/plugins/bulk-archive`
+
+- 认证：后台 admin token。
+- 权限：`plugin.write`。
+- 用途：批量软卸载 / 归档插件。该接口不删除内容、配置、迁移记录或审计记录。
+- 请求：
+
+```json
+{
+  "plugin_codes": ["qa", "docs"]
+}
+```
+
+- 返回：逐项结果，单个插件失败不会吞掉其他插件结果。
+
+```json
+{
+  "succeeded": [
+    {
+      "plugin_code": "qa",
+      "status": "archived"
+    }
+  ],
+  "failed": [
+    {
+      "plugin_code": "docs",
+      "error": "插件已归档"
+    }
+  ]
+}
+```
+
+- 审计：成功项写入 `plugin.archived`，失败项写入 `plugin.archive.failed`。
+- 边界：当前仅支持软卸载 / 归档，不支持硬卸载和删除数据。
+
+`POST /api/v1/admin/plugins/bulk-restore`
+
+- 认证：后台 admin token。
+- 权限：`plugin.write`。
+- 用途：批量恢复已归档插件。
+- 请求：
+
+```json
+{
+  "plugin_codes": ["qa", "docs"]
+}
+```
+
+- 返回：逐项结果；恢复成功后插件进入 `disabled`，不会自动 enabled。
+- 审计：成功项写入 `plugin.restored`，失败项写入 `plugin.restore.failed`。
+
+`PUT /api/v1/admin/plugins/:code/config`
+
+- 认证：后台 admin token。
+- 权限：`plugin.write`。
+- 请求：
+
+```json
+{
+  "config_json": {
+    "example": true
+  }
+}
+```
+
+- 返回：更新后的插件对象，包含 `config_json` 和 `resolved_config.default/global/community/effective`。
+- 校验：会按插件 `config_schema` 执行后端强校验（简化 JSON Schema），至少覆盖 `type`、`required`、`enum`、`object`、`boolean`、`string`、`number`、`integer`、`min/max`、`default` 与未知字段策略。
+- v1.8.4-S1 official_links 补充：官方友情链接配置复用该接口，配置项为 `enabled`、`title`、`display_position`、`max_links`、`show_logo`、`open_in_new_tab`。配置保存会写配置版本 / 审计；前台导航在 `enabled=false` 时隐藏入口，历史内容仍可读。
+- 审计：写入插件全局配置审计日志。
+  当前同时写入 `admin_logs.target` 文本摘要和 `old_value` / `new_value` / `metadata_json` 结构化字段；`metadata_json.changed_keys` 记录本次变更的顶层配置键。
+- 清空：提交 `{"config_json": null}` 或空配置会清空全局覆盖配置，并同样写入配置审计。
+
+### 插件配置版本历史（v1.5.0-P1-05）
+
+> 说明：版本历史与 diff 会对敏感字段脱敏；本轮提供“回滚 dry-run 预览”，不提供真实回滚写入。
+
+`GET /api/v1/admin/plugins/:code/config/versions`
+
+- 认证：后台 admin token。
+- 权限：`plugin.read`。
+- 查询参数：`page`、`page_size`。
+- 返回：`items/pagination`，每项包含 `version_no/scope/community_id/changed_keys/source/operator_name/created_at/config_hash`。
+
+`GET /api/v1/admin/plugins/:code/config/versions/:version_id`
+
+- 认证：后台 admin token。
+- 权限：`plugin.read`。
+- 返回：版本详情（`config_json` 已脱敏）+ `diff`（已脱敏）。
+
+`POST /api/v1/admin/plugins/:code/config/versions/:version_id/rollback/dry-run`
+
+- 认证：后台 admin token。
+- 权限：`plugin.write`。
+- 用途：回滚预览（dry-run）。不会写入配置、不会生成新版本、不会改变插件状态。
+- 行为：读取目标版本配置，与当前配置做 diff，并使用**当前** `config_schema` 重新校验；校验失败返回 `status=blocked`，并返回 `blocked_code=plugin_config_version_schema_invalid` 与 `suggestion`。
+
+`GET /api/v1/admin/communities/:id/plugins/:code/config/versions`
+
+- 认证：后台 admin token。
+- 权限：`plugin.read`。
+- 返回：子站 scope 的版本历史（`scope=community`，`community_id=:id`）。
+
+`GET /api/v1/admin/communities/:id/plugins/:code/config/versions/:version_id`
+
+- 认证：后台 admin token。
+- 权限：`plugin.read`。
+- 返回：子站配置版本详情（`config_json/diff` 已脱敏）。
+
+`POST /api/v1/admin/communities/:id/plugins/:code/config/versions/:version_id/rollback/dry-run`
+
+- 认证：后台 admin token。
+- 权限：`plugin.write`。
+- 用途：子站配置回滚预览（dry-run），不写入配置。
+
+### 插件配置密钥轮换（v1.6.0-P1-07）
+
+> 说明：本节仅提供密钥状态查看、轮换预检（dry-run）与受控 re-encrypt。不会返回密钥明文，不会返回密文，也不会返回敏感明文。默认不处理配置历史版本（`include_config_versions=false`）。
+
+`GET /api/v1/admin/plugins/config-keys/status`
+
+- 认证：后台 admin token。
+- 权限：`plugin.manage`。
+- 返回：`current_key_id/loaded_key_ids/legacy_v1_supported/status/warnings`；不返回 key material。
+
+`POST /api/v1/admin/plugins/config-keys/rotation/dry-run`
+
+- 认证：后台 admin token。
+- 权限：`plugin.manage`。
+- 用途：轮换预检，不写入配置、不生成新版本、不改变插件状态。
+- 请求：
+
+```json
+{
+  "scope": "all",
+  "plugin_code": "",
+  "community_id": 0,
+  "include_config_versions": false
+}
+```
+
+- 返回：`status=ok|warning|blocked` + `summary/items`；`decrypt_failed/missing_key` 会导致 `blocked`。
+
+`POST /api/v1/admin/plugins/config-keys/rotation/re-encrypt`
+
+## 系统配置（Core）
+
+### 启动密钥与敏感配置状态（v1.8.4-S13 / S16）
+
+`GET /api/v1/admin/system/sensitive-config/status`
+
+- 认证：后台 admin token + `setting.read`。
+- 用途：展示启动级插件配置加密状态、SecretCenter 引用层状态、external_service HTTP Allowlist 等信息。
+- 安全：不返回任何 plaintext secret/token/key；只返回 key_id、状态、allowlist origins 和 env 示例。
+- 后台展示：系统设置页使用“总览 / 当前生效配置 / 安全与密钥 / 外部服务策略 / SecretCenter / 配置审计”二级导航；总览只展示“启动级加密密钥 / SecretCenter 引用层 / external_service HTTP 策略”三张摘要卡片；“当前生效配置”展示 external_service、HTTP Allowlist 和 SecretCenter 脱敏运行视图；“安全与密钥”只展示 root key 状态和 root key 环境变量示例；“外部服务策略”专门展示 external_service HTTP allowlist 状态、环境变量 allowlist 示例和后台受控新增 / 删除入口；Secret 列表 / token_ref / secret_ref 入口在“SecretCenter”；admin_logs / 配置变更记录在“配置审计”。root key 与 `DEVHUB_PLUGIN_CONFIG_KEYS` 仍只读，后台不会保存、生成或修改；HTTP allowlist 的后台配置来源可通过受控接口新增 / 删除 exact origin。
+
+返回示例（节选）：
+
+```json
+{
+  "plugin_config_keyring": {
+    "status": "ok",
+    "source": "env",
+    "restart_required": true,
+    "current_key_id": "local-dev",
+    "key_count": 1,
+    "loaded_key_ids": ["local-dev"],
+    "env_examples": [
+      "DEVHUB_PLUGIN_CONFIG_KEYS='[{\"id\":\"local-v1\",\"key\":\"base64-xxx\",\"primary\":true}]'",
+      "DEVHUB_PLUGIN_CONFIG_KEY_ID=local-v1\\nDEVHUB_PLUGIN_CONFIG_KEY=base64-xxx"
+    ]
+  },
+  "external_service_http_policy": {
+    "https_allowed": true,
+    "localhost_http_allowed": true,
+    "non_local_http_needs_allowlist": true,
+    "allowlist_env": "DEVHUB_EXTERNAL_SERVICE_HTTP_ALLOWLIST",
+    "defaults": ["localhost", "127.0.0.1", "::1"],
+    "env_allowlist": ["http://172.17.0.1:18081"],
+    "admin_allowlist": ["http://172.17.0.2:18081"],
+    "effective_allowlist": ["localhost", "127.0.0.1", "::1", "http://172.17.0.1:18081", "http://172.17.0.2:18081"]
+  },
+  "secret_center": {
+    "status": "ok",
+    "secret_ref_count": 1,
+    "namespace_counts": { "external_service": 1 }
+  }
+}
+```
+
+#### `GET /api/v1/admin/system/effective-config`
+
+- 认证：后台 admin token。
+- 权限：`setting.read`。
+- 用途：返回“当前生效配置”的脱敏可读视图，用于系统设置页当前生效配置 Tab 和复制脱敏诊断信息。
+- 明文展示：`endpoint_url`、`health_check_path`、`enabled`、`auth_type`、`timeout_ms`、`failure_policy`、`plugin_code/plugin_name`、`current_health`、`last_health_status`、`last_checked_at`、最近成功 / 最近错误时间与错误摘要、HTTP Allowlist 系统默认 / 环境变量 / 后台配置 / 最终生效列表。
+- 脱敏展示：`token_ref`、`token_namespace`、`token_name`、`token_status`、`token_key_id`、`token_last_used_at`、`token_rotated_at`、`token_masked`、`token_usage_type`、`token_source_type`、`token_source_id`、`token_source_code`。`token_masked` 仅为 `******` 加安全后缀；无法安全生成后缀时为空。
+- 排障入口：`external_services[]` 返回 `config_source`、`token_source`、`next_steps`、`troubleshooting`、`endpoint_origin`、`http_allowlist_source`、`http_allowlist_matched` 和 `http_allowlist_message`，后台据此提供“去配置 / 健康检查 / 查看运行记录 / 查看 Secret / 查看审计”。HTTP Allowlist 行提供“去外部服务策略 / 复制 origin / 复制脱敏诊断 / 查看审计”。
+- v1.9.0-S3 起，聚合响应也返回 `root_key_status`（不含 root key 或 env 示例）、`secret_center_status`、`http_allowlist_source`、`webhook_callback_security`、`quick_links` 和顶层 `next_steps`，用于提示 root key 未就绪、缺少 `token_ref`、HTTP allowlist 拒绝、Secret disabled/revoked、Docker `127.0.0.1` caveat、健康检查失败等下一步处理建议；这些建议只包含引用、状态和操作入口，不包含敏感明文。
+- 禁止返回：token 明文、secret 明文、Authorization Header、`DEVHUB_PLUGIN_CONFIG_KEYS`、root key、`encrypted_value`、数据库 DSN、JWT / session secret。
+- 诊断字段：`diagnostic_text` 是后端生成的脱敏 JSON 文本，供后台复制按钮使用，可安全提交 issue 或用于排障。
+
+返回示例（节选）：
+
+```json
+{
+  "devhub_version": "v1.9.0",
+  "store_mode": "mysql",
+  "generated_at": "2026-05-29 14:30:00",
+  "root_key_status": { "status": "ok", "source": "env", "key_count": 1 },
+  "secret_center_status": { "status": "ok", "secret_ref_count": 1, "namespace_counts": { "external_service": 1 } },
+  "http_allowlist_source": "admin_setting",
+  "external_service_http_allowlist": {
+    "defaults": [{ "origin": "localhost", "source": "system_default", "deletable": false }],
+    "env_allowlist": [{ "origin": "http://host.docker.internal:18081", "source": "env", "deletable": false }],
+    "admin_allowlist": [{ "origin": "http://172.17.0.1:18081", "source": "admin", "usage": "feishu_link 本地联调", "deletable": true }],
+    "effective_allowlist": []
+  },
+  "external_services": [
+    {
+      "plugin_code": "feishu_link",
+      "endpoint_url": "http://172.17.0.1:18081",
+      "endpoint_origin": "http://172.17.0.1:18081",
+      "health_check_path": "/health",
+      "enabled": true,
+      "auth_type": "bearer",
+      "timeout_ms": 3000,
+      "failure_policy": "warn",
+      "current_health": "healthy",
+      "last_health_status": "healthy",
+      "last_checked_at": "2026-05-29 14:30:00",
+      "http_allowlist_source": "admin_setting",
+      "http_allowlist_matched": true,
+      "token_ref": "secret://external_service/feishu_link/token",
+      "token_namespace": "external_service",
+      "token_name": "feishu_link/token",
+      "token_status": "active",
+      "token_key_id": "local-dev",
+      "token_masked": "******abcd",
+      "token_usage_type": "external_service_token",
+      "token_source_type": "external_service",
+      "token_source_id": "feishu_link",
+      "token_source_code": "feishu_link",
+      "config_source": "plugin runtime config",
+      "token_source": "SecretCenter",
+      "next_steps": [],
+      "troubleshooting": {
+        "configure": "/admin-next/plugins/overview?tab=list&plugin_code=feishu_link&detail_tab=runtime",
+        "executions": "/admin-next/plugins/webhooks?tab=external_service&ext_plugin_code=feishu_link"
+      }
+    }
+  ],
+  "webhook_callback_security": {
+    "webhook_secret_total": 1,
+    "callback_token_total": 1,
+    "active_webhook_secrets": 1,
+    "active_callback_tokens": 1,
+    "disabled_or_revoked_count": 0
+  },
+  "next_steps": []
+}
+```
+
+#### `GET /api/v1/admin/system/external-service/http-allowlist`
+
+- 认证：后台 admin token。
+- 权限：`setting.read`。
+- 用途：查看 external_service HTTP allowlist 的系统默认来源、环境变量来源、后台配置来源和最终生效列表。
+- 返回字段：`defaults`、`env_allowlist`、`admin_allowlist`、`effective_allowlist`、`policy`。
+- 系统默认：`localhost` / `127.0.0.1` / `::1` 的 HTTP 默认允许；HTTPS 默认允许；非 localhost HTTP 必须显式 allowlist。
+
+#### `POST /api/v1/admin/system/external-service/http-allowlist`
+
+- 认证：后台 admin token。
+- 权限：`setting.write`（super_admin 默认拥有；普通管理员只读）。
+- 用途：新增或更新后台配置来源的 HTTP allowlist origin。
+- 请求：
+
+```json
+{
+  "origin": "http://172.17.0.1:18081",
+  "usage": "本地 Docker receiver 联调",
+  "risk_confirmed": true
+}
+```
+
+- 校验：只允许 exact origin；只允许 `http://`；必须包含 host；可包含 port；不允许 path / query / fragment / wildcard / `0.0.0.0` / `0.0.0.0/0` / CIDR / `http://*` / 空值；后台新增必须 `risk_confirmed=true`。
+- 审计：写入 `admin_logs.action=system.external_service.http_allowlist.created`，metadata 只记录 origin、用途、操作者、时间和来源，不记录 token / secret / Authorization。
+
+#### `DELETE /api/v1/admin/system/external-service/http-allowlist/:id?confirmed=true`
+
+- 认证：后台 admin token。
+- 权限：`setting.write`（super_admin 默认拥有；普通管理员只读）。
+- 用途：删除后台配置来源的 HTTP allowlist origin。
+- 限制：只能删除 `source=admin` 的条目；系统默认和环境变量来源不可删除；服务端要求 `confirmed=true`。
+- 审计：写入 `admin_logs.action=system.external_service.http_allowlist.deleted`，metadata 不包含 token / secret / Authorization。
+
+### Core SecretCenter（敏感配置引用）（v1.8.4-S14 / S19）
+
+说明：本节描述 **已实现** 的 Core SecretCenter 最小引用层。它用于把敏感值（例如 external_service Bearer Token）统一存储为 `secret_ref` 引用，避免在配置详情/列表/审计/执行记录中泄露明文。
+
+后台展示（v1.8.4-S19 / v1.9.0-S2）：
+
+- 系统设置 -> SecretCenter Tab 标题为“敏感配置引用”，用于查看和治理敏感配置引用，不展示明文。
+- `secret://...` 是敏感值的引用地址，不是敏感值本身；复制按钮只复制 ref。
+- 页面支持类型筛选（外部服务 / Webhook Secret / Callback Token / 测试数据 / 其他）、状态筛选（正常 / 已禁用 / 已吊销 / 未知）和关键词搜索（ref / namespace / name / key_id）。
+- `s15smoke`、`e2e`、`fixture`、`test`、`demo`、`seed` 相关 namespace / ref / name 会标记为测试数据，不会自动删除。
+- 详情抽屉展示基础字段、安全状态、`namespace`、`name/key`、`usage_type`、`source_type/source_id/source_code`、来源类型、来源插件、来源配置项、来源治理页、创建/更新人和使用关系；空值显示“暂无”，不展示 token / secret / Authorization / `encrypted_value` / root key。
+- 使用关系基于实际存储 / 配置解析：`plugin_external_services.token_ref`、`plugin_webhook_secrets.secret_ref`、`plugin_callback_tokens.token_ref`；`plugin_config` namespace 会识别为插件配置敏感字段并跳转插件配置页；未知来源会显示“未知来源”，不阻断页面。
+- `record/source/usages` 会提供脱敏的 `usage_type`、`source_type`、`source_id`、`source_code`，用于审计筛选和来源跳转；已覆盖 `external_service_token`、`webhook_secret`、`callback_token`、`plugin_config_sensitive_field`、`test_fixture_seed` 和 `other_unknown` 场景。
+- 轮换入口只引导到 external_service 配置、Webhook 密钥或 Callback Token 治理；不会在 SecretCenter 页面收集明文，也不会显示假成功。
+- 禁用 / 吊销必须先看影响预览；吊销要求输入完整 ref 或服务端强确认。测试 / fixture / seed 数据默认隐藏危险操作。
+- Webhook Secret / Callback Token 现有创建、轮换和一次性明文展示语义仍保持独立；SecretCenter 只展示和关联这些来源的元数据。
+
+安全边界：
+
+- `secret_ref` 明文是可展示的引用字符串，不包含敏感值本身。
+- SecretCenter 管理接口 **不会** 返回明文 secret value，也不会返回 `encrypted_value`。
+- 明文只允许出现在 create/update 请求入参里；写入后只返回 `ref/status/key_id/last_used_at/rotated_at` 等元数据。
+- 解密动作 `ResolveSecret` 仅供后端运行时内部调用；不提供 Admin API 明文读取。
+- root key 只能来自启动环境变量（`DEVHUB_PLUGIN_CONFIG_KEYS` 或 split 形式），后台不会保存或生成 root key；修改后需重启生效。
+- 后台仍不能编辑 `DEVHUB_PLUGIN_CONFIG_KEYS`，也不会保存 root key 明文。
+
+`secret_ref` 格式：
+
+- 规范：`secret://{namespace}/{name}`
+- `namespace`：小写字母/数字/_/-（例如 `external_service`、`webhook`、`callback`、`plugin_config`）
+- `name`：小写字母/数字/_/-，可用 `/` 分段（例如 `feishu_link/token`）
+- 禁止空值、禁止 `..`、禁止路径穿越
+
+接口：
+
+`GET /api/v1/admin/secret-center/secrets`
+
+- 认证：后台 admin token + `setting.read`
+- 用途：按 namespace 分页查询 Secret 元数据；未指定 namespace 时会同时返回 Webhook Secret / Callback Token 的脱敏元数据视图。
+- 查询参数：`namespace`、`page`、`page_size`
+- 同义接口：`GET /api/v1/admin/system/secrets`
+- 返回会额外提供派生字段：`display_name`、`type`、`usage`、`usage_type`、`source_type`、`source_id`、`source_code`、`associated_with`、`masked_value`、`available`；这些字段均不包含明文或密文。
+
+`GET /api/v1/admin/secret-center/secrets/metadata`
+
+- 认证：后台 admin token + `setting.read`
+- 用途：查询单个 `ref` 元数据
+- 查询参数：`ref`
+- 同义接口：`GET /api/v1/admin/system/secrets/metadata?ref=...`
+
+`GET /api/v1/admin/secret-center/secrets/detail`
+
+- 认证：后台 admin token + `setting.read`
+- 用途：查询单个 Secret 脱敏详情、来源信息和使用关系。
+- 查询参数：`ref`
+- 同义接口：`GET /api/v1/admin/system/secrets/detail?ref=...`
+- 返回：`record/source/usages/safety_notes`，其中 `record/source/usages` 均包含脱敏来源字段；不返回明文、密文、Authorization 或 root key。
+
+`GET /api/v1/admin/secret-center/secrets/usages`
+
+- 认证：后台 admin token + `setting.read`
+- 用途：查询单个 ref 的使用关系。
+- 查询参数：`ref`
+- 同义接口：`GET /api/v1/admin/system/secrets/usages?ref=...`
+
+`POST /api/v1/admin/secret-center/secrets`
+
+- 认证：后台 admin token + `setting.write`
+- 用途：创建 secret（明文只在请求中出现一次）
+- 请求：
+
+```json
+{ "namespace": "external_service", "name": "feishu_link/token", "value": "plaintext-only-in-request", "description": "optional" }
+```
+
+`PUT /api/v1/admin/secret-center/secrets`
+
+- 认证：后台 admin token + `setting.write`
+- 用途：更新/轮换 secret（明文只在请求中出现一次）
+- 请求：
+
+```json
+{ "ref": "secret://external_service/feishu_link/token", "value": "plaintext-only-in-request" }
+```
+
+`POST /api/v1/admin/secret-center/secrets/disable`
+
+- 认证：后台 admin token + `super_admin` / `secret.manage` / `system.write` / `plugin.manage`
+- 用途：停用 secret_ref（运行时 resolve 会拒绝）
+- 请求：`{ "ref": "secret://.../..." }`
+- 执行前会重新计算影响和状态；只有 `active` 可禁用；测试 / fixture / seed Secret 默认拒绝。
+- 审计：成功写 `secret_center.secret.disabled`；失败写 `secret_center.secret.disable.failed`。metadata 只记录 `ref/status/reason/namespace/name/usage_type/source_type/source_id/source_code/plugin_code/config_entry` 等脱敏信息。
+
+`POST /api/v1/admin/secret-center/secrets/disable/preview`
+
+- 认证：后台 admin token + `setting.read`
+- 用途：预览禁用影响，返回影响插件数、external_service / webhook / callback 数、可能失败的健康检查 / 投递、24h / 7d 使用统计（如可得）和受影响业务列表。
+- 请求：`{ "ref": "secret://.../..." }`
+
+`POST /api/v1/admin/secret-center/secrets/revoke`
+
+- 认证：后台 admin token + `super_admin` / `secret.manage` / `system.write` / `plugin.manage`
+- 用途：吊销 secret_ref（运行时 resolve 会拒绝）
+- 请求：`{ "ref": "secret://.../...", "confirm_ref": "secret://.../..." }`
+- 执行前会重新计算影响和状态；`active` / `disabled` 可吊销，`revoked` 不可重复吊销；吊销不是直接可恢复操作。
+- 审计：成功写 `secret_center.secret.revoked`；失败写 `secret_center.secret.revoke.failed`。metadata 不包含明文、密文、Authorization 或 root key，并可按 `ref`、namespace/name、`source_type/source_id/source_code` 或 `plugin_code` 搜索。
+
+`POST /api/v1/admin/secret-center/secrets/revoke/preview`
+
+- 认证：后台 admin token + `setting.read`
+- 用途：预览吊销影响，字段同 disable preview，并返回 `requires_strong_confirmation=true` 与 `confirmation_text=ref`。
+- 请求：`{ "ref": "secret://.../..." }`
+
+- 认证：后台 admin token。
+- 权限：`plugin.manage`。
+- 用途：将可解密的旧密文重新加密为 `enc:v2` 并使用 current key 写回（只修改敏感字段密文，不返回明文/密文）。
+- 行为：服务端强制先执行 dry-run；dry-run blocked 时拒绝执行；`confirm_current_key_id` 必须匹配当前 key。
+- 请求：
+
+```json
+{
+  "scope": "plugin",
+  "plugin_code": "wechat_connect",
+  "community_id": 0,
+  "include_config_versions": false,
+  "confirm_current_key_id": "key-2026-01"
+}
+```
+
+> 注意：re-encrypt 会改变存储密文，因此会产生新的配置版本记录（source=key_rotation），便于审计追踪。
+
+`POST /api/v1/admin/plugins/manifest/validate`
+
+- 认证：后台 admin token。
+- 权限：`plugin.write`。
+- 用途：校验 manifest JSON 是否符合插件平台契约。
+- 请求体：manifest JSON，或 `{"manifest": {...}}` 包装体。
+- 返回：`valid`、`errors`、`warnings`、`impact_summary`、`normalized_manifest`、`checksum`、`dependency_summary`、`dependencies`、`compatibility`、`content_type_conflicts`、`permission_conflicts`、`migration_plan`、`install_preview`。
+- `dependencies` 为逐项检查结果，包含 `code`、`version`、`required`、`reason`、`status`、`satisfied`、`current_version`、`current_status`、`message`、`chain`。
+- `dependency_summary` 聚合 `total`、`required`、`optional`、`satisfied`、`warnings`、`blocking`、`missing`、`disabled`、`archived`、`version_issues`、`cycles`。
+- `compatibility` 包含 `core_version`、`min_core_version`、`compatible_core_version`、`status` 和 `messages`。`min_core_version` 高于当前 Core 会返回 `plugin_core_version_incompatible` 错误。
+- `impact_summary` 还会计入 `frontend_mounts_count`；如果 manifest 声明 `frontend_mounts`，只允许官方 allowlist 内的 `mount_point` 和 `component_key`，未知挂载点 / 未知组件 / 远程 iframe / 远程脚本 / inline HTML 会被 blocked，并返回 `FRONTEND_MOUNT_NOT_ALLOWED`、`FRONTEND_COMPONENT_NOT_ALLOWED`、`REMOTE_IFRAME_NOT_ALLOWED`、`REMOTE_SCRIPT_NOT_ALLOWED`、`INLINE_HTML_NOT_ALLOWED` 等中文友好错误码。
+
+`POST /api/v1/admin/plugins/dry-run`
+
+- 认证：后台 admin token。
+- 权限：`plugin.write`。
+- 用途：对 manifest 做安装前 dry-run，校验冲突、依赖和影响分析，不写入插件记录。
+- 返回：与 manifest validate 一致的结果视图；required 依赖不满足时 `valid=false`，optional 依赖不满足时仅进入 warning。
+
+`POST /api/v1/admin/plugins/packages/dry-run`
+
+- 认证：后台 admin token（不允许 user token / moderator token）。
+- 权限：`plugin.write`。
+- 用途：本地插件包 dry-run 导入预览。只做安全读取 + 文件扫描 + manifest 校验 + 安装预览，不安装插件、不执行插件代码、不执行外部 SQL、不动态加载前端资产。
+- 请求：
+
+```json
+{
+  "path": "examples/plugins/demo_notice"
+}
+```
+
+- 路径限制：只允许读取项目根目录下白名单目录：
+  - `examples/plugins/`
+  - `plugins-local/`
+  - `storage/plugins/packages/`
+  - `storage/plugins/exports/`
+  - `storage/plugins/staging/`
+  - `storage/plugins/quarantine/`
+  - `.devhub/plugins/`
+- 返回：包含 `package`、`file_scan`、`checksum`、`signature`、`risk_report`、`manifest_validation`、`install_dry_run`、`migration_plan`、`status`、`blocked_code`、`blocked_reasons`、`warnings`、`errors`、`dry_run_id`、`generated_at`、`expires_at`。
+- `dry_run_id`：仅作为本地仓库包安装前的当前计划凭证，安装时必须随请求带回；服务端仍会重新执行 dry-run 并校验 path / plugin_code / version / manifest checksum / checksum status / migration plan hash / status / risk_level，不信任前端缓存。
+- 返回的 manifest / dry-run 结果也会包含 `frontend_mounts` 差异计划；新增未知挂载点或组件 key 会被 blocked，删除既有挂载会给出高风险或 warning 提示。
+- `status`：`ok|warning|blocked`。
+- `blocked_code`：当 `status=blocked` 时返回阻断原因代码（例如 `plugin_package_dangerous_file` / `plugin_package_manifest_invalid`）。
+  - `blocked_reasons`：可选，返回所有阻断原因 code（用于 UI 逐项展示）。
+  - `checksum.status`：`ok|warning|failed|missing`；缺失 checksums.json 为 `missing`（warning），不匹配为 `failed`（blocked）。
+  - `risk_report.level`：`low|medium|high|blocked`，由后端根据扫描/校验/依赖/兼容结果评估，前端不得伪造。
+- `signature`：签名与可信来源摘要（可选能力，但字段会返回）。
+    - `trust_status`：`trusted|unknown|blocked|revoked|unsigned`
+    - `verification_status`：`verified|failed|missing|unsupported|publisher_unknown`
+    - `payload`：当前仅支持 `checksums.json`。
+    - `payload_algorithm`：当前仅支持 `sha256`，真实验签消息为 `sha256(raw bytes of checksums.json)`。
+    - `fingerprint`：可信发布者公钥指纹，格式为 `sha256:<base64url>`。
+    - 说明：`publisher.json` 不会被自动信任；可信状态只来自后台可信发布者记录，`storage/plugins/trusted_publishers.json` 仅作为空存储时的本地 seed / fallback。
+
+本地 CLI 入口（不新增 HTTP API）：
+
+```bash
+./scripts/plugin-package-build.sh examples/plugins/official_links
+./scripts/plugin-package-check.sh examples/plugins/official_links
+./scripts/plugin-package-check.sh .devhub/plugin-packages/s4/official_links-1.0.0.zip
+./scripts/plugin-package-check.sh --builtin official_announcement
+```
+
+- `plugin-package-build.sh` 只复制文件、重算 `checksums.json` 并生成 zip；不执行 SQL、不执行插件代码、不执行 package scripts。
+- `plugin-package-check.sh` 复用 DevHub package dry-run / manifest 校验逻辑，输出 `passed`、`warning` 或 `blocked`；`blocked` 返回退出码 1，`warning` 返回 0，参数错误或缺少本地工具返回 2。
+- CLI 不写数据库、不安装、不启用、不改变 PluginRegistry 运行态，不访问远程插件市场，不调用 external_service。
+- `migrations/` 仍是唯一标准迁移入口；根目录 `001_schema.sql` 只作为 deprecated warning，不会被执行；新模板不生成根目录 SQL。
+- `frontend_mounts` 继续走官方 allowlist；未知 `mount_point`、未知 `component_key`、unsupported `render_mode`、`iframe_url`、`script_url`、`remote_entry`、`inline_html`、`remote_component`、`eval` 和未白名单的可执行前端资产都会 blocked。
+- external_service 校验继续覆盖 endpoint / timeout / failure_policy / auth_type / Hook mode；`health_check_path` 等配置 schema 正则必须使用 JS / JSON Schema 兼容写法，例如 `"^/(?:[^/\\s][^\\s]*)?$"`。
+
+`POST /api/v1/admin/plugins/packages/upload`
+
+- 认证：后台 admin token。
+- 权限：`plugin.write`。
+- 请求：`multipart/form-data`，字段 `file` 必须是 `.zip`。
+- 用途：上传 zip 插件包，保存到 `storage/plugins/uploads/`，解压到唯一 `storage/plugins/staging/{upload_id}/` 沙箱，随后复用本地插件包 scanner / checksum / signature / risk_report / dry-run。上传后不会安装插件、不会执行代码、不会执行 SQL、不会动态加载前端资产。
+- 限制：
+  - 上传 zip 最大 20MB。
+  - 解压后总大小最大 50MB。
+  - 解压后文件数最大 300。
+  - 单个解压文件最大 5MB。
+  - 目录深度最大 8。
+  - 禁止 zip 内嵌 zip/tar/gz/rar/7z 等压缩包。
+  - 禁止 `../`、绝对路径、Windows 盘符、空路径、过长文件名、URL 编码绕过、symlink、hardlink 和特殊设备文件。
+  - 当前实现不做压缩比阈值检查；通过总大小、单文件、文件数、目录深度、重复 entry 和嵌套压缩包限制防御 zip bomb。
+- 插件包根目录识别：
+  - zip 根目录直接存在 `manifest.json` 时，以根目录为包目录。
+  - zip 只有单个顶层目录且该目录内存在 `manifest.json` 时，以该顶层目录为包目录。
+  - 找不到 `manifest.json` 或发现多个 `manifest.json` 时 blocked。
+- 返回：`upload_id/filename/status/staging_path/package_path/zip_scan/file_scan/checksum/signature/manifest_validation/install_dry_run/risk_report/can_promote/can_submit_approval/warnings/errors`。路径只返回项目内相对路径。
+- blocked 策略：zip 结构类错误会删除半包并返回结构化错误；解压成功但 package dry-run blocked 的包会移动到 `storage/plugins/quarantine/{upload_id}/` 供查看风险，不可 promote。
+
+`GET /api/v1/admin/plugins/packages/uploads/:upload_id`
+
+- 认证：后台 admin token。
+- 权限：`plugin.read`。
+- 用途：查看上传包详情；blocked/quarantine 包仍可查看详情。
+- 返回：上传基础信息、当前状态、zip scan、package scan、checksum、signature、risk_report、manifest validate、dry-run、导入审批信息、安装审批信息和 `actions` 可执行动作列表。路径只返回项目相对路径，不返回系统绝对路径。
+
+`GET /api/v1/admin/plugins/packages/uploads`
+
+- 认证：后台 admin token。
+- 权限：`plugin.read`。
+- 查询参数：`status`、`risk_level`、`keyword`、`uploaded_by`、`package_code`、`publisher_id`、`trust_status`、`page`、`page_size`。
+- 返回：`items`、`pagination`、`summary`。`items` 含 `upload_id/original_filename/package_code/package_name/package_version/status/risk_level/checksum_status/signature_status/trust_status/uploaded_by/uploaded_at/expires_at/promoted_path/approval_id/install_approval_id/error_code/risk_summary`。
+
+`POST /api/v1/admin/plugins/packages/uploads/:upload_id/rescan`
+
+- 认证：后台 admin token。
+- 权限：`plugin.write`。
+- 行为：仅 `uploaded/scanned/staged/blocked/failed` 可重新扫描；重新执行 package scanner / checksum / signature / manifest validate / install dry-run 并刷新 risk_report 与状态。不会安装插件、不会执行代码/SQL、不会动态加载资产。
+
+`POST /api/v1/admin/plugins/packages/uploads/:upload_id/approval`
+
+- 认证：后台 admin token。
+- 权限：`plugin.write`。
+- 行为：为 `staged` 上传包提交导入 / promote 审批，复用 `plugin_approval_requests`，`action=package_promote`，审批快照包含 `upload_id`、risk_report、signature、checksum、dry-run。
+
+`POST /api/v1/admin/plugins/packages/uploads/:upload_id/approve`
+
+- 认证：后台 admin token。
+- 权限：`plugin.approve`。
+- 行为：审批通过导入申请，状态从 `approval_pending` 变为 `approved`。审批通过不绕过 promote 前重新扫描。
+
+`POST /api/v1/admin/plugins/packages/uploads/:upload_id/reject`
+
+- 认证：后台 admin token。
+- 权限：`plugin.approve`。
+- 行为：拒绝导入申请，状态变为 `approval_rejected`；后续需要重新上传或按策略重新提交审批。
+
+`POST /api/v1/admin/plugins/packages/uploads/:upload_id/promote`
+
+- 认证：后台 admin token。
+- 权限：`plugin.write`。
+- 用途：将已上传且通过校验的 staging 包复制到 `storage/plugins/packages/{manifest.code}/`，进入本地插件仓库；不会安装插件。
+- 请求：
+
+```json
+{ "force": false }
+```
+
+- 行为：
+  - 仅 `staged/approved` 且非 blocked、checksum 非 failed、manifest valid 的 staging 上传包可 promote。
+  - promote 前重新 dry-run；复制后再次 dry-run 复检。
+  - 目标目录已存在默认拒绝，返回 `plugin_package_promote_target_exists`。
+  - blocked、quarantine、dangerous file、checksum mismatch、manifest invalid 均禁止 promote。
+  - promote 成功后，`GET /admin/plugins/packages` 的本地仓库列表可通过 `source_upload_id/promoted_at` 追溯来源上传包。
+  - promote 写入 `admin_logs`，但不写插件表、不写 migration 表、不执行代码/SQL、不动态加载资产。
+
+`POST /api/v1/admin/plugins/packages/uploads/:upload_id/cancel`
+
+- 认证：后台 admin token。
+- 权限：`plugin.write`。
+- 行为：取消未 promote / 未安装 / 未删除 / 未过期的上传包，状态变为 `canceled`，写入 `admin_logs`。
+
+`DELETE /api/v1/admin/plugins/packages/uploads/:upload_id`
+
+- 认证：后台 admin token。
+- 权限：`plugin.write`。
+- 行为：仅允许删除 `uploaded/staged/blocked/failed/expired` 上传包；服务端会重新读取记录状态，删除 `storage/plugins/uploads`、`storage/plugins/staging`、`storage/plugins/quarantine` 内对应文件，并硬删除上传记录。审计保留在 `admin_logs`。
+- 禁止：`promoted/installed/approval_pending/install_approval_pending/deleted/canceled` 不可直接删除；`promoted` 包的本地仓库目录必须走本地仓库删除规则，已安装插件必须先归档 / 软卸载。
+- 返回：统一 cleanup 结果，包含 `will_delete_count/will_free_bytes/deleted_count/freed_bytes/items`。
+
+`POST /api/v1/admin/plugins/packages/uploads/cleanup`
+
+- 认证：后台 admin token。
+- 权限：`plugin.write`。
+- 请求：`dry_run`、`confirm_token`、`statuses`、`older_than_days`。默认清理 `blocked/failed/expired`；可显式指定 `uploaded/staged/blocked/failed/expired` 子集。
+- 行为：批量 cleanup 必须先 `dry_run=true`，返回 `confirm_token`、`will_delete_count`、`will_free_bytes` 和 `items`；确认执行时携带同一筛选条件和 `confirm_token`。服务端执行前会重新判断状态和删除路径。
+- 返回：`dry_run/confirm_required/confirm_token/will_delete_count/will_free_bytes/deleted_count/freed_bytes/items/errors`。
+- 安全边界：只删除 uploads / staging / quarantine 下的上传包文件和上传记录，不删除本地仓库包，不卸载插件，不执行插件代码或 SQL。
+
+`POST /api/v1/admin/plugins/packages/download`
+
+- 认证：后台 admin token。
+- 权限：`plugin.write`。
+- 用途：从远程插件索引或管理员指定的 HTTPS URL 下载插件包到受控 staging。仅下载文件并记录状态，不安装、不启用、不解压执行、不加载插件代码、不执行 SQL。
+- 请求：
+
+```json
+{
+  "plugin_code": "demo_notice",
+  "version": "1.0.0",
+  "package_url": "https://example.com/packages/demo_notice-1.0.0.zip",
+  "sha256": "64位十六进制 sha256，可选但强烈建议",
+  "signature_url": "可选：detached signature URL（devhub-signature.json），仅允许 https + .json"
+}
+```
+
+- 安全校验：仅允许 HTTPS；拒绝 `file/http/ftp/gopher`、localhost、`127.0.0.0/8`、`0.0.0.0`、`::1`、内网和 link-local 地址；DNS 解析和每次重定向后都会重新校验；最多 3 次重定向；默认下载上限 20MB；仅允许 `.zip`、`.tar.gz`、`.tgz`。
+- 写入：先写临时 `.part` 文件，下载和 sha256 校验完成后再 rename 到 `storage/plugins/staging/downloads/`；文件名由 `plugin_code/version/sha256 前缀/时间戳` 生成，不使用远程文件名。
+- sha256：如果请求提供 `sha256`，下载后必须一致，否则状态为 `checksum_failed` 并清理文件；未提供时状态为 `checksum_missing`，文件保留但标记未验证，不能进入自动安装。
+- signature_url：仅记录并用于后续验签；signature_url 下载会复用 staging 下载的 HTTPS/SSRF/重定向校验，并限制最大 64KB。签名缺失不会阻断下载，但会在 compat-check/install/upgrade 默认策略下阻断进入链路（需先验签 verified 或显式放开 unsigned）。
+- 返回：`id/plugin_code/version/status/source_url/final_url/file_size/sha256_expected/sha256_actual/content_type/staging_path/downloaded_at/error_code/error_message`。
+
+`GET /api/v1/admin/plugins/packages/staging`
+
+- 认证：后台 admin token。
+- 权限：`plugin.read`。
+- 查询参数：`status`、`plugin_code`、`keyword`、`page`、`page_size`。
+- 返回：远程下载 staging 包列表、分页和状态 summary。
+
+`GET /api/v1/admin/plugins/packages/staging/:id`
+
+- 认证：后台 admin token。
+- 权限：`plugin.read`。
+- 返回：单个远程下载 staging 包记录。不会返回系统绝对路径。
+
+`DELETE /api/v1/admin/plugins/packages/staging/:id`
+
+- 认证：后台 admin token。
+- 权限：`plugin.write`。
+- 行为：删除对应 staging 文件并将记录标记为 `deleted`。不会卸载插件、不会删除本地仓库包、不会影响上传包生命周期记录。
+
+`POST /api/v1/admin/plugins/packages/templates/preview`
+
+兼容别名：`POST /api/v1/admin/plugins/templates/preview`
+
+- 认证：后台 admin token（不允许 user token / moderator token）。
+- 权限：`plugin.write`。
+- 用途：预览后台“创建插件模板 / 初始化插件包”将要生成的声明型插件模板；不写入文件、不创建目录、不执行 dry-run、不安装、不启用、不执行 SQL、不执行代码。
+- `plugin_type` 支持 `content`、`external_service`、`admin_tool`、`frontend_mount`。后台表单根据类型动态显示字段；非内容型插件不提交 `content_type/content_name`。
+- 请求：
+
+```json
+{
+  "code": "demo_notice",
+  "name": "示例公告插件",
+  "plugin_type": "content",
+  "content_type": "notice",
+  "content_name": "公告",
+  "description": "用于公告内容类型的声明型插件。",
+  "author": "DevHub Team",
+  "publisher_mode": "devhub_team",
+  "with_config": true,
+  "with_hooks": true,
+  "with_migration": true
+}
+```
+
+- `code` 可由插件名称自动生成，也可在高级设置中手动修改；服务端允许小写字母、数字、下划线和中划线，并会校验 installed 插件、本地仓库包、draft 目录、保留 code、content_type、权限、菜单、路由和前端挂载冲突。保留 code 包含 `core`、`qa`、`docs`、`wiki`、`official_links`、`official_announcement`、`official_webhook_notify`。
+- 输出目录固定为 `storage/plugins/drafts/{code}`；不接受任意 path，不暴露 `force` 覆盖。安装主流程仍需经过 promote / dry-run / approval / install 治理链路。
+- 返回：
+
+```json
+{
+  "template": {
+    "code": "demo_notice",
+    "name": "示例公告插件",
+    "plugin_type": "content",
+    "content_type": "notice",
+    "content_name": "公告",
+    "output_dir": "storage/plugins/drafts/demo_notice",
+    "package_path": "storage/plugins/drafts/demo_notice",
+    "files": ["manifest.json", "README.md", "config.example.json", "docs/usage.md", "docs/content-types.md", "docs/permissions.md", "docs/hooks.md", "docs/migrations.md", "docs/registry-example.md", "migrations/001_init.sql"],
+    "file_tree": ["manifest.json", "README.md", "config.example.json", "docs/usage.md", "docs/content-types.md", "docs/permissions.md", "docs/hooks.md", "docs/migrations.md", "docs/registry-example.md", "migrations/001_init.sql"],
+    "permissions": ["demo_notice.notice.create", "demo_notice.manage"],
+    "menus": ["demo_notice.admin"],
+    "migrations": ["migrations/001_init.sql"],
+    "generated": {"code": "demo_notice", "content_type": "notice", "content_name": "公告"},
+    "conflicts": []
+  },
+  "status": "ok",
+  "warnings": []
+}
+```
+
+`POST /api/v1/admin/plugins/packages/templates`
+
+兼容别名：`POST /api/v1/admin/plugins/templates`
+
+- 认证：后台 admin token。
+- 权限：`plugin.write`。
+- 用途：在 `storage/plugins/drafts/{code}` 下初始化声明型插件包模板，然后服务端自动执行 package dry-run。生成前会重新执行同一套 preview / conflict 规则，不能只信任前端缓存。
+- 行为：
+  - 后台、CLI 和 export 均复用 `internal/plugins/scaffold.PluginTemplateGenerator`；不复制两套模板生成逻辑。
+  - 后台、CLI 和 export zip 均不生成 `registry.example.go`，避免 `.go` 文件触发插件包 dangerous file 阻断；registry 接入说明写入 `docs/registry-example.md`。
+  - 只生成 `migrations/001_init.sql`；不生成根目录 `001_schema.sql`。
+  - 不生成 Go/JS/WASM/binary 文件、package scripts、remote iframe / remote component / `remote_entry` / `script_url` / `inline_html` 或 blocking Hook 模板。
+  - 目标目录已存在时返回 `plugin_package_template_exists`，当前后台不支持覆盖。
+  - 初始化成功后写入 `admin_logs`，并返回自动 dry-run 的 `status/risk_report/manifest_validation/warnings/errors`。
+  - 初始化插件包只生成模板，不安装、不启用、不执行 SQL、不执行代码、不动态加载资产。
+- 返回：
+
+```json
+{
+  "message": "插件包模板已初始化，并已完成 package dry-run",
+  "template": {
+    "package_path": "storage/plugins/drafts/demo_notice",
+    "files": ["manifest.json", "README.md", "config.example.json", "docs/usage.md", "docs/content-types.md", "docs/permissions.md", "docs/hooks.md", "docs/migrations.md", "docs/registry-example.md", "migrations/001_init.sql"]
+  },
+  "dry_run": {
+    "status": "warning",
+    "risk_report": { "level": "medium" },
+    "manifest_validation": { "valid": true }
+  },
+  "status": "warning",
+  "warnings": []
+}
+```
+
+`POST /api/v1/admin/plugins/packages/templates/export`
+
+兼容别名：`POST /api/v1/admin/plugins/templates/export`
+
+- 认证：后台 admin token。
+- 权限：`plugin.write`。
+- 用途：用同一套 `PluginTemplateGenerator` 生成声明型模板 zip 下载；不写入 draft 目录、不创建插件记录、不安装、不启用、不执行 SQL、不执行第三方代码。
+- 返回：`application/zip`。zip 内包含 `manifest.json`、`README.md`、`config.example.json`、`docs/*.md` 声明文档和 `migrations/001_init.sql`；不包含根目录 `001_schema.sql`、`.go`、可执行 JS、`.wasm`、二进制、package scripts、远程前端执行入口或 blocking Hook 模板。
+
+`GET /api/v1/admin/plugins/packages`
+
+- 认证：后台 admin token（不允许 user token / moderator token）。
+- 权限：`plugin.read`。
+- 用途：扫描本地插件仓库目录并返回 discovered packages 列表（只读扫描/校验/展示，不安装、不执行、不动态加载）。
+- 查询参数：
+  - `root`：可选，默认 `storage/plugins/packages`
+  - `status`：可选，`all|ok|warning|blocked|invalid`
+  - `keyword`：可选，按 `code/name/path` 模糊搜索
+  - `risk_level`：可选，`low|medium|high|blocked`
+  - `checksum_status`：可选，`ok|warning|failed|missing`
+  - `manifest_valid`：可选，`true|false`
+  - `page` / `page_size`
+- 返回：`items/pagination/summary`，其中 `items` 每项包含 `path/code/name/version/status/risk_level/risk_summary/checksum_status/manifest_valid/total_files/total_size/updated_at/warnings/errors`，以及可选签名摘要 `signature`（同 dry-run）。
+- 由上传包 promote 进入本地仓库的条目会额外返回 `source_upload_id` 和 `promoted_at`，用于把本地仓库包追溯到暂存上传记录；`promoted_by` 仍以 promote 审计日志为准。
+- 删除提示：每项额外返回 `is_installed/can_delete/delete_disabled_reason`。已安装包不能直接删除，后台会提示先归档 / 软卸载插件。
+
+`GET /api/v1/admin/plugins/packages/detail`
+
+- 认证：后台 admin token。
+- 权限：`plugin.read`。
+- 用途：查看单个插件包详情（复用 dry-run 结果视图；blocked/invalid 也可查看原因）。
+- 查询参数：
+  - `path`：必填，例如 `storage/plugins/packages/demo_notice`
+- 返回：与 `POST /api/v1/admin/plugins/packages/dry-run` 相同的结构（包含 `checksum/signature/risk_report/manifest_validation/install_dry_run` 等）。
+
+`DELETE /api/v1/admin/plugins/packages`
+
+别名：`DELETE /api/v1/admin/plugins/packages/repository`
+
+- 认证：后台 admin token。
+- 权限：`plugin.write`。
+- 请求：JSON `{ "path": "storage/plugins/packages/demo_notice" }` 或 query `?path=...`。
+- 行为：允许删除 `storage/plugins/packages/` 下当前未安装的本地仓库包。服务端会重新 dry-run / 查询插件安装状态 / 校验路径，再删除目录。
+- 禁止：已安装同 code + version 的包不可删除；需先归档 / 软卸载插件。本地仓库根目录、路径穿越和白名单外路径均拒绝。
+- 返回：统一 cleanup 结果，包含 `will_delete_count/will_free_bytes/deleted_count/freed_bytes/items`。
+- 审计：成功写入 `plugin_package_repository.deleted`。
+
+`POST /api/v1/admin/plugins/packages/cleanup/preview`
+
+- 认证：后台 admin token。
+- 权限：`plugin.write`。
+- 用途：插件包本地仓库测试数据 / 未安装包批量清理预览。只计算候选与 skipped 明细，不删除数据库记录，不删除 storage 文件。
+- 请求：
+
+```json
+{
+  "scope": "test_packages",
+  "prefixes": ["e2e_", "fixture_", "test_", "demo_"],
+  "include_blocked": true,
+  "include_invalid": true,
+  "include_promoted_uninstalled": true,
+  "include_warning_uninstalled": true
+}
+```
+
+- `scope` 支持：`test_packages`、`uninstalled`、`blocked_invalid`、`expired_dry_runs`。
+- 可清理：`e2e_` / `fixture_` / `test_` / `demo_` 前缀，名称或路径含 `e2e_upload_` / `e2e_upload_promote_` / `e2e_upload_lifecycle_` / `fixture_` 的测试包，以及未安装的 `blocked` / `invalid` / `warning` / `promoted` 本地仓库包。
+- 禁止清理：installed 包、enabled / running 插件当前使用包、disabled 但已安装包、仍有安装绑定的 archived 当前包、存在 active enable / upgrade / uninstall task 的包、非测试前缀且非 blocked / invalid 的正式包。
+- 返回：`dry_run/confirm_required/confirm_token/will_delete_count/will_delete_files/will_free_bytes/skipped_count/status_counts/skipped_counts/items/errors/warnings`。`items` 同时包含将清理项和 skipped 项；skipped 项带 `can_delete=false` 和 `blocked_code`。
+- 审计：写入 `plugin.package.cleanup.preview`，metadata 只记录 scope、prefixes、计数、plugin_codes 和 storage path hash，不记录 token / secret / Authorization 或包内容。
+
+`POST /api/v1/admin/plugins/packages/cleanup`
+
+别名：`POST /api/v1/admin/plugins/packages/repository/cleanup`
+
+- 认证：后台 admin token。
+- 权限：`plugin.approve`。
+- 请求：同 preview，并必须带 preview 返回的 `confirm_token`。兼容旧用法的 `dry_run=true` 预览仍可用，但推荐改用 `/cleanup/preview`。
+- 行为：执行前服务端重新扫描本地仓库，重新判断安装状态、enabled / running 绑定、active task、路径白名单和状态 / 前缀筛选；不信任前端缓存。执行会删除 `storage/plugins/packages/` 下匹配目录，并删除对应 promoted upload 本地仓库记录；不删除插件配置、安装记录、历史内容、`admin_logs` 或 `hook_executions`。
+- 幂等：文件或目录已不存在时记录 warning，不导致整个清理失败；部分失败返回 `partial_failed` 语义的明细。
+- storage 安全：只允许删除 `storage/plugins/packages/` 子目录，路径会经过 clean / abs / prefix 校验，拒绝路径穿越、storage 根目录和任意用户输入路径。
+- 返回：`dry_run/confirm_required/will_delete_count/will_delete_files/will_free_bytes/deleted_count/deleted_files/freed_bytes/skipped_count/failed_count/status_counts/skipped_counts/items/errors/warnings`。
+- 审计：写入 `plugin.package.cleanup.started`，成功写入 `plugin.package.cleanup.success`，部分失败写入 `plugin.package.cleanup.partial_failed`，失败写入 `plugin.package.cleanup.failed`；installed / enabled / active task 跳过分别写入 skipped 类审计。
+
+`GET /api/v1/admin/plugins/trusted-publishers`
+
+- 认证：后台 admin token。
+- 权限：`plugin.read`。
+- 用途：查看本地可信发布者列表；该列表是插件包可信状态的唯一来源。
+- 查询参数：`status`、`keyword`、`page`、`page_size`。
+- 返回：`items/pagination/summary`。`items` 包含 `publisher_id/name/homepage/email/public_key_id/public_key_algorithm/public_key/fingerprint/status/notes/created_by/updated_by/created_at/updated_at/revoked_at/blocked_at`。
+
+`GET /api/v1/admin/plugins/trusted-publishers/:id`
+
+- 认证：后台 admin token。
+- 权限：`plugin.read`。
+- 用途：查看单个可信发布者详情。
+
+`POST /api/v1/admin/plugins/trusted-publishers`
+
+- 认证：后台 admin token。
+- 权限：`plugin.manage`。
+- 用途：新增可信发布者公钥；不会保存私钥，也不会从远程同步。
+- 请求：
+
+```json
+{
+  "publisher_id": "devhub-official",
+  "name": "DevHub Official",
+  "homepage": "https://example.com",
+  "email": "security@example.com",
+  "public_key_id": "devhub-official-2026",
+  "public_key_algorithm": "ed25519",
+  "public_key": "base64-ed25519-public-key",
+  "notes": "本地可信发布者"
+}
+```
+
+`PUT /api/v1/admin/plugins/trusted-publishers/:id`
+
+- 认证：后台 admin token。
+- 权限：`plugin.manage`。
+- 用途：更新可信发布者元信息或公钥；`publisher_id + public_key_id` 必须唯一。
+
+`POST /api/v1/admin/plugins/trusted-publishers/:id/block`
+
+- 认证：后台 admin token。
+- 权限：`plugin.manage`。
+- 用途：将发布者标记为 blocked；后续匹配该公钥的插件包 dry-run / promote / install / approval 执行会 blocked。
+
+`POST /api/v1/admin/plugins/trusted-publishers/:id/revoke`
+
+- 认证：后台 admin token。
+- 权限：`plugin.manage`。
+- 用途：将发布者标记为 revoked；后续匹配该公钥的插件包会 blocked。
+
+`POST /api/v1/admin/plugins/trusted-publishers/:id/restore`
+
+- 认证：后台 admin token。
+- 权限：`plugin.manage`。
+- 用途：恢复为 trusted。
+
+`DELETE /api/v1/admin/plugins/trusted-publishers/:id`
+
+- 认证：后台 admin token。
+- 权限：`plugin.manage`。
+- 用途：删除本地可信发布者记录；删除后对应插件包会变为 unknown publisher，而不会自动信任包内 publisher.json。
+
+`POST /api/v1/admin/plugins/packages/install`
+
+- 认证：后台 admin token。
+- 权限：`plugin.approve`（仅审批人可直接执行；普通管理员需先提交审批申请）。
+- 用途：从**本地插件仓库包**安装声明型插件（最小闭环）。安装只能来自 `storage/plugins/packages/`，必须先对当前本地仓库包执行安装 dry-run 并带回 `dry_run_id`；服务端会再次复跑 package dry-run（scan/checksum/risk/manifest validate/install preview），校验 dry-run 计划未过期且与当前包一致，通过后复用现有 manifest install 写入插件记录。
+- 请求：
+
+```json
+{
+  "path": "storage/plugins/packages/demo_notice",
+  "dry_run_id": "eyJwYXRoIjoiLi4uIn0.signature",
+  "confirm_risk_level": "low"
+}
+```
+
+- 行为与边界：
+  - 不能直接从 upload / staging / quarantine 路径安装；必须先 promote 到本地插件仓库。
+  - upload 阶段 dry-run 不能替代 install dry-run；`dry_run_id` 过期、缺失或与当前包 checksum / manifest / migration plan 不一致时拒绝安装。
+  - v1.8.3-S13 已用真实 zip fixture 通过后台 API 验证：blocked 上传包 promote 会被后端拒绝；本地仓库包缺少 `dry_run_id` 或 `dry_run_id` 与当前包不匹配时 install 会被拒绝；valid 包安装前必须重新 dry-run。
+  - 只写入 manifest 声明、默认配置、迁移 pending 记录与审计；不执行第三方代码、不执行外部 raw SQL、不动态加载前端资产。
+  - install 只基于 `migrations/` 计划；根目录 `001_schema.sql` 不执行。
+  - 安装成功后插件状态固定为 `disabled`（不自动启用）。
+  - 安装成功后触发 PluginRegistry reload；安装失败不会污染运行态。
+  - 若同 `code` 插件已安装，返回 `plugin_package_already_installed`（提示走 upgrade）。
+- 返回：`plugin`（含 `source_type=local_package`）、`package`、`checksum`、`risk_level`、`install_result`、`warnings`。
+
+`POST /api/v1/admin/plugins/:code/export/dry-run`
+
+- 认证：后台 admin token。
+- 权限：`plugin.read`。
+- 用途：预览“已安装声明型插件”导出为本地插件包目录；不写文件、不生成目录、不导出真实配置。
+- 请求：
+
+```json
+{
+  "include_docs": true,
+  "include_migrations": true,
+  "include_publisher": false,
+  "include_signature_stub": false
+}
+```
+
+- 返回字段：
+  - `plugin_code` / `version` / `status`：插件与预览状态（`ok|warning|blocked`）。
+  - `export_preview.files`：预计生成的相对文件列表，至少包含 `manifest.json`、`README.md`、`config.example.json`、`checksums.json`。
+  - `export_preview.output_dir`：预计输出目录，默认在 `storage/plugins/exports/{plugin_code}-{version}-{timestamp}`。
+  - `contains_sensitive_values=false` / `contains_user_data=false` / `contains_runtime_code=false` / `contains_external_sql=false`：导出安全边界检查。
+  - `warnings` / `errors`：可读提示；敏感字段不会进入 details。
+
+`POST /api/v1/admin/plugins/:code/export`
+
+- 认证：后台 admin token。
+- 权限：`plugin.write`。
+- 用途：正式导出已安装声明型插件为受控本地插件包目录。
+- 请求字段：同 dry-run，额外支持 `output_dir`（必须位于 `storage/plugins/exports/`）和 `force`（已存在目录时是否清理重写）。
+- 行为：
+  - 执行前强制调用导出 dry-run。
+  - 写入 `manifest.json`、`README.md`、`config.example.json`、`checksums.json`，可选写入 `docs/usage.md`、`migrations/exported_migrations.json`、`publisher.json`、`signature.json` 结构草案。
+  - `config.example.json` 只来自 `default_config` 或 `config_schema` 示例生成，敏感字段统一写为 `REPLACE_ME`，不会导出当前全局/子站真实配置，也不会导出 `enc:v1:` 密文。
+  - 生成 `checksums.json` 后自动执行 package dry-run 自检；自检失败会以 warning 返回，不会写入插件安装数据。
+  - 成功/失败均写入 `admin_logs`，details 不包含敏感配置、用户数据或密文。
+- 返回字段：
+  - `plugin_code` / `version` / `output_dir`
+  - `files`
+  - `checksum_status=generated`
+  - `package_dry_run_status=ok|warning|failed`
+  - `warnings`
+
+边界：
+
+- 不生成 zip、不远程上传、不发布到插件市场。
+- 不导出用户数据、帖子/评论/通知/审计原始明细、Hook 执行历史、搜索索引、运行时代码、外部 SQL、私钥或任何真实 token/secret/password/credential。
+
+`POST /api/v1/admin/plugins/approvals`
+
+- 认证：后台 admin token。
+- 权限：`plugin.write`。
+- 用途：创建插件治理审批申请（本轮覆盖：本地插件包 install、插件 upgrade）。
+- 请求示例：
+
+```json
+{
+  "action": "install",
+  "package_path": "storage/plugins/packages/demo_notice",
+  "reason": "安装公告插件用于测试"
+}
+```
+
+- 返回：审批记录（`id/status/action/plugin_code/package_path/risk_report_json/dry_run_json` 等）。
+
+`GET /api/v1/admin/plugins/approvals`
+
+- 认证：后台 admin token。
+- 权限：`plugin.read`。
+- 用途：审批列表（分页/筛选）。
+- 查询参数：
+  - `status`：可选，`pending|approved|rejected|canceled|executed|failed`
+  - `action`：可选，`install|upgrade`
+  - `plugin_code`：可选
+  - `requested_by` / `reviewed_by`：可选
+  - `page` / `page_size`
+
+`GET /api/v1/admin/plugins/approvals/:id`
+
+- 认证：后台 admin token。
+- 权限：`plugin.read`。
+- 用途：审批详情（包含 dry-run/risk 快照；不包含敏感配置明文或密文）。
+
+`POST /api/v1/admin/plugins/approvals/:id/approve`
+
+- 认证：后台 admin token。
+- 权限：`plugin.approve`。
+- 用途：审批通过。
+- 请求：`{"comment":"...可选..."}`。
+
+`POST /api/v1/admin/plugins/approvals/:id/reject`
+
+- 认证：后台 admin token。
+- 权限：`plugin.approve`。
+- 用途：审批拒绝（comment 必填）。
+- 请求：`{"comment":"...必填..."}`。
+
+`POST /api/v1/admin/plugins/approvals/:id/cancel`
+
+- 认证：后台 admin token。
+- 权限：`plugin.write`。
+- 用途：撤销 pending 申请（默认仅申请人可撤销；审批人可强制撤销）。
+
+`POST /api/v1/admin/plugins/approvals/:id/execute`
+
+- 认证：后台 admin token。
+- 权限：`plugin.approve`。
+- 用途：执行已通过审批的申请。服务端会强制**重新 dry-run 校验**（scan/checksum/risk/依赖/兼容），校验通过后才会真正安装/升级。
+
+`POST /api/v1/admin/plugins/install`
+
+- 认证：后台 admin token。
+- 权限：`plugin.write`。
+- 用途：安装 manifest + 配置型插件。
+- 行为：写入插件记录、默认配置、迁移待处理记录和审计，但不执行第三方代码。
+- 初始状态：`install_status=installed`、`runtime_status=disabled`。
+- 阻断：required dependency 缺失、disabled、archived、migration_failed、config_invalid、version_mismatch、自依赖、循环依赖，或 Core 版本不兼容时拒绝安装；optional dependency 缺失允许安装但返回 warning。
+
+
+### 插件 dependencies 与 Core 兼容规则
+
+`dependencies` 当前支持两种输入：旧兼容字符串数组（如 `["qa"]`，视为 required）和对象数组：
+
+```json
+{
+  "code": "qa",
+  "version": ">=1.0.0 <2.0.0",
+  "required": true,
+  "reason": "需要问答内容类型作为数据来源"
+}
+```
+
+字段：`code` 为依赖插件编码；`version` 为版本约束；`required` 默认为 `true`；`reason` 为可选说明。当前版本约束只支持数字 `x.y.z`、精确版本、`>=`、`>`、`<=`、`<` 和空格连接的范围组合（如 `>=1.2.0 <2.0.0`），不支持 `^`、`~`、`||`、预发布标签或 npm 完整语法。
+
+依赖状态：`satisfied`、`missing`、`disabled`、`archived`、`migration_failed`、`config_invalid`、`version_mismatch`、`circular_dependency`、`self_dependency`、`optional_missing`。required 不满足会阻断 validate / dry-run / install / upgrade dry-run / upgrade / enable；optional 缺失只 warning。自依赖和循环依赖当前一律阻断，包括 optional 循环。
+
+Core 兼容：`min_core_version` 缺失为 warning；`min_core_version` 高于当前 Core 为 `plugin_core_version_incompatible` 并阻断；`compatible_core_version` 存在但当前 Core 不满足时按 incompatible 阻断。当前 Core 版本来自项目 `VERSION`，不是前端写死。
+
+启用插件时会重新执行 required dependency 检查；依赖插件处于 disabled、archived、migration_failed、config_invalid、dependency_missing 时不能视为可用。错误码 / message 包含 `plugin_dependency_missing`、`plugin_dependency_disabled`、`plugin_dependency_archived`、`plugin_dependency_version_mismatch`、`plugin_dependency_cycle`、`plugin_core_version_incompatible` 等前缀或同义状态。
+
+`POST /api/v1/admin/plugins/:code/upgrade/dry-run`
+
+- 认证：后台 admin token。
+- 权限：`plugin.write`。
+- 用途：对现有插件做升级预览，返回版本兼容矩阵、变更字段和 diff，不写入插件记录。
+- 请求体：manifest JSON，要求 `code` 与路径中的 `:code` 一致。
+- 返回：
+  - `current_version`
+  - `new_version`
+  - `current_core_version`
+  - `compatible_core_version`
+  - `compatibility_status`
+  - `changed_keys`
+  - `diff.current`
+  - `diff.new`
+  - `validation`
+  - `dependency_diff`：包含新增依赖、删除依赖、版本约束变化、required 变化和 changed_dependencies。
+- 结构化增强返回（当前实现）：
+  - `version_plan`：当前 / 目标版本、是否同版本、是否降级、是否跨大版本、code 是否匹配。
+  - `package_summary`：当前 / 目标 checksum、发布者和签名 / 信任摘要（manifest-only 场景也会返回占位摘要）。
+  - `change_summary`：新增 / 删除 / 修改 / 高风险 / 阻断计数、风险级别和中文摘要。
+  - `impact_summary`：插件状态、受影响站点数、内容类型 / 权限 / 配置 / Hook 计数、菜单 / 路由 / 前端挂载 / migration / external_service 影响。
+  - `migration_plan` / `config_plan` / `permission_plan` / `content_type_plan` / `hook_plan` / `frontend_mount_plan`：按分区整理的升级计划。
+  - `risk_items` / `blocking_items` / `warnings`：中文友好的风险列表，敏感字段按路径脱敏。
+  - `confirm_required` / `confirm_token`：warning 升级需要显式确认；blocked 不可通过 confirm 绕过。
+  - `rollback_boundary`：当前升级边界说明，不提供完整自动回滚。
+- 阻断：新 manifest 的 required dependency 或 Core 兼容检查不满足时，预览返回 `validation.valid=false` / blocked 信息，不写入数据。
+- 风险等级：
+  - `safe`：可继续审批 / 执行，但生产仍需先完成备份。
+  - `warning`：必须在执行升级时显式 `confirm=true`，并建议记录管理员确认原因。
+  - `blocked`：不能通过 `confirm=true`、审批或前端按钮绕过。
+- 生产执行前还应确认 dry-run plan 未过期，且 checksum、manifest、plugin code、version 和 migration plan 与当前包一致；不一致必须重新 dry-run。
+
+`POST /api/v1/admin/plugins/:code/upgrade`
+
+- 认证：后台 admin token。
+- 权限：`plugin.approve`（仅审批人可直接执行；普通管理员需先提交升级审批申请）。
+- 用途：执行 manifest + 配置型插件的安全升级。
+- 请求体：manifest JSON 或 `{ "manifest": {...}, "confirm": true }` 包装体，要求 `code` 与路径中的 `:code` 一致，且 `version` 必须高于当前版本。
+- 阻断：required dependency 或 Core 兼容检查不满足时拒绝升级；不允许降级或同版本重复升级；warning 升级必须显式确认，blocked 项无法通过 confirm 绕过。
+- 行为：
+  - 校验 manifest。
+  - 校验版本兼容性。
+  - 更新插件 manifest / version / checksum / 声明元信息。
+  - 为新增 migration 生成 `pending` 记录。
+  - 保留历史配置、迁移记录和审计记录。
+  - 不执行第三方代码，不执行外部 raw SQL。
+- 审计：`admin_logs` 会记录 `plugin_code`、`from_version`、`to_version`、`actor`、`request_id`、`dry_run_summary`、`risk_level`、`confirm_required`、`confirm_used`、`result_status`、`failure_stage` 和 `failure_reason`，敏感字段保持脱敏。
+- 返回：升级后的 `plugin` 对象，以及升级时使用的兼容矩阵 / diff / validation 摘要。
+- 失败响应：升级失败时应尽量返回 `failure_stage`、`failure_reason` 和可读 `suggestion`；后台也会在升级任务 / 执行结果里展示失败阶段、原因和下一步建议。常见阶段包括 `precheck`、`dry_run`、`confirm`、`migration`、`config_migration`、`registry_reload`、`enable`、`webhook`、`external_service` 和 `unknown`。
+- plan 校验：服务端执行前会重新校验 dry-run plan；plan 过期、checksum 不一致、manifest 不一致、plugin code / version 不一致或 migration plan 不一致时拒绝升级。
+- 回滚边界：当前不提供完整自动 rollback 或 migration down；`disabled` / `archived` 不是完整回滚。若 `migration` 已执行，恢复通常依赖生产数据库备份或 DBA 人工处理。
+
+常见错误：
+
+- `400 {"error":"插件不存在"}`
+- `400 {"error":"config_json 必须是合法 JSON"}`
+- `400 {"error":"$ 缺少必填字段 ..."}`
+- `400 {"error":"$.field 必须是 boolean/string/number/integer/object"}`
+- `400 {"error":"$.field 值不在允许范围 enum 内"}`
+- `401 {"error":"未登录"}`
+- `403 {"error":"无权限"}`
+
+`GET /api/v1/admin/plugins/:code/impact`
+
+- 认证：后台 admin token。
+- 权限：`plugin.read`。
+- 用途：插件治理中心的“禁用前影响分析”入口，用于展示禁用该插件对系统范围的影响计数。
+- 返回：影响范围统计（计数型字段，尽量轻量且可缓存）。
+
+响应示例：
+
+```json
+{
+  "plugin_code": "qa",
+  "existing_contents_count": 120,
+  "enabled_communities_count": 3,
+  "disabled_communities_count": 1,
+  "categories_count": 5,
+  "topics_count": 120,
+  "recent_contents_count": 8,
+  "pending_topics_count": 4,
+  "pending_contents_count": 4,
+  "menus_count": 3,
+  "frontend_menus_count": 1,
+  "moderator_menus_count": 1,
+  "admin_menus_count": 1,
+  "configs_count": 4,
+  "pending_migrations_count": 0,
+  "recent_hook_errors_count": 0
+}
+```
+
+当前统计边界：
+
+- `existing_contents_count` 与 `topics_count` 同步保留，前者是新治理口径，后者用于兼容旧 UI。
+- `recent_contents_count` 统计近 7 天内容。
+- `pending_contents_count` 与 `pending_topics_count` 同步保留。
+- `recent_hook_errors_count` 来自 `hook_executions` 最近 7 天失败记录；该字段是轻量健康提示，不等同于完整 Hook 健康状态或重试系统。
+
+`GET /api/v1/admin/plugins/:code/hooks`
+
+- 认证：后台 admin token。
+- 权限：`plugin.read`。
+- 用途：插件详情 Hooks Tab 展示运行时统计与最近执行记录。
+- 返回：`items` 为按 Hook 聚合的统计，`recent_executions` 为最近 20 条执行记录。
+
+响应示例：
+
+```json
+{
+  "items": [
+    {
+      "hook_name": "BeforeCreateContent",
+      "plugin_code": "qa",
+      "mode": "blocking",
+      "blocking": true,
+      "execution_count": 12,
+      "failure_count": 1,
+      "avg_duration_ms": 1.3,
+      "last_executed_at": "2026-05-11 15:30:01",
+      "last_failed_at": "2026-05-11 15:20:10",
+      "last_error": "qa 插件仅允许创建 question"
+    }
+  ],
+  "recent_executions": [
+    {
+      "id": 1,
+      "hook_name": "AfterCreateContent",
+      "plugin_code": "qa",
+      "mode": "non_blocking",
+      "content_type": "question",
+      "content_id": 123,
+      "community_id": 1,
+      "category_id": 101,
+      "actor_type": "user",
+      "actor_id": 2,
+      "started_at": "2026-05-11 15:30:01",
+      "finished_at": "2026-05-11 15:30:01",
+      "duration_ms": 0,
+      "success": true,
+      "blocking": false,
+      "metadata_json": "{\"handler_index\":0}"
+    }
+  ]
+}
+```
+
+常见错误：
+
+- `404 {"error":"插件不存在"}`
+- `401 {"error":"未登录"}`
+- `403 {"error":"无权限"}`
+
+`GET /api/v1/admin/plugins/:code/hooks/executions`
+
+- 认证：后台 admin token。
+- 权限：`plugin.read`。
+- 用途：Hooks 排障页查询某插件的 `hook_executions` 执行记录列表（支持基础筛选 + 分页）。该接口不提供重试、清空或告警能力。
+- 查询参数（可选）：
+  - `hook_name`
+  - `service_type`：例如 `external_service`，用于筛选外部服务 health check / Hook 执行记录。
+  - `mode`
+  - `success`：`true/false/1/0`
+  - `blocking`：`true/false/1/0`
+  - `content_type`
+  - `content_id`
+  - `community_id`
+  - `actor_type`
+  - `actor_id`
+  - `request_id`
+  - `start_time` / `end_time`：`YYYY-MM-DD HH:mm:ss`
+  - `page` / `page_size`（`page_size<=100`）
+- 返回：
+
+```json
+{
+  "items": [],
+  "total": 0,
+  "page": 1,
+  "page_size": 20
+}
+```
+
+### v1.8.3-S11 external_service 运行时预备 API
+
+说明：本节描述 **已实现** 的 external_service 运行时接口。它用于声明型插件配置外部 HTTP 服务、执行受控 health check，并在 v1.8.3-S14 起支持 external_service 声明的 **non-blocking** Hook 异步投递。该能力不是第三方代码执行，不开放动态加载，不改变 Webhook Secret / Callback Token 安全模型，也不实现 blocking Hook。
+
+密钥边界：
+
+- external_service token：DevHub 调用外部服务 health check / Hook 时使用，当前仅支持 `auth_type=none|bearer`，Bearer 明文只在写入请求中出现一次，不回显。
+- v1.8.4-S14 起 Bearer token 明文会写入 Core SecretCenter，并以 `token_ref=secret://external_service/{plugin_code}/token` 形式绑定到 external_service 运行配置；`token_secret` 只返回元数据，不返回明文或密文。
+- Webhook Secret：DevHub 向插件服务投递 Webhook 时做 HMAC 签名使用。
+- Callback Token：插件服务回调 DevHub Core API 时使用。
+- 三者不能混用；列表、详情、审计、日志和 `hook_executions` 均不返回 token 明文、Authorization Header、Webhook Secret 明文或 Callback Token 明文。
+
+#### external_service non-blocking Hook 声明
+
+manifest 中 `hooks[]` 可声明 external_service 投递目标：
+
+```json
+{
+  "name": "AfterCreateContent",
+  "mode": "non_blocking",
+  "service_type": "external_service",
+  "path": "/hooks/content.after_create",
+  "method": "POST",
+  "timeout_ms": 3000,
+  "retry_enabled": true,
+  "max_attempts": 3,
+  "failure_policy": "warn",
+  "enabled": true
+}
+```
+
+约束：
+
+- `service_type=external_service` 时 `mode` 只能是 `non_blocking`；blocking Hook 仍未实现。
+- `path` 必须是以 `/` 开头的相对路径，不能覆盖 `endpoint_url` 的域名。
+- 第一版仅支持 `POST`。
+- `failure_policy` 支持 `ignore|warn|error|disable_hook`。
+- `max_attempts` 上限为 `5`。
+
+投递行为：
+
+- 触发 Hook 时先写入 `hook_executions(service_type=external_service,status=pending)`，随后异步 `POST {endpoint_url}{hook.path}`；主业务流程不会等待远端响应。
+- 请求头包含 `X-DevHub-Plugin-Code`、`X-DevHub-Hook-Name`、`X-DevHub-Execution-ID`、`X-DevHub-Event-ID`、`X-DevHub-Request-ID`、`X-DevHub-Idempotency-Key`、`X-DevHub-Timestamp`、`X-DevHub-Delivery-Mode: non_blocking`。
+- `auth_type=bearer` 时只在实际 HTTP 请求中使用 Authorization Header，不写入 `hook_executions`、日志、审计或 API 响应。
+- timeout、5xx 和 429 可重试；4xx、401/403、token 缺失 / 无法解密、endpoint 非法不重试。
+- 插件 disabled / archived / soft_uninstalled、external_service disabled、子站 disabled 时不调用 endpoint，只记录 `skipped` 和原因。
+- 结果可通过 `GET /api/v1/admin/plugins/:code/hooks/executions?service_type=external_service` 查询；失败类 external_service 执行记录可通过下方手动重试 API 重新投递一次。
+
+#### `GET /api/v1/admin/plugins/:code/external-service`
+
+- 认证：后台 admin token。
+- 权限：`plugin.read`。
+- 用途：查询插件 external_service 配置与最近健康状态。
+- 返回：`{"configured":true,"config":{...}}`；未配置时返回 `{"configured":false,"config":null}`。
+- `config` 会返回当前实际运行配置摘要：`endpoint_url`、`health_check_path`、`enabled`、`timeout_ms`、`failure_policy`、`token_ref`、`token_secret`（元数据）、最近健康检查、最近成功、最近失败、连续失败计数、`diagnostics` 和只读 `http_policy`。`token` / `Authorization` / secret 明文不会返回。
+
+#### `GET /api/v1/admin/plugins/:code/external-service/effective-config`
+
+- 认证：后台 admin token。
+- 权限：`plugin.read`。
+- 用途：返回单个插件 external_service 的当前生效脱敏运行配置，字段与 `/admin/system/effective-config.external_services[]` 对齐。
+- 返回：`endpoint_url`、`health_check_path`、`enabled`、`timeout_ms`、`failure_policy`、`current_health`、最近检查 / 成功 / 失败时间、`token_ref`、`token_status`、`token_key_id`、`token_masked`、`token_message`。
+- 安全：不返回 token 明文、Authorization Header、`encrypted_value`、root key 或 `DEVHUB_PLUGIN_CONFIG_KEYS`。
+
+#### `PUT /api/v1/admin/plugins/:code/external-service`
+
+- 认证：后台 admin token。
+- 权限：`plugin.manage`。
+- 用途：保存插件 external_service 配置。保存后刷新插件运行态元数据。
+- 返回：与查询接口保持一致，包含 `token_ref` 与 `token_secret` 元数据（status/key_id/last_used_at/rotated_at 等），不返回 token 明文、`token_ciphertext` 或 `token_hash`。
+- 请求字段：
+  - `endpoint_url`：必填；只允许 `https://`，本地开发允许 `http://localhost` / `http://127.0.0.1` / `http://[::1]`；非 localhost HTTP 默认拒绝，需通过 `DEVHUB_EXTERNAL_SERVICE_HTTP_ALLOWLIST` 显式放行 origin；拒绝 `javascript:`、`data:`、`file:`、`ftp:`。
+  - `health_check_path`：默认 `/health`。
+  - `timeout_ms`：默认 `3000`，下限 `500`，上限 `10000`。
+  - `failure_policy`：`ignore|warn|error|disable_hook`，默认 `warn`。
+  - `auth_type`：`none|bearer`。
+  - `token`：仅 `auth_type=bearer` 时写入；v1.8.4-S14 起会写入 SecretCenter 并生成/更新 `token_ref=secret://external_service/{plugin_code}/token`；不会在响应中回显明文。
+  - `enabled`：是否启用 external_service。
+  - `warning_threshold` / `error_threshold`：默认 `3` / `5`。
+- endpoint 安全拒绝仍返回 `code=endpoint_safety_rejected`，并在 `details/diagnostics` 中给出当前 endpoint、`needs_allowlist=true`、当前安全策略和推荐命令：`DEVHUB_EXTERNAL_SERVICE_HTTP_ALLOWLIST=http://172.17.0.1:18081 ./dev.sh restart --no-build`。v1.8.4-S16 起，后台配置来源的 allowlist 也会参与保存、健康检查和实际投递的安全校验。
+
+HTTP 默认策略：
+
+- HTTPS 默认允许。
+- `localhost` / `127.0.0.1` / `::1` 的 HTTP 默认允许。
+- 非 localhost HTTP 默认不允许。生产建议使用 HTTPS；本地 Docker host gateway 联调可显式设置 `DEVHUB_EXTERNAL_SERVICE_HTTP_ALLOWLIST`，也可在系统设置页通过受控后台配置新增 exact origin。
+- `dev.sh` 会把 `DEVHUB_EXTERNAL_SERVICE_HTTP_ALLOWLIST` 透传给本地 Go、Docker Go 和前端构建 bootstrap API 使用的 Go 进程。
+- 最终 HTTP allowlist = 系统默认 localhost / 127.0.0.1 / ::1 + 环境变量来源 + 后台配置来源；后台配置只允许 exact origin，不允许 wildcard、`0.0.0.0` 或 CIDR。
+
+#### `POST /api/v1/admin/plugins/:code/external-service/health-check`
+
+- 认证：后台 admin token。
+- 权限：`plugin.manage`。
+- 用途：对 `{endpoint_url}{health_check_path}` 执行受控 `GET` 探活，并写入 `hook_executions(service_type=external_service)`。
+- 成功规则：HTTP 2xx 为 `healthy`；HTTP 3xx 记录为 `warning`；HTTP 4xx/5xx、超时、DNS/TLS/连接错误记录为失败并按阈值进入 `warning` / `error`。
+- 插件 disabled / archived 时不调用 endpoint，写入 `skipped` 记录。
+- 返回示例：
+
+```json
+{
+  "plugin_code": "qa",
+  "service_type": "external_service",
+  "endpoint_url": "https://plugin.example.com",
+  "health_status": "healthy",
+  "status": "healthy",
+  "checked_at": "2026-05-19 10:00:00",
+  "duration_ms": 42,
+  "message": "",
+  "diagnostics": [],
+  "http_policy": {
+    "https_allowed": true,
+    "localhost_http_allowed": true,
+    "non_local_http_needs_allowlist": true,
+    "allowlist_env": "DEVHUB_EXTERNAL_SERVICE_HTTP_ALLOWLIST"
+  }
+}
+```
+
+失败诊断类型包括：`endpoint_safety_rejected`、`network_connection_refused`、`network_timeout`、`http_status_failed`、`token_missing`、`token_invalid`、`token_disabled`、`token_revoked`、`secret_ref_not_found`、`service_disabled`、`plugin_disabled`、`community_plugin_disabled`。当 `http://127.0.0.1:*` 连接拒绝时，suggestion 会说明 Docker 容器内 `127.0.0.1` 指向容器自身，并建议使用 `host.docker.internal`、Docker host gateway 地址或宿主机局域网 IP。
+
+#### `POST /api/v1/admin/plugins/:code/hooks/executions/:execution_id/retry`
+
+- 认证：后台 admin token。
+- 权限：`plugin.manage`。
+- 用途：对某条失败类 `hook_executions` 记录发起 external_service 手动重试。
+- 后台入口：插件详情抽屉“运行记录 / 外部服务配置”可查看来源执行记录；Webhook 治理页“外部服务执行”可直接对失败记录发起重试。
+- 请求体：无。
+- 允许重试：
+  - `service_type=external_service`
+  - `mode=non_blocking`
+  - `status=failed|timeout|retry_scheduled|retry_exhausted`
+  - 路径 `:code` 必须与执行记录 `plugin_code` 一致
+- 禁止重试：
+  - `success`
+  - `skipped`
+  - `pending/running`
+  - `external_service.health_check`
+  - internal/builtin Hook handler
+  - 非 external_service 执行记录
+  - 跨插件 code
+  - 插件 `disabled/archived/soft_uninstalled` 或 external_service disabled
+- 行为：
+  - 复用 external_service 投递逻辑和现有签名 / 追踪 header / payload 结构，不另写独立 HTTP 客户端。
+  - 本轮手动重试会创建新的 `hook_executions` 记录，metadata 标记 `manual_retry=true`、`source_record_id`、`source_execution_id`、operator 和 `request_id`。
+  - 成功或失败都会按现有 external_service health 规则更新健康状态，并写入 `admin_logs`，action 为 `plugin.webhook.manual_retry`。
+  - Authorization Header、Bearer token、Webhook Secret、Callback Token 和敏感 payload 不进入响应、日志、审计或 `hook_executions` 明文。
+- 返回示例：
+
+```json
+{
+  "plugin_code": "official_webhook_notify",
+  "source_execution_id": "extsvc_exec_xxx",
+  "retry_execution_id": "extsvc_retry_yyy",
+  "retry_record_id": 123,
+  "status": "success",
+  "message": "手动重试已完成"
+}
+```
+
+常见错误：
+
+- `plugin_hook_execution_not_found`：Hook 执行记录不存在。
+- `plugin_webhook_retry_cross_plugin`：不能跨插件重试。
+- `plugin_webhook_retry_not_external_service`：只允许重试 external_service 记录。
+- `plugin_webhook_retry_status_not_allowed`：当前状态不允许重试，例如 `success` 或 `skipped`。
+- `plugin_external_service_disabled`：external_service 已停用。
+- `plugin_disabled` / `plugin_archived`：插件当前状态不允许实际调用 endpoint。
+
+`POST /api/v1/admin/plugins/:code/hooks/:name/e2e-fail`
+
+- 认证：后台 admin token。
+- 权限：`plugin.write`。
+- 用途：仅用于 E2E / API 测试注入 Hook 失败，验证 blocking / non-blocking Hook 异常治理闭环。
+- 启用条件：仅在 `DEVHUB_E2E_TESTING=1` 或 `CMS_STORE=memory` 的测试 / 开发环境可用；生产环境不应依赖该接口。
+- 请求：
+
+```json
+{
+  "mode": "blocking",
+  "error_message": "E2E blocking hook failure"
+}
+```
+
+- 清除注入：
+
+```json
+{
+  "clear": true
+}
+```
+
+- 行为：
+  - `BeforeCreateContent` 等 blocking Hook 注入失败后，内容创建会被后端阻断，不写入脏数据，并写入 `hook_executions`。
+  - `AfterCreateContent` 等 non-blocking Hook 注入失败后，主流程继续，内容仍可创建，并写入 `hook_executions`。
+  - blocking 失败写入 `plugin.hook.blocked` 审计；non-blocking 失败写入 `plugin.hook.failed` 审计。
+  - 注入 / 清除操作本身写入 `plugin.hook.test_injection` 审计。
+- 说明：这是测试 helper，不是普通生产治理接口；真实 Hook 失败由内置 HookBus handler 返回错误产生。
+
+常见错误：
+
+- `404 {"error":"测试 Hook 注入接口未启用"}`
+- `404 {"error":"插件不存在"}`
+- `400 {"error":"hook mode 不合法"}`
+- `401 {"error":"未登录"}`
+- `403 {"error":"无权限"}`
+
+`GET /api/v1/admin/plugins/:code/audit-logs`
+
+- 认证：后台 admin token。
+- 权限：`plugin.read`。
+- 用途：插件详情“审计”Tab 的专用查询入口。
+- 查询参数：
+  - `community_id`：可选，按子站过滤。
+  - `action`：可选，按动作关键字模糊过滤。
+  - `type`：可选，默认 `all`。
+  - `actor_type`：可选。
+  - `actor`：可选，按 `actor_type` 模糊过滤。
+  - `actor_user_id`：可选，按 `actor_id` 精确过滤。
+  - `target_type`：可选，按 target 文本中的 target type 片段过滤。
+  - `target_id`：可选，按 target 文本中的 target id 片段过滤。
+  - `plugin_code`：可选，默认使用路径中的 `code`，同时匹配 target / metadata / old_value / new_value。
+  - `metadata`：可选，按 `metadata_json` 关键字过滤。
+  - `request_id`：可选，按 `metadata_json` 里的 request id 或 request id 字符串过滤。
+  - `start_time`、`end_time`：可选，按 `created_at` 字符串时间范围过滤。
+  - `target`：可选，默认使用插件 code 模糊匹配。
+  - `page`、`page_size`：分页参数。
+- 返回：`domain.PageResponse`，items 为 `AdminLog`，包含 `old_value`、`new_value`、`metadata_json`。
+- 覆盖范围：插件启停、插件配置、子站插件配置、子站插件排序、Hook 失败审计，以及带 `plugin_code` 的插件内容治理操作。
+- 阶段 B / v1.4 后台联动：通用 PluginContent 页的“查看审计日志”入口会跳转到 `/admin-next/audit-logs`，并通过 query 预填 `plugin_code`、`content_type`、`action=批量治理主题`、`target_type=topics`、`metadata=<plugin_code>`；通用审计页会读取这些 query 并带入 `/api/v1/admin/audit-logs` 查询。
+
+响应示例：
+
+```json
+{
+  "items": [
+    {
+      "id": 100,
+      "type": "system",
+      "actor_type": "admin_user",
+      "actor_id": 1,
+      "action": "更新插件状态",
+      "target": "plugins#qa",
+      "site": "community:1",
+      "old_value": "{\"status\":\"enabled\"}",
+      "new_value": "{\"status\":\"disabled\"}",
+      "metadata_json": "{\"scope\":\"global\",\"plugin_code\":\"qa\",\"operation\":\"plugin_status\",\"request_id\":\"req-xxx\"}",
+      "created_at": "2026-05-11 16:00:00"
+    }
+  ],
+  "total": 1,
+  "page": 1,
+  "page_size": 20,
+  "has_more": false
+}
+```
+
+常见错误：
+
+- `404 {"error":"插件不存在"}`
+- `401 {"error":"未登录"}`
+- `403 {"error":"无权限"}`
+
+`GET /api/v1/admin/plugins/:code/migrations`
+
+- 认证：后台 admin token。
+- 权限：`plugin.read`。
+- 用途：插件详情“迁移”Tab 查询内置插件 migration 声明与执行记录。
+- 返回：`items` 为迁移列表，`summary` 为 success / pending / failed 计数。
+- 当前策略：只支持内置插件 up migration；已成功迁移不会重复执行；down / rollback 仅保留 `rollback_supported` 标识，不执行真实回滚。
+
+响应示例：
+
+```json
+{
+  "items": [
+    {
+      "plugin_code": "qa",
+      "migration_version": "1.0.0",
+      "migration_name": "qa_questions",
+      "direction": "up",
+      "checksum": "builtin:qa:qa_questions:v1",
+      "status": "success",
+      "finished_at": "2026-05-11 18:00:00",
+      "duration_ms": 0,
+      "rollback_supported": false,
+      "declared": true
+    }
+  ],
+  "summary": {
+    "plugin_code": "qa",
+    "total": 2,
+    "pending": 0,
+    "failed": 0,
+    "success": 2
+  }
+}
+```
+
+`POST /api/v1/admin/plugins/:code/migrations/run`
+
+- 认证：后台 admin token。
+- 权限：`plugin.write`。
+- 用途：执行该插件所有声明的待处理 migration。
+- 行为：内置 qa/docs/wiki migration 当前是幂等 no-op 校验记录；schema 表结构由 `001_schema.sql` 和启动迁移保证，runner 负责写入 running / success / failed 状态与审计。
+- 审计：写入 `plugin.migration.run` 与 `plugin.migration.success`；失败写入 `plugin.migration.failed`。
+
+`POST /api/v1/admin/plugins/:code/migrations/:name/retry`
+
+- 认证：后台 admin token。
+- 权限：`plugin.write`。
+- 用途：执行或重试单条 migration。
+- 行为：如果该 migration 已是 `success`，接口返回现有成功记录，不重复破坏数据。
+- 审计：写入 `plugin.migration.retry` 与 `plugin.migration.success`；失败写入 `plugin.migration.failed`。
+
+`POST /api/v1/admin/plugins/:code/migrations/:name/e2e-fail`
+
+- 认证：后台 admin token。
+- 权限：`plugin.write`。
+- 用途：仅用于 E2E / API 测试构造 failed migration，验证失败迁移阻断全局启用和子站启用。
+- 启用条件：仅在 `DEVHUB_E2E_TESTING=1` 或 `CMS_STORE=memory` 的测试 / 开发环境可用；生产 MySQL 环境不应依赖该接口。
+- 请求：
+
+```json
+{
+  "error_message": "E2E forced migration failure"
+}
+```
+
+- 行为：写入或覆盖该内置 migration 的 `failed` 记录；随后 `POST /api/v1/admin/plugins/:code/enable` 与 `POST /api/v1/admin/communities/:id/plugins/:code/enable` 都会被 Service readiness 拦截。
+- 审计：写入 `plugin.migration.failed`，`metadata_json.operation=plugin_migration_test_injection`。
+- 说明：这是测试 helper，不是普通生产治理接口；真实生产失败由 migration runner 写入。
+
+常见错误：
+
+- `404 {"error":"插件不存在"}`
+- `400 {"error":"迁移不存在"}`
+- `400 {"error":"当前仅支持 up migration"}`
+- `404 {"error":"测试迁移注入接口未启用"}`
+- `401 {"error":"未登录"}`
+- `403 {"error":"无权限"}`
+
+### 前台子站插件展示 API
+
+`GET /api/v1/communities/:slug/plugins`
+
+- 认证：不需要。
+- 路径参数：`slug` 为子站 slug。
+- 返回：当前子站可用插件，只包含“全局 enabled + 子站 enabled”的插件。
+- 安全处理：不返回后台配置字段 `config_json`，也不暴露 `global_status` / `community_status`。
+- 用途：前台子站首页、发布页和导航收口。
+
+常见错误：
+
+- `404 {"error":"子站不存在"}`
+- `400 {"error":"..."}`：读取子站插件状态失败。
+
+### 后台子站插件 API
+
+`GET /api/v1/admin/communities/:id/plugins`
+
+- 认证：后台 admin token。
+- 权限：`site.read`，并经过子站管理范围校验。
+- 返回：某个子站的插件列表，包含全局状态叠加后的子站状态、内容类型、菜单、权限、`config_json` 和 `resolved_config`。
+
+`POST /api/v1/admin/communities/:id/plugins/:code/enable`
+
+- 认证：后台 admin token。
+- 权限：`site.write`，并经过子站管理范围校验。
+- 规则：全局 disabled 插件不能被子站启用。
+- 返回：更新后的插件对象。
+- 审计：写入子站插件状态变更审计日志。
+  当前同时写入 `admin_logs.target` 文本摘要和 `old_value` / `new_value` / `metadata_json` 结构化字段。
+
+`POST /api/v1/admin/communities/:id/plugins/:code/disable`
+
+- 认证：后台 admin token。
+- 权限：`site.write`，并经过子站管理范围校验。
+- 影响：只影响该子站的新发布、导航、菜单和管理入口，不影响历史内容访问。
+- 返回：更新后的插件对象。
+- 审计：写入子站插件状态变更审计日志。
+  当前同时写入 `admin_logs.target` 文本摘要和 `old_value` / `new_value` / `metadata_json` 结构化字段。
+
+`PUT /api/v1/admin/communities/:id/plugins/:code/config`
+
+- 认证：后台 admin token。
+- 权限：`site.write`，并经过子站管理范围校验。
+- 请求：
+
+```json
+{
+  "config_json": {
+    "example": true
+  }
+}
+```
+
+- 返回：更新后的插件对象，包含子站覆盖后的 `resolved_config.default/global/community/effective`。
+- 校验：会按插件 `config_schema` 执行后端强校验（简化 JSON Schema），至少覆盖 `type`、`required`、`enum`、`object`、`boolean`、`string`、`number`、`integer`、`min/max`、`default` 与未知字段策略。
+- 审计：写入子站插件配置审计日志。
+  当前同时写入 `admin_logs.target` 文本摘要和 `old_value` / `new_value` / `metadata_json` 结构化字段；`metadata_json.changed_keys` 记录本次变更的顶层配置键。
+- 清空：提交 `{"config_json": null}` 或空配置会清空子站覆盖配置，并同样写入配置审计。
+
+`PUT /api/v1/admin/communities/:id/plugins/sort`
+
+- 认证：后台 admin token。
+- 权限：`site.write`，并经过子站管理范围校验。
+- 请求：
+
+```json
+{
+  "codes": ["qa", "docs", "wiki"]
+}
+```
+
+- 返回：
+
+```json
+{
+  "updated": 3
+}
+```
+
+- 审计：写入子站插件排序审计日志。
+  当前同时写入 `admin_logs.target` 文本摘要和 `old_value` / `new_value` / `metadata_json` 结构化字段。
+
+常见错误：
+
+- `400 {"error":"插件不存在"}`
+- `400 {"error":"插件全局未启用，不能在子站启用"}`
+- `400 {"error":"插件状态不合法"}`
+- `401 {"error":"未登录"}`
+- `403 {"error":"无权限"}`
+- `404 {"error":"子站不存在"}`
+
+`GET /api/v1/admin/communities/:id/plugins/:code/impact`
+
+- 认证：后台 admin token。
+- 权限：`site.read`，并经过子站管理范围校验。
+- 用途：子站插件治理的“禁用前影响分析”入口，用于展示在某个子站范围内禁用该插件的影响计数。
+- 返回：同全局 impact，但计数会尽量收敛到该子站范围（例如该子站板块数、该子站内容数）。
+
+### 插件菜单 API
+
+`GET /api/v1/admin/plugin-menus`
+
+- 认证：后台 admin token。
+- 返回：全局 enabled 插件的 `admin` 菜单，并按当前后台用户权限过滤。
+
+`GET /api/v1/moderator/plugin-menus`
+
+- 认证：前台 user token。
+- 授权：当前用户必须是启用状态子站版主。
+- 查询参数：可选 `community_slug` 或 `community_id`。不传时按当前用户可治理子站范围汇总去重。
+- 返回：同时满足全局 enabled、子站 enabled、当前用户有权限的 `moderator` 插件菜单。
+
+常见错误：
+
+- `401 {"error":"未登录"}`
+- `403 {"error":"当前用户不是启用状态子站版主"}`
+- `403 {"error":"无权管理该子站内容"}`
+
+## 发布 API 与插件校验
+
+`POST /api/v1/topics`
+
+- 认证：前台 user token。
+- 请求字段：`community_id` / `community_slug`、`category_id`、`content_type`、`title`、`summary`、`content`、`tags` 等。
+- 写入：保存归一后的 `topics.content_type` 和 `topics.plugin_code`。
+
+插件校验流程：
+
+1. 解析 community。
+2. 解析 category，并校验 category 属于 community。
+3. 归一 `content_type`：`doc -> document`，`wiki -> wiki_page`。
+4. 根据内容类型推断插件：`question -> qa`，`document -> docs`，`wiki_page -> wiki`，`project -> projects`，`job -> jobs`，`ai_work -> ai_works`，其他 Core 兼容类型 -> `core`。
+5. 校验全局插件是否 enabled。
+6. 校验当前子站插件是否 enabled。
+7. 校验 `category.plugin_code` 是否匹配。
+8. 校验 `content_type` 是否在 `category.allowed_content_types` 内。
+9. 校验当前用户是否具备内容类型对应的发布权限码。
+
+常见错误：
+
+- `403 {"error":"缺少权限 qa.question.create，不能创建该类型内容"}`
+- `403 {"error":"缺少权限 docs.document.create，不能创建该类型内容"}`
+- `403 {"error":"缺少权限 wiki.page.create，不能创建该类型内容"}`
+- `400 {"error":"内容类型不能为空"}`
+- `400 {"error":"内容类型不合法"}`
+- `400 {"error":"插件全局未启用"}`
+- `400 {"error":"当前子站未启用该插件"}`
+- `400 {"error":"板块不存在"}`
+- `400 {"error":"当前板块未绑定对应插件"}`
+- `400 {"error":"内容类型与板块不匹配"}`
+
+当前限制：
+
+- 发布链路已校验插件状态、子站插件状态和板块约束。
+- 发布链路已增加插件权限码校验：
+  - `question -> qa.question.create`
+  - `document -> docs.document.create`
+  - `wiki_page -> wiki.page.create`
+  - `project -> projects.project.create`
+  - `job -> jobs.job.create`
+  - `ai_work -> ai_works.work.create`
+  - `article`、`news` 当前仍使用粗粒度 `core.topic.create`（兼容旧 `post.create`）。
+- 当前内容类型权限码来自统一 `ContentTypeDefinition` 声明，而不是散落在各个 handler 中。
+- `projects/jobs/ai_works` 当前已完成插件归属、发布校验、权限码和菜单声明；专属扩展表与完整业务流程仍是后续任务。
+
+`POST /api/v1/admin/posts`
+
+- 认证：后台 admin token。
+- 基础权限：`post.create`，作为历史后台内容创建兼容权限。
+- 动态权限：接口会先将请求转换为 Topic 创建请求，归一 `content_type` 并推断 `plugin_code`，再叠加校验真实内容类型对应的插件 create 权限。
+- 写入链路：内部调用 `Service.CreateTopic`，继续执行全局插件状态、子站插件状态、板块绑定、`allowed_content_types` 和发布权限码校验。
+- v1.8.3-S15 补充：后台声明型插件验收和治理入口可显式传入 `category_id`、`content_type`、`plugin_code`，用于创建 manifest 声明的内容类型。后端不会信任前端展示状态，仍会重新校验当前插件全局 enabled、子站 enabled、目标板块绑定、`allowed_content_types` 和该 content_type 对应的插件 create 权限；写入的 `topics.plugin_code` 以 Service 层校验结果为准，避免非内置声明型 content_type 被回退为 `core`。
+
+动态 create 权限：
+
+- `question -> qa.question.create`
+- `document -> docs.document.create`
+- `wiki_page -> wiki.page.create`
+- `project -> projects.project.create`
+- `job -> jobs.job.create`
+- `ai_work -> ai_works.work.create`
+- `friend_link -> official_links.link.create`
+- `article/news -> core.topic.create`，并兼容旧 `post.create`
+
+常见错误：
+
+- `403 {"error":"缺少权限 qa.question.create，不能创建该类型内容"}`
+- `403 {"error":"缺少权限 docs.document.create，不能创建该类型内容"}`
+- `403 {"error":"缺少权限 wiki.page.create，不能创建该类型内容"}`
+- `400 {"error":"插件全局未启用"}`
+- `400 {"error":"当前子站未启用该插件"}`
+- `400 {"error":"内容类型与板块不匹配"}`
+- `400 {"code":"plugin_disabled","message":"插件不可用，无法发布该内容类型",...}`
+- `400 {"code":"plugin_community_disabled","message":"当前子站未启用该插件，无法发布该内容类型",...}`
+- `400 {"code":"plugin_category_not_supported","message":"当前板块不支持该内容类型",...}`
+
+说明：`admin/posts` 是后台兼容入口，不是绕过插件体系的独立写入口。`post.create` 只是第一层兼容基础权限，真实内容类型权限由插件权限码决定。
+
+v1.8.4-S1 official_links 用法：
+
+- 后台管理入口 `/admin-next/official-links` 复用通用 `PluginContent`，内部仍调用 `GET/POST/PUT /api/v1/admin/posts*`。
+- 新增友情链接时应显式传入 `content_type=friend_link`、`plugin_code=official_links` 和目标 `category_id`；后端会重新校验 official_links 全局 enabled、子站 enabled、板块绑定和 `official_links.link.create`。
+- 链接标题写入 `topics.title`，链接 URL 写入 `topics.content`，描述写入 `topics.summary`，状态写入 `topics.status`。
+- disabled / archived / soft_uninstalled 或子站 disabled 后不能新建 / 编辑；历史内容仍可通过 `GET /api/v1/topics/:id` 和后台内容列表读取。
+
+`GET /api/v1/admin/posts`
+
+- 认证：后台 admin token。
+- 用途：后台内容治理列表和通用 `PluginContent` 插件内容治理页。
+- 主要筛选：
+  - `site`：子站 slug；`portal` 表示全局视角。
+  - `board`：板块；`all` 表示不限板块。
+  - `q`：标题 / 摘要 / 正文关键词。
+  - `status`：`all`、`publish`、`offline`、`pinned`、`recommended` 等。
+  - `content_type`：归一后的内容类型，如 `question`、`document`、`wiki_page`。
+  - `plugin_code`：插件编码，如 `qa`、`docs`、`wiki`。
+- 插件内容页必须同时传 `plugin_code` 和 `content_type`，后端按 AND 精确过滤，避免前端用 OR 兜底混入其他插件内容。
+- 返回行会带上 `plugin_code` 和 `content_type`；历史数据缺失时由后端按板块 / 内容类型做防御性归一。
+
+`PUT /api/v1/admin/posts/:id`
+
+- 认证：后台 admin token。
+- 权限：`post.update`，并经过当前后台用户的子站治理范围校验。
+- 当前策略：禁止修改内容归属和内容类型。
+- 允许更新：标题、摘要、正文、标签、状态、置顶、精华等非归属字段。
+- 禁止更新：`site/community_id`、`board/category_id`、`content_type`、`plugin_code`。
+
+常见错误：
+
+- `400 {"error":"后台编辑不允许修改内容归属子站，请通过迁移专项处理"}`
+- `400 {"error":"后台编辑不允许修改内容板块或内容类型，请通过迁移专项处理"}`
+
+说明：如果后续需要后台迁移内容子站、板块或插件类型，应新增迁移专项接口，并逐条校验插件全局状态、子站插件状态、板块绑定、`allowed_content_types` 和对应插件权限码。
+
+## 插件声明约定
+
+当前内置插件统一按 manifest 风格组织：
+
+- `PluginManifest`
+- `ContentTypeDefinition`
+- `PermissionDefinition`
+- `MenuDefinition`
+- `RouteDefinition`
+- `HookDefinition`
+
+当前说明：
+
+- 这是当前内置系统插件规范；完整插件系统与运行模型是最高优先级长期主线。插件包治理、远程 staging、签名验签、安装 / 启用 / 软卸载 / 升级治理已有真实 API；插件市场、远程自动安装、在线更新、第三方运行时 API 和动态加载仍是后续路线，不属于当前真实 API。
+- `HookDefinition` 当前是扩展点声明；`Service` 已有内部 HookBus，当前调用点覆盖 `BeforeCreateContent`、`AfterCreateContent`、`BeforeUpdateContent`、`AfterUpdateContent`、`BeforeDeleteContent`、`AfterDeleteContent`、`AfterCreateComment`、`OnSearchIndex`、`OnNotificationBuild` 和 `OnSEOBuild`。
+- HookBus 执行会写入 `hook_executions`；blocking hook 失败会返回错误并写入 `plugin.hook.blocked` 审计，non-blocking hook 失败不会阻断主流程但会写入 `plugin.hook.failed` 审计。
+- Search / Notification / SEO 当前只是最小事件派发，尚未实现复杂索引、通知模板或结构化 SEO 插件处理器。
+- 配置优先级按“默认配置 -> `plugins.config_json` -> `community_plugins.config_json`”合并；API 用 `resolved_config.default/global/community/effective` 表达合并视图。
+- 当前配置已完成 JSON 合法性校验和简化 `config_schema` 基础校验；后台基础自动表单、配置 diff UI 和 effective config 预览已接入插件治理体验。更完整 JSON Schema、深层嵌套、字段分组、配置版本回滚是后续插件平台任务。
+
+## 插件平台基线对账
+
+本节记录当前真实 API 与平台能力边界，避免把目标路线图误读为当前已完成接口。
+
+已完成：
+
+- 全局插件：`GET /api/v1/plugins`、`GET /api/v1/admin/plugins`、全局启用 / 禁用、全局配置、全局 impact。
+- 子站插件：前台子站插件展示、后台子站插件列表、启用 / 禁用、配置、排序、子站 impact。
+- 插件菜单：后台插件菜单和版主插件菜单会按插件状态、子站状态和权限过滤。
+- 插件配置：全局与子站配置 API 保存时会做 JSON 合法性校验和简化 `config_schema` 校验，返回 `resolved_config`。
+- 插件审计：插件启停、配置和排序操作写入 `old_value`、`new_value`、`metadata_json`。
+- 插件健康：`GET /api/v1/admin/plugins` 返回轻量 `health` 摘要；插件详情可通过“运行状态”Tab 查看配置、迁移、Hook、依赖和最近错误。
+- 插件健康 API：`GET /api/v1/admin/plugins/health` 返回健康总览，`GET /api/v1/admin/plugins/:code/health` 返回单插件健康摘要。
+- 插件迁移：`plugin_migrations` 记录表、内置 migration 声明、迁移查询 API、执行 / 重试 API、迁移审计和后台迁移 Tab 已完成第一阶段闭环。
+- Manifest 校验与 dry-run：`POST /api/v1/admin/plugins/manifest/validate` 和 `POST /api/v1/admin/plugins/dry-run` 可校验 manifest、冲突、依赖和安装影响，dry-run 不写入插件记录。
+- Manifest + 配置型插件安装：`POST /api/v1/admin/plugins/install` 可安装只包含声明、配置、权限、菜单、Hook 元信息和迁移计划的插件，初始状态为 installed + disabled，不执行第三方代码。
+- 升级预览：
+### 插件 dependencies 与 Core 兼容规则
+
+`dependencies` 当前支持两种输入：旧兼容字符串数组（如 `["qa"]`，视为 required）和对象数组：
+
+```json
+{
+  "code": "qa",
+  "version": ">=1.0.0 <2.0.0",
+  "required": true,
+  "reason": "需要问答内容类型作为数据来源"
+}
+```
+
+字段：`code` 为依赖插件编码；`version` 为版本约束；`required` 默认为 `true`；`reason` 为可选说明。当前版本约束只支持数字 `x.y.z`、精确版本、`>=`、`>`、`<=`、`<` 和空格连接的范围组合（如 `>=1.2.0 <2.0.0`），不支持 `^`、`~`、`||`、预发布标签或 npm 完整语法。
+
+依赖状态：`satisfied`、`missing`、`disabled`、`archived`、`migration_failed`、`config_invalid`、`version_mismatch`、`circular_dependency`、`self_dependency`、`optional_missing`。required 不满足会阻断 validate / dry-run / install / upgrade dry-run / upgrade / enable；optional 缺失只 warning。自依赖和循环依赖当前一律阻断，包括 optional 循环。
+
+Core 兼容：`min_core_version` 缺失为 warning；`min_core_version` 高于当前 Core 为 `plugin_core_version_incompatible` 并阻断；`compatible_core_version` 存在但当前 Core 不满足时按 incompatible 阻断。当前 Core 版本来自项目 `VERSION`，不是前端写死。
+
+启用插件时会重新执行 required dependency 检查；依赖插件处于 disabled、archived、migration_failed、config_invalid、dependency_missing 时不能视为可用。错误码 / message 包含 `plugin_dependency_missing`、`plugin_dependency_disabled`、`plugin_dependency_archived`、`plugin_dependency_version_mismatch`、`plugin_dependency_cycle`、`plugin_core_version_incompatible` 等前缀或同义状态。
+
+`POST /api/v1/admin/plugins/:code/upgrade/dry-run` 可返回现有插件与新 manifest 的版本兼容矩阵、变更字段和 diff，不执行真实升级；`POST /api/v1/admin/plugins/:code/upgrade` 已提供最小执行闭环，会更新插件 manifest / version / checksum 并保留历史数据。
+- 软卸载 / 归档 / 恢复：单个归档 / 恢复和批量归档 / 恢复 API 已提供最小闭环；归档不删除历史内容、配置、迁移记录或审计记录。
+- SDK / 模板：`docs/PLUGIN_SDK.md` 与 `docs/PLUGIN_TEMPLATE.md` 已说明 manifest 字段、生成器和安全边界；`go run ./cmd/devhub plugin:new ...` 只生成声明、配置、文档和示例，不新增 API，也不执行第三方代码。
+
+部分完成：
+
+- 插件权限矩阵：发布和菜单使用 manifest 权限码；完整权限分配 API、按 community / category 的权限配置 UI 和更细错误码仍未完成。
+- HookBus：已有内部调度、调用点、`hook_executions` 执行记录、Hook 统计 API、失败审计和轻量健康摘要；尚未实现重试 API、告警系统或第三方动态 Hook。
+- 插件迁移：当前 runner 只支持内置插件 up/no-op 执行记录、失败记录和失败重试；不支持 migration down、真实 rollback、迁移前备份或外部插件迁移包。
+- 插件后台治理：已有列表、详情、配置、impact、审计、运行状态、迁移 Tab 和通用内容页；告警、重试策略和影响对象明细仍未完成。
+- 插件安装：当前已支持 manifest + 配置型插件的 dry-run、安装记录、插件包 zip / staging 治理、远程包安全下载到 staging 和升级执行最小闭环，但不支持远程自动安装、插件市场、前端资产动态加载或第三方本地代码执行。
+
+预留 / 后续：
+
+- `discovered`、`migrated`、`configured`、`running`、`config_invalid`、`migration_pending`、`dependency_missing` 已是 `plugins.status` 可接受值；完整外部插件安装器状态机、自动迁移、状态告警和完整分步向导仍需继续演进。
+- 外部服务型 Webhook、第三方 HTTP 插件服务协议、前端 iframe / sandbox 挂载、受控 API token、远程自动安装、市场、动态加载和沙箱均不是当前真实能力。
+
+下一阶段 API / 验收目标：
+
+- `v1.3.4` 的优先级是插件异常治理与平台基础能力收口，不新增插件市场、远程安装或动态加载 API。
+- 插件迁移方向：补 failed migration 注入、启用阻断、retry 恢复和审计定位的 API / E2E；现有 `GET /api/v1/admin/plugins/:code/migrations`、`POST /api/v1/admin/plugins/:code/migrations/run`、`POST /api/v1/admin/plugins/:code/migrations/:name/retry` 需要覆盖失败与恢复场景。
+- HookBus 方向：补 blocking / non-blocking Hook 失败注入、`hook_executions` 可见性、后台 Hooks Tab 断言和审计定位；不引入第三方 Hook、远程 Hook 或 Webhook。
+- 权限矩阵：内容创建、后台创建、版主菜单均按 `ContentTypeDefinition.create_permission` 与插件权限码判断；API 测试已覆盖 `post.create` 只能桥接 `core.topic.create`，不能替代 `qa/docs/wiki/projects/jobs/ai_works` 的 create 权限。后续仍需补更细 RBAC 分配 UI 与插件内容治理操作矩阵。
+- MySQLStore 方向：老库升级和 MySQLStore 下插件迁移、Hook 执行、审计、全局 / 子站启停、配置 schema 校验已完成专项验证；后续继续补生产大库备份 / 回滚演练和历史 SEO 的 MySQL 端完整浏览器矩阵。
+
+## 当前真实 API 索引
+
+认证：
+
+```http
+POST /api/v1/auth/register
+POST /api/v1/auth/login
+POST /api/v1/auth/refresh
+POST /api/v1/auth/logout
+GET  /api/v1/auth/me
+POST /api/v1/admin/login
+POST /api/v1/admin/refresh
+POST /api/v1/admin/logout
+GET  /api/v1/admin/me
+```
+
+子站与板块：
+
+```http
+GET /api/v1/communities
+GET /api/v1/communities/:slug
+GET /api/v1/communities/:slug/home
+GET /api/v1/communities/:slug/overview
+GET /api/v1/communities/:slug/stats
+GET /api/v1/communities/:slug/categories
+GET /api/v1/communities/:slug/tags
+GET /api/v1/communities/:slug/moderators
+```
+
+Topic 与搜索：
+
+```http
+GET    /api/v1/topics
+GET    /api/v1/topics/:id
+GET    /api/v1/topics/:id/qa
+GET    /api/v1/topics/:id/docs
+GET    /api/v1/topics/:id/wiki/versions
+POST   /api/v1/topics
+PUT    /api/v1/topics/:id
+DELETE /api/v1/topics/:id
+GET    /api/v1/search/topics
+```
+
+official_links 前台展示复用搜索接口：
+
+```http
+GET /api/v1/search/topics?content_type=friend_link
+GET /api/v1/search/topics?scope=community&community_slug=:slug&content_type=friend_link
+```
+
+该接口会识别 Core 内置 content_type 和已安装插件声明的动态 content_type；`friend_link` 会按 `topics.content_type=friend_link` 精确筛选，不会混入 `article` 等其他内容类型。该接口不会执行插件代码，也不会渲染插件传入 HTML / JS。前台导航入口由插件全局状态、子站状态、菜单声明和 `config.enabled` 共同控制；直接访问历史 Topic 仍保留可读。
+
+评论与问答：
+
+```http
+GET  /api/v1/topics/:id/comments
+POST /api/v1/topics/:id/comments
+POST /api/v1/topics/:id/comments/:commentId/replies
+POST /api/v1/topics/:id/comments/:commentId/accept
+POST /api/v1/topics/:id/solve
+```
+
+插件扩展只读接口：
+
+- `GET /api/v1/topics/:id/qa`
+  - 仅适用于 `question`
+  - 返回 `qa_questions` 扩展状态和 `qa_answers` 列表
+- `GET /api/v1/topics/:id/docs`
+  - 仅适用于 `document`
+  - 返回 `docs_documents` 扩展行和当前文档空间的基础文档树
+- `GET /api/v1/topics/:id/wiki/versions`
+  - 仅适用于 `wiki_page`
+  - 返回 `wiki_pages` 扩展行和 `wiki_page_versions` 列表
+
+标签：
+
+```http
+GET    /api/v1/tags
+GET    /api/v1/tags/hot
+GET    /api/v1/tags/suggestions
+GET    /api/v1/tags/suggest
+GET    /api/v1/tags/by-slug/:tag
+GET    /api/v1/tags/:tag
+GET    /api/v1/tags/:tag/topics
+GET    /api/v1/communities/:slug/tags/:tag
+GET    /api/v1/communities/:slug/tags/:tag/topics
+GET    /api/v1/admin/tags
+GET    /api/v1/admin/tags/:id
+GET    /api/v1/admin/tags/:id/topics
+GET    /api/v1/admin/tags/:id/aliases
+POST   /api/v1/admin/tags
+PUT    /api/v1/admin/tags/:id
+POST   /api/v1/admin/tags/:id/aliases
+DELETE /api/v1/admin/tags/:id/aliases/:aliasId
+POST   /api/v1/admin/tags/:id/enable
+POST   /api/v1/admin/tags/:id/disable
+POST   /api/v1/admin/tags/:id/merge
+POST   /api/v1/admin/tags/:id/recalculate
+POST   /api/v1/admin/tags/recalculate-all
+```
+
+互动与用户中心：
+
+```http
+POST /api/v1/topics/:id/like
+POST /api/v1/topics/:id/favorite
+GET  /api/v1/topics/:id/interaction
+POST /api/v1/actions/toggle
+POST /api/v1/reactions/toggle
+POST /api/v1/favorites/toggle
+POST /api/v1/follows/toggle
+GET  /api/v1/me/favorites
+GET  /api/v1/me/follows
+GET  /api/v1/me/activities
+GET  /api/v1/me/notifications
+POST /api/v1/me/notifications/read-all
+POST /api/v1/me/notifications/:id/read
+```
+
+举报、治理和审计：
+
+```http
+POST /api/v1/reports
+GET  /api/v1/admin/reports
+GET  /api/v1/admin/reports/:id
+POST /api/v1/admin/reports/:id/handle
+POST /api/v1/admin/reports/batch-handle
+GET  /api/v1/admin/comments
+POST /api/v1/admin/comments/batch
+POST /api/v1/admin/topics/batch
+GET  /api/v1/admin/audit-logs
+GET  /api/v1/admin/plugins
+GET  /api/v1/admin/plugins/health
+GET  /api/v1/admin/plugins/:code/health
+POST /api/v1/admin/plugins/manifest/validate
+POST /api/v1/admin/plugins/dry-run
+POST /api/v1/admin/plugins/install
+POST /api/v1/admin/plugins/:code/upgrade/dry-run
+POST /api/v1/admin/plugins/:code/upgrade
+GET  /api/v1/admin/plugins/:code/upgrade-impact
+POST /api/v1/admin/plugins/:code/upgrade-from-package
+GET  /api/v1/admin/plugins/upgrade-tasks
+GET  /api/v1/admin/plugins/upgrade-tasks/:id
+POST /api/v1/admin/plugins/upgrade-tasks/:id/retry
+DELETE /api/v1/admin/plugins/upgrade-tasks/:id
+POST /api/v1/admin/plugins/:code/enable
+POST /api/v1/admin/plugins/:code/disable
+POST /api/v1/admin/plugins/:code/archive
+POST /api/v1/admin/plugins/:code/restore
+POST /api/v1/admin/plugins/bulk-archive
+POST /api/v1/admin/plugins/bulk-restore
+PUT  /api/v1/admin/plugins/:code/config
+GET  /api/v1/admin/plugins/:code/impact
+GET  /api/v1/admin/plugins/:code/hooks
+GET  /api/v1/admin/plugins/:code/audit-logs
+GET  /api/v1/admin/plugins/:code/migrations
+POST /api/v1/admin/plugins/:code/migrations/run
+POST /api/v1/admin/plugins/:code/migrations/:name/retry
+POST /api/v1/admin/plugins/:code/migrations/:name/e2e-fail
+GET  /api/v1/admin/communities/:id/plugins
+POST /api/v1/admin/communities/:id/plugins/:code/enable
+POST /api/v1/admin/communities/:id/plugins/:code/disable
+PUT  /api/v1/admin/communities/:id/plugins/:code/config
+PUT  /api/v1/admin/communities/:id/plugins/sort
+GET  /api/v1/admin/communities/:id/plugins/:code/impact
+GET  /api/v1/admin/plugin-menus
+GET  /api/v1/moderator/plugin-menus
+```
+
+`GET /api/v1/admin/audit-logs` 返回的插件治理日志会包含结构化字段：
+
+- `old_value`：操作前 JSON diff，例如旧状态或旧配置。
+- `new_value`：操作后 JSON diff，例如新状态或新配置。
+- `metadata_json`：操作上下文，例如 `plugin_code`、`community_id`、`operation`。
+
+当前通用审计接口支持的筛选参数包括：
+
+- `type`
+- `actor_type`
+- `actor`
+- `actor_user_id`
+- `action`
+- `target`
+- `target_type`
+- `target_id`
+- `plugin_code`
+- `community_id`
+- `metadata`
+- `request_id`
+- `start_time`
+- `end_time`
+- `page`
+- `page_size`
+
+说明：非插件历史日志可能仍只有 `target` 文本摘要。
+
+`POST /api/v1/admin/topics/batch`
+
+- 认证：后台 admin token，或明确允许的子站版主身份。
+- 权限：`topic.moderate`，并由后端继续校验当前操作者是否可治理每条内容所属子站。
+- 用途：后台通用内容治理与 PluginContent 通用插件内容页的批量治理入口。
+- 请求：
+
+```json
+{
+  "ids": [1, 2],
+  "action": "hide",
+  "note": "PluginContent hide qa"
+}
+```
+
+- 当前支持动作：`feature`、`unfeature`、`pin`、`unpin`、`hide`、`restore`、`approve`、`reject`、`lock-comments`、`unlock-comments`、`delete`。
+- PluginContent UI 当前接入 `hide` / `restore`、`approve` / `reject`、`pin` / `unpin`、`feature` / `unfeature`。
+- 审计：对插件内容会写入带 `plugin_code` / `content_type` / `community_id` / `category_id` / `content_id` / `operation` 的插件内容治理审计；成功和失败单项都会保留结构化插件审计，同时保留批量治理摘要审计。
+- 常见错误：单条内容无权治理时，该条返回 `error`，不会伪造成成功。
+
+版主工作台：
+
+```http
+GET  /api/v1/moderator/communities
+GET  /api/v1/moderator/plugin-menus
+GET  /api/v1/moderator/dashboard
+GET  /api/v1/moderator/reports
+POST /api/v1/moderator/reports/:id/handle
+GET  /api/v1/moderator/topics
+POST /api/v1/moderator/topics/:id/feature
+POST /api/v1/moderator/topics/:id/unfeature
+POST /api/v1/moderator/topics/:id/pin
+POST /api/v1/moderator/topics/:id/unpin
+POST /api/v1/moderator/topics/:id/hide
+POST /api/v1/moderator/topics/:id/restore
+POST /api/v1/moderator/topics/:id/lock-comments
+POST /api/v1/moderator/topics/:id/unlock-comments
+GET  /api/v1/moderator/comments
+POST /api/v1/moderator/comments/:id/hide
+POST /api/v1/moderator/comments/:id/restore
+GET  /api/v1/moderator/audit-logs
+```
+
+兼容 API：
+
+```http
+GET    /api/v1/sites
+GET    /api/v1/sites/:site
+GET    /api/v1/sites/:site/overview
+GET    /api/v1/boards
+GET    /api/v1/posts
+GET    /api/v1/posts/:id
+```
+
+说明：
+
+- `POST/PUT/DELETE /api/v1/posts*` 写接口已废弃，当前返回 `410 Gone`，请使用 `/api/v1/topics`。
+- `Service.CreatePost` 已在业务层封口，不再直接调用仓储裸写入；`repo.CreatePost` 仅作为 legacy / seed / migration 或兼容层内部能力保留，不作为业务写入口。
+
+SEO 端点：
+
+```http
+GET /topics/:id/
+GET /c/:slug/
+GET /tags/:tag/
+GET /c/:slug/tags/:tag/
+GET /sitemap.xml
+GET /robots.txt
+```
+
+## MySQLStore / 老库升级验收说明
+
+本轮没有新增专用生产 API；MySQLStore 专项通过可选集成测试和 SQL 升级脚本验证现有插件 API 的真实后端能力。
+
+已验证范围：
+
+- 新装 schema 包含 `plugins`、`community_plugins`、`plugin_migrations`、`hook_executions`、结构化 `admin_logs`。
+- 老库升级字段包含 `topics.plugin_code`、`categories.plugin_code`、`categories.allowed_content_types`。
+- MySQLStore 下全局禁用插件会阻断对应 `content_type` 创建。
+- MySQLStore 下子站禁用插件只阻断该子站创建，其他子站不受影响。
+- failed migration 会阻断全局启用和子站启用，retry 成功后可恢复。
+- Hook 执行记录可查询，插件治理审计可查询。
+- 全局 / 子站插件配置保存都会执行后端 `config_schema` 校验。
+
+建议验证命令：
+
+```bash
+docker compose -f docker-compose.dev.yml up -d mysql
+docker compose -f docker-compose.dev.yml exec -T mysql mysql -uroot -pDevhub_root_123456 -e "DROP DATABASE IF EXISTS devhub_test; CREATE DATABASE devhub_test CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci; GRANT ALL PRIVILEGES ON devhub_test.* TO 'devhub'@'%'; FLUSH PRIVILEGES;"
+DEVHUB_MYSQL_TESTS=1 DB_HOST=127.0.0.1 DB_PORT=3307 DB_USER=devhub DB_PASSWORD=Devhub_123456 DB_NAME=devhub_test go test ./internal/service -run TestMySQLStorePluginPlatformConsistency -count=1 -v
+```
+
+## 规划 / 未完成
+
+以下内容不是当前真实可用 API：
+
+- P0：插件内容治理操作矩阵、完整 RBAC 分配 UI、community / category 级权限配置和更细错误码。
+- P0/P1：`config_schema` 结构化错误响应、更完整 JSON Schema 能力、深层 diff 和配置版本 API。
+- P0/P1：HookBus 告警、失败重试、更多业务处理器、插件搜索 / 通知 / SEO 扩展 API。
+- P1：插件生成模板、插件依赖检查 UI、插件版本兼容矩阵 UI 和更完整开发者体验；插件 SDK / 开发规范文档已建立在 `docs/plugins/`。
+- P2：本地插件包 zip、插件包安装向导、插件升级向导增强、外部服务型 Webhook、插件 migration runner、插件包签名校验和插件市场雏形。
+- P3：远程插件市场、在线更新、动态加载能力评估、插件沙箱和插件权限隔离。
+- 插件权限配置 API、按子站 / 板块维护细粒度权限矩阵，以及 Core 兼容类型 `article/news` 的长期权限收口。
+- Docs 文档树专用编辑 API 的完整形态。
+- Wiki 版本历史、版本对比和回滚 API 的完整形态。
+- 取消最佳答案 / 取消已解决状态接口。
+- 标签趋势统计和标签运营分析 API。
+
+## v1.6.0-P0-04 远程插件索引只读镜像 API
+
+远程插件索引只读取 `index.json` 元数据；不会下载 `package_url`、不会安装远程插件、不会执行代码、不会动态加载前端资产，也不会自动信任远程 publisher。
+
+### 索引源
+
+```http
+GET    /api/v1/admin/plugins/remote-indexes
+POST   /api/v1/admin/plugins/remote-indexes
+PUT    /api/v1/admin/plugins/remote-indexes/:id
+POST   /api/v1/admin/plugins/remote-indexes/:id/enable
+POST   /api/v1/admin/plugins/remote-indexes/:id/disable
+DELETE /api/v1/admin/plugins/remote-indexes/:id
+POST   /api/v1/admin/plugins/remote-indexes/:id/fetch
+```
+
+查看需要 `plugin.read`；新增、更新、启用、禁用、删除和拉取需要 `plugin.manage`。`index_url` 仅支持 http / https，生产建议 https；`file://`、localhost、127.0.0.1 和内网地址会被 SSRF 防护拦截。
+
+索引源字段：`id`、`source_id`、`name`、`index_url`、`homepage`、`description`、`status`、`trust_policy`、`last_fetch_status`、`last_fetch_at`、`last_error_code`、`last_error_message`、`last_index_hash`。
+
+### 远程插件列表 / 详情
+
+```http
+GET /api/v1/admin/plugins/remote-indexes/:id/plugins
+GET /api/v1/admin/plugins/remote-indexes/:id/plugins/:code
+```
+
+列表字段包括：`code`、`name`、`latest_version`、`publisher_id`、`public_key_id`、`license`、`min_core_version`、`compatible_core_version`、`package_sha256`、`signature_url`、`installed`、`local_version`、`version_status`、`core_compatibility`、`publisher_trust_status`、`risk_level`、`risk_summary`。
+
+详情会展示所有版本的 `package_url`、`package_sha256`、`manifest_sha256`、`signature_url`、publisher、trust status、Core 兼容性和只读限制提示。`package_sha256` 只是远程元数据声明，本轮不会下载包内容进行校验。
+
+新增错误码：`plugin_remote_index_not_found`、`plugin_remote_index_invalid_url`、`plugin_remote_index_forbidden_url`、`plugin_remote_index_fetch_failed`、`plugin_remote_index_fetch_timeout`、`plugin_remote_index_response_too_large`、`plugin_remote_index_invalid_json`、`plugin_remote_index_schema_invalid`、`plugin_remote_index_disabled`、`plugin_remote_index_plugin_not_found`、`plugin_remote_index_package_url_invalid`、`plugin_remote_index_publisher_unknown`、`plugin_remote_index_publisher_blocked`、`plugin_remote_index_core_incompatible`、`plugin_remote_index_readonly`。
+
+## v1.6.0-P0-05 插件包版本仓库与升级差异 API
+
+版本仓库是只读聚合视图，不会下载远程包、不会自动升级、不会执行第三方代码 / SQL / 前端资产。
+
+### `GET /api/v1/admin/plugins/versions`
+
+权限：`plugin.read`。
+
+查询参数：
+
+- `plugin_code`：可选，按插件 code 过滤。
+- `source`：可选，`installed` / `local_package` / `uploaded_package` / `remote_index` / `exported_package`。
+- `status`：可选，按版本状态过滤。
+- `keyword`：可选，按 code / name / version / path / publisher 搜索。
+- `page` / `page_size`：分页。
+
+返回：
+
+```json
+{
+  "items": [
+    {
+      "plugin_code": "demo_notice",
+      "plugin_name": "Demo Notice",
+      "installed_version": "1.0.0",
+      "latest_local_version": "1.1.0",
+      "latest_remote_version": "1.2.0",
+      "update_available": true,
+      "sources": ["installed", "local_package", "remote_index"],
+      "versions": []
+    }
+  ],
+  "pagination": {"page": 1, "page_size": 20, "total": 1},
+  "summary": {"total": 1, "installed": 1, "local_packages": 1, "uploaded_packages": 0, "remote_index": 1, "update_available": 1, "readonly": 1}
+}
+```
+
+### `GET /api/v1/admin/plugins/:code/versions`
+
+权限：`plugin.read`。返回单个插件的版本列表，包含 installed、本地仓库包、上传包、远程索引版本。远程索引版本带 `readonly=true`，只能展示，不能直接升级。
+
+### `GET /api/v1/admin/plugins/:code/versions/:version`
+
+权限：`plugin.read`。查询参数可带 `source`、`package_path`、`remote_index_id` 精确定位同版本多来源记录。
+
+### `POST /api/v1/admin/plugins/:code/versions/:version/upgrade-diff`
+
+权限：`plugin.write` 或更高。请求体：
+
+```json
+{
+  "source": "local_package",
+  "package_path": "storage/plugins/packages/demo_notice-1.1.0"
+}
+```
+
+返回结构化升级差异：
+
+```json
+{
+  "plugin_code": "demo_notice",
+  "current_version": "1.0.0",
+  "target_version": "1.1.0",
+  "source": "local_package",
+  "status": "ok|warning|blocked",
+  "summary": {"added": 3, "removed": 1, "changed": 5, "high_risk": 2, "blocked": 0},
+  "diff_sections": [
+    {
+      "section": "permissions",
+      "title": "权限变化",
+      "risk_level": "high",
+      "items": [
+        {"section": "permissions", "path": "permissions.demo_notice.manage", "type": "added", "risk_level": "high", "message": "新增高危插件权限"}
+      ]
+    }
+  ],
+  "risk_report": {"level": "high", "score": 70, "summary": "升级差异包含高风险变更"},
+  "compatibility": {"core_version": "v1.6.0", "status": "compatible"},
+  "dependencies": {"total": 0, "blocking": 0}
+}
+```
+
+差异范围包括基础信息、content_types、content_type_definitions、permissions、menus、routes、config_schema、default_config、dependencies、hooks、migrations 与 package metadata。敏感路径（password / secret / token / key / credential / app_secret / aes_key 等）返回 `[REDACTED]`。
+
+高风险规则：删除 content_type / permission、 新增高危权限、新增 required dependency、依赖约束收紧、config_schema 删除字段 / type 变化 / required 新增、Hook 从 non-blocking 改为 blocking、新增 migration、Core 约束提高或收窄、签名从 trusted verified 退化为 unknown / unsigned。
+
+阻断规则：目标版本小于等于当前版本、Core 不兼容、required dependency 缺失、checksum mismatch、签名验签失败、publisher blocked / revoked、manifest invalid、dangerous file、package risk blocked、远程索引版本直接升级。
+
+新增错误码：`plugin_version_not_found`、`plugin_version_source_invalid`、`plugin_version_compare_failed`、`plugin_version_downgrade_forbidden`、`plugin_version_same_version`、`plugin_version_package_missing`、`plugin_version_remote_readonly`、`plugin_upgrade_diff_failed`、`plugin_upgrade_diff_blocked`、`plugin_upgrade_diff_high_risk`、`plugin_upgrade_diff_sensitive_redacted`、`plugin_upgrade_target_core_incompatible`、`plugin_upgrade_target_dependency_missing`、`plugin_upgrade_target_signature_invalid`、`plugin_upgrade_target_publisher_blocked`。
+
+## v1.6.0-P1-09 插件治理 UI 整理说明
+
+本轮仅整理后台插件治理信息架构、前端 API facade 与 E2E 基建，不新增后端 API，不改变既有请求参数、响应结构、错误码或权限语义。`web/admin-app/src/api/plugins.js` 只是后台前端对既有 admin API 的分组导出层；后端插件包、审批、操作历史、可信发布者、远程索引、版本仓库、密钥轮换等接口仍以本文件前述章节为准。
+
+## v1.6.0-P1-10 API 一致性收口
+
+本轮未新增后端 API，主要复核 v1.6 已有接口与文档口径。当前 v1.6 API 范围包括：zip upload、upload list/detail/rescan/promote/cancel/delete/cleanup、trusted publishers、remote indexes、versions / upgrade-diff、operations / recover dry-run / cleanup、config-keys status / rotation dry-run / re-encrypt，以及已有目录包 export dry-run / export。
+
+限制：当前没有 zip export 下载 API；远程 package 仅支持通过 `POST /api/v1/admin/plugins/packages/download` 下载到 staging 并做 URL / 大小 / sha256 安全校验，不会安装、启用、执行代码、执行 SQL 或动态加载资产。
+
+## v1.7.0-P0-03 插件依赖 / 兼容性检查
+
+本轮新增的是安装前兼容性闸门，输入必须是 `plugin_package_prechecks.status=passed` 的预检记录；不会安装、启用、注册权限 / 菜单 / 路由 / Hook，也不会执行 migration 或插件代码。
+
+### `POST /api/v1/admin/plugins/packages/prechecks/:id/compat-check`
+
+权限：`plugin.write`。
+
+执行依赖 / 兼容性检查并保存结果。`id` 是预检通过记录 ID；`failed`、`rejected`、`unsafe_files_detected`、`manifest_invalid`、`deleted` 等状态会返回 `plugin_package_compat_precheck_not_passed`。
+
+返回示例：
+
+```json
+{
+  "id": 1,
+  "package_download_id": 10,
+  "package_precheck_id": 2,
+  "plugin_code": "demo",
+  "version": "1.0.0",
+  "status": "passed|warning|incompatible|dependency_missing|dependency_version_mismatch|conflict_detected|failed",
+  "can_install": true,
+  "core_version": "v1.7.0",
+  "compatible_core_version": ">=1.7.0 <2.0.0",
+  "dependency_result": {"checks": [], "summary": {"blocking": 0}},
+  "conflict_result": {"plugin_code_conflicts": [], "content_type_conflicts": []},
+  "permission_result": {"conflicts": [], "duplicates": [], "invalid_scopes": []},
+  "route_result": {"conflicts": [], "duplicates": []},
+  "menu_result": {"conflicts": [], "duplicates": []},
+  "hook_result": {"unsupported_hooks": [], "count": 0},
+  "config_schema_result": {"schema_present": true},
+  "migration_result": {"count": 0, "will_execute": false},
+  "warnings": [],
+  "errors": [],
+  "summary": {
+    "core_compatible": true,
+    "dependencies_ok": true,
+    "conflicts_ok": true,
+    "permissions_ok": true,
+    "routes_ok": true,
+    "config_schema_ok": true,
+    "migrations_ok": true,
+    "install_blocked": false,
+    "does_not_install": true,
+    "does_not_execute": true,
+    "does_not_register": true
+  }
+}
+```
+
+检查范围：
+
+- Core：`compatible_core_version` 必填，支持精确 `x.y.z`、`>=` / `>` / `<=` / `<`、空格组合范围、`^x.y.z`、`~x.y.z`，当前 Core 版本来自 `VERSION`。
+- 依赖：`dependencies` 支持字符串数组、对象数组，也兼容 `{ "plugins": [...] }`；required 缺失或版本不满足阻断，可选依赖缺失只 warning。
+- 冲突：检查 `plugin_code`、`content_types`、权限、菜单路径、路由 method+path 与现有 Core / 插件声明冲突。
+- 权限：权限码必须以 `plugin_code.` 开头，禁止 `core.*`、`admin.*`、`system.*` 和其他插件前缀，scope 限定 `global/community/channel/content`。
+- 菜单 / 路由：禁止外链、`javascript:`、`data:`、路径穿越、核心后台入口和敏感 API / 前台页面覆盖。
+- Hook：Hook 名称必须属于当前 HookBus，mode 只能 `blocking/non_blocking`，failure_policy 只能 `block/log/ignore`，blocking Hook 禁止 `ignore`。
+- config_schema：仅检查当前简化 JSON Schema 能力；`default_config` 如存在必须满足 schema。
+- migrations：只允许 `direction=up`，本轮只记录 pending，不执行 migration。
+
+### `GET /api/v1/admin/plugins/packages/compat-checks`
+
+权限：`plugin.read`。查询参数：`status`、`plugin_code`、`package_precheck_id`、`keyword`、`page`、`page_size`。返回 `items`、`pagination`、`summary`。
+
+### `GET /api/v1/admin/plugins/packages/compat-checks/:id`
+
+权限：`plugin.read`。返回单条兼容性检查详情。
+
+### `DELETE /api/v1/admin/plugins/packages/compat-checks/:id`
+
+权限：`plugin.write`。软删除检查结果，状态置为 `deleted`，不删除预检记录或 staging 文件。
+
+新增错误码：
+
+- `plugin_package_precheck_not_found`
+- `plugin_package_compat_precheck_not_passed`
+- `plugin_package_compat_manifest_missing`
+- `plugin_package_compat_source_invalid`
+- `plugin_package_compat_source_missing`
+- `plugin_package_compat_check_not_found`
+- `plugin_package_compat_core_constraint_missing`
+- `plugin_package_compat_dependency_version_mismatch`
+- `plugin_package_compat_plugin_code_conflict`
+- `plugin_package_compat_content_type_conflict`
+- `plugin_package_compat_permission_forbidden`
+- `plugin_package_compat_permission_conflict`
+- `plugin_package_compat_menu_sensitive_path`
+- `plugin_package_compat_route_sensitive_path`
+- `plugin_package_compat_hook_unknown`
+- `plugin_package_compat_config_default_invalid`
+- `plugin_package_compat_migration_direction_unsupported`
+
+## v1.7.1：插件包签名验签（detached）
+
+本轮引入 detached signature（`devhub-signature.json`）并执行 Ed25519 真实验签，用于判断“来源可信/内容未被篡改”。验签结果会强联动到 compat-check/install/upgrade：默认要求 `verified` 才允许进入安装/升级链路（可通过 `DEVHUB_PLUGIN_REQUIRE_SIGNED_PACKAGES=0` 仅在 dev 场景放开）。
+
+### `POST /api/v1/admin/plugins/packages/prechecks/:id/verify-signature`
+
+权限：`plugin.write`。
+
+对 `precheck(status=passed)` 的解压目录执行验签并保存验签记录。签名文件来源：
+
+- staging download 记录中的 `signature_url`（如提供，则会按 HTTPS/SSRF/重定向/大小限制下载，默认 64KB）。
+- 解压目录中的 `devhub-signature.json`（如存在）。
+
+若两种来源同时存在且内容不一致：验签失败（阻断）。
+
+返回示例：
+
+```json
+{
+  "id": 1,
+  "package_download_id": 10,
+  "package_precheck_id": 2,
+  "plugin_code": "demo",
+  "version": "1.0.0",
+  "status": "verified|unsigned|untrusted_publisher|key_revoked|key_expired|hash_mismatch|payload_mismatch|algorithm_unsupported|failed",
+  "publisher_id": "devhub-official",
+  "key_id": "devhub-official-2026-01",
+  "signature_url": "https://example.com/demo.devhub-signature.json",
+  "signature_file_path": "storage/plugins/staging/signatures/...",
+  "package_sha256": "...",
+  "manifest_sha256": "...",
+  "verified_at": "2026-05-16 12:00:00",
+  "error_message": ""
+}
+```
+
+### `GET /api/v1/admin/plugins/packages/signatures`
+
+权限：`plugin.read`。查询参数：`status`、`plugin_code`、`package_download_id`、`package_precheck_id`、`keyword`、`page`、`page_size`。
+
+返回：`items/pagination/summary`。
+
+### `GET /api/v1/admin/plugins/packages/signatures/:id`
+
+权限：`plugin.read`。返回单条验签记录详情。
+
+### `DELETE /api/v1/admin/plugins/packages/signatures/:id`
+
+权限：`plugin.write`。软删除验签记录（状态置为 `deleted`）。不会删除 staging 包或预检目录。
+
+## v1.7.0-P0-05：插件启用前安全检查（enable-precheck）
+
+启用前检查用于对「已安装但未启用」插件执行最后一道启用前安全校验：文件完整性复检、manifest 再校验、依赖再检查、配置有效性、迁移状态、内容类型/权限/菜单/路由/Hook 冲突检查，并输出 `can_enable` 结论。
+
+注意：本轮只做检查，不会真正启用插件，不会注册运行时，不会执行插件代码、脚本或 migration。
+
+### `POST /api/v1/admin/plugins/:code/enable-precheck`
+
+权限：`plugin.write`。对指定插件执行启用前检查。
+
+响应示例：
+
+```json
+{
+  "id": 1,
+  "plugin_code": "demo_notice",
+  "version": "1.0.0",
+  "status": "passed",
+  "can_enable": true,
+  "core_version": "v1.7.0",
+  "installed_path": "storage/plugins/packages/demo_notice",
+  "manifest_sha256": "…",
+  "file_integrity_result": {},
+  "manifest_result": {},
+  "dependency_result": {},
+  "config_result": {},
+  "migration_result": {},
+  "permission_result": {},
+  "menu_result": {},
+  "route_result": {},
+  "hook_result": {},
+  "content_type_result": {},
+  "runtime_result": {},
+  "warnings": [],
+  "errors": [],
+  "summary": {
+    "file_integrity_ok": true,
+    "manifest_ok": true,
+    "dependencies_ok": true,
+    "config_ok": true,
+    "migrations_ok": true,
+    "permissions_ok": true,
+    "menus_ok": true,
+    "routes_ok": true,
+    "hooks_ok": true,
+    "content_types_ok": true,
+    "can_enable": true
+  }
+}
+```
+
+输入来源与链路约束：
+
+- 插件必须已安装且未启用（非 `enabled`），不能是 `archived`/`migration_failed`/`dependency_missing` 等阻断状态。
+- 必须存在最近一条 `plugin_package_prechecks(status=passed)` + 对应 `plugin_package_compat_checks(can_install=true)` 作为强制链路；缺失则返回错误。
+- 对 `source_type=local_package` 的插件会基于预检记录 `package_path` 做文件完整性复检：重新扫描、校验 checksums、读取 `manifest.json` 并与安装时 `manifest_checksum` 比对；不匹配则阻断。
+- 该接口不会修改插件状态，不会注册菜单/路由/Hook，不会执行 migration。
+
+### `GET /api/v1/admin/plugins/enable-prechecks`
+
+权限：`plugin.read`。查询参数：`status`、`plugin_code`、`keyword`、`page`、`page_size`。返回 `items`、`pagination`。
+
+### `GET /api/v1/admin/plugins/enable-prechecks/:id`
+
+权限：`plugin.read`。返回单条启用前检查详情。
+
+### `DELETE /api/v1/admin/plugins/enable-prechecks/:id`
+
+权限：`plugin.write`。软删除检查结果，状态置为 `deleted`，不影响插件安装记录与包文件。
+
+新增错误码：
+
+- `plugin_enable_precheck_not_found`
+- `plugin_enable_precheck_invalid_request`
+- `plugin_enable_precheck_invalid_status`
+- `plugin_enable_precheck_precheck_missing`
+- `plugin_enable_precheck_compat_missing`
+- `plugin_enable_precheck_compat_blocked`
+- `plugin_enable_precheck_installed_path_missing`
+- `plugin_enable_precheck_manifest_changed`
+- `plugin_enable_precheck_checksum_failed`
+
+## v1.7.0-P0-06：插件启用与运行时注册（enable）
+
+启用用于将「已安装且 enable-precheck 通过」的插件从 `disabled` 切换为 `enabled`，并让该插件的声明能力进入运行时治理链路（内容类型校验、权限矩阵、菜单/路由/Hook 声明可见性等）。
+
+注意：启用不执行插件包内代码，不运行 package scripts，不加载 Go plugin，不自动执行 migration，不会自动为所有子站启用该插件。
+
+### `POST /api/v1/admin/plugins/enable-prechecks/:id/enable`
+
+权限：`plugin.write`。基于 enable-precheck（必须 `can_enable=true` 且 `status=passed|warning`）执行启用。
+
+响应示例：
+
+```json
+{
+  "id": 1,
+  "plugin_code": "demo_notice",
+  "version": "1.0.0",
+  "status": "enabled",
+  "previous_status": "disabled",
+  "new_status": "enabled",
+  "plugin_enable_precheck_id": 10,
+  "registered": {
+    "content_types": 1,
+    "permissions": 4,
+    "menus": 2,
+    "routes": 3,
+    "hooks": 2
+  },
+  "errors": [],
+  "warnings": []
+}
+```
+
+启用前快速校验（TOCTOU）：
+
+- 插件必须已安装且未启用，不能为 `archived`。
+- enable-precheck 必须未过期（默认 TTL 600 秒，可通过 `DEVHUB_PLUGIN_ENABLE_PRECHECK_TTL_SECONDS` 调整；设置为 0 可禁用 TTL 校验）。
+- 仍需通过 `readiness(enable)` 关键校验：配置 schema、依赖满足、迁移无 failed。
+- 本轮策略：存在 pending migration 直接阻断启用。
+- 对 `source_type=local_package` 会复用 enable-precheck 的文件完整性复检（危险文件/校验失败/manifest 变更阻断）。
+- content_type 冲突会阻断启用。
+
+### `GET /api/v1/admin/plugins/enable-tasks`
+
+权限：`plugin.read`。查询参数：`status`、`plugin_code`、`keyword`、`page`、`page_size`。返回 `items`、`pagination`。
+
+### `GET /api/v1/admin/plugins/enable-tasks/:id`
+
+权限：`plugin.read`。返回单条启用任务详情。
+
+### `POST /api/v1/admin/plugins/enable-tasks/:id/retry`
+
+权限：`plugin.write`。仅允许重试 `failed` / `rolled_back` / `rollback_failed` 的任务。
+
+### `DELETE /api/v1/admin/plugins/enable-tasks/:id`
+
+权限：`plugin.write`。软删除启用任务记录（状态置为 `deleted`），不影响插件状态。
+
+新增错误码：
+
+- `plugin_enable_invalid_request`
+- `plugin_enable_precheck_not_found`
+- `plugin_enable_precheck_blocked`
+- `plugin_enable_precheck_expired`
+- `plugin_enable_already_enabled`
+- `plugin_enable_task_not_found`
+- `plugin_enable_task_invalid_status`
+
+## v1.7.0-P0-08：插件升级流程（远程包 / compat-check 驱动）
+
+升级用于将「已安装的远程/包插件」从旧版本升级到新版本。**本轮升级不会自动启用新版本，不会执行 migration，不会执行插件代码/脚本，不会加载 Go plugin**。
+
+升级输入必须来自通过 `compat-check(can_install=true)` 的同 `plugin_code` 新版本包；并且 staging 下载必须 `downloaded` 且 sha256 校验一致（`checksum_missing` 默认禁止进入升级）。
+
+### `GET /api/v1/admin/plugins/:code/upgrade-impact?target_compat_check_id=:id`
+
+权限：`plugin.read`。用于在执行升级前查看影响范围和 manifest diff 摘要。
+
+返回示例（字段按实际返回为准）：
+
+```json
+{
+  "plugin_code": "demo_notice",
+  "old_version": "1.0.0",
+  "new_version": "1.1.0",
+  "target_compat_check_id": 123,
+  "status": "ok",
+  "can_upgrade": true,
+  "warnings": [],
+  "errors": [],
+  "impact": {},
+  "manifest_diff_summary": {"added": 0, "removed": 0, "changed": 1, "high_risk": 0, "blocked": 0},
+  "manifest_diff_sections": []
+}
+```
+
+### `POST /api/v1/admin/plugins/:code/upgrade-from-package`
+
+权限：`plugin.approve`（保持与现有 `/plugins/:code/upgrade` 的“执行升级”权限口径一致）。
+
+请求：
+
+```json
+{
+  "target_compat_check_id": 123,
+  "reason": "升级到 1.1.0"
+}
+```
+
+行为与边界：
+
+- 只允许同 `plugin_code` 的更高版本升级；不支持降级。
+- 升级前会重新对目标包执行 dry-run（scan/checksum/risk/manifest validate/install preview），并阻断危险文件、checksum mismatch、risk blocked 等情况；warning 升级后续执行需要 `confirm=true`。
+- 升级后插件默认进入 `disabled`；如果新版本声明 migrations，则会进入 `migration_pending`（但不会自动执行 migration）。
+- 升级后需要重新执行 enable-precheck，再由管理员决定是否启用。
+
+### `GET /api/v1/admin/plugins/upgrade-tasks`
+
+权限：`plugin.read`。查询参数：`status`、`plugin_code`、`keyword`、`page`、`page_size`。
+
+### `GET /api/v1/admin/plugins/upgrade-tasks/:id`
+
+权限：`plugin.read`。返回单条升级任务详情，包含 impact/diff 摘要与 errors/warnings。
+
+### `POST /api/v1/admin/plugins/upgrade-tasks/:id/retry`
+
+权限：`plugin.approve`。仅允许重试 `failed` 的任务（会重新执行前置校验与升级）。
+
+### `DELETE /api/v1/admin/plugins/upgrade-tasks/:id`
+
+权限：`plugin.approve`。软删除升级任务记录（状态置为 `deleted`），不影响插件当前状态。
+
+新增错误码（本轮新增或复用）：
+
+- `plugin_upgrade_invalid_request`
+- `plugin_upgrade_system_forbidden`
+- `plugin_upgrade_target_code_mismatch`
+- `plugin_upgrade_target_not_installable`
+- `plugin_upgrade_target_download_invalid`
+- `plugin_upgrade_target_checksum_missing`
+- `plugin_upgrade_target_checksum_invalid`
+- `plugin_upgrade_target_manifest_missing`
+- `plugin_upgrade_target_manifest_invalid`
+- `plugin_upgrade_target_package_missing`
+- `plugin_upgrade_target_dry_run_failed`
+- `plugin_upgrade_target_config_incompatible`
+- `plugin_upgrade_confirm_required`
+- `plugin_upgrade_blocked`
+- `plugin_upgrade_task_not_found`
+- `plugin_upgrade_task_invalid_status`
+
+## v1.7.5：Webhook 重试队列与熔断机制（non_blocking）
+
+说明：本节描述 **已实现** 的 Webhook 治理接口（后台管理端）。当前仅覆盖 non_blocking delivery 的重试调度与熔断，不包含第三方插件回调 Core API token，也不包含 blocking Hook。
+
+### `GET /api/v1/admin/plugins/webhooks/deliveries`
+
+权限：`plugin.read`。查询参数：
+
+- `plugin_code`
+- `hook_name`
+- `status`
+- `event_id`
+- `delivery_id`
+- `page`
+- `page_size`
+
+返回：`items + pagination`（delivery 列表）。
+
+### `GET /api/v1/admin/plugins/webhooks/deliveries/:id`
+
+权限：`plugin.read`。返回单条 delivery 详情。
+
+### `POST /api/v1/admin/plugins/webhooks/deliveries/:id/retry`
+
+权限：`plugin.write`。手动重试单条 delivery（`success` 默认不允许重试；`retry_exhausted` 允许手动重试并记录审计）。
+
+### `POST /api/v1/admin/plugins/webhooks/retry-due`
+
+权限：`plugin.write`。批量扫描并重试到期 delivery。请求示例：
+
+```json
+{ "limit": 50 }
+```
+
+### `GET /api/v1/admin/plugins/webhooks/circuit-breakers`
+
+权限：`plugin.read`。查询参数：`plugin_code`、`status`、`page`、`page_size`。
+
+### `GET /api/v1/admin/plugins/webhooks/circuit-breakers/:id`
+
+权限：`plugin.read`。返回单条熔断记录详情。
+
+### `POST /api/v1/admin/plugins/webhooks/circuit-breakers/:id/close`
+
+权限：`plugin.manage`。手动恢复熔断（状态置为 `closed`，并清理失败计数）。
+
+### `POST /api/v1/admin/plugins/webhooks/circuit-breakers/:id/open`
+
+权限：`plugin.manage`。手动打开熔断（状态置为 `open`，并设置 `next_probe_at`）。
+
+## v1.7.6：Webhook 签名鉴权与 Secret 轮换（non_blocking）
+
+说明：本节描述 **已实现** 的 Webhook Secret 管理接口（后台管理端），用于支持 DevHub → 插件服务的 HMAC-SHA256 签名发送端与 Secret 轮换窗口。
+
+重要边界：
+
+- Secret 明文 **只会在创建/轮换成功响应中返回一次**，列表/详情接口不返回明文。
+- Secret 明文不会写入审计、日志或 delivery 记录。
+- 本版本仍然只处理 non_blocking Webhook；不实现 blocking Hook；不实现插件回调 Core API token/scopes。
+
+### `GET /api/v1/admin/plugins/webhooks/secrets`
+
+权限：`plugin.read`。查询参数：
+
+- `plugin_code`
+- `status`（`active|previous|disabled|revoked|expired`，或 `all`）
+- `secret_ref`
+- `page`
+- `page_size`
+
+返回：`items + pagination`（Secret 列表，不包含明文）。
+
+### `GET /api/v1/admin/plugins/webhooks/secrets/:id`
+
+权限：`plugin.read`。返回单条 Secret 详情（不包含明文）。
+
+### `POST /api/v1/admin/plugins/webhooks/secrets`
+
+权限：`plugin.manage`。创建 Secret（明文仅返回一次）。请求示例：
+
+```json
+{
+  "plugin_code": "official_announcement",
+  "target_url": "https://plugin.example.com/hooks/content.after_create"
+}
+```
+
+校验：
+
+- `plugin_code` 与 `target_url` 必填。
+- `target_url` 必须是可解析 URL，且最长 512 个字符；超过时返回 `webhook_secret_target_url_too_long`，用于避免 MySQLStore 下 Webhook Secret / Circuit Breaker 联合索引超长。
+- 创建 / 轮换成功响应以外，Secret 明文不会回显。
+
+响应示例（注意：`secret` 字段只返回一次）：
+
+```json
+{
+  "secret_record": {
+    "id": 1,
+    "plugin_code": "official_announcement",
+    "target_url": "https://plugin.example.com/hooks/content.after_create",
+    "secret_ref": "whsec_xxx",
+    "status": "active"
+  },
+  "secret": "base64..."
+}
+```
+
+### `POST /api/v1/admin/plugins/webhooks/secrets/:id/rotate`
+
+权限：`plugin.manage`。轮换 Secret（新 Secret 明文只返回一次；旧 active 进入 previous 并进入 grace window）。响应示例：
+
+```json
+{
+  "old_secret_ref": "whsec_old",
+  "new_secret_ref": "whsec_new",
+  "grace_until": "2026-05-18 12:00:00",
+  "secret_record": { "id": 2, "secret_ref": "whsec_new", "status": "active" },
+  "secret": "base64..."
+}
+```
+
+### `POST /api/v1/admin/plugins/webhooks/secrets/:id/disable`
+
+权限：`plugin.manage`。禁用 Secret（disabled Secret 不能用于签名）。
+
+### `POST /api/v1/admin/plugins/webhooks/secrets/:id/enable`
+
+权限：`plugin.manage`。恢复 disabled Secret（恢复后会尝试成为 active，并禁用同 target_url 的其他 active，避免多 active 并存）。
+
+### `POST /api/v1/admin/plugins/webhooks/secrets/:id/revoke`
+
+权限：`plugin.manage`。吊销 Secret（revoked Secret 立即失效且不可恢复）。
+
+## v1.7.7：Webhook 受控 Core API 回调 Token 与权限 Scope（最小落地）
+
+说明：本节描述 **已实现** 的“插件服务回调 Core API”能力。它与 v1.7.6 的 Webhook Secret 不同：
+
+- Webhook Secret：用于 DevHub → 插件服务的 HMAC 发送端签名。
+- Callback Token：用于 插件服务 → DevHub Core 的受控回调（Bearer token + scopes）。
+
+重要边界：
+
+- callback token 明文仅在创建/轮换成功响应中返回一次；列表/详情不返回明文。
+- callback token 明文不写入日志、审计与 request 记录；仅保存不可逆 `token_hash`。
+- 仅支持最小 scope 白名单（当前：`config.read`、`audit.write`）。
+- callback token 不等于 admin 权限；不能绕过插件 enabled/disabled、community plugin 状态与 community_scope 边界。
+- 本版本仍不实现 blocking Hook、不实现插件代表用户操作（actor 代理）、不实现通用插件 SDK。
+
+### Admin 管理接口（Token 治理）
+
+#### `GET /api/v1/admin/plugins/callback-tokens`
+
+权限：`plugin.read`。查询参数：
+
+- `plugin_code`
+- `status`（`active|disabled|revoked|expired`，或 `all`）
+- `scope`
+- `page`
+- `page_size`
+
+返回：`items + pagination`（不包含 token 明文）。
+
+#### `GET /api/v1/admin/plugins/callback-tokens/:id`
+
+权限：`plugin.read`。返回单条 token 详情（不包含 token 明文）。
+
+#### `POST /api/v1/admin/plugins/callback-tokens`
+
+权限：`plugin.manage`。创建 callback token（明文仅返回一次）。请求示例：
+
+```json
+{
+  "plugin_code": "official_announcement",
+  "name": "公告插件回调 Token",
+  "scopes": ["config.read", "audit.write"],
+  "community_scope": [1],
+  "expires_at": "2027-01-01T00:00:00Z"
+}
+```
+
+响应示例（注意：`token` 字段只返回一次）：
+
+```json
+{
+  "token_record": { "id": 1, "plugin_code": "official_announcement", "token_ref": "cbtk_xxx", "status": "active" },
+  "token_ref": "cbtk_xxx",
+  "token": "cbsk_xxx",
+  "scopes": ["config.read", "audit.write"],
+  "status": "active"
+}
+```
+
+#### `POST /api/v1/admin/plugins/callback-tokens/:id/disable`
+
+权限：`plugin.manage`。禁用 token。
+
+#### `POST /api/v1/admin/plugins/callback-tokens/:id/enable`
+
+权限：`plugin.manage`。恢复 disabled token。
+
+#### `POST /api/v1/admin/plugins/callback-tokens/:id/revoke`
+
+权限：`plugin.manage`。吊销 token（不可恢复）。
+
+#### `POST /api/v1/admin/plugins/callback-tokens/:id/rotate`
+
+权限：`plugin.manage`。轮换 token（默认立即吊销旧 token；新 token 明文仅返回一次）。
+
+#### `GET /api/v1/admin/plugins/callback-requests`
+
+权限：`plugin.read`。查询参数：
+
+- `plugin_code`
+- `token_ref`
+- `status`（`accepted|rejected|failed`，或 `all`）
+- `request_id`
+- `page`
+- `page_size`
+
+返回：`items + pagination`（不保存 token 明文）。
+
+### 插件回调接口（插件服务 → Core）
+
+#### `GET /api/v1/plugin-callback/config`
+
+认证：`Authorization: Bearer cbsk_...`（callback token）。需要 scope：`config.read`。
+
+查询参数：
+
+- `community_id`（必填；必须在 token 的 community_scope 内）
+
+返回：当前 `plugin_code` 在该 `community_id` 下的 effective config（已脱敏）。
+
+#### `POST /api/v1/plugin-callback/audit-events`
+
+认证：`Authorization: Bearer cbsk_...`（callback token）。需要 scope：`audit.write`。
+
+要求：
+
+- `action` 必须以 `plugin_code.` 前缀开头（例如 `official_announcement.received_event`），防止伪造 Core/admin 审计。
+
+## v1.8.1：官方公告插件前端挂载最小实现（实现）
+
+说明：以下接口用于 **浏览器端 Host 页面** 与 **内置 iframe 页面** 的最小闭环，不属于第三方插件服务回调通道：
+
+- 不暴露 callback token / webhook secret 给浏览器
+- iframe 页面为仓库内置页面，不允许配置任意远程 URL
+
+### Host（浏览器安全）
+
+#### `GET /api/v1/plugins/official-announcement/context`
+
+说明：返回 browser-safe context 与公开配置（不包含任何 token/secret）。用于 Host 在前台/后台挂载 iframe。
+
+查询参数：
+
+- `mount_id`（必填）
+- `area`（可选：`frontend|admin`，默认 `frontend`）
+- `community_slug`（可选；填写时会校验子站插件启用状态）
+
+权限：
+
+- `area=frontend`：允许匿名访问（仍会校验插件 enabled + 未软卸载；如带 `community_slug` 会校验子站插件启用）
+- `area=admin`：需要后台管理员身份（`token_type=admin`）且具备 `plugin.read` 或 `plugin.manage`
+
+#### `POST /api/v1/plugins/official-announcement/audit-events`
+
+说明：Host 代表当前访问者写入官方公告插件的审计事件（action 仅允许 `official_announcement.*` 前缀）。
+
+请求示例：
+
+```json
+{
+  "mount_id": "mnt_xxx",
+  "area": "frontend",
+  "request_id": "req_xxx",
+  "action": "official_announcement.rendered",
+  "metadata": { "note": "demo" }
+}
+```
+
+约束：
+
+- `action` 必须以 `official_announcement.` 前缀开头
+- `metadata` 限制大小（8KB），且会剔除包含 `token/secret/authorization` 的字段
+- 不保存 callback token / webhook secret / Authorization header
+
+### Iframe（内置页面）
+
+#### `GET /plugins/official-announcement/iframe`
+
+说明：官方公告插件的内置 iframe 页面（仅 postMessage 通信，不直接调用 Core API）。用于 v1.8.1 最小挂载验证。
+
+## v1.8.2：官方插件前端挂载共享 helper（实现）
+
+说明：以下接口用于复用 v1.8.1 的 Host + iframe + postMessage 挂载机制，减少前台/子站页/后台的脚本复制。该 helper 仍只对 **官方内置插件 allowlist** 生效（第一阶段仅 `official_announcement`），不支持任意远程 iframe URL。
+
+#### `GET /plugins/assets/devhub-plugin-mount-host.js`
+
+说明：官方插件前端挂载共享 helper（Host 侧）。用于在浏览器端统一：
+
+- iframe 创建与 `sandbox="allow-scripts"` 基线策略
+- postMessage 校验（origin/source/plugin_code/mount_id/type 白名单）
+- `config.read` / `audit.write` 桥接（仍调用官方公告插件 Host API，不暴露 token/secret）
+
+约束：
+
+- helper 为仓库内置静态资源，不从第三方域名加载。
+- helper 不暴露 callback token / webhook secret / admin token。
+- iframe URL 由 allowlist 内置映射决定，不允许前端传入任意 iframe URL。
+
+## v1.7.8：Webhook 后台治理与官方公告插件端到端验证（实现）
+
+### Webhook 治理（Admin）
+
+#### `GET /api/v1/admin/plugins/webhooks/events`
+
+权限：`plugin.read`。Webhook Event 列表（用于追踪 non_blocking delivery 链路；不展示敏感 payload 明文）。
+
+查询参数：
+
+- `plugin_code`
+- `hook_name`
+- `mode`
+- `status`（`pending|delivering|delivered|failed|circuit_open|skipped`，或 `all`）
+- `community_id`
+- `actor_type`
+- `actor_id`
+- `request_id`
+- `page`
+- `page_size`
+
+## v1.7.9：Webhook non_blocking 链路总验收与 blocking Hook 设计评估（验收/文档收口）
+
+说明：本轮不新增对外能力接口；以 `docs/TESTING.md` 与 `docs/releases/v1.7.9.md` 记录总验收结论，并在 `docs/PLUGIN_WEBHOOK_IMPLEMENTATION_PLAN.md` 补充 blocking Hook 风险评估与后续拆分建议（不实现）。

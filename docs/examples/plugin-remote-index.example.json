@@ -1,0 +1,91 @@
+{
+  "schema_version": "1",
+  "generated_at": "2026-05-14T00:00:00Z",
+  "source": {
+    "source_id": "devhub-official-index-example",
+    "name": "DevHub Official Plugin Index Example",
+    "homepage": "https://example.com/devhub/plugins",
+    "description": "只读远程插件索引结构示例；系统不会下载 package_url，也不会自动信任 publisher。"
+  },
+  "plugins": [
+    {
+      "code": "demo_notice",
+      "name": "示例公告插件",
+      "description": "可信 publisher 的声明型公告插件示例。",
+      "latest_version": "1.0.0",
+      "versions": [
+        {
+          "version": "1.0.0",
+          "min_core_version": "v1.6.0",
+          "compatible_core_version": ">=1.6.0 <1.7.0",
+          "package_url": "https://example.com/packages/demo_notice-1.0.0.zip",
+          "package_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "manifest_sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+          "signature_url": "https://example.com/packages/demo_notice-1.0.0.signature.json",
+          "publisher_id": "devhub-official",
+          "public_key_id": "devhub-official-2026",
+          "license": "MIT",
+          "tags": ["notice", "content"],
+          "created_at": "2026-05-14T00:00:00Z",
+          "updated_at": "2026-05-14T00:00:00Z"
+        }
+      ]
+    },
+    {
+      "code": "unknown_tools",
+      "name": "未知发布者工具插件",
+      "description": "用于展示 unknown publisher 风险。",
+      "latest_version": "1.0.0",
+      "versions": [
+        {
+          "version": "1.0.0",
+          "min_core_version": "v1.6.0",
+          "compatible_core_version": ">=1.6.0 <1.7.0",
+          "package_url": "https://example.com/packages/unknown_tools-1.0.0.zip",
+          "package_sha256": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+          "publisher_id": "unknown-publisher",
+          "public_key_id": "unknown-2026",
+          "license": "MIT",
+          "tags": ["tools"]
+        }
+      ]
+    },
+    {
+      "code": "legacy_report",
+      "name": "旧版报表插件",
+      "description": "用于展示 Core 不兼容提示。",
+      "latest_version": "2.0.0",
+      "versions": [
+        {
+          "version": "2.0.0",
+          "min_core_version": "v1.7.0",
+          "compatible_core_version": ">=1.7.0 <1.8.0",
+          "package_url": "https://example.com/packages/legacy_report-2.0.0.zip",
+          "package_sha256": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+          "signature_url": "https://example.com/packages/legacy_report-2.0.0.signature.json",
+          "publisher_id": "devhub-official",
+          "public_key_id": "devhub-official-2026",
+          "license": "Apache-2.0"
+        }
+      ]
+    },
+    {
+      "code": "unsigned_notice",
+      "name": "未签名公告插件",
+      "description": "用于展示 signature_url 缺失 warning。",
+      "latest_version": "1.0.0",
+      "versions": [
+        {
+          "version": "1.0.0",
+          "min_core_version": "v1.6.0",
+          "compatible_core_version": ">=1.6.0 <1.7.0",
+          "package_url": "https://example.com/packages/unsigned_notice-1.0.0.zip",
+          "package_sha256": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+          "publisher_id": "devhub-official",
+          "public_key_id": "devhub-official-2026",
+          "license": "MIT"
+        }
+      ]
+    }
+  ]
+}
